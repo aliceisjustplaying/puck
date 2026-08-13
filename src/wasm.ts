@@ -9,6 +9,8 @@
 // build), not a hosted page that takes an upload, but keeping the URL a
 // parameter costs nothing and avoids closing that door later.
 
+import { validateFbPtr } from "./abiGuard";
+
 export interface EmuExports {
   memory: WebAssembly.Memory;
   emu_device(): number;
@@ -219,9 +221,30 @@ export function readCString(memory: WebAssembly.Memory, ptr: number): string {
   return new TextDecoder().decode(bytes.subarray(ptr, end));
 }
 
-// Reads and parses emu_device(). Thrown errors are meant to be shown
-// verbatim on the page: an unparsable descriptor or a missing "panel" is a
-// firmware-side bug worth seeing immediately, not a blank screen.
+// Safe-ish rendering of an arbitrary JSON value for an error message: never
+// throws itself (a value JSON.stringify chokes on, e.g. a BigInt, cannot
+// happen from JSON.parse output, but this is cheap insurance against ever
+// letting a message-building helper become its own crash).
+function jsonOf(v: unknown): string {
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+}
+
+// Reads and parses emu_device(), and validates every field the rest of
+// this emulator (buildChrome, buildSensorControls, buildAppStrip,
+// buildGestures - all in main.ts and its helpers) assumes is there and
+// shaped correctly. Thrown errors are meant to be shown verbatim on the
+// page: an unparsable descriptor, a missing "panel", a button with no
+// "id", a sensor with no "id" are all firmware-side bugs worth seeing
+// immediately as exactly what they are, not a blank screen and not a
+// TypeError from deep inside some DOM-building code the person reading the
+// error has never heard of. This is why this validation belongs HERE
+// rather than scattered across every place that reads a field: one
+// boundary, checked once, so everything downstream can trust the shape
+// without re-checking it.
 export function readDeviceDescriptor(emu: EmuExports): DeviceDescriptor {
   const ptr = emu.emu_device();
   const text = readCString(emu.memory, ptr);
@@ -231,9 +254,102 @@ export function readDeviceDescriptor(emu: EmuExports): DeviceDescriptor {
   } catch (err) {
     throw new Error(`emu_device() returned invalid JSON: ${err instanceof Error ? err.message : String(err)}\n${text}`);
   }
-  const d = parsed as Partial<DeviceDescriptor>;
-  if (!d.panel || typeof d.panel.w !== "number" || typeof d.panel.h !== "number" || typeof d.panel.format !== "string") {
-    throw new Error(`emu_device() is missing a valid "panel" (w, h, format): ${text}`);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`emu_device() must return a JSON object, got: ${text}`);
   }
+  const d = parsed as Partial<DeviceDescriptor> & Record<string, unknown>;
+
+  if (typeof d.panel !== "object" || d.panel === null) {
+    throw new Error(`emu_device() is missing a "panel" object: ${text}`);
+  }
+  const panel = d.panel as Partial<DeviceDescriptor["panel"]>;
+  if (!Number.isInteger(panel.w) || (panel.w as number) <= 0 || !Number.isInteger(panel.h) || (panel.h as number) <= 0) {
+    throw new Error(`emu_device()'s "panel" needs positive integer w/h, got w=${jsonOf(panel.w)} h=${jsonOf(panel.h)}: ${text}`);
+  }
+  if (typeof panel.format !== "string" || panel.format.length === 0) {
+    throw new Error(`emu_device()'s "panel" is missing a valid string "format": ${text}`);
+  }
+
+  if (d.buttons !== undefined) {
+    if (!Array.isArray(d.buttons)) throw new Error(`emu_device()'s "buttons" must be an array: ${text}`);
+    d.buttons.forEach((b: unknown, i: number) => {
+      if (typeof b !== "object" || b === null) throw new Error(`emu_device()'s buttons[${i}] is not an object: ${text}`);
+      const bb = b as Partial<DeviceButton>;
+      if (typeof bb.id !== "string" || bb.id.length === 0) {
+        throw new Error(`emu_device()'s buttons[${i}] is missing a valid string "id": ${text}`);
+      }
+      if (typeof bb.label !== "string") {
+        throw new Error(`emu_device()'s buttons[${i}] ("${bb.id}") is missing a valid string "label": ${text}`);
+      }
+      if (bb.edge !== "left" && bb.edge !== "right" && bb.edge !== "top" && bb.edge !== "bottom") {
+        throw new Error(`emu_device()'s buttons[${i}] ("${bb.id}") has an invalid "edge" (${jsonOf(bb.edge)}); must be one of left/right/top/bottom: ${text}`);
+      }
+      if (typeof bb.at !== "number" || !Number.isFinite(bb.at)) {
+        throw new Error(`emu_device()'s buttons[${i}] ("${bb.id}") is missing a valid finite "at": ${text}`);
+      }
+    });
+  }
+
+  if (d.sensors !== undefined) {
+    if (!Array.isArray(d.sensors)) throw new Error(`emu_device()'s "sensors" must be an array: ${text}`);
+    d.sensors.forEach((s: unknown, i: number) => {
+      if (typeof s !== "object" || s === null) throw new Error(`emu_device()'s sensors[${i}] is not an object: ${text}`);
+      const ss = s as Partial<DeviceSensor>;
+      if (typeof ss.id !== "string" || ss.id.length === 0) {
+        throw new Error(`emu_device()'s sensors[${i}] is missing a valid string "id": ${text}`);
+      }
+      if (typeof ss.kind !== "string" || ss.kind.length === 0) {
+        throw new Error(`emu_device()'s sensors[${i}] ("${ss.id}") is missing a valid string "kind": ${text}`);
+      }
+    });
+  }
+
+  if (d.apps !== undefined) {
+    if (!Array.isArray(d.apps) || d.apps.some((a: unknown) => typeof a !== "string")) {
+      throw new Error(`emu_device()'s "apps" must be an array of strings: ${text}`);
+    }
+  }
+
+  if (d.gestures !== undefined) {
+    if (!Array.isArray(d.gestures)) throw new Error(`emu_device()'s "gestures" must be an array: ${text}`);
+    d.gestures.forEach((g: unknown, i: number) => {
+      if (typeof g !== "object" || g === null) throw new Error(`emu_device()'s gestures[${i}] is not an object: ${text}`);
+      const gg = g as Partial<DeviceGesture>;
+      if (typeof gg.id !== "string" || gg.id.length === 0) {
+        throw new Error(`emu_device()'s gestures[${i}] is missing a valid string "id": ${text}`);
+      }
+      if (typeof gg.label !== "string") {
+        throw new Error(`emu_device()'s gestures[${i}] ("${gg.id}") is missing a valid string "label": ${text}`);
+      }
+      if (typeof gg.how !== "string") {
+        throw new Error(`emu_device()'s gestures[${i}] ("${gg.id}") is missing a valid string "how": ${text}`);
+      }
+      if (gg.script !== undefined && !Array.isArray(gg.script)) {
+        throw new Error(`emu_device()'s gestures[${i}] ("${gg.id}")'s "script" must be an array when present: ${text}`);
+      }
+    });
+  }
+
+  if (d.touch !== undefined) {
+    if (typeof d.touch !== "object" || d.touch === null) throw new Error(`emu_device()'s "touch" must be an object: ${text}`);
+    const t = d.touch as { points?: unknown };
+    if (t.points !== undefined && (typeof t.points !== "number" || !Number.isFinite(t.points))) {
+      throw new Error(`emu_device()'s "touch.points" must be a finite number when present: ${text}`);
+    }
+  }
+
   return d as DeviceDescriptor;
+}
+
+// The framebuffer pointer emu_fb() hands back, validated before anything
+// ever reads through it (see abiGuard.ts's validateFbPtr for exactly what
+// "valid" means here and why this is fatal rather than a skip-and-report
+// finding). Called from bringUp() as one more guarded step, in the same
+// spirit as instantiate()/emu_init()/readDeviceDescriptor() above it: a
+// module whose own framebuffer pointer cannot be trusted is exactly as
+// unable to proceed as one that failed to instantiate at all.
+export function readFramebufferPointer(emu: EmuExports, panel: { w: number; h: number }): number {
+  const fbPtr = emu.emu_fb();
+  validateFbPtr(emu.memory, fbPtr, panel.w, panel.h);
+  return fbPtr;
 }

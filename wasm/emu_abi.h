@@ -176,11 +176,13 @@ int emu_fb(void);
  * overlay.
  *
  * That overlay is the single most useful thing here. A partial-refresh bug is
- * a bug about window geometry, and on this project it cost days of bisection
- * precisely because the windows were invisible: the panel corrupts any window
- * whose row length is not a multiple of 8 pixels
- * (docs/decisions/0001-push-min-width.md). Making the windows visible turns
- * that class of bug from a bisection into a glance.
+ * a bug about window geometry, and on the device project this emulator was
+ * extracted from it cost days of bisection precisely because the windows
+ * were invisible: that panel corrupted any window whose row length was not
+ * a multiple of 8 pixels, a device-specific hazard whose own decision
+ * record lives in that project's repo, not this one (see this file's own
+ * header comment: nothing here names one device). Making the windows
+ * visible turns that class of bug from a bisection into a glance.
  *
  * Cleared at the start of every emu_tick().
  */

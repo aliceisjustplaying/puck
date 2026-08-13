@@ -82,7 +82,22 @@ const args = [
 ];
 
 console.log(`${ZIG} ${args.join(" ")}`);
-const result = Bun.spawnSync([ZIG, ...args], { stdout: "inherit", stderr: "inherit" });
+
+// Bun.spawnSync THROWS (does not return a failed result) when the
+// executable itself can't be found (ENOENT) - a plain `if (!result.success)`
+// below never runs in that case, which is exactly the newcomer path (no
+// zig installed yet, ZIG_EXE unset): without this catch, the helpful
+// "zig not found?" message was dead code and the person saw a raw Bun
+// stack trace instead. Verified by actually removing zig from PATH and
+// running this script.
+let result: ReturnType<typeof Bun.spawnSync>;
+try {
+  result = Bun.spawnSync([ZIG, ...args], { stdout: "inherit", stderr: "inherit" });
+} catch (err) {
+  console.error(`could not run "${ZIG}": ${err instanceof Error ? err.message : String(err)}`);
+  console.error(`(zig not found? set ZIG_EXE to its path, or install it: https://ziglang.org/download/)`);
+  process.exit(1);
+}
 
 if (!result.success) {
   console.error(`zig cc exited ${result.exitCode}`);

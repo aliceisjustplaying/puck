@@ -99,6 +99,18 @@ One freeze produces two files, written together (`server.ts`'s
   - `journal`: `{ strokes, notes }` - empty until the annotation modal
     saves something (`src/journal.ts`).
   - `panelPngPath`: always `"panel.png"`, the sibling file.
+  - `engine`: `{ alive: true }`, or `{ alive: false, error, diedOnTick,
+    lastInputEvent, diedAt }` when the tick loop crashed before this
+    freeze was taken (`src/main.ts`'s `enterDeadState`). A freeze reads the
+    last-painted canvas and the recorder's existing history, neither of
+    which needs the loop to still be running, so without this field a
+    freeze taken after a silent crash would look completely ordinary:
+    valid pushes, a valid input trace, nothing anywhere saying the session
+    that produced them is over. This field exists so this bundle can never
+    make that claim by omission - always present, never optional, so
+    absence is never how a reader is expected to infer health. Bundle
+    `schemaVersion` is `2` for this reason (`1` bundles predate this field
+    entirely).
 
 ## Where an agent finds it
 

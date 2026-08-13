@@ -32,15 +32,11 @@ export const CONTACT_PRESETS: ContactPreset[] = [
 ];
 
 // Fallback used ONLY when the device descriptor doesn't declare its own
-// physical panel size. Derived from a representative small touch panel
-// (368x368-ish pixel count over roughly a 1.8" diagonal):
-//   diagonal_px  = sqrt(368^2 + 448^2)      ~= 579.8
-//   px_per_inch  = diagonal_px / 1.8        ~= 322.1
-//   px_per_mm    = px_per_inch / 25.4       ~= 12.68
-// Rounded to 12.7. This is a reasonable default for "a small touch panel",
-// not a claim about any specific device; a firmware that cares about being
-// measured accurately should declare its own physical size (see
-// derivePxPerMm in main.ts).
+// physical panel size. 12.7 px/mm (roughly 322 DPI) is in the range typical
+// of small embedded touch panels generally, not derived from or a claim
+// about any specific device (AGENTS.md: nothing in src/ names one device).
+// A firmware that cares about being measured accurately should declare its
+// own physical size instead (see derivePxPerMm in main.ts).
 export const DEFAULT_PX_PER_MM = 12.7;
 
 interface TrailPoint {

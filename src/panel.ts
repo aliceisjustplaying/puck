@@ -17,6 +17,7 @@
 // framebuffer the same way, headless, with no canvas or browser involved.
 
 import type { EmuExports } from "./wasm";
+import { validatePushCount, validatePushRect } from "./abiGuard";
 
 export interface PushRect {
   x: number;
@@ -25,13 +26,40 @@ export interface PushRect {
   h: number;
 }
 
-export function readPushes(emu: EmuExports): PushRect[] {
-  const count = emu.emu_push_count();
+export interface ReadPushesResult {
+  rects: PushRect[];
+  // Human-readable notes about push data this emulator refused to trust
+  // (an out-of-bounds rectangle, a count so large it looks like a bug in
+  // emu_tick()'s own bookkeeping - see abiGuard.ts). Empty when nothing was
+  // wrong. The caller decides where these go (the console pane, a freeze
+  // bundle); this function's only job is not trusting raw ABI output.
+  findings: string[];
+}
+
+// Bounded and validated at the boundary, per abiGuard.ts: emu_push_count()
+// drives this loop, so an absurd count gets capped BEFORE the loop runs
+// (not after a bad rectangle happens to throw), and every rectangle is
+// checked against the panel's own declared bounds before it is ever handed
+// to blitRect. A rectangle that fails validation is skipped, not clamped:
+// clamping it into bounds would draw something that never actually
+// happened and hide the exact geometry error a partial-refresh bug is made
+// of (see wasm/emu_abi.h's push-window section).
+export function readPushes(emu: EmuExports, panelW: number, panelH: number): ReadPushesResult {
+  const findings: string[] = [];
+  const { count, reason: countReason } = validatePushCount(emu.emu_push_count());
+  if (countReason) findings.push(countReason);
+
   const rects: PushRect[] = [];
   for (let i = 0; i < count; i++) {
-    rects.push({ x: emu.emu_push_x(i), y: emu.emu_push_y(i), w: emu.emu_push_w(i), h: emu.emu_push_h(i) });
+    const rect = { x: emu.emu_push_x(i), y: emu.emu_push_y(i), w: emu.emu_push_w(i), h: emu.emu_push_h(i) };
+    const v = validatePushRect(rect, panelW, panelH);
+    if (!v.ok) {
+      findings.push(`push[${i}]: ${v.reason} -- not drawn`);
+      continue;
+    }
+    rects.push(rect);
   }
-  return rects;
+  return { rects, findings };
 }
 
 // One pixel from raw framebuffer bytes to (r, g, b), 0..255 each.

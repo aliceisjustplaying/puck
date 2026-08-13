@@ -8,7 +8,7 @@
 // through to the module. This file's only job is turning DOM events into
 // ABI calls, and ABI state into pixels.
 
-import { type EmuExports, type DeviceDescriptor, DEFAULT_WASM_URL, fetchWasmBytes, instantiate, readDeviceDescriptor } from "./wasm";
+import { type EmuExports, type DeviceDescriptor, DEFAULT_WASM_URL, fetchWasmBytes, instantiate, readDeviceDescriptor, readFramebufferPointer } from "./wasm";
 import { readPushes, pixelReaderFor, blitRect, blitAll, type PixelReader } from "./panel";
 import { PushOverlay } from "./overlay";
 import { TouchOverlay, CONTACT_PRESETS, DEFAULT_PX_PER_MM } from "./touchoverlay";
@@ -18,9 +18,9 @@ import { buildSensorControls } from "./sensors";
 import { buildAppStrip, type AppStripControl } from "./appstrip";
 import { ShortcutRegistry, assignShortcut } from "./shortcuts";
 import { ConsoleLog, type LogLine } from "./consolelog";
-import { Recorder, type Trace } from "./recorder";
+import { Recorder, type Trace, type TraceEvent } from "./recorder";
 import { Replayer } from "./replay";
-import { postFreeze, canvasToPngBase64, openAnnotationModal, type FreezeBundle } from "./freeze";
+import { postFreeze, canvasToPngBase64, openAnnotationModal, type FreezeBundle, type EngineStatus } from "./freeze";
 import { emptyJournal } from "./journal";
 import { TouchSim, type TouchReport } from "./touchsim";
 import { type TouchSimConfig, TOUCHSIM_DEFAULTS, TOUCH_DEFECTS_DEFAULT } from "./constants";
@@ -45,6 +45,7 @@ const overlayEl = $<HTMLCanvasElement>("#overlay");
 const panelCtx = panelEl.getContext("2d", { willReadFrequently: true })!;
 const overlayCtx = overlayEl.getContext("2d")!;
 const wasmErrorEl = $("#wasmError");
+const engineDeadEl = $("#engineDead");
 const consolePaneEl = $("#consolePane");
 const diagStripEl = $("#diagStrip");
 const replayBarEl = $("#replayBar");
@@ -123,6 +124,22 @@ let lastAppIndex = 0;
 let paused = false;
 let replayer: Replayer | null = null;
 
+// ---- engine death: distinct from #wasmError, see enterDeadState below ----
+// Counts only SUCCESSFUL ticks (incremented after emu_tick() returns
+// without throwing), so "died on tick N" in a DeadState below always names
+// the ordinal of the tick that was actually in progress when it died, not
+// one off in either direction.
+let tickCount = 0;
+
+interface DeadState {
+  error: string;
+  stack: string | undefined;
+  diedOnTick: number;
+  lastInputEvent: TraceEvent | null;
+  diedAt: string; // ISO, wall-clock: freeze bundles want a real timestamp, not performance.now()
+}
+let deadState: DeadState | null = null;
+
 const pushHistory: { tMs: number; x: number; y: number; w: number; h: number }[] = [];
 const PUSH_HISTORY_MAX = 400;
 
@@ -160,6 +177,118 @@ function hideWasmError(): void {
 function failReload(err: unknown): void {
   showWasmError(err);
   if (emu) consoleLog.push(`reload failed, keeping previous session running: ${errMsg(err)}`);
+}
+
+// ---- engine-dead banner ----------------------------------------------
+// Deliberately NOT #wasmError, and deliberately worded differently.
+// #wasmError means "a module never came up" - there is no panel, no
+// buttons, nothing to look at. This means the opposite: a module WAS up,
+// ticking, painting, and something threw partway through a tick anyway.
+// The two must be impossible to confuse, because the person hitting this
+// one is looking at what appears to be a perfectly normal, if frozen,
+// device -- exactly the state a newcomer will default to blaming on their
+// own C (see docs/findings-first-adversarial-pass.md). This banner's whole
+// job is refusing to let that assumption stand unchallenged.
+function describeTraceEvent(ev: TraceEvent): string {
+  switch (ev.k) {
+    case "touch":
+      return `touch down=${ev.down} x=${ev.x} y=${ev.y} @${ev.t.toFixed(1)}ms`;
+    case "button":
+      return `button[${ev.i}] down=${ev.down} @${ev.t.toFixed(1)}ms`;
+    case "verdict":
+      return `button[${ev.i}] verdict long=${ev.long} @${ev.t.toFixed(1)}ms`;
+    case "sensor":
+      return `sensor[${ev.i}] @${ev.t.toFixed(1)}ms`;
+    case "tick":
+      return `tick @${ev.t.toFixed(1)}ms`;
+  }
+}
+
+function showEngineDead(state: DeadState): void {
+  engineDeadEl.innerHTML = "";
+  const title = document.createElement("div");
+  title.className = "engine-dead-title";
+  title.textContent = "engine crashed: the tick loop threw and has stopped, the panel below is not necessarily what your firmware last drew";
+  const text = document.createElement("div");
+  text.className = "engine-dead-text";
+  text.textContent = state.error + (state.stack ? `\n${state.stack}` : "");
+  const meta = document.createElement("div");
+  meta.className = "engine-dead-meta";
+  meta.textContent =
+    `died on tick ${state.diedOnTick}, ${state.diedAt}` +
+    (state.lastInputEvent ? ` -- last input delivered: ${describeTraceEvent(state.lastInputEvent)}` : " -- no input had been delivered yet");
+  const hint = document.createElement("div");
+  hint.className = "engine-dead-hint";
+  hint.textContent =
+    "this could be a genuine wasm trap (a wild pointer write, an out-of-bounds access your firmware's own C committed) " +
+    "or a bug in this emulator; the exception above is exact, use it to tell which. ticking has stopped so this does not " +
+    "throw again 60 times a second -- reload once you've rebuilt, or to just try again.";
+  const retry = document.createElement("button");
+  retry.className = "btn sec sm";
+  retry.textContent = "reload module";
+  retry.addEventListener("click", () => void reloadModule("recovering from engine crash"));
+  engineDeadEl.appendChild(title);
+  engineDeadEl.appendChild(text);
+  engineDeadEl.appendChild(meta);
+  engineDeadEl.appendChild(hint);
+  engineDeadEl.appendChild(retry);
+  engineDeadEl.classList.remove("hidden");
+}
+function hideEngineDead(): void {
+  engineDeadEl.classList.add("hidden");
+}
+
+// Called from anywhere in the frame path (stepOnce, afterTick, and
+// anything they call) that catches an exception the ABI boundary
+// validation in abiGuard.ts could not have prevented -- a genuine wasm
+// trap from inside emu_tick() itself is the clearest example: nothing on
+// the JS side can validate a pointer write that happens entirely inside
+// the module's own compiled code. First exception wins; once dead, later
+// ones (there will be exactly zero more, since frame() stops calling
+// stepOnce once deadState is set) are not interesting.
+function enterDeadState(err: unknown): void {
+  if (deadState) return;
+  const last = recorder.recent(1);
+  deadState = {
+    error: errMsg(err),
+    stack: err instanceof Error ? err.stack : undefined,
+    diedOnTick: tickCount + 1,
+    lastInputEvent: last.length > 0 ? last[0]! : null,
+    diedAt: new Date().toISOString(),
+  };
+  console.error("engine crashed while ticking:", err);
+  consoleLog.push(`engine crashed on tick ${deadState.diedOnTick}: ${deadState.error}`);
+  showEngineDead(deadState);
+}
+
+// Marks the panel itself as dead, not just a banner somewhere in the
+// chrome: a hatched overlay drawn directly over the framebuffer, painted
+// every frame regardless of the ordinary contact/push overlay's own on/off
+// toggle (overlayEnabled is a diagnostics PREFERENCE; this is a status the
+// person does not get to turn off). This is what makes "firmware stopped
+// drawing" and "emulator crashed" impossible to confuse at a glance: the
+// former still looks like a normal, if static, panel; this does not.
+function paintDeadOverlay(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  ctx.save();
+  ctx.fillStyle = "rgba(180, 30, 20, 0.28)";
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = "rgba(180, 30, 20, 0.55)";
+  ctx.lineWidth = 3;
+  const step = 14;
+  ctx.beginPath();
+  for (let x = -h; x < w; x += step) {
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + h, h);
+  }
+  ctx.stroke();
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 12px monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowColor = "rgba(0,0,0,.6)";
+  ctx.shadowBlur = 3;
+  ctx.fillText("ENGINE CRASHED", w / 2, h / 2);
+  ctx.restore();
 }
 
 // "reloaded HH:MM:SS Nb" folded into the one diagnostics strip (see
@@ -531,41 +660,78 @@ async function bringUp(bytes: ArrayBuffer, reason: string): Promise<void> {
     failReload(err);
     return;
   }
-
-  hideWasmError();
-  wasmBytes = bytes;
-  const prevAppIndex = lastAppIndex;
-  emu = newEmu;
-  device = newDevice;
-  panelW = newDevice.panel.w;
-  panelH = newDevice.panel.h;
-  fbPtr = newEmu.emu_fb();
-  pixelReader = reader;
-  soundPlayer.resetForReload(newEmu);
-
-  if (touchSim) touchSim.setBounds(panelW, panelH);
-  else touchSim = new TouchSim(touchCfg, panelW, panelH);
-
-  buildChrome(newDevice);
-
-  if (newDevice.apps && newDevice.apps.length > 0 && newEmu.emu_app_switch && newEmu.emu_app_current) {
-    const idx = Math.min(prevAppIndex, newDevice.apps.length - 1);
-    if (idx !== newEmu.emu_app_current()) {
-      newEmu.emu_app_switch(idx);
-      consoleLog.push(
-        `resumed at app "${newDevice.apps[idx]}" (index preserved across reload; the app's own state was ` +
-          `NOT, since state generally resets on init/switch -- this is a "which app", not a "where it was")`
-      );
-      appStripControl?.refresh();
-    }
+  // The framebuffer pointer, validated BEFORE anything touches it (see
+  // abiGuard.ts's validateFbPtr): a hostile/buggy emu_fb() used to throw a
+  // raw RangeError from inside blitAll() below, well after `emu` had
+  // already been reassigned to the new module -- which is exactly what
+  // wasm.ts's own header comment forbids ("a failure here must never tear
+  // down a module that was already working"). Checking it here, before the
+  // swap below, is what makes this a fourth guarded bringUp() step rather
+  // than the unguarded crash docs/findings-first-adversarial-pass.md found.
+  let newFbPtr: number;
+  try {
+    newFbPtr = readFramebufferPointer(newEmu, newDevice.panel);
+  } catch (err) {
+    failReload(err);
+    return;
   }
 
-  // Painted immediately, not left to wait for the next tick's partial
-  // pushes: the screen must never show a stale frame from a previous
-  // module after a reload.
-  blitAll(panelCtx, newEmu.memory, fbPtr, panelW, panelH, reader);
-  consoleLog.push(`ready: ${newDevice.name || "device"} ${panelW}x${panelH} ${newDevice.panel.format} (${reason})`);
-  updateReloadStatus(bytes.byteLength);
+  // Everything above is validated against the NEW module without ever
+  // touching state the page is currently showing. From here on, the new
+  // module is trusted enough to become the live one -- buildChrome()
+  // itself needs `emu` already pointed at it (buildSensorControls/
+  // buildAppStrip wire their callbacks against the module-level `emu`),
+  // so full transactional swap-only-on-total-success isn't available past
+  // this point without a much larger refactor. What IS still guarded: if
+  // building the chrome or painting the first frame throws anyway (despite
+  // every value above having already been validated), it is reported the
+  // same way as the four checked failures rather than left to crash
+  // silently and freeze the boot sequence -- see
+  // docs/findings-first-adversarial-pass.md's "shows device name but never
+  // paints" finding, which this closes.
+  try {
+    hideWasmError();
+    wasmBytes = bytes;
+    const prevAppIndex = lastAppIndex;
+    emu = newEmu;
+    device = newDevice;
+    panelW = newDevice.panel.w;
+    panelH = newDevice.panel.h;
+    fbPtr = newFbPtr;
+    pixelReader = reader;
+    soundPlayer.resetForReload(newEmu);
+    // A fresh, successfully-brought-up module means whatever killed the
+    // previous one (if anything) no longer applies.
+    deadState = null;
+    tickCount = 0;
+    hideEngineDead();
+
+    if (touchSim) touchSim.setBounds(panelW, panelH);
+    else touchSim = new TouchSim(touchCfg, panelW, panelH);
+
+    buildChrome(newDevice);
+
+    if (newDevice.apps && newDevice.apps.length > 0 && newEmu.emu_app_switch && newEmu.emu_app_current) {
+      const idx = Math.min(prevAppIndex, newDevice.apps.length - 1);
+      if (idx !== newEmu.emu_app_current()) {
+        newEmu.emu_app_switch(idx);
+        consoleLog.push(
+          `resumed at app "${newDevice.apps[idx]}" (index preserved across reload; the app's own state was ` +
+            `NOT, since state generally resets on init/switch -- this is a "which app", not a "where it was")`
+        );
+        appStripControl?.refresh();
+      }
+    }
+
+    // Painted immediately, not left to wait for the next tick's partial
+    // pushes: the screen must never show a stale frame from a previous
+    // module after a reload.
+    blitAll(panelCtx, newEmu.memory, fbPtr, panelW, panelH, reader);
+    consoleLog.push(`ready: ${newDevice.name || "device"} ${panelW}x${panelH} ${newDevice.panel.format} (${reason})`);
+    updateReloadStatus(bytes.byteLength);
+  } catch (err) {
+    failReload(err);
+  }
 }
 
 // ---- readouts: one quiet monospace strip, not scattered chrome ----------
@@ -646,15 +812,31 @@ function wirePanelInput(): void {
 }
 
 // ---- the tick loop ----
+// The entire body is one guarded call: per abiGuard.ts's boundary
+// validation, a bad push rectangle or a bad audio buffer can no longer
+// reach a raw typed-array throw, but a genuine wasm trap (a real wild
+// pointer write inside emu_tick() itself) is not something JS-side
+// validation can ever prevent -- it happens entirely inside the module's
+// own compiled code. This try/catch is the backstop for exactly that case:
+// see enterDeadState's header comment for what happens next.
 function stepOnce(): void {
   if (!emu || !pixelReader) return;
+  try {
+    stepOnceUnguarded(emu);
+  } catch (err) {
+    enterDeadState(err);
+  }
+}
+
+function stepOnceUnguarded(liveEmu: EmuExports): void {
   if (replayer) {
-    const t = replayer.stepFrame(emu);
+    const t = replayer.stepFrame(liveEmu);
     if (t === null) {
       consoleLog.push("replay finished");
       paused = true;
       btnPause.textContent = "resume";
     } else {
+      tickCount++;
       afterTick(t);
     }
     updateReplayBar();
@@ -663,32 +845,45 @@ function stepOnce(): void {
   const now = performance.now();
   if (touchEnabled) {
     const report: TouchReport = touchDefectsEnabled && touchSim ? touchSim.poll(now) : liveTouch;
-    emu.emu_touch(report.fingers, Math.round(report.x), Math.round(report.y));
+    liveEmu.emu_touch(report.fingers, Math.round(report.x), Math.round(report.y));
     recorder.record({ t: now, k: "touch", down: report.fingers, x: Math.round(report.x), y: Math.round(report.y) });
     touchOverlay.recordTouch(report.fingers === 1, report.x, report.y, now);
   }
-  emu.emu_tick(now);
+  liveEmu.emu_tick(now);
+  tickCount++;
   recorder.record({ t: now, k: "tick" });
   afterTick(now);
 }
 
 function afterTick(now: number): void {
   if (!emu || !pixelReader) return;
-  const rects = readPushes(emu);
+  const { rects, findings } = readPushes(emu, panelW, panelH);
+  for (const f of findings) consoleLog.push(`firmware bug: ${f}`);
   for (const r of rects) blitRect(panelCtx, emu.memory, fbPtr, panelW, pixelReader, r);
   pushOverlay.record(rects, now);
   for (const r of rects) pushHistory.push({ tMs: now, ...r });
   while (pushHistory.length > PUSH_HISTORY_MAX) pushHistory.shift();
   if (device?.apps && device.apps.length > 0 && emu.emu_app_current) lastAppIndex = emu.emu_app_current();
   appStripControl?.refresh();
-  soundPlayer.poll(emu); // right after emu_tick(), per emu_abi.h's sound section
+  soundPlayer.poll(emu, (text) => consoleLog.push(text)); // right after emu_tick(), per emu_abi.h's sound section
 }
 
 function frame(): void {
-  if (emu && !paused) stepOnce();
+  // Stop ticking entirely once dead, rather than re-entering a module that
+  // just crashed at 60Hz (stepOnce's own try/catch would keep catching the
+  // same exception every frame forever, which is not "stopped", just
+  // "silently retried and discarded" -- the requirement is to actually
+  // stop). The rest of the loop (this function's own requestAnimationFrame
+  // call at the bottom) keeps running regardless, which is what keeps
+  // "reload" clickable and the page otherwise alive.
+  if (emu && !paused && !deadState) stepOnce();
   const now = performance.now();
   overlayCtx.clearRect(0, 0, overlayEl.width, overlayEl.height);
-  if (overlayEnabled) {
+  if (deadState) {
+    // Painted every frame, unconditionally: this is a status, not a
+    // diagnostics preference like overlayEnabled below it.
+    paintDeadOverlay(overlayCtx, overlayEl.width, overlayEl.height);
+  } else if (overlayEnabled) {
     pushOverlay.paint(overlayCtx, now, accentColor);
     touchOverlay.paint(overlayCtx, now, accentColor);
   }
@@ -780,8 +975,17 @@ async function runFreeze(): Promise<void> {
   }
   const panelPngBase64 = canvasToPngBase64(panelEl);
   const currentApp = device.apps && device.apps.length > 0 && emu.emu_app_current ? device.apps[emu.emu_app_current()] ?? null : null;
+  // The one field that keeps this bundle honest when the engine is dead
+  // (see freeze.ts's EngineStatus header comment): a freeze taken after a
+  // silent crash still reads the last-painted canvas and the recorder's
+  // existing history just fine, neither of which needs the tick loop to be
+  // alive, so without this an agent reading the bundle would have no way
+  // to know the session it describes is over.
+  const engine: EngineStatus = deadState
+    ? { alive: false, error: deadState.error, diedOnTick: deadState.diedOnTick, lastInputEvent: deadState.lastInputEvent, diedAt: deadState.diedAt }
+    : { alive: true };
   const bundle: FreezeBundle = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     capturedAt: new Date().toISOString(),
     device,
     currentApp,
@@ -790,6 +994,7 @@ async function runFreeze(): Promise<void> {
     console: consoleLog.recent(100),
     journal: emptyJournal(),
     panelPngBase64,
+    engine,
   };
   const first = await postFreeze(bundle);
   if (!first.ok) {
@@ -942,7 +1147,9 @@ function wireStaticUI(): void {
     paused = !paused;
     btnPause.textContent = paused ? "resume" : "pause";
   });
-  $<HTMLButtonElement>("#btnStep").addEventListener("click", () => stepOnce());
+  $<HTMLButtonElement>("#btnStep").addEventListener("click", () => {
+    if (!deadState) stepOnce(); // dead: stepping would just re-enter a module that already crashed
+  });
   btnStopReplay.addEventListener("click", stopReplay);
 
   $<HTMLButtonElement>("#btnPng").addEventListener("click", () => {
@@ -1006,6 +1213,11 @@ async function boot(): Promise<void> {
   // rebuild.
   rebuildGestures: () => device && buildGestures(device),
   getSoundPlayer: () => soundPlayer,
+  // Engine-death state (see enterDeadState): exposed so the hostile-firmware
+  // regression suite (test/hostile-firmware/) can assert on it directly
+  // rather than only scraping banner text.
+  getDeadState: () => deadState,
+  getTickCount: () => tickCount,
 };
 
 void boot();

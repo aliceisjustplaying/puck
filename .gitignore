@@ -4,6 +4,10 @@ node_modules/
 wasm/dist/
 dist/
 
+# Hostile-firmware regression suite build output: regenerate with
+# `bun run test:hostile` (or `bun run test/hostile/build.ts` on its own)
+test/hostile/dist/
+
 # Runtime-written, transient (see docs/agent-loop.md)
 freezes/
 traces/

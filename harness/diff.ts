@@ -55,6 +55,22 @@ import { encodeRGBPNG } from "./png";
 import { compareFrames } from "./compare";
 import type { CapturedFrame, HardwareLink, Trace } from "./types";
 
+// Three distinct outcomes, three distinct exit codes: CI reads exit codes,
+// not prose, so "the comparison ran and frames matched," "the comparison
+// ran and frames diverged," and "the comparison never happened at all"
+// (bad args, a malformed trace, an uncaught exception from either replay
+// side, a HardwareLink that never connects) must never collapse onto the
+// same number. Before this, an infra failure had no top-level catch at
+// all: it fell through as a raw, unhandled-rejection stack trace, which
+// (on Bun, as of this writing) still exits 1 -- indistinguishable from a
+// real divergence to anything reading the exit code, even though the text
+// on screen already made the distinction (a crash looks nothing like
+// "FAIL: N frame(s) compared"). See
+// docs/findings-first-adversarial-pass.md's "Open" section.
+const EXIT_OK = 0;
+const EXIT_DIVERGENCE = 1;
+const EXIT_INFRA = 2;
+
 interface Args {
   tracePath: string;
   linkPath: string;
@@ -86,13 +102,35 @@ function parseArgs(argv: string[]): Args {
   }
   if (positional.length === 0) {
     console.error("usage: bun run harness/diff.ts <trace.json> --link <path-to-your-link.ts> [options]");
-    process.exit(1);
+    process.exit(EXIT_INFRA);
   }
   if (!linkPath) {
     console.error("missing --link <path-to-your-HardwareLink-module.ts>");
-    process.exit(1);
+    process.exit(EXIT_INFRA);
   }
   return { tracePath: positional[0]!, linkPath, wasmPath, at, every, outDir, tolerance };
+}
+
+// docs/harness.md explicitly anticipates a hand-built trace ("or build one
+// by hand" -- see harness/selftest.ts for a worked example), and a
+// hand-built one is exactly where an out-of-order timestamp is most
+// likely. Uncaught, it produces a WRONG OR SKIPPED capture point on both
+// replay sides: emulatorSide.ts's capture-point loop assumes ticks arrive
+// with non-decreasing `t` (`while (remainingPoints[0] <= ev.t)`), and
+// hardwareSide.ts paces real-time sleeps off the same assumption
+// (`targetWall = wallStart + (ev.t - traceStart)`) -- neither errors on a
+// violation, they just produce a capture at the wrong moment or miss one
+// entirely. Checked once, up front, rather than trusted. Ties are fine
+// (a touch and the tick it's latched by commonly share one `t`), so this
+// only rejects a STRICT decrease.
+function findOutOfOrderEvent(events: Trace["events"]): { index: number; t: number; prevT: number } | null {
+  let prevT = -Infinity;
+  for (let i = 0; i < events.length; i++) {
+    const t = events[i]!.t;
+    if (t < prevT) return { index: i, t, prevT };
+    prevT = t;
+  }
+  return null;
 }
 
 function capturePointsFor(events: Trace["events"], args: Args): number[] {
@@ -114,10 +152,21 @@ async function main(): Promise<void> {
   const trace = JSON.parse(readFileSync(args.tracePath, "utf8")) as Trace;
   if (!Array.isArray(trace.events)) throw new Error(`${args.tracePath}: not a trace file (missing events array)`);
 
+  const outOfOrder = findOutOfOrderEvent(trace.events);
+  if (outOfOrder) {
+    console.error(
+      `${args.tracePath}: event[${outOfOrder.index}].t = ${outOfOrder.t} is earlier than the previous event's t = ${outOfOrder.prevT}. ` +
+        `Trace timestamps must be non-decreasing (ties are fine -- a touch and the tick it's latched by commonly share one t). Both ` +
+        `replay sides pace and pick capture points off this ordering, and an out-of-order trace would otherwise silently produce a ` +
+        `wrong or skipped capture point rather than an error. Fix the trace and retry.`
+    );
+    process.exit(EXIT_INFRA);
+  }
+
   const capturePoints = capturePointsFor(trace.events, args);
   if (capturePoints.length === 0) {
     console.error("no capture points (trace has no tick events, and neither --at nor --every produced any)");
-    process.exit(1);
+    process.exit(EXIT_INFRA);
   }
   console.log(`replaying ${trace.events.length} events, capturing at ${capturePoints.length} point(s): ${capturePoints.join(", ")}`);
 
@@ -133,7 +182,7 @@ async function main(): Promise<void> {
 
   if (emuResult.frames.length !== hwResult.frames.length) {
     console.error(`frame count mismatch: emulator captured ${emuResult.frames.length}, hardware captured ${hwResult.frames.length}`);
-    process.exit(1);
+    process.exit(EXIT_INFRA);
   }
 
   if (args.outDir && !existsSync(args.outDir)) mkdirSync(args.outDir, { recursive: true });
@@ -173,7 +222,7 @@ async function main(): Promise<void> {
         `docs/harness.md for what this harness can and cannot catch before concluding which side is at fault.`
     );
   }
-  process.exit(allMatch ? 0 : 1);
+  process.exit(allMatch ? EXIT_OK : EXIT_DIVERGENCE);
 }
 
 function writePng(path: string, frame: CapturedFrame): void {
@@ -187,4 +236,15 @@ function resolveModulePath(p: string): string {
   return p.startsWith(".") || !p.match(/^[a-zA-Z]+:/) ? join(process.cwd(), p) : p;
 }
 
-void main();
+// Unlike every other failure path in this file, main() itself had no
+// top-level catch: a truncated trace, a bad wasm path, or a HardwareLink
+// that throws while connecting fell straight through as a raw,
+// unhandled-rejection stack trace instead of this file's own
+// console.error + process.exit style, AND (see EXIT_INFRA above) used to
+// exit with the exact same code as a real divergence. This is the fix for
+// both at once.
+main().catch((err) => {
+  console.error(`harness/diff.ts: unexpected error: ${err instanceof Error ? err.message : String(err)}`);
+  if (err instanceof Error && err.stack) console.error(err.stack);
+  process.exit(EXIT_INFRA);
+});

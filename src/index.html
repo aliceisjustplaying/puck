@@ -44,6 +44,11 @@
       </div>
 
       <div id="wasmError" class="wasm-error hidden"></div>
+      <!-- Distinct from #wasmError on purpose: that one means "a module
+           never came up," this one means "a module WAS up and something in
+           the tick loop threw partway through." Impossible-to-confuse is
+           the point (see main.ts's showEngineDead / paintDeadOverlay). -->
+      <div id="engineDead" class="engine-dead hidden"></div>
 
       <div class="layout">
         <div id="stage" class="stage">

@@ -21,6 +21,7 @@
 // ABI.
 
 import type { EmuExports } from "./wasm";
+import { validateAudioBuffer } from "./abiGuard";
 
 export type SoundStatus = "idle" | "playing" | "suspended";
 
@@ -61,7 +62,12 @@ export class SoundPlayer {
 
   // Called once per tick, right after emu_tick(): compares both counters
   // against what was last seen and acts on a change, per emu_abi.h.
-  poll(emu: EmuExports): void {
+  // onFinding (optional) receives a plain-text note when a play event is
+  // skipped because the module handed back an audio buffer this emulator
+  // will not trust (see abiGuard.ts's validateAudioBuffer): a bad pointer
+  // or frame count here is a firmware bug worth reporting precisely, not a
+  // reason to crash every tick's poll() for the rest of the session.
+  poll(emu: EmuExports, onFinding?: (text: string) => void): void {
     if (!emu.emu_sound_play_seq || !emu.emu_sound_stop_seq) return; // no sound exported: not every device has one
 
     const stopSeq = emu.emu_sound_stop_seq();
@@ -75,7 +81,7 @@ export class SoundPlayer {
     const playSeq = emu.emu_sound_play_seq();
     if (playSeq !== this.lastPlaySeq) {
       this.lastPlaySeq = playSeq;
-      this.play(emu);
+      this.play(emu, onFinding);
     }
   }
 
@@ -108,7 +114,7 @@ export class SoundPlayer {
     }
   }
 
-  private play(emu: EmuExports): void {
+  private play(emu: EmuExports, onFinding?: (text: string) => void): void {
     // No context yet (no gesture has happened) or still suspended: this
     // sound event is simply not played, and status reads "suspended" so
     // the page says so rather than looking like silence for no reason.
@@ -118,9 +124,20 @@ export class SoundPlayer {
     if (!emu.emu_sound_sample_rate || !emu.emu_sound_buffer || !emu.emu_sound_frames) return;
 
     const frameCount = emu.emu_sound_frames();
-    if (frameCount <= 0) return;
     const sampleRate = emu.emu_sound_sample_rate();
     const framesPtr = emu.emu_sound_buffer();
+
+    // Validated at the boundary before any typed array is built over
+    // module memory: an ABI-returned pointer and frame count are exactly
+    // as untrusted as any other firmware output (see abiGuard.ts's header
+    // comment). A bad buffer here is a firmware bug, reported precisely,
+    // and this one sound_play() call is skipped -- never a reason to crash
+    // the tick this poll() was called from.
+    const v = validateAudioBuffer(emu.memory, framesPtr, frameCount, sampleRate);
+    if (!v.ok) {
+      onFinding?.(`firmware bug: ${v.reason} -- sound_play() call ignored`);
+      return;
+    }
 
     // int16, native byte order, per emu_abi.h; divide by 32768 to reach
     // the [-1, 1) float range Web Audio wants.

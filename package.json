@@ -7,7 +7,8 @@
     "typecheck": "tsc --noEmit",
     "verify": "bun run scripts/verify.ts",
     "example:build": "bun run example/build.ts",
-    "harness:selftest": "bun run harness/selftest.ts"
+    "harness:selftest": "bun run harness/selftest.ts",
+    "test:hostile": "bun run test/hostile/run.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

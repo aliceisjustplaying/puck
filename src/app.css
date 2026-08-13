@@ -102,6 +102,36 @@
   gap: 8px;
 }
 .wasm-error-text { white-space: pre-wrap; word-break: break-word; }
+
+/* ---------- engine-dead banner: deliberately NOT a copy of .wasm-error.
+   That one means a module never came up (blank panel, nothing to look
+   at). This means a module DID come up and something threw mid-tick --
+   the panel below may still show a perfectly normal-looking last frame,
+   which is exactly the state that reads as "my firmware is stuck" if this
+   doesn't say otherwise, loudly. Hazard-striped border instead of a plain
+   one, on purpose: same danger palette as .wasm-error but a different
+   silhouette, so the two are never mistakable for each other even at a
+   glance. See main.ts's paintDeadOverlay for the matching treatment
+   painted directly on the panel itself. ---------- */
+.engine-dead {
+  margin: 12px 16px;
+  padding: 12px 14px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 3px solid transparent;
+  border-image: repeating-linear-gradient(135deg, var(--danger) 0 8px, var(--danger-bg) 8px 16px) 3;
+  border-radius: var(--radius-card);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.engine-dead-title { font-weight: 700; }
+.engine-dead-text { white-space: pre-wrap; word-break: break-word; font-size: 11px; }
+.engine-dead-meta { font-variant-numeric: tabular-nums; opacity: .85; }
+.engine-dead-hint { opacity: .85; max-width: 720px; }
+
 .hidden { display: none !important; }
 
 .layout { display: flex; flex: 1; min-height: 0; }

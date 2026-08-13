@@ -157,6 +157,26 @@ to survive a refactor), not more testing infrastructure - and no amount of
 investment in this harness changes that. A tool that oversells what it
 catches costs more than one that plainly says what it doesn't.
 
+## Exit codes
+
+`harness/diff.ts` exits with one of three distinct codes, because CI reads
+the exit code, not the console text: `0` means the comparison ran and every
+frame matched, `1` means the comparison ran and at least one frame
+diverged, and `2` means the comparison never happened at all (bad
+arguments, a malformed or out-of-order trace, an uncaught exception from
+either replay side, a `HardwareLink` that failed to connect). A `2` is
+never a failed comparison and must not be read as one; it means the tool
+itself couldn't finish.
+
+Trace timestamps (`TraceEvent.t`) must be non-decreasing across the whole
+`events` array (ties are fine - a touch and the tick it's latched by
+commonly share one `t`). This matters most for a hand-built trace (see
+`harness/selftest.ts` for a worked example): both replay sides pace and
+choose capture points off this ordering, and an out-of-order trace used to
+produce a silently wrong or skipped capture point rather than an error.
+`harness/diff.ts` now checks this up front and exits `2` with the exact
+index and timestamps involved if it finds a violation.
+
 ## Capture points
 
 The harness never captures every tick - that would be far too slow for

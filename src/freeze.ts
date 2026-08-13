@@ -14,8 +14,38 @@ import type { TraceEvent } from "./recorder";
 import type { LogLine } from "./consolelog";
 import { type Journal, type MarkType, type Stroke, MARK_COLORS, MARK_LABELS, emptyJournal } from "./journal";
 
+// Whether the tick loop that produced this freeze is still alive. A freeze
+// reads the last-painted canvas and the recorder's existing history,
+// neither of which needs the loop to be running - so without this field, a
+// freeze taken after the engine died (see main.ts's enterDeadState) would
+// look completely ordinary: valid pushes, a valid input trace, nothing
+// anywhere saying the session that produced them is over. This field is
+// what stops that bundle from lying to whoever reads it (see
+// docs/agent-loop.md). Always present, never optional: absence must not be
+// how a reader is expected to infer health.
+export type EngineStatus =
+  | { alive: true }
+  | {
+      alive: false;
+      error: string;
+      // The ordinal of the tick that was being processed when the
+      // exception escaped (see main.ts's tickCount): "died on tick 2"
+      // reads a lot more precisely than "died at some point."
+      diedOnTick: number;
+      // The last event the recorder actually delivered before the crash
+      // (see src/recorder.ts's TraceEvent) - could be the tick itself, or
+      // whatever touch/button/sensor input preceded it. null if nothing
+      // had been recorded yet.
+      lastInputEvent: TraceEvent | null;
+      diedAt: string; // ISO timestamp
+    };
+
 export interface FreezeBundle {
-  schemaVersion: 1;
+  // Bumped from 1: schemaVersion 1 bundles had no `engine` field at all,
+  // which is exactly the silent-lie this field exists to prevent (see
+  // EngineStatus above) - a reader parsing a v1 bundle must not assume
+  // "no engine field" means "was alive."
+  schemaVersion: 2;
   capturedAt: string;
   device: DeviceDescriptor;
   currentApp: string | null;
@@ -24,6 +54,7 @@ export interface FreezeBundle {
   console: LogLine[];
   journal: Journal;
   panelPngBase64: string;
+  engine: EngineStatus;
 }
 
 export interface FreezeResult {
