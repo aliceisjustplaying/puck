@@ -1,0 +1,16 @@
+node_modules/
+
+# Build outputs: regenerate with `bun run example:build` / `bun run build`
+wasm/dist/
+dist/
+
+# Runtime-written, transient (see docs/agent-loop.md)
+freezes/
+traces/
+
+# Differential harness output (PNGs from `bun run harness/diff.ts --out`)
+harness/out/
+
+*.log
+.DS_Store
+Thumbs.db

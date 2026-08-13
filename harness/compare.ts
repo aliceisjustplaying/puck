@@ -1,0 +1,46 @@
+// Pixel comparison between two captured frames, shared by harness/diff.ts
+// (the CLI) and harness/selftest.ts (the no-hardware-required self-test).
+
+import type { CapturedFrame } from "./types";
+
+export interface FrameDiff {
+  match: boolean;
+  diffPixels: number;
+  totalPixels: number;
+  firstDiffAt: { x: number; y: number } | null;
+  maxChannelDelta: number;
+  // A heatmap the same size as the input frames: red where a pixel
+  // exceeded tolerance, a dim copy of `a`'s own pixel otherwise. null when
+  // there was nothing to highlight (an exact match, or a size mismatch).
+  diffImage: Uint8Array | null;
+}
+
+export function compareFrames(a: CapturedFrame, b: CapturedFrame, tolerance: number): FrameDiff {
+  if (a.width !== b.width || a.height !== b.height) {
+    return { match: false, diffPixels: -1, totalPixels: a.width * a.height, firstDiffAt: null, maxChannelDelta: 255, diffImage: null };
+  }
+  const w = a.width, h = a.height;
+  let diffPixels = 0;
+  let firstDiffAt: { x: number; y: number } | null = null;
+  let maxChannelDelta = 0;
+  const diffRgb = new Uint8Array(w * h * 3);
+  for (let i = 0, p = 0; i < w * h; i++, p += 3) {
+    const dr = Math.abs(a.rgb[p]! - b.rgb[p]!);
+    const dg = Math.abs(a.rgb[p + 1]! - b.rgb[p + 1]!);
+    const db = Math.abs(a.rgb[p + 2]! - b.rgb[p + 2]!);
+    const maxD = Math.max(dr, dg, db);
+    if (maxD > tolerance) {
+      diffPixels++;
+      if (!firstDiffAt) firstDiffAt = { x: i % w, y: Math.floor(i / w) };
+      if (maxD > maxChannelDelta) maxChannelDelta = maxD;
+      diffRgb[p] = 255;
+      diffRgb[p + 1] = 0;
+      diffRgb[p + 2] = 0;
+    } else {
+      diffRgb[p] = a.rgb[p]!;
+      diffRgb[p + 1] = a.rgb[p + 1]!;
+      diffRgb[p + 2] = a.rgb[p + 2]!;
+    }
+  }
+  return { match: diffPixels === 0, diffPixels, totalPixels: w * h, firstDiffAt, maxChannelDelta, diffImage: diffPixels > 0 ? diffRgb : null };
+}
