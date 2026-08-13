@@ -100,17 +100,27 @@ One freeze produces two files, written together (`server.ts`'s
     saves something (`src/journal.ts`).
   - `panelPngPath`: always `"panel.png"`, the sibling file.
   - `engine`: `{ alive: true }`, or `{ alive: false, error, diedOnTick,
-    lastInputEvent, diedAt }` when the tick loop crashed before this
-    freeze was taken (`src/main.ts`'s `enterDeadState`). A freeze reads the
-    last-painted canvas and the recorder's existing history, neither of
-    which needs the loop to still be running, so without this field a
-    freeze taken after a silent crash would look completely ordinary:
-    valid pushes, a valid input trace, nothing anywhere saying the session
-    that produced them is over. This field exists so this bundle can never
-    make that claim by omission - always present, never optional, so
-    absence is never how a reader is expected to infer health. Bundle
-    `schemaVersion` is `2` for this reason (`1` bundles predate this field
-    entirely).
+    cause, lastInputEvent, diedAt }` when the module trapped before this
+    freeze was taken (`src/main.ts`'s `enterDeadState`). A trap can happen
+    inside `emu_tick()` itself (the ordinary tick loop, `cause: "tick"`) or
+    inside a direct ABI call made from a DOM event handler entirely outside
+    the tick loop - a button press, a sensor click, an app-strip click
+    (`src/main.ts`'s `guardedAbiCall`) - and `cause` says precisely which
+    one, e.g. `"button[0] down"` or `'app switch to 1 ("two")'`, rather than
+    always claiming `"tick N"` regardless of what actually threw. Either
+    way the whole module is considered dead, not just the one control that
+    was pressed: per the wasm spec, a trap in ANY export leaves the
+    instance's linear memory and globals in whatever partial state existed
+    the instant execution stopped, exactly as suspect no matter which
+    export it happened in. A freeze reads the last-painted canvas and the
+    recorder's existing history, neither of which needs the module to still
+    be alive, so without this field a freeze taken after a silent crash
+    would look completely ordinary: valid pushes, a valid input trace,
+    nothing anywhere saying the session that produced them is over. This
+    field exists so this bundle can never make that claim by omission -
+    always present, never optional, so absence is never how a reader is
+    expected to infer health. Bundle `schemaVersion` is `2` for this reason
+    (`1` bundles predate this field entirely).
 
 ## A failed regression check, for an agent
 

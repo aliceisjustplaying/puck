@@ -136,6 +136,16 @@ interface DeadState {
   error: string;
   stack: string | undefined;
   diedOnTick: number;
+  // What direct call was actually in flight when the trap happened: "tick"
+  // for the ordinary requestAnimationFrame path, or e.g. "button[0] down",
+  // "sensor[0] (shake)", "app switch to 2" for a trap inside a direct
+  // ABI call made from a DOM event handler (see guardedAbiCall below).
+  // diedOnTick still names the last tick boundary for context ("this
+  // happened shortly after tick 40"), but for a non-tick cause it was NOT
+  // the tick itself that died, and the banner/freeze bundle say so
+  // precisely rather than always claiming "died on tick N" regardless of
+  // what actually threw.
+  cause: string;
   lastInputEvent: TraceEvent | null;
   diedAt: string; // ISO, wall-clock: freeze bundles want a real timestamp, not performance.now()
 }
@@ -209,14 +219,18 @@ function showEngineDead(state: DeadState): void {
   engineDeadEl.innerHTML = "";
   const title = document.createElement("div");
   title.className = "engine-dead-title";
-  title.textContent = "engine crashed: the tick loop threw and has stopped, the panel below is not necessarily what your firmware last drew";
+  title.textContent =
+    state.cause === "tick"
+      ? "engine crashed: the tick loop threw and has stopped, the panel below is not necessarily what your firmware last drew"
+      : `engine crashed: ${state.cause} threw and ticking has stopped too, the panel below is not necessarily what your firmware last drew`;
   const text = document.createElement("div");
   text.className = "engine-dead-text";
   text.textContent = state.error + (state.stack ? `\n${state.stack}` : "");
   const meta = document.createElement("div");
   meta.className = "engine-dead-meta";
   meta.textContent =
-    `died on tick ${state.diedOnTick}, ${state.diedAt}` +
+    (state.cause === "tick" ? `died on tick ${state.diedOnTick}` : `died on ${state.cause}, shortly after tick ${state.diedOnTick}`) +
+    `, ${state.diedAt}` +
     (state.lastInputEvent ? ` -- last input delivered: ${describeTraceEvent(state.lastInputEvent)}` : " -- no input had been delivered yet");
   const hint = document.createElement("div");
   hint.className = "engine-dead-hint";
@@ -246,20 +260,66 @@ function hideEngineDead(): void {
 // the JS side can validate a pointer write that happens entirely inside
 // the module's own compiled code. First exception wins; once dead, later
 // ones (there will be exactly zero more, since frame() stops calling
-// stepOnce once deadState is set) are not interesting.
-function enterDeadState(err: unknown): void {
+// stepOnce once deadState is set, and guardedAbiCall below refuses to make
+// any further direct call once deadState is set either) are not
+// interesting.
+//
+// `cause` defaults to "tick" for the original call site (stepOnce's own
+// catch, below) and is passed explicitly by guardedAbiCall for everything
+// else -- see that function's header comment for why a trap outside
+// emu_tick() gets exactly the same treatment as one inside it.
+function enterDeadState(err: unknown, cause: string = "tick"): void {
   if (deadState) return;
   const last = recorder.recent(1);
   deadState = {
     error: errMsg(err),
     stack: err instanceof Error ? err.stack : undefined,
     diedOnTick: tickCount + 1,
+    cause,
     lastInputEvent: last.length > 0 ? last[0]! : null,
     diedAt: new Date().toISOString(),
   };
-  console.error("engine crashed while ticking:", err);
-  consoleLog.push(`engine crashed on tick ${deadState.diedOnTick}: ${deadState.error}`);
+  console.error(`engine crashed (${cause}):`, err);
+  consoleLog.push(`engine crashed on ${cause}: ${deadState.error}`);
   showEngineDead(deadState);
+}
+
+// The guard for every direct ABI call made synchronously from a DOM event
+// handler (a button press, a sensor click, an app-strip click, a shake) --
+// entirely OUTSIDE the tick loop's own try/catch (stepOnce, below), because
+// none of these run inside requestAnimationFrame's callback at all.
+//
+// This is the thing the tick-loop guard's own first pass left open, on
+// purpose, and said so: those calls don't sit inside the self-rescheduling
+// frame() loop, so a trap in one of them does not produce the SAME failure
+// mode (a silent freeze under a still-painted panel) that stepOnce's guard
+// exists for. But it is still the same class of bug, with its own bad
+// outcome: a firmware that traps on a button press leaves the page looking
+// perfectly healthy, ticking along, with one control that silently does
+// nothing. Nothing here hands back an untrusted VALUE the way
+// emu_fb()/emu_push_*() do (abiGuard.ts's job); emu_button, emu_touch,
+// emu_sensor_event and emu_app_switch are all void. So the only failure
+// mode a direct call like this can have is a genuine wasm trap -- and a
+// trap is a trap regardless of which export it happened in: per the wasm
+// spec, once ANY exported function traps, the instance's linear memory and
+// globals are left in whatever partial state existed the instant execution
+// stopped. That is exactly as suspect as a trap inside emu_tick() itself,
+// so this reuses enterDeadState exactly as it already exists for the tick
+// loop rather than inventing a second, softer failure state for "just one
+// button" -- pretending a trapped module is still fine to keep calling into
+// is precisely the comforting lie docs/findings-first-adversarial-pass.md
+// was written to stop this repo telling itself. Once dead, this refuses to
+// make any further call at all (rather than relying only on
+// enterDeadState's own "first exception wins" short-circuit), because
+// there is nothing to gain from invoking an export that is already known to
+// be broken.
+function guardedAbiCall(cause: string, fn: (liveEmu: EmuExports) => void): void {
+  if (!emu || deadState) return;
+  try {
+    fn(emu);
+  } catch (err) {
+    enterDeadState(err, cause);
+  }
 }
 
 // Marks the panel itself as dead, not just a banner somewhere in the
@@ -357,20 +417,27 @@ function wireContactSize(): void {
 }
 
 // ---- button ABI calls, recorded ----
+// A DOM handler (device.ts's wireButton, wired from a real pointer or
+// keyboard chord), never inside the tick loop -- see guardedAbiCall's own
+// header comment for why a trap here gets the same #engineDead treatment
+// as one inside emu_tick().
 function emuButtonDown(index: number): void {
-  if (!emu) return;
-  emu.emu_button(index, 1);
-  recorder.record({ t: performance.now(), k: "button", i: index, down: 1 });
+  guardedAbiCall(`button[${index}] down`, (liveEmu) => {
+    liveEmu.emu_button(index, 1);
+    recorder.record({ t: performance.now(), k: "button", i: index, down: 1 });
+  });
 }
 function emuButtonUp(index: number): void {
-  if (!emu) return;
-  emu.emu_button(index, 0);
-  recorder.record({ t: performance.now(), k: "button", i: index, down: 0 });
+  guardedAbiCall(`button[${index}] up`, (liveEmu) => {
+    liveEmu.emu_button(index, 0);
+    recorder.record({ t: performance.now(), k: "button", i: index, down: 0 });
+  });
 }
 function emuButtonVerdict(index: number, isLong: boolean): void {
-  if (!emu) return;
-  emu.emu_button_verdict(index, isLong ? 1 : 0);
-  recorder.record({ t: performance.now(), k: "verdict", i: index, long: isLong ? 1 : 0 });
+  guardedAbiCall(`button[${index}] verdict (long=${isLong})`, (liveEmu) => {
+    liveEmu.emu_button_verdict(index, isLong ? 1 : 0);
+    recorder.record({ t: performance.now(), k: "verdict", i: index, long: isLong ? 1 : 0 });
+  });
 }
 
 // ---- chrome: rebuilt from the device descriptor on every (re)load ----
@@ -435,7 +502,7 @@ function buildChrome(d: DeviceDescriptor): void {
   });
 
   if (emu) {
-    buildSensorControls($("#sensorControls"), d.sensors || [], emu, shortcuts, usedKeys, (t) => consoleLog.push(t), (sensor) => {
+    buildSensorControls($("#sensorControls"), d.sensors || [], shortcuts, usedKeys, (t) => consoleLog.push(t), (sensor) => {
       // The one place a sensor click drives something visible beyond the
       // firmware event itself: a "shake" sensor gets the same puck motion
       // a real window shake produces, since there is no window motion
@@ -447,8 +514,8 @@ function buildChrome(d: DeviceDescriptor): void {
       // shake rather than a 1-2px flicker (measured with puppeteer: a
       // gentler kick was visually indistinguishable from noise).
       if (sensor.id.toLowerCase() === "shake") puckMotion.impulse((Math.random() - 0.5) * 500, (Math.random() - 0.5) * 380);
-    });
-    appStripControl = buildAppStrip($("#appStrip"), d.apps || [], emu);
+    }, guardedAbiCall);
+    appStripControl = buildAppStrip($("#appStrip"), d.apps || [], emu, guardedAbiCall);
   }
 
   shakeSensorIndex = (d.sensors || []).findIndex((s) => s.id.toLowerCase() === "shake");
@@ -910,10 +977,17 @@ function frame(): void {
 // the device, not the window it happens to be displayed in). Wired below
 // via device.ts's makeDraggable onDrag callback, same jolt-detector shape.
 function fireShakeSensor(now: number, source: string): void {
-  if (!emu || shakeSensorIndex < 0 || replayer) return;
-  emu.emu_sensor_event(shakeSensorIndex);
-  recorder.record({ t: now, k: "sensor", i: shakeSensorIndex });
-  consoleLog.push(`shake: ${source} accepted`);
+  if (shakeSensorIndex < 0 || replayer) return;
+  // Also called every frame from pollWindowShake below, unconditionally --
+  // guardedAbiCall's own deadState check is what stops this from calling
+  // into an already-trapped module once the engine has crashed, since
+  // frame() keeps calling pollWindowShake() even after deadState is set (it
+  // stops calling stepOnce, not the rest of the frame).
+  guardedAbiCall(`sensor[${shakeSensorIndex}] (shake, ${source})`, (liveEmu) => {
+    liveEmu.emu_sensor_event(shakeSensorIndex);
+    recorder.record({ t: now, k: "sensor", i: shakeSensorIndex });
+    consoleLog.push(`shake: ${source} accepted`);
+  });
 }
 
 function pollWindowShake(now: number): void {
@@ -969,13 +1043,34 @@ function wireTraceFile(): void {
 }
 
 // ---- freeze / trace save ----
+// Found in the sweep for any remaining unguarded direct emu.emu_* call:
+// runFreeze() (below) reads emu_app_current() straight from the "freeze"
+// button's click handler, the exact same shape as the button/sensor/
+// app-switch calls guardedAbiCall exists for. Kept as its own small
+// function rather than routed through guardedAbiCall itself because it
+// needs to return a VALUE (the app name for the bundle), not just fire an
+// effect -- and because once the engine is already dead, the right answer
+// is not "call into the dead module again", it's "fall back to
+// lastAppIndex", the last index afterTick() actually observed succeed.
+function currentAppNameForFreeze(): string | null {
+  if (!device?.apps || device.apps.length === 0) return null;
+  if (deadState) return device.apps[lastAppIndex] ?? null;
+  if (!emu?.emu_app_current) return null;
+  try {
+    return device.apps[emu.emu_app_current()] ?? null;
+  } catch (err) {
+    enterDeadState(err, "app_current() (read while freezing)");
+    return device.apps[lastAppIndex] ?? null;
+  }
+}
+
 async function runFreeze(): Promise<void> {
   if (!emu || !device) {
     consoleLog.push("cannot freeze: no wasm module loaded");
     return;
   }
   const panelPngBase64 = canvasToPngBase64(panelEl);
-  const currentApp = device.apps && device.apps.length > 0 && emu.emu_app_current ? device.apps[emu.emu_app_current()] ?? null : null;
+  const currentApp = currentAppNameForFreeze();
   // The one field that keeps this bundle honest when the engine is dead
   // (see freeze.ts's EngineStatus header comment): a freeze taken after a
   // silent crash still reads the last-painted canvas and the recorder's
@@ -983,7 +1078,14 @@ async function runFreeze(): Promise<void> {
   // alive, so without this an agent reading the bundle would have no way
   // to know the session it describes is over.
   const engine: EngineStatus = deadState
-    ? { alive: false, error: deadState.error, diedOnTick: deadState.diedOnTick, lastInputEvent: deadState.lastInputEvent, diedAt: deadState.diedAt }
+    ? {
+        alive: false,
+        error: deadState.error,
+        diedOnTick: deadState.diedOnTick,
+        cause: deadState.cause,
+        lastInputEvent: deadState.lastInputEvent,
+        diedAt: deadState.diedAt,
+      }
     : { alive: true };
   const bundle: FreezeBundle = {
     schemaVersion: 2,

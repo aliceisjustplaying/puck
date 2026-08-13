@@ -8,6 +8,12 @@
 // finding -- never an uncaught page error, never a silently frozen tick
 // loop, never a freeze bundle that claims a dead session is healthy.
 //
+// Cases #6 and #7 (button_trap, app_switch_trap) cover the follow-up: a
+// trap in a direct ABI call made from a DOM event handler, entirely
+// outside the tick loop stepOnce guards (a button press, an app-strip
+// click) -- the class of bug the original guarding pass scoped out and
+// said so honestly. See main.ts's guardedAbiCall for the fix.
+//
 //   bun run test:hostile
 //
 // Requires the same local Chrome install as scripts/verify.ts (set
@@ -88,7 +94,7 @@ interface PageState {
   consoleText: string;
   deviceName: string | null;
   tickCount: number | null;
-  deadState: { error: string; diedOnTick: number } | null;
+  deadState: { error: string; diedOnTick: number; cause: string } | null;
 }
 
 async function readPageState(page: Page): Promise<PageState> {
@@ -257,6 +263,69 @@ async function main(): Promise<void> {
       { label: "#engineDead stays hidden (a bad audio buffer is a finding, not a crash)", pass: !s5.engineDeadVisible },
       { label: `ticking kept going (tickCount=${s5.tickCount}, expected > 20)`, pass: (s5.tickCount ?? 0) > 20 },
       { label: 'console pane logged a "firmware bug:" finding, and the play() call was skipped', pass: /firmware bug:.*sound_play\(\) call ignored/s.test(s5.consoleText) },
+    ]);
+
+    // ---- hostile #6: emu_button() writes through a wild pointer on press ----
+    // The open item the tick-loop guard's first pass scoped out on
+    // purpose: a direct ABI call from a DOM event handler (device.ts's
+    // wireButton -> main.ts's emuButtonDown), never inside
+    // requestAnimationFrame's own callback, so stepOnce's try/catch cannot
+    // reach it. Presses the real .dev-btn element with a real mouse click,
+    // through the same pointerdown/pointerup path a person's mouse would
+    // take -- not __debug's escape hatch, and not a direct emu_button()
+    // call from this script.
+    pageErrors = [];
+    await loadCase(page, builds.get("button_trap")!);
+    await sleep(500);
+    const preClickTick = (await readPageState(page)).tickCount ?? 0;
+    await page.click(".dev-btn");
+    await sleep(800);
+    const s6a = await readPageState(page);
+    await sleep(500);
+    const s6b = await readPageState(page);
+    const buttonCrashBundle = await freezeAndReadBundle(page);
+    const buttonCrashEngine = buttonCrashBundle.engine as { alive?: boolean; error?: string; diedOnTick?: number; cause?: string } | undefined;
+    record('hostile: emu_button() writes through a wild pointer on press (the button-handler open item, "guard the direct ABI calls too")', [
+      { label: "ticking was healthy before the click", pass: preClickTick > 0 },
+      { label: "no uncaught page errors (the trap is caught, not left to escape)", pass: pageErrors.length === 0 },
+      { label: "#wasmError stays hidden (the module DID come up first)", pass: !s6a.wasmErrorVisible },
+      { label: "#engineDead visible (a trapped button must not look like it just did nothing)", pass: s6a.engineDeadVisible },
+      { label: 'banner names the button, not "tick"', pass: /button\[0\] down/.test(s6a.engineDeadText) },
+      { label: "debug state: cause is button[0] down", pass: s6a.deadState?.cause === "button[0] down" },
+      { label: `ticking also stopped (tickCount ${s6a.tickCount} then ${s6b.tickCount}, 500ms apart)`, pass: s6a.tickCount === s6b.tickCount },
+      { label: "freeze bundle engine.alive === false", pass: buttonCrashEngine?.alive === false },
+      { label: "freeze bundle engine.cause names the button, not a tick", pass: buttonCrashEngine?.cause === "button[0] down" },
+    ]);
+
+    // ---- hostile #7: emu_app_switch() writes through a wild pointer ----
+    // Same open item, different direct call: appstrip.ts's click listener,
+    // outside the tick loop, calling emu_app_switch() through
+    // guardedCall -> main.ts's guardedAbiCall. Index 0 (the initial app) is
+    // harmless in this firmware, so the module comes up and ticks
+    // normally; only clicking the SECOND app-strip button traps.
+    pageErrors = [];
+    await loadCase(page, builds.get("app_switch_trap")!);
+    await sleep(500);
+    const preSwitchTick = (await readPageState(page)).tickCount ?? 0;
+    const appButtons = await page.$$(".app-strip-btn");
+    if (appButtons.length !== 2) throw new Error(`expected 2 app-strip buttons for app_switch_trap, found ${appButtons.length}`);
+    await appButtons[1]!.click();
+    await sleep(800);
+    const s7a = await readPageState(page);
+    await sleep(500);
+    const s7b = await readPageState(page);
+    const appCrashBundle = await freezeAndReadBundle(page);
+    const appCrashEngine = appCrashBundle.engine as { alive?: boolean; error?: string; diedOnTick?: number; cause?: string } | undefined;
+    record('hostile: emu_app_switch() writes through a wild pointer (the app-strip open item, "guard the direct ABI calls too")', [
+      { label: "ticking was healthy before the click", pass: preSwitchTick > 0 },
+      { label: "no uncaught page errors (the trap is caught, not left to escape)", pass: pageErrors.length === 0 },
+      { label: "#wasmError stays hidden (the module DID come up first)", pass: !s7a.wasmErrorVisible },
+      { label: "#engineDead visible (a trapped app switch must not look like it just did nothing)", pass: s7a.engineDeadVisible },
+      { label: 'banner names the app switch, not "tick"', pass: /app switch to 1/.test(s7a.engineDeadText) },
+      { label: "debug state: cause names the app switch", pass: s7a.deadState?.cause === 'app switch to 1 ("two")' },
+      { label: `ticking also stopped (tickCount ${s7a.tickCount} then ${s7b.tickCount}, 500ms apart)`, pass: s7a.tickCount === s7b.tickCount },
+      { label: "freeze bundle engine.alive === false", pass: appCrashEngine?.alive === false },
+      { label: "freeze bundle engine.cause names the app switch, not a tick", pass: appCrashEngine?.cause === 'app switch to 1 ("two")' },
     ]);
   } finally {
     if (browser) await browser.close();

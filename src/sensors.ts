@@ -18,25 +18,37 @@ import type { EmuExports, DeviceSensor } from "./wasm";
 import type { ShortcutRegistry } from "./shortcuts";
 import { assignShortcut } from "./shortcuts";
 
+// No `emu` parameter: every ABI call this module makes goes through
+// guardedCall below, which already closes over the live module reference
+// (see main.ts's guardedAbiCall) -- a second, separately-passed `emu` would
+// just be an unused parameter inviting a stale, unguarded call to be added
+// here by mistake later.
 export function buildSensorControls(
   container: HTMLElement,
   sensors: DeviceSensor[],
-  emu: EmuExports,
   shortcuts: ShortcutRegistry,
   usedKeys: Set<string>,
   log: (text: string) => void,
   // Fired right after emu_sensor_event(), so a button/keyboard press can
   // drive something visible (the puck-motion shake, for a "shake" sensor)
   // even though there is no real window motion behind a click.
-  onFire?: (sensor: DeviceSensor, index: number) => void
+  onFire: ((sensor: DeviceSensor, index: number) => void) | undefined,
+  // Same direct-ABI-call guard main.ts uses for button presses and the
+  // window-shake path (see main.ts's guardedAbiCall header comment): a
+  // sensor button click is a DOM event handler, outside the tick loop's own
+  // try/catch, calling straight into the module -- a trap here gets the
+  // same #engineDead treatment as any other direct call, not silence.
+  guardedCall: (cause: string, fn: (liveEmu: EmuExports) => void) => void
 ): void {
   container.innerHTML = "";
   sensors.forEach((sensor, index) => {
     if (sensor.kind !== "event") return;
     const fire = () => {
-      emu.emu_sensor_event(index);
-      log(`sensor: ${sensor.id}`);
-      onFire?.(sensor, index);
+      guardedCall(`sensor[${index}] ("${sensor.id}")`, (liveEmu) => {
+        liveEmu.emu_sensor_event(index);
+        log(`sensor: ${sensor.id}`);
+        onFire?.(sensor, index);
+      });
     };
     const key = assignShortcut(sensor.id, usedKeys);
     const btn = document.createElement("button");

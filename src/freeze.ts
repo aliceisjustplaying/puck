@@ -28,10 +28,21 @@ export type EngineStatus =
   | {
       alive: false;
       error: string;
-      // The ordinal of the tick that was being processed when the
-      // exception escaped (see main.ts's tickCount): "died on tick 2"
-      // reads a lot more precisely than "died at some point."
+      // The ordinal of the tick that was being processed, or most recently
+      // completed, when the exception escaped (see main.ts's tickCount):
+      // "died on tick 2" reads a lot more precisely than "died at some
+      // point."
       diedOnTick: number;
+      // What actually threw: "tick" for a trap inside emu_tick() itself
+      // (the requestAnimationFrame path), or e.g. "button[0] down",
+      // "sensor[0] (shake)", "app switch to 2" for a trap inside a direct
+      // ABI call made from a DOM event handler outside the tick loop (see
+      // main.ts's guardedAbiCall). A trap is a trap either way - the
+      // module's memory is equally suspect regardless of which export it
+      // happened in - but a reader of this bundle deserves the precise
+      // answer to "what was the firmware doing" rather than always being
+      // told "tick N" when it may not have been ticking at all.
+      cause: string;
       // The last event the recorder actually delivered before the crash
       // (see src/recorder.ts's TraceEvent) - could be the tick itself, or
       // whatever touch/button/sensor input preceded it. null if nothing

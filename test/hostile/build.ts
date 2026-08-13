@@ -37,10 +37,16 @@ const BASE_EXPORTS = [
   "emu_sensor_event",
 ];
 const SOUND_EXPORTS = ["emu_sound_sample_rate", "emu_sound_play_seq", "emu_sound_stop_seq", "emu_sound_buffer", "emu_sound_frames"];
+const APP_EXPORTS = ["emu_app_current", "emu_app_switch"];
 
 // Firmware files whose export list includes the optional sound ABI. Every
 // other .c file in firmware/ gets BASE_EXPORTS only.
 const SOUND_CASES = new Set(["audio_bad_buffer"]);
+
+// Firmware files whose export list includes the optional apps ABI (see
+// emu_abi.h: "a firmware without a concept of apps leaves these
+// unimplemented and the emulator will not call them").
+const APP_CASES = new Set(["app_switch_trap"]);
 
 export interface BuildResult {
   name: string;
@@ -48,7 +54,10 @@ export interface BuildResult {
 }
 
 function exportsFor(name: string): string[] {
-  return SOUND_CASES.has(name) ? [...BASE_EXPORTS, ...SOUND_EXPORTS] : BASE_EXPORTS;
+  let exports = BASE_EXPORTS;
+  if (SOUND_CASES.has(name)) exports = [...exports, ...SOUND_EXPORTS];
+  if (APP_CASES.has(name)) exports = [...exports, ...APP_EXPORTS];
+  return exports;
 }
 
 // Compiles one firmware/<name>.c -> dist/<name>.wasm. Throws (with zig's
