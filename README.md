@@ -100,7 +100,9 @@ docs/           docs/abi.md (the ABI as a page), docs/requirements.md,
                 and docs/decisions/ (the why behind the choices above).
 scripts/        headless verification (puppeteer-core against a local
                 Chrome install).
-server.ts       the local dev server. Binds 127.0.0.1 explicitly.
+server.ts       the local dev server. Binds 127.0.0.1 explicitly. Also
+                backs the hardware-free regression check's persistence
+                (baselineStore.ts).
 ```
 
 ## The example firmware
@@ -131,6 +133,14 @@ function it implements and links back to where.
   recent pushes, recent input, recent console output), written to a
   predictable path a coding agent can read directly. See
   [`docs/agent-loop.md`](docs/agent-loop.md).
+- **Regression check, no hardware required**: "baseline" saves your current
+  input trace and the frames it produces; "check" replays that same trace
+  against whatever module is loaded now (a fresh rebuild, usually) and
+  shows you exactly which capture point, if any, drew something different.
+  Survives a live reload (the baseline lives on disk, not in the page). It
+  compares the emulator against itself, so it catches a firmware
+  regression and proves nothing about real hardware or timing - see
+  [`docs/harness.md`](docs/harness.md#a-regression-check-with-no-hardware).
 - **Console pane**: your firmware's own `js_log`/printf-equivalent output.
 
 ## Conventions

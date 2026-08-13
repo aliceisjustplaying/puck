@@ -370,3 +370,19 @@
 .freeze-note-add { display: flex; gap: 6px; margin-bottom: 12px; }
 .freeze-note-add input { flex: 1; }
 .freeze-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ---------- hardware-free regression check: two controls (baseline,
+   check), one status pill, and - only when something diverged - a modal
+   with the baseline/current/diff frames themselves. No sentence under the
+   images: a diverging pixel count is already in the pill, the pictures are
+   the "show me where". See src/regression.ts and docs/harness.md. ---------- */
+#regressionPill.status.fail { background: var(--danger-bg); color: var(--danger); }
+
+.regression-modal { max-width: none; width: fit-content; max-height: 82vh; overflow-y: auto; }
+.regression-modal-title { margin-bottom: 10px; }
+.regression-row { margin-bottom: 12px; }
+.regression-row .pill { margin-bottom: 6px; }
+.regression-imgs { display: flex; gap: 10px; flex-wrap: wrap; }
+.regression-thumb canvas { display: block; image-rendering: pixelated; border: 1px solid var(--border); border-radius: 4px; max-width: 200px; height: auto; }
+.regression-thumb-label { font-size: 10px; color: var(--muted); text-align: center; margin-top: 3px; }
+.regression-modal-actions { display: flex; justify-content: flex-end; margin-top: 4px; }

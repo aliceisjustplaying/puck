@@ -40,6 +40,12 @@ touch stroke and confirms the panel actually changed.
 mechanism works, with no real hardware required (see `harness/fixtures/loopbackLink.ts`'s
 header comment for exactly what that does and does not prove).
 
+`bun run test:regression` proves the in-page, hardware-free regression
+check (`src/regression.ts`, the "baseline"/"check" buttons - see
+`docs/harness.md`) actually catches a firmware regression: it builds two
+tiny fixture firmwares that differ by one draw call, and confirms a check
+fails and names the exact capture point that changed.
+
 ## Conventions
 
 - **TypeScript only, for everything this repo owns.** The page, the wasm
@@ -79,11 +85,18 @@ src/            the page: wasm loader (wasm.ts), panel blitter (panel.ts),
                 push-window overlay (overlay.ts), touch-contact overlay
                 (touchoverlay.ts), touch defect simulation (touchsim.ts),
                 input recorder/replay (recorder.ts/replay.ts), freeze
-                bundle (freeze.ts/journal.ts), console pane
+                bundle (freeze.ts/journal.ts), the hardware-free regression
+                check (regression.ts, built on replayCore.ts and
+                compare.ts - see docs/harness.md), console pane
                 (consolelog.ts), puck chrome (device.ts), audio bridge
                 (audio.ts), and main.ts which wires all of it together.
                 Deliberately device-agnostic: nothing here should ever
                 reference a specific device's panel size or button names.
+                replayCore.ts, compare.ts and frame.ts also get imported
+                from harness/ (never the other direction: harness/ depends
+                on src/, src/ never depends on harness/), so the page and
+                the differential test harness share one replay/compare
+                mechanism instead of two that would drift apart.
 wasm/           wasm/emu_abi.h: the ABI contract, the one file every
                 firmware in this ecosystem depends on. wasm/dist/ is
                 build output (gitignored).
@@ -92,18 +105,33 @@ example/        a tiny, self-contained example firmware (firmware/main.c)
                 docs/decisions/0001-example-is-minimal-not-a-shim.md for
                 why it's minimal rather than a full-featured demo.
 harness/        the differential test harness: replay a trace through the
-                emulator (emulatorSide.ts) and through a pluggable
-                HardwareLink (hardwareSide.ts, types.ts), diff the
-                results (compare.ts, diff.ts). fixtures/loopbackLink.ts is
-                a FAKE link for testing the harness itself, not real
-                hardware - see docs/harness.md.
+                emulator (emulatorSide.ts, a thin node:fs wrapper over
+                src/replayCore.ts) and through a pluggable HardwareLink
+                (hardwareSide.ts, types.ts), diff the results (src/compare.ts,
+                diff.ts). fixtures/loopbackLink.ts is a FAKE link for
+                testing the harness itself, not real hardware - see
+                docs/harness.md.
+test/regression/ builds two tiny fixture firmwares (one draw call
+                different between them) and proves the hardware-free
+                regression check actually catches the difference - see
+                docs/harness.md and run.ts's own header comment.
 docs/           abi.md (the ABI as a page), requirements.md, agent-loop.md
-                (the optional freeze/annotate layer), harness.md, and
-                decisions/ (the why).
+                (the optional freeze/annotate layer, plus the failed-
+                regression-check export), harness.md (also covers the
+                hardware-free regression check), and decisions/ (the why).
 scripts/        scripts/verify.ts: headless proof the page works and, once
                 a wasm module exists, that it actually renders in response
                 to real input.
-server.ts       the local dev server (127.0.0.1 only, see below).
+server.ts       the local dev server (127.0.0.1 only, see below). Also
+                serves the hardware-free regression check's own routes
+                (/api/baseline, /api/regression-result), backed by
+                baselineStore.ts.
+baselineStore.ts disk persistence for the regression check: where a saved
+                baseline lives (baselines/latest/) and where a check's
+                result gets exported for an agent (regressions/latest/,
+                see docs/agent-loop.md). Kept out of server.ts itself so
+                test/regression/run.ts can call it directly with no HTTP
+                server and no browser.
 build.ts        static dist/ build, for serving this page from something
                 other than the dev server.
 ```

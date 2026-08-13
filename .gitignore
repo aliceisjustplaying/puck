@@ -8,9 +8,19 @@ dist/
 # `bun run test:hostile` (or `bun run test/hostile/build.ts` on its own)
 test/hostile/dist/
 
+# Regression-check test fixture build output: regenerate with
+# `bun run test:regression` (or `bun run test/regression/build.ts` on its own)
+test/regression/dist/
+
 # Runtime-written, transient (see docs/agent-loop.md)
 freezes/
 traces/
+
+# The hardware-free regression check's own state (src/regression.ts):
+# baselines/ is what you saved, regressions/ is the last check's result.
+# Both transient by the same reasoning as freezes/ and traces/ above.
+baselines/
+regressions/
 
 # Differential harness output (PNGs from `bun run harness/diff.ts --out`)
 harness/out/

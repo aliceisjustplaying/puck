@@ -17,7 +17,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { replayEmulator } from "./emulatorSide";
 import { replayHardware } from "./hardwareSide";
-import { compareFrames } from "./compare";
+import { compareFrames } from "../src/compare";
 import makeLoopbackLink from "./fixtures/loopbackLink";
 import type { TraceEvent } from "./types";
 

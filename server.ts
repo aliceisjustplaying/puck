@@ -2,16 +2,20 @@
 // module (built separately, see wasm/emu_abi.h and each firmware's own
 // build script), and a handful of small write routes: /api/quit, /api/freeze
 // and /api/trace (write debugging artifacts to a predictable path an agent
-// can read directly, see docs/agent-loop.md), and /api/livereload (a
-// websocket the page listens on so editing firmware and rebuilding shows up
-// on screen without a manual refresh: fast iteration is the whole point of
-// this being a local tool).
+// can read directly, see docs/agent-loop.md), /api/baseline and
+// /api/regression-result (the hardware-free regression check's own
+// persistence, see baselineStore.ts and src/regression.ts - a baseline has
+// to survive a live reload, which is exactly the moment it gets asked for),
+// and /api/livereload (a websocket the page listens on so editing firmware
+// and rebuilding shows up on screen without a manual refresh: fast
+// iteration is the whole point of this being a local tool).
 //
 // Launched by hand (`bun run server.ts` / `bun dev`); no console to Ctrl+C
 // once backgrounded, so the quit button in the page is not optional.
 import { watch, existsSync, mkdirSync, writeFileSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { join, basename } from "node:path";
 import index from "./src/index.html";
+import { saveBaseline, loadBaseline, saveRegressionResult, type BaselineOnDisk, type RegressionResultOnDisk } from "./baselineStore";
 
 const PORT = Number(process.env.PORT) || 5340;
 
@@ -108,6 +112,54 @@ async function saveTrace(req: Request): Promise<Response> {
   writeFileSync(join(TRACES_DIR, "latest.json"), text);
   console.log(`trace -> traces/${stamp}.json`);
   return Response.json({ path: `traces/${stamp}.json` });
+}
+
+// ---- the hardware-free regression check's own persistence ---------------
+//
+// A baseline (src/regression.ts's BaselineBundle: the input trace plus a
+// frame at each chosen capture point) has to survive the page reloading,
+// because the page reloading is exactly the moment "did I just break
+// something" gets asked - see src/regression.ts's header comment. An
+// in-memory baseline would be gone by then, and the frames are too large
+// (a few hundred KB each) to comfortably keep several of in localStorage.
+// Disk, through this same dev server that already persists freezes/ and
+// traces/, is the obvious answer: it survives a reload trivially (it isn't
+// tied to the browser session at all), and it's the same pattern this file
+// already uses twice above.
+async function postBaseline(req: Request): Promise<Response> {
+  if (!guard(req)) return new Response("nope", { status: 403 });
+  let body: BaselineOnDisk;
+  try {
+    body = (await req.json()) as BaselineOnDisk;
+  } catch {
+    return new Response("bad json", { status: 400 });
+  }
+  const { path } = saveBaseline(body);
+  console.log(`baseline -> ${path}`);
+  return Response.json({ ok: true, path });
+}
+
+function getBaseline(): Response {
+  const baseline = loadBaseline();
+  if (!baseline) return new Response("no baseline saved yet", { status: 404 });
+  return Response.json(baseline);
+}
+
+// Written on every check, pass or fail: see docs/agent-loop.md's "A failed
+// regression check, for an agent" section for why this mirrors a freeze
+// bundle's own shape (the input that provoked it, the frame that used to
+// be right, the frame that is wrong now).
+async function postRegressionResult(req: Request): Promise<Response> {
+  if (!guard(req)) return new Response("nope", { status: 403 });
+  let body: RegressionResultOnDisk;
+  try {
+    body = (await req.json()) as RegressionResultOnDisk;
+  } catch {
+    return new Response("bad json", { status: 400 });
+  }
+  const { path } = saveRegressionResult(body);
+  console.log(`regression check (${body.pass ? "pass" : "FAIL"}) -> ${path}`);
+  return Response.json({ ok: true, path });
 }
 
 // ---- live reload: watch the wasm build output, tell connected pages -----
@@ -240,6 +292,8 @@ const server = Bun.serve({
     "/api/quit": { POST: quit },
     "/api/freeze": { POST: saveFreeze },
     "/api/trace": { POST: saveTrace },
+    "/api/baseline": { GET: getBaseline, POST: postBaseline },
+    "/api/regression-result": { POST: postRegressionResult },
     "/api/livereload": {
       GET(req, srv) {
         if (srv.upgrade(req)) return;

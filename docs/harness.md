@@ -177,6 +177,49 @@ produce a silently wrong or skipped capture point rather than an error.
 `harness/diff.ts` now checks this up front and exits `2` with the exact
 index and timestamps involved if it finds a violation.
 
+## A regression check with no hardware
+
+Everything above needs a `HardwareLink`. Most people, most of the time -
+and the entire early life of any device that doesn't have a board yet -
+don't have one, and the question they actually keep asking isn't "does the
+emulator match my hardware", it's "did I just break something that used to
+work". `src/regression.ts` answers that, from inside the page, using
+nothing this repo didn't already build for the section above:
+
+1. **baseline**: replays your current input trace against a fresh instance
+   of the current module (`src/replayCore.ts`'s `replayFromBytes`, the same
+   function `replayEmulator` above is now a thin wrapper around) and saves
+   the trace plus a frame at each of a handful of capture points
+   (`src/regression.ts`'s `pickCapturePoints`), persisted to
+   `baselines/latest/` (see `server.ts` / `baselineStore.ts`) so it survives
+   a live reload - the page reloading is exactly the moment this question
+   gets asked, and an in-memory baseline would already be gone.
+2. **check**: replays the SAME saved trace against the CURRENT module
+   (which may be a fresh rebuild) and diffs the result against the saved
+   frames with this same file's `compareFrames` (moved to `src/compare.ts`
+   specifically so the page can call it with no dependency on anything
+   under `harness/`).
+
+In the page: two buttons ("baseline", "check") and, on a failure, a small
+modal showing the baseline frame, the current frame and a diff heatmap for
+every capture point that diverged - the same visual a `--out` divergence
+from `harness/diff.ts` writes to disk, just shown in place. A failed check
+is also written to `regressions/latest/` in the same shape a freeze bundle
+uses, so an agent can pick it up - see
+[`docs/agent-loop.md`](agent-loop.md#a-failed-regression-check-for-an-agent).
+
+**Read this bound before trusting a clean check more than it has earned:
+this compares the emulator against ITSELF, at two points in time.** There
+is no hardware anywhere in this path, not even the loopback fake above. A
+clean check is evidence the emulator draws the same thing for the same
+input as when the baseline was saved - nothing more. It catches a firmware
+regression in your application logic. It says nothing about whether the
+emulator still agrees with real hardware (that's what the rest of this
+document is for), and nothing about timing, for exactly the same reason
+stated in "What this catches, and what it cannot" below: the emulator's
+clock is whatever the host hands `emu_tick()`, on both sides of this
+comparison, always.
+
 ## Capture points
 
 The harness never captures every tick - that would be far too slow for

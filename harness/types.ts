@@ -5,8 +5,9 @@
 
 import type { DeviceDescriptor } from "../src/wasm";
 import type { TraceEvent } from "../src/recorder";
+import type { CapturedFrame } from "../src/frame";
 
-export type { TraceEvent };
+export type { TraceEvent, CapturedFrame };
 
 export interface Trace {
   schemaVersion: 1;
@@ -24,11 +25,12 @@ export interface Trace {
 // your transport's wire format (base64, RLE, raw SPI dump, a camera
 // photograph you've perspective-corrected, anything), only about what your
 // adapter hands back.
-export interface CapturedFrame {
-  width: number;
-  height: number;
-  rgb: Uint8Array; // width * height * 3 bytes
-}
+//
+// Defined in src/frame.ts, not here (imported above, re-exported below):
+// the in-page hardware-free regression check (src/regression.ts) needs the
+// exact same shape and must not depend on anything under harness/, so the
+// shared type lives on the src/ side and this file just re-exports it for
+// every harness/*.ts file already importing CapturedFrame from here.
 
 // The pluggable side of the harness. Your own transport (serial, USB, a
 // debug probe, a camera pointed at the panel with autocrop, anything that

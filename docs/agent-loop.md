@@ -112,6 +112,51 @@ One freeze produces two files, written together (`server.ts`'s
     `schemaVersion` is `2` for this reason (`1` bundles predate this field
     entirely).
 
+## A failed regression check, for an agent
+
+A failed check from the hardware-free regression check (`src/regression.ts`,
+see [`docs/harness.md`](harness.md#a-regression-check-with-no-hardware)) is
+arguably the single most useful thing this repo can hand an agent: it
+carries the exact input that provoked the problem, the frame that used to
+be right, and the frame that is wrong now, all at once. It is exported in
+the same spirit as a freeze bundle - a predictable path, self-contained,
+honest about what it is - deliberately not forked into a different shape
+just because it comes from a different button.
+
+`server.ts`'s `/api/regression-result` route writes, on every check
+(pass or fail):
+
+```
+regressions/
+  latest/
+    result.json
+    t<atMs>.baseline.png   (only for a capture point that diverged)
+    t<atMs>.current.png
+    t<atMs>.diff.png
+```
+
+Like `freezes/latest/`, this is a single always-overwritten slot, not a
+history: a regression result is a status report about "right now", and a
+previous failing check's PNGs are deleted before a new result is written,
+so nothing here can be mistaken for still applying after a later, clean
+check.
+
+`result.json` mirrors a freeze bundle's own fields on purpose - `device`,
+`input` (the trace that produced every capture point, most-recent-event
+semantics aside), `points` (one entry per capture point: match/diverge,
+pixel counts, first divergent coordinate) - plus `diverged`, which names
+which capture points failed and points at their three PNGs. There is no
+`panelPngBase64` field here the way a freeze bundle has one: a regression
+result can have zero, one, or several diverging frames, so the images live
+as sibling files instead of a single embedded field.
+
+**The same honesty bound applies here as everywhere else in this
+document**: this compares the emulator against itself. A failed check means
+your firmware draws something different than it used to, for the exact
+same input - it says nothing about real hardware, and nothing about timing.
+See `docs/harness.md`'s own statement of this, right where the feature is
+introduced.
+
 ## Where an agent finds it
 
 A predictable path, gitignored and transient:

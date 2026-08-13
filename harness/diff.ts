@@ -52,7 +52,7 @@ import { join } from "node:path";
 import { replayEmulator } from "./emulatorSide";
 import { replayHardware } from "./hardwareSide";
 import { encodeRGBPNG } from "./png";
-import { compareFrames } from "./compare";
+import { compareFrames } from "../src/compare";
 import type { CapturedFrame, HardwareLink, Trace } from "./types";
 
 // Three distinct outcomes, three distinct exit codes: CI reads exit codes,

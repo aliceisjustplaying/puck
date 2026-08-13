@@ -40,6 +40,15 @@
         <button id="btnSaveTrace" class="chrome-btn" title="save the full input trace (replayable)">save</button>
         <label class="chrome-btn filebtn" title="load a saved trace and replay it">load<input id="traceFileInput" type="file" accept="application/json" /></label>
         <span class="divider"></span>
+        <!-- A regression check needing no hardware: save the current input
+             trace + frames as a baseline, then later ask whether the SAME
+             trace still draws the same thing. Compares the emulator against
+             itself only - see docs/harness.md - so it catches a firmware
+             regression, and proves nothing about real hardware or timing. -->
+        <button id="btnSaveBaseline" class="chrome-btn" title="save the current input trace and its captured frames as your regression baseline: a later check replays it and tells you if firmware behaviour changed, no hardware involved">baseline</button>
+        <button id="btnCheckBaseline" class="chrome-btn" title="replay the saved baseline's trace against the current module and report any pixel divergence. Catches a firmware regression against itself; proves nothing about real hardware or timing">check</button>
+        <span id="regressionPill" class="pill hint hidden"></span>
+        <span class="divider"></span>
         <button id="btnQuit" class="btn danger sm">quit</button>
       </div>
 

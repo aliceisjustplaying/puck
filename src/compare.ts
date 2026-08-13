@@ -1,7 +1,13 @@
-// Pixel comparison between two captured frames, shared by harness/diff.ts
-// (the CLI) and harness/selftest.ts (the no-hardware-required self-test).
+// Pixel comparison between two captured frames. One function, reused by
+// every consumer that needs to know whether two frames match: the
+// differential harness's CLI (harness/diff.ts) and self-test
+// (harness/selftest.ts), comparing the emulator against real hardware or a
+// loopback fake, AND the in-page hardware-free regression check
+// (src/regression.ts), comparing the current module's output against a
+// saved baseline. Lives in src/, not harness/, precisely so the page can
+// import it directly with no dependency on anything under harness/.
 
-import type { CapturedFrame } from "./types";
+import type { CapturedFrame } from "./frame";
 
 export interface FrameDiff {
   match: boolean;

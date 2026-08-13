@@ -22,6 +22,7 @@ import { Recorder, type Trace, type TraceEvent } from "./recorder";
 import { Replayer } from "./replay";
 import { postFreeze, canvasToPngBase64, openAnnotationModal, type FreezeBundle, type EngineStatus } from "./freeze";
 import { emptyJournal } from "./journal";
+import { captureBaseline, checkAgainstBaseline, toRegressionResultPayload, openRegressionModal, type BaselineBundle, type RegressionCheck } from "./regression";
 import { TouchSim, type TouchReport } from "./touchsim";
 import { type TouchSimConfig, TOUCHSIM_DEFAULTS, TOUCH_DEFECTS_DEFAULT } from "./constants";
 import { WindowShakeDetector } from "./windowshake";
@@ -1025,6 +1026,108 @@ async function saveTraceToServer(): Promise<void> {
   }
 }
 
+// ---- hardware-free regression check: "did I just break something" ------
+//
+// Everything this needs already exists: recorder.ts captures the trace,
+// src/regression.ts replays it deterministically against a FRESH module
+// instance (never the live, ticking one - same reasoning as startReplay
+// above) and diffs the result with the same compareFrames the differential
+// harness uses. This file's only job is wiring the two buttons to that and
+// to the server routes that make a baseline survive a reload (see
+// server.ts / baselineStore.ts).
+//
+// BE HONEST: this compares the emulator against itself. It catches a
+// firmware regression; it proves nothing about real hardware or timing -
+// see docs/harness.md's "A regression check with no hardware" section, and
+// this feature's own button tooltips in index.html.
+function showRegressionPill(text: string, kind: "ok" | "fail" | "neutral"): void {
+  const el = $("#regressionPill");
+  el.textContent = text;
+  el.className = kind === "neutral" ? "pill hint" : `pill status ${kind}`;
+}
+
+async function saveBaselineToServer(): Promise<void> {
+  if (!emu || !device || !wasmBytes) {
+    consoleLog.push("cannot save baseline: no wasm module loaded");
+    return;
+  }
+  const trace = recorder.toTrace(device);
+  if (trace.events.length === 0) {
+    consoleLog.push("cannot save baseline: nothing recorded yet -- touch or press something first, or let a few ticks run");
+    return;
+  }
+  consoleLog.push("saving baseline (replaying against a fresh module instance)...");
+  try {
+    const baseline = await captureBaseline(wasmBytes, trace.events);
+    const res = await fetch("/api/baseline", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-puck-emulator": "1" },
+      body: JSON.stringify(baseline),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as { path: string };
+    consoleLog.push(`baseline saved -> ${data.path} (${baseline.capturePoints.length} capture point(s))`);
+    showRegressionPill(`baseline: ${baseline.capturePoints.length}pt`, "neutral");
+  } catch (err) {
+    consoleLog.push(`save baseline failed: ${errMsg(err)}`);
+  }
+}
+
+async function checkBaseline(): Promise<void> {
+  if (!wasmBytes) {
+    consoleLog.push("cannot check: no wasm module loaded");
+    return;
+  }
+  let baseline: BaselineBundle;
+  try {
+    const res = await fetch("/api/baseline");
+    if (res.status === 404) {
+      consoleLog.push('no baseline saved yet -- click "baseline" first');
+      return;
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    baseline = (await res.json()) as BaselineBundle;
+  } catch (err) {
+    consoleLog.push(`load baseline failed: ${errMsg(err)}`);
+    return;
+  }
+
+  consoleLog.push("checking against baseline (replaying its trace against a fresh instance of the current module)...");
+  let check: RegressionCheck;
+  try {
+    check = await checkAgainstBaseline(wasmBytes, baseline);
+  } catch (err) {
+    consoleLog.push(`regression check failed to run: ${errMsg(err)}`);
+    return;
+  }
+
+  const failCount = check.points.filter((p) => !p.match).length;
+  consoleLog.push(
+    check.pass
+      ? `regression check: PASS (${check.points.length} capture point(s), against the emulator only)`
+      : `regression check: FAIL, ${failCount}/${check.points.length} capture point(s) diverged`
+  );
+  showRegressionPill(check.pass ? "regression: pass" : `regression: fail ${failCount}/${check.points.length}`, check.pass ? "ok" : "fail");
+
+  try {
+    const payload = toRegressionResultPayload(baseline, check);
+    const res = await fetch("/api/regression-result", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-puck-emulator": "1" },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { path: string };
+      consoleLog.push(`regression result -> ${data.path}`);
+    }
+  } catch {
+    // Best-effort export: the in-page pill/modal already reported the
+    // result regardless of whether writing it to disk for an agent works.
+  }
+
+  if (!check.pass) void openRegressionModal(check);
+}
+
 // ---- live reload: watch server tells us when the wasm build changed ----
 function connectLiveReload(): void {
   const dot = $("#reloadDot");
@@ -1168,6 +1271,12 @@ function wireStaticUI(): void {
   });
   $<HTMLButtonElement>("#btnSaveTrace").addEventListener("click", () => {
     void saveTraceToServer();
+  });
+  $<HTMLButtonElement>("#btnSaveBaseline").addEventListener("click", () => {
+    void saveBaselineToServer();
+  });
+  $<HTMLButtonElement>("#btnCheckBaseline").addEventListener("click", () => {
+    void checkBaseline();
   });
 
   $<HTMLInputElement>("#touchDefectsOn").addEventListener("change", (e) => {
