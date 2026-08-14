@@ -119,17 +119,26 @@ your own transport, and diff the resulting frames.
 
 ```
 bun run harness:selftest                     # proves the mechanism works, no hardware needed
+bun run harness:hardware                     # the real thing, against the puck on USB
 bun run harness/diff.ts trace.json --link ./myBoardLink.ts
 ```
 
 Your hardware side is a small interface (`harness/types.ts`'s
 `HardwareLink`: connect, disconnect, send an event, take a screenshot) you
 implement against whatever transport you actually have. Nothing in
-`harness/` is hardwired to one device. Full explanation, a worked reference
-implementation description, and - importantly - an honest account of what
-this catches and what it cannot (it does not eliminate the two-compilers
-problem above, and it will not catch timing or CPU-level bugs, stated with
-a concrete real-world example) is in
+`harness/` is hardwired to one device; `harness/links/devlinkLink.ts` is
+this repo's own implementation of it, over the USB-serial link in
+`device/`.
+
+**It has been run against the real board, and the results are in the
+docs.** The idle stopwatch screen matches pixel for pixel with zero
+tolerance. A drawn stroke does not: the same trace, replayed three times,
+lost half the stroke once, broke it into three pieces once, and got the
+edges wrong the third time. The full account, the screenshot pacing that
+was measured rather than guessed, and an honest list of what this catches
+and what it cannot (it does not eliminate the two-compilers problem above,
+it cannot see colour, it cannot prove any real button or fingertip reaches
+the firmware, and it will not catch timing or CPU-level bugs) is in
 [`docs/harness.md`](docs/harness.md).
 
 ## Layout
@@ -144,7 +153,10 @@ wasm/           wasm/emu_abi.h, the ABI contract every firmware in this
                 ecosystem implements.
 example/        a tiny, real, working example firmware (see below) and
                 its build script.
-harness/        the differential test harness.
+harness/        the differential test harness. links/ holds the real
+                HardwareLink for the puck (over device/'s USB devlink),
+                inputs/ the traces it replays, fixtures/ the no-hardware
+                fake the self-test uses.
 docs/           docs/abi.md (the ABI as a page), docs/requirements.md,
                 docs/agent-loop.md (the optional freeze/annotate layer for
                 a coding agent working alongside you), docs/harness.md,

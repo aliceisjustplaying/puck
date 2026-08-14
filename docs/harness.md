@@ -27,8 +27,24 @@ bun run harness/diff.ts <trace.json> --link <path-to-your-link.ts> [options]
 
 Full option list is documented at the top of `harness/diff.ts`. The
 `--link` module must export a factory function returning a `HardwareLink`
-(see `harness/types.ts`). You do not have real hardware handy right now,
-so start with the harness's own self-test instead:
+(see `harness/types.ts`).
+
+**This repo now ships a real one.** `harness/links/devlinkLink.ts` drives
+the RP2350 board `device/` is the firmware for, over devlink
+(`device/tools/README-devlink.md`), and `bun run harness:hardware` is a
+complete run against it:
+
+```
+bun run device:build          # the board's firmware, compiled to wasm
+bun run harness:hardware      # replay one trace both ways and diff
+```
+
+It needs a board. With none attached it fails in about a second with a
+message naming the port it tried and why it gave up, and exits `2` (the
+comparison never happened), never `1` (the comparison ran and diverged).
+See "Against the real board" below for what it actually found.
+
+With no hardware, start with the harness's own self-test instead:
 
 ```
 bun run harness:selftest
@@ -72,13 +88,171 @@ RGB, 3 bytes per pixel, row-major, top-left origin - already decoded from
 whatever your transport's wire format is. The harness makes no assumption
 about that wire format; decoding it is entirely your adapter's job.
 
-## A worked reference: the project this repo was extracted from
+## Against the real board
 
-This repo did not invent its own hardware transport; it was extracted from
-a project that already had one. That project's own link
-(`tools/dev.ts`/`firmware/devlink.c` in that repo, documented in
-`tools/README-devlink.md` there) is a small line-based command protocol
-over the same USB-serial port a board's runtime already prints debug
+Everything below this line was measured, on 2026-08-14, against the
+RP2350-Touch-AMOLED-1.8 on `COM4`, through
+`harness/links/devlinkLink.ts`. Until that day this document described a
+`HardwareLink` nobody had written and a comparison nobody had run; the
+paragraphs that said so have been replaced by what happened.
+
+### What was run
+
+| Trace | Capture points | Result |
+| --- | --- | --- |
+| `harness/inputs/chrono-idle.trace.json` (64 events, ticks only) | 1, at t=1008 | **MATCH**, byte-identical at tolerance 0, repeatedly |
+| `harness/inputs/draw-stroke.trace.json` (193 events: the menu chord, a tap on the "draw" icon, an 11-sample stroke) | 2, at t=1600 and t=2800 | **DIVERGE** at the stroke, every time, by a different amount every time |
+| `harness/inputs/menu-chord.trace.json` (160 events: the chord alone) | 1, at t=2000 | **never compared**: the board physically cannot send that screenshot, see "the payload ceiling" |
+
+**The idle screen matches exactly.** The stopwatch at `00:00:00`, freshly
+entered, is the same 164,864 pixels on both sides, with zero tolerance.
+That is a real result and a bigger one than it looks: it means the wasm
+build and the ARM build agree pixel for pixel on `digits.c`'s seven-bar
+numerals, `gfx.c`'s rotation and the whole RGB565 pipeline, and it means
+this harness's own pixel path (the emulator's framebuffer reader, devlink's
+RLE stream, the greyscale reconstruction in `devlinkLink.ts`) is exact
+rather than approximately right.
+
+**The stroke does not match, and does not fail the same way twice.** Three
+runs of the identical trace, on the same board, minutes apart:
+
+1. the board drew the stroke as **three disconnected fragments**, plus one
+   mark in a corner no trace event asked for (2,300 px, 1.40%)
+2. the board drew **only the second half** of the stroke, starting at
+   sample 5 of 11, ending exactly where the emulator's did (928 px, 0.56%)
+3. the board drew **the whole stroke**, and what was left was the
+   anti-aliased edge along one side of it and the end cap (670 px, 0.41%)
+
+The emulator drew the same clean line all three times. So the best case is
+still a divergence: two builds of one `sketch.c`, fed one trace, agree on
+where a stroke goes and disagree on its coverage. The worst case loses half
+the stroke.
+
+**This is decision 0008 arriving on schedule**
+([`device/docs/decisions/0008-the-emulator-seam-is-in-the-wrong-place.md`](../device/docs/decisions/0008-the-emulator-seam-is-in-the-wrong-place.md)).
+Both sides run the same `sketch.c` - it is above the seam - so identical
+input has to produce identical pixels, and these pixels differ. Therefore
+the input differed. `emu_shim.c` pushes an `emu_touch()` straight into a
+queue drained once per 16ms tick; the board's injected sample goes into a
+core0 ring merged by timestamp into the real stream and drained by a loop
+running about 217,000 times a second, so one injected report is re-observed
+at the same coordinates thousands of times before the next one arrives -
+which is the shape of the real controller's behaviour decision 0008
+measured ("about sixty repeated reports per new position"), reproduced here
+by accident. `sketch.c`'s stroke-start confirmation and dropout tolerances
+read that cadence, and the two cadences are not the same cadence.
+
+The instability across runs is the other half of the finding and the more
+uncomfortable one: **a single clean run of this harness against this app
+would have meant nothing.** Run 3 alone looks like a rounding difference.
+
+### The screenshot pacing, measured
+
+A screenshot is the expensive thing here and it is the one that has
+rebooted this board before, so `harness/hardwarePacing.ts` measures it
+rather than assuming:
+
+```
+bun run harness:hardware:pacing          # ladder of gaps: 1000, 500, 250, 100, 0 ms
+bun run harness:hardware:pacing 0 250    # explicit gaps
+```
+
+Six shots at each gap, on two different screens (60 shots), watching for a
+truncated payload and for the board changing app underneath the run:
+
+| screen | RLE payload | shot cost, median | worst | truncated | reboots |
+| --- | --- | --- | --- | --- | --- |
+| chrono, idle | 2,162 B | 281-295 ms | 530 ms | 0/30 | 0 |
+| timer | 3,854 B | 482-535 ms | 596 ms | 0/30 | 0 |
+
+**Nothing failed, at any gap, down to zero.** Back-to-back screenshots with
+no pause at all did not truncate, did not change the app, and left the
+profiler's `shot drops` counter at 0. That is not what the folklore around
+this board said, and the reason is in the firmware: `devlink.c` caps one
+reply at `DEVLINK_SHOT_BUDGET_US` (750 ms) and closes it with `END`
+regardless, so a shot can no longer hold the main loop long enough to
+starve the 4 s watchdog. The reboots that motivated that cap happened
+before it existed. `DEFAULT_SHOT_MIN_MS` still ships at 250 ms, as margin
+on somebody else's board, not because zero was observed to fail.
+
+The cost fits `20 ms + 0.12 ms per RLE byte`, which is 11.2 KB/s of base64
+- the byte rate of 115200 8N1, to two digits. Screenshot cost is serial
+transmit time and nothing else.
+
+### The payload ceiling, which is the real limit
+
+The 750 ms budget converts directly into **a screen complexity limit of
+about 6.3 KB of RLE**, and past it the screenshot is not slow, it is
+impossible. The menu trace found it immediately:
+
+```
+SHOT truncated: header promised 7784 RLE bytes, 6327 arrived
+```
+
+The app menu does not compress small enough to leave the board inside its
+own budget, so **this harness cannot compare the menu screen at all** at
+115200. The link reports that as a truncation naming the budget, not as a
+corrupt image and not as a divergence, and the run exits `2`. Whether a
+higher `DEVLINK_BAUD` moves the ceiling was not tested: the emulator dev
+server owned the port at 115200 throughout, and evicting it to find out was
+not worth the risk to a board somebody else was using.
+
+Practical consequence: point this harness at screens that are mostly one
+colour. That is most of this device's apps, and it is not a coincidence -
+the same run-length structure that makes a screenshot cheap is what makes
+the panel pushes cheap.
+
+### How a reset is detected
+
+A board that reboots mid-run comes back in app 0 with a zeroed arena, and
+diffing frames across that is exactly the instrument that lies
+([`device/docs/decisions/0004`](../device/docs/decisions/0004-the-day-the-instruments-lied.md)).
+Two readings, both over devlink, both free:
+
+1. **Which app is running.** Every capture is followed by `APP`. `reset()`
+   deliberately parks the board in a known app first, so "not that app any
+   more" is a signal rather than a shrug. This is the strong one, and it is
+   why the shipped smoke-test trace does not switch apps.
+2. **The profiler's cumulative counters going backwards.** This firmware's
+   `prof` line has no absolute uptime field (`loops=` and `core1=` are
+   per-second rates), but `core1restarts=` and `shot drops=` count from
+   boot, so either one decreasing is a reboot. The link reads them off the
+   shared port for free, on its way past the noise to every reply, and a
+   `shot drops` that goes UP is reported too - that is the board telling
+   you it truncated something.
+
+A trace that drives its own app switch has to relax the first one
+(`PUCK_HW_APP_TRACKING=follow`), which genuinely weakens reset detection to
+the counters alone. What backs it up there is the comparison itself: a
+board that reset would be showing app 0 while the emulator side shows
+whatever the trace navigated to, and that is not a subtle diff.
+
+### Two things this run found that were not the firmware
+
+**The board and the emulator were not built from the same source, and the
+harness could not have told you.** The board answers `SWITCH 3` with `OK`
+and reports `APP 3 four`; `device/firmware`'s `g_apps[]` has three entries.
+Nothing in devlink carries a build identity - `PING` returns a protocol
+version and the panel size - so a differential run cannot verify that the
+two sides are the same program, which is a strictly larger hole than the
+two-compilers problem below. It surfaced only because the menu's touch
+columns are `LAND_W / g_appCount` wide, so one tap coordinate selected
+`draw` on a three-app build and `timer` on the four-app one, and the run
+diverged by 28% of the panel. If you get a divergence that large, check
+this first.
+
+**`harness/diff.ts` was writing zero-byte PNGs.** `writePng` did not await
+`Bun.write`, and `main()` ends in `process.exit()`, so all three images the
+tool announced on a divergence lost the race - at exactly the moment the
+images are the only thing that can say which side is wrong. Fixed here,
+found by the first real divergence.
+
+## A worked reference: how the shipped link maps onto devlink
+
+This repo's `HardwareLink` implementation is
+`harness/links/devlinkLink.ts`, over the protocol
+`device/tools/README-devlink.md` documents: a small line-based command
+protocol over the same USB-serial port the runtime already prints debug
 output to:
 
 - `PING` - liveness and protocol version
@@ -97,8 +271,20 @@ A `HardwareLink` adapter over a protocol like this is almost entirely
 mechanical: `send()` maps a `TraceEvent` to the matching command line(s)
 (`touch` down → `DOWN x y`, `button` → `KEY`/`BOOT`, `sensor` → whatever
 your device injects for that sensor id), and `screenshot()` sends `SHOT`,
-decodes the RLE+base64 reply, and returns the decoded pixels as RGB (a
-greyscale panel converts trivially: `r = g = b = grey`).
+decodes the RLE+base64 reply, and returns the decoded pixels as RGB.
+
+**One line of that is a trap, and it cost the first exact match here.** A
+greyscale panel does NOT convert to RGB as `r = g = b = grey`. This board
+stores RGB565 and `SHOT` sends `px_to_gray()`, the 6-bit green channel
+shifted up by two, while the emulator side reads the same framebuffer word
+and expands each field with bit replication (`src/panel.ts`). Expanding the
+byte naively gives 252 where the emulator gives 255 for white, so every
+pixel of a perfectly correct frame is off by three and no run ever matches
+at tolerance 0. Reversing the panel's own packing instead - green is
+`byte >> 2`, red and blue are `byte >> 3` for a neutral pixel - reconstructs
+the emulator's exact triple, which is why the idle screen above matches with
+zero tolerance rather than needing a fudge factor. Do the algebra for your
+own panel; do not reach for `--tolerance`.
 
 **The one thing worth calling out explicitly, because it is not obvious
 from the protocol alone**: button/key injection like this proves your
@@ -122,6 +308,37 @@ real build, at the framebuffer, for a given input sequence, at whatever
 capture points you chose. If your wasm build draws a different pixel than
 your board does for the exact same trace, this finds it and shows you
 both images plus a diff heatmap.
+
+**Does not check that the two sides are the same program.** Nothing in
+devlink carries a build identity, so the harness will happily diff a wasm
+module built from your working tree against whatever firmware happens to be
+flashed. That happened on the first real run here (three apps against four)
+and it produced a 28%-of-the-panel divergence that looked like a rendering
+bug. Before believing any large divergence, confirm the board is running
+the commit you built. This is a bigger hole than the two-compilers problem
+below, and unlike that one it is entirely avoidable by reflashing.
+
+**Does not see colour.** `SHOT`'s wire format is one greyscale byte per
+pixel, because this panel is used as monochrome. The sketchpad's palette,
+`sketch.c`'s `tint_to_px`, and `runtime.c`'s red core1-dead screen all
+arrive as a green channel and come back out as grey. A coloured screen
+diffed this way reports a divergence that is in the WIRE FORMAT, not in the
+firmware. Do not point this at a coloured screen and believe the number.
+
+**Does not prove the input path.** Every input this link delivers is
+injected downstream of the silicon that produces it: `KEY` skips the
+AXP2101's register read and its write-1-to-clear, `BOOT` skips the flash
+chip-select borrow, and `DOWN`/`MOVE`/`UP` skip the FT3168 entirely. See
+`device/tools/README-devlink.md`'s "What injection cannot test" and
+[`device/docs/decisions/0004`](../device/docs/decisions/0004-the-day-the-instruments-lied.md),
+where a whole day was lost to a rig that injected downstream of the layer
+that had failed: every hardware verification run passed while the device
+was unusable by hand. **A green run of this harness is not evidence that a
+real finger or a real thumb reaches the firmware.** Concretely, on this
+device it cannot see: the touch threshold register `FT3168_Init()` never
+writes, the PMIC's read-and-clear timing, the BOOT pad's chip-select
+borrow, or anything core1 does - and the first of those is half of the
+worst bug this project has shipped.
 
 **Does not eliminate the two-compilers problem.** See
 [`docs/decisions/0002-two-compilers-not-one.md`](decisions/0002-two-compilers-not-one.md):

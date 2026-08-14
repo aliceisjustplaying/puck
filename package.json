@@ -11,6 +11,8 @@
     "device:screens": "bun run device/tools/screens.ts",
     "device:demo": "bun run device/tools/demo.ts",
     "harness:selftest": "bun run harness/selftest.ts",
+    "harness:hardware": "bun run harness/diff.ts harness/inputs/chrono-idle.trace.json --link harness/links/devlinkLink.ts",
+    "harness:hardware:pacing": "bun run harness/hardwarePacing.ts",
     "test:hostile": "bun run test/hostile/run.ts",
     "test:regression": "bun run test/regression/run.ts"
   },

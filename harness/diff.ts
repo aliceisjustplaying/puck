@@ -206,9 +206,9 @@ async function main(): Promise<void> {
       );
       if (args.outDir) {
         const base = `t${atMs}`;
-        writePng(join(args.outDir, `${base}.emulator.png`), emuFrame.frame);
-        writePng(join(args.outDir, `${base}.hardware.png`), hwFrame.frame);
-        if (d.diffImage) writePng(join(args.outDir, `${base}.diff.png`), { width: emuFrame.frame.width, height: emuFrame.frame.height, rgb: d.diffImage });
+        await writePng(join(args.outDir, `${base}.emulator.png`), emuFrame.frame);
+        await writePng(join(args.outDir, `${base}.hardware.png`), hwFrame.frame);
+        if (d.diffImage) await writePng(join(args.outDir, `${base}.diff.png`), { width: emuFrame.frame.width, height: emuFrame.frame.height, rgb: d.diffImage });
         console.log(`    wrote ${base}.{emulator,hardware,diff}.png -> ${args.outDir}`);
       }
     }
@@ -225,8 +225,14 @@ async function main(): Promise<void> {
   process.exit(allMatch ? EXIT_OK : EXIT_DIVERGENCE);
 }
 
-function writePng(path: string, frame: CapturedFrame): void {
-  Bun.write(path, encodeRGBPNG(frame.width, frame.height, frame.rgb));
+// Awaited, and every call site awaits it, because main() ends in
+// process.exit(): Bun.write returns a promise, and an unawaited one loses
+// the race against the exit. Found on this repo's first real hardware
+// divergence, where all three PNGs this tool had just announced it had
+// written turned out to be zero bytes - the exact moment the images are the
+// only thing that can tell you which side is wrong.
+async function writePng(path: string, frame: CapturedFrame): Promise<void> {
+  await Bun.write(path, encodeRGBPNG(frame.width, frame.height, frame.rgb));
 }
 
 // Dynamic `import()` needs a proper module specifier; a bare relative path

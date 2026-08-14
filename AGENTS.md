@@ -54,6 +54,15 @@ touch stroke and confirms the panel actually changed.
 mechanism works, with no real hardware required (see `harness/fixtures/loopbackLink.ts`'s
 header comment for exactly what that does and does not prove).
 
+`bun run harness:hardware` is the same harness against the actual board on
+USB (`harness/links/devlinkLink.ts`), and `bun run harness:hardware:pacing`
+measures what screenshot rate that board tolerates. Both need hardware and
+both say so and exit `2` within about a second when there is none. Read
+[`docs/harness.md`](docs/harness.md)'s "Against the real board" before
+running either: a hardware run SWITCHES APPS, which zeroes the app arena,
+so it destroys whatever the owner had on screen (a drawing, a running
+timer). It never reflashes and never leaves the port held.
+
 `bun run test:regression` proves the in-page, hardware-free regression
 check (`src/regression.ts`, the "baseline"/"check" buttons - see
 `docs/harness.md`) actually catches a firmware regression: it builds two
