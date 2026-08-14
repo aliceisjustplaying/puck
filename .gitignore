@@ -18,6 +18,10 @@ test/hostile/dist/
 # `bun run test:regression` (or `bun run test/regression/build.ts` on its own)
 test/regression/dist/
 
+# C++20/WASI loader fixture build output: regenerate with `bun run test:wasi`
+test/wasi/build/
+test/wasi/dist/
+
 # Runtime-written, transient (see docs/agent-loop.md)
 freezes/
 traces/
