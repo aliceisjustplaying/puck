@@ -7,6 +7,8 @@
     "typecheck": "tsc --noEmit",
     "verify": "bun run scripts/verify.ts",
     "example:build": "bun run example/build.ts",
+    "device:build": "bun run device/wasm/build.ts",
+    "device:screens": "bun run device/tools/screens.ts",
     "harness:selftest": "bun run harness/selftest.ts",
     "test:hostile": "bun run test/hostile/run.ts",
     "test:regression": "bun run test/regression/run.ts"

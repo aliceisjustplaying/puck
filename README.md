@@ -1,11 +1,35 @@
 # puck
 
-A local emulator for small screen-and-buttons devices. Your firmware's C
-compiles to WebAssembly; this gives it a panel, buttons, touch and a clock
-in a browser page, served by a local dev server with live reload.
+A small touchscreen toy, and the tools that made it.
 
-(Working name. Trivially renamed later; nothing about how it works depends
-on the name.)
+The puck is a plastic disc the size of a large coin with a 368x448 AMOLED in
+it: a stopwatch, a sketchpad and a countdown timer, for a child who cannot
+read yet. You pick between them by touching one of three pictures.
+
+![The menu: a stopwatch, a pencil, an hourglass](device/preview/screen-menu.png)
+
+This repository is two halves of the same thing.
+
+| | |
+|---|---|
+| **[`device/`](device/)** | The firmware. Real C for a real board (the Waveshare RP2350-Touch-AMOLED-1.8, and nothing else). One binary, three apps, a picture menu. |
+| the root | An emulator. It compiles that same firmware's own C a second time, to WebAssembly, and runs it in a browser page with a panel, buttons, touch and a clock. |
+
+**Just want it on your board?** Download the `.uf2` from
+[Releases](../../releases), hold the upper side button, plug in the USB
+cable, and drag the file onto the drive that appears.
+[`device/README.md`](device/README.md) has the four steps in full, and what
+to do if it ever stops responding.
+
+**Want to try it without buying anything?** `bun install && bun run
+device:build && bun run dev` gives you the puck in a browser page. Same
+apps, same rasteriser, same app-switching logic, because it is the same C.
+The one thing it can never answer is whether the real thing feels fast.
+
+The emulator is not specific to this device. It is built entirely from what
+a firmware's `emu_device()` declares at runtime, so it will run yours too;
+everything below is about that, and `device/` is the worked example that
+proves it carries a real firmware rather than a toy one.
 
 ## Run it
 
@@ -24,6 +48,11 @@ same ABI your own firmware will use.
 Needs [Bun](https://bun.sh) and [zig](https://ziglang.org/download/) (or
 another C-to-`wasm32-freestanding` compiler; `example/build.ts` uses `zig
 cc` and documents why). Set `ZIG_EXE` if it isn't at `zig` on your `PATH`.
+
+To run the puck's own firmware instead of the example, `bun run
+device:build` (which also needs zig) and reload. That is the same command
+`device/README.md` gives, and it writes to the same `wasm/dist/emu.wasm`,
+so there is no wiring step between the two.
 
 To point this at your own firmware, write a build script that compiles
 your C to `wasm/dist/emu.wasm` (copy `example/build.ts`, which is a real,
@@ -103,6 +132,12 @@ scripts/        headless verification (puppeteer-core against a local
 server.ts       the local dev server. Binds 127.0.0.1 explicitly. Also
                 backs the hardware-free regression check's persistence
                 (baselineStore.ts).
+device/         the puck's own firmware: the C that runs on the board, the
+                build that turns it into a .uf2, the build that turns the
+                same files into wasm/dist/emu.wasm for the page above, the
+                regression tests, the USB link that drives a real board
+                headlessly, and the decision records. Read
+                device/README.md first.
 ```
 
 ## The example firmware

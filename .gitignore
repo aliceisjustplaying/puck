@@ -4,6 +4,12 @@ node_modules/
 wasm/dist/
 dist/
 
+# The device firmware's CMake build tree (25MB of objects and a copy of half
+# the Pico SDK's object files). Regenerate with the two cmake commands in
+# device/README.md; the .uf2 it produces is attached to a GitHub release,
+# never committed.
+device/firmware/build/
+
 # Hostile-firmware regression suite build output: regenerate with
 # `bun run test:hostile` (or `bun run test/hostile/build.ts` on its own)
 test/hostile/dist/

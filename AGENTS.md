@@ -14,8 +14,13 @@ the shipped binary - see `docs/decisions/0002-two-compilers-not-one.md`
 before assuming more than that. This distinction is load-bearing; do not
 describe this tool as running "the exact binary" anywhere.
 
-Working name; the repo may be renamed later without changing anything
-about how it works.
+**The repository has two halves.** The root is that emulator, and it names
+no device. `device/` is one real firmware: the puck itself, a stopwatch, a
+sketchpad and a countdown timer for the Waveshare RP2350-Touch-AMOLED-1.8.
+`device/` has its own `AGENTS.md`, and it is the first thing to read before
+touching any C, any CMake, or anything about that board. The two are wired
+together by exactly one artefact: `device/wasm/build.ts` writes this repo's
+`wasm/dist/emu.wasm`.
 
 ## How to run it
 
@@ -24,6 +29,12 @@ bun install
 bun run example:build   # compiles example/firmware/main.c -> wasm/dist/emu.wasm
 bun run dev             # http://127.0.0.1:5340
 ```
+
+`bun run device:build` swaps the example for the puck's real firmware,
+writing the same `wasm/dist/emu.wasm`. It needs `zig`, and its wasm link
+segfaults on roughly one run in three; that is a known zig bug, not your
+change, so run it again. `bun run device:screens` regenerates
+`device/README.md`'s screenshots from that module.
 
 To point it at your own firmware instead: write a `build.ts` that compiles
 your C to `wasm/dist/emu.wasm` (copy `example/build.ts`'s shape, see
@@ -68,9 +79,11 @@ fails and names the exact capture point that changed.
   button name, anywhere in `src/`, `server.ts`, or `harness/`. A device
   declares its own shape through `emu_device()` (see `docs/abi.md`), and
   everything else is built from that JSON at runtime. If you're about to
-  write `368` or `"PWR"` as a literal anywhere outside `example/`, stop -
-  that number or name belongs in a firmware's own `emu_device()`, not
-  here.
+  write `368` or `"PWR"` as a literal anywhere outside `example/` or
+  `device/`, stop - that number or name belongs in a firmware's own
+  `emu_device()`, not here. `device/` is allowed to name its own board
+  because it IS one board's firmware; that is the whole point of the
+  boundary, and it is why the emulator half must never import from it.
 - **No em dashes**, anywhere, including code comments and docs. Use
   commas, colons, parentheses, or periods.
 - **No ASCII art, no badges** in any markdown file.
@@ -134,6 +147,16 @@ baselineStore.ts disk persistence for the regression check: where a saved
                 server and no browser.
 build.ts        static dist/ build, for serving this page from something
                 other than the dev server.
+device/         the OTHER half of this repository: the puck's own firmware,
+                for the Waveshare RP2350-Touch-AMOLED-1.8. It has its own
+                README.md, AGENTS.md, NOTICE.md and docs/decisions/, and
+                it is the one place in this repo that is allowed to name a
+                specific board. `bun run device:build` compiles its C to
+                wasm/dist/emu.wasm, which is how the page above ends up
+                running a real firmware instead of example/. The
+                dependency runs one way only: device/ builds into this
+                repo's wasm/dist/, and nothing in src/, harness/ or
+                server.ts may ever import from device/.
 ```
 
 ## Gotchas that bite

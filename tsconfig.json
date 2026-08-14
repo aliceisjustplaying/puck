@@ -10,5 +10,10 @@
     "noEmit": true,
     "types": ["bun-types"]
   },
-  "include": ["src/**/*.ts", "server.ts", "build.ts", "baselineStore.ts", "scripts/**/*.ts", "harness/**/*.ts", "example/*.ts", "test/**/*.ts"]
+  "include": [
+    "src/**/*.ts", "server.ts", "build.ts", "baselineStore.ts",
+    "scripts/**/*.ts", "harness/**/*.ts", "example/*.ts", "test/**/*.ts",
+    "device/tools/*.ts", "device/wasm/**/*.ts"
+  ],
+  "//": "device/tools/invariants/ is a separate project with its own tsconfig.json (it runs under a different toolchain contract); typecheck it there."
 }
