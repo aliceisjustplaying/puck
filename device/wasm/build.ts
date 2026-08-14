@@ -160,10 +160,34 @@ const args = [
 ];
 
 console.log(`${ZIG} ${args.join(" ")}`);
-const result = Bun.spawnSync([ZIG, ...args], { stdout: "inherit", stderr: "inherit" });
+
+// zig cc crashes inside its own linker roughly one run in three with this
+// many -Wl,--export= flags: exit code 5, no diagnostic, and the very next
+// attempt with identical arguments succeeds. It is a compiler bug, not
+// anything wrong with the tree.
+//
+// Retried here rather than merely documented, because the person most likely
+// to hit it is somebody running this for the first time, on their first
+// command, before they have any reason to believe the repository works. A
+// crash with no message is where they stop. Anyone debugging a real build
+// failure still sees every attempt's output, and a genuine error reproduces
+// on all of them.
+// The pause matters as much as the retry. The failure rate is far worse when
+// something else is compiling at the same time (measured here: five straight
+// failures under a concurrent build, then a clean first attempt once it
+// finished), so this is contention, not a coin flip, and hammering it
+// immediately mostly reproduces the same collision.
+const MAX_ATTEMPTS = 8;
+const RETRY_PAUSE_MS = 400;
+let result = Bun.spawnSync([ZIG, ...args], { stdout: "inherit", stderr: "inherit" });
+for (let attempt = 2; !result.success && attempt <= MAX_ATTEMPTS; attempt++) {
+  console.error(`zig cc exited ${result.exitCode}, retrying (${attempt}/${MAX_ATTEMPTS}) - see this call's comment`);
+  Bun.sleepSync(RETRY_PAUSE_MS);
+  result = Bun.spawnSync([ZIG, ...args], { stdout: "inherit", stderr: "inherit" });
+}
 
 if (!result.success) {
-  console.error(`zig cc exited ${result.exitCode}`);
+  console.error(`zig cc exited ${result.exitCode} on all ${MAX_ATTEMPTS} attempts, so this is a real build failure`);
   process.exit(result.exitCode ?? 1);
 }
 
