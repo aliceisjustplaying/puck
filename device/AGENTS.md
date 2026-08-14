@@ -172,6 +172,9 @@ tools/dev.ts         drives the board over USB: screenshot, tap, drag,
 tools/invariants/    static checks over the linked image, run by the build
 tools/screens.ts     regenerates the README's screenshots from the real
                      firmware
+tools/demo.ts        regenerates the README's animated GIF by playing with
+                     the real emulator page in a real browser (puppeteer),
+                     then encoding the frames with ffmpeg
 tools/*lucide*.ts    turn the Lucide SVGs into the point arrays menu.c carries
 docs/decisions/      why things are the way they are
 preview/             the README's images, and the palette test's screenshots

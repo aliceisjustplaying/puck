@@ -68,6 +68,13 @@ let accentColor = "#c4621f";
 const recorder = new Recorder();
 const consoleLog = new ConsoleLog(500, appendConsoleLine);
 const pushOverlay = new PushOverlay();
+// PushOverlay ships enabled (its own default), because the class is also
+// used headless where nothing would ever switch it on. In the page it
+// starts off, matching its unchecked box below: two overlays sharing one
+// canvas is a rendering detail, not a reason to make them one switch, and
+// the push outlines are the noisier of the two by a wide margin (every
+// pushed rectangle, every frame, over whatever the app is drawing).
+pushOverlay.enabled = false;
 const touchOverlay = new TouchOverlay();
 const shortcuts = new ShortcutRegistry();
 const windowShake = new WindowShakeDetector();
@@ -83,8 +90,11 @@ const soundPlayer = new SoundPlayer();
 let shakeSensorIndex = -1;
 let centeredOnce = false;
 
-// The overlay toggle (disc, trail and coordinate readout together, one
+// The contact toggle (disc, trail and coordinate readout together, one
 // switch). Off by default: it is noise until someone actually wants it.
+// The push-window outlines have their own switch (pushOverlay.enabled,
+// above): one wants to see a finger, the other wants to see geometry, and
+// they are rarely the same question.
 let overlayEnabled = false;
 
 // Diagnostics kept for the one-line strip at the bottom of the page:
@@ -951,9 +961,10 @@ function frame(): void {
     // Painted every frame, unconditionally: this is a status, not a
     // diagnostics preference like overlayEnabled below it.
     paintDeadOverlay(overlayCtx, overlayEl.width, overlayEl.height);
-  } else if (overlayEnabled) {
-    pushOverlay.paint(overlayCtx, now, accentColor);
-    touchOverlay.paint(overlayCtx, now, accentColor);
+  } else {
+    // Two independent switches, one shared canvas (cleared once, above).
+    pushOverlay.paint(overlayCtx, now, accentColor); // no-ops while disabled
+    if (overlayEnabled) touchOverlay.paint(overlayCtx, now, accentColor);
   }
   pollWindowShake(now);
   puckMotion.tick(window.screenX, window.screenY, now);
@@ -1323,6 +1334,10 @@ function wireStaticUI(): void {
   $<HTMLInputElement>("#overlayOn").addEventListener("change", (e) => {
     overlayEnabled = (e.target as HTMLInputElement).checked;
     if (!overlayEnabled) overlayCtx.clearRect(0, 0, overlayEl.width, overlayEl.height);
+  });
+  $<HTMLInputElement>("#pushesOn").addEventListener("change", (e) => {
+    pushOverlay.enabled = (e.target as HTMLInputElement).checked;
+    if (!pushOverlay.enabled) overlayCtx.clearRect(0, 0, overlayEl.width, overlayEl.height);
   });
 
   $("#rotQuick")

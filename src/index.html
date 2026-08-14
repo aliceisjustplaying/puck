@@ -78,6 +78,15 @@
                  you; "contact" says what a fingertip is doing. -->
             <label for="overlayOn" title="show the touch disc, trail and coordinates on the panel">contact</label>
           </div>
+          <!-- The push-window outlines are their own switch, not part of
+               "contact": one answers "where is the finger", the other
+               "what geometry did the firmware actually send", and wanting
+               one is not wanting the other. They do share a canvas, which
+               is a rendering detail and not a reason to share a control. -->
+          <div class="toggle-row">
+            <input id="pushesOn" type="checkbox" />
+            <label for="pushesOn" title="outline every rectangle the firmware's push path actually sent, fading">pushes</label>
+          </div>
           <div class="toggle-row">
             <input id="touchDefectsOn" type="checkbox" />
             <label for="touchDefectsOn" title="simulate a real touch controller: report rate, dropped contact, stray reports. Off = clean pass-through">defects</label>

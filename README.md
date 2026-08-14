@@ -2,11 +2,22 @@
 
 A small touchscreen toy, and the tools that made it.
 
+![Playing with the puck: picking the sketchpad from the menu, drawing a
+face, opening the colour palette and picking red, drawing again in red,
+holding both side buttons to get back to the menu, running the stopwatch,
+winding the timer's dial](device/preview/demo.gif)
+
 The puck is a plastic disc the size of a large coin with a 368x448 AMOLED in
 it: a stopwatch, a sketchpad and a countdown timer, for a child who cannot
 read yet. You pick between them by touching one of three pictures.
 
-![The menu: a stopwatch, a pencil, an hourglass](device/preview/screen-menu.png)
+That recording is not a mockup and not a screen capture of a design tool. It
+is this repository's firmware, compiled to WebAssembly, running in this
+repository's emulator, driven by a script that presses one mouse and two
+keys ([`device/tools/demo.ts`](device/tools/demo.ts) regenerates it). The
+finger and its trail are the emulator's own touch-contact overlay; the two
+side buttons are its chrome, filling as a hold approaches its threshold.
+Everything else on the panel was drawn by the firmware.
 
 This repository is two halves of the same thing.
 
@@ -26,8 +37,84 @@ device:build && bun run dev` gives you the puck in a browser page. Same
 apps, same rasteriser, same app-switching logic, because it is the same C.
 The one thing it can never answer is whether the real thing feels fast.
 
-The emulator is not specific to this device. It is built entirely from what
-a firmware's `emu_device()` declares at runtime, so it will run yours too;
+## The three apps
+
+All three live in [`device/firmware/apps/`](device/firmware/apps/), one file
+each, and they ship as one binary: switching between them is a function
+call, not a reboot. Hold **both side buttons** together for about a second
+and a half and the three pictures appear. Touch one. The same chord closes
+the menu again and goes back to what was running.
+
+![The menu: a stopwatch, a pencil, an hourglass](device/preview/screen-menu.png)
+
+That chord is the only way in and out, and it is the only navigation the
+device has. No app carries a back arrow, a clock, a battery indicator or its
+own name anywhere on screen, on purpose:
+[decision 0002](device/docs/decisions/0002-runtime-architecture.md) argues
+it, and the case gets a physical mark instead. **PWR is the lower side
+button, BOOT the upper one.**
+
+| | | |
+|---|---|---|
+| ![](device/preview/screen-chrono.png) | ![](device/preview/screen-sketch.png) | ![](device/preview/screen-timer.png) |
+
+### The stopwatch, `apps/chrono.c`
+
+Six digits, `MM:SS:CC`, and nothing else on the screen. **PWR starts and
+stops it. BOOT resets it to zero**, from any state.
+
+A stop is applied in the same tick the press arrives, before that tick
+redraws, because a stopwatch that freezes a frame late is a stopwatch that
+reads wrong. It is also the one app deliberately deaf to the shake sensor:
+shaking is how the sketchpad erases, and a number a child is carrying across
+a room should not be destroyed by a jolt.
+
+### The sketchpad, `apps/sketch.c`
+
+Draw with a finger. The ink varies in width and tapers at both ends like a
+real pen, but this panel has no pressure to report (the touch controller
+answers zero to its own weight and area registers, always, however hard you
+press), so the width comes from how fast the stroke is moving: fast is
+light. Overlapping segments composite darkest-wins rather than blending,
+which is what keeps a slow stroke from compounding into the hard, pixelated
+edge the anti-aliasing exists to avoid.
+
+**Shake the puck to erase.** It wipes in sixteen bands rather than blanking,
+and a touch during the wipe stops it part way.
+
+**Hold a finger still** for half a second, without moving more than about
+12 pixels, and the whole screen becomes a grid of nine colours. Slide onto
+one and lift to pick it; lift in a gap between two and nothing changes.
+Black sits in the middle, because that is the device's own ink. The dot that
+hold would otherwise have drawn is rolled back, so opening the palette never
+marks the page.
+
+![The palette: nine colours over the whole screen, black in the middle](device/preview/palette-open.png)
+
+### The timer, `apps/timer.c`
+
+A dial you wind, not a number you type. Drag a finger around the ring:
+**one full turn is fifteen minutes**, and carrying on past twelve o'clock
+winds a second, inner band, up to a **thirty minute** maximum. Every part of
+the dial is worth the same five seconds per step, everywhere, which matters
+for someone who cannot yet read the digits in the middle: an earlier version
+had three different step sizes at three different radii, and the same finger
+movement meaning different things in different places is what made it
+unusable.
+
+**PWR starts it and pauses it. BOOT resets** it to the value you set, and
+from a blank dial recalls the last one, so "again" is a single press.
+
+At zero it flashes black and white twice a second and rings: four rising
+notes, synthesised sample by sample rather than stored, because a stored
+phrase would cost tens of kilobytes of SRAM this device does not have. Any
+touch and any button stops it, since a child reaching for a beeping object
+should not have to remember which one.
+
+## The emulator
+
+It is not specific to this device. It is built entirely from what a
+firmware's `emu_device()` declares at runtime, so it will run yours too;
 everything below is about that, and `device/` is the worked example that
 proves it carries a real firmware rather than a toy one.
 
@@ -153,11 +240,15 @@ function it implements and links back to where.
 ## Debugging and iteration
 
 - **Pause / step** a frame at a time (bottom bar).
-- **Push-window overlay**: every rectangle your firmware's push path
-  actually sent gets drawn as a fading outline. A partial-refresh bug is a
-  bug about window geometry, and it is invisible until this exists.
-- **Touch-contact overlay**: shows the actual fingertip-sized contact disc
-  against your layout, not a one-pixel mouse click, plus a fading trail.
+- **Push-window overlay** (the "pushes" switch): every rectangle your
+  firmware's push path actually sent gets drawn as a fading outline. A
+  partial-refresh bug is a bug about window geometry, and it is invisible
+  until this exists.
+- **Touch-contact overlay** (the "contact" switch): shows the actual
+  fingertip-sized contact disc against your layout, not a one-pixel mouse
+  click, plus a fading trail. Its own switch, not the one above: one
+  answers "where is the finger", the other "what geometry went out", and
+  they share nothing but a canvas.
 - **Simulated touch-controller defects** (report rate, dropped contact,
   stray reports), off by default, for exercising the robustness code a
   real touch controller's imperfections force your firmware to carry.

@@ -6,12 +6,23 @@
 //      is NOT a blank screen. This is the state a fresh clone is in before
 //      anyone has built anything.
 //   2. The real path: if the module exists (e.g. after `bun run
-//      example:build`), confirm the device actually comes up, AND drive a
-//      real synthetic touch stroke across the panel via page.mouse, then
-//      read the canvas pixels back and confirm they changed. This is the
-//      concrete proof this repo's own README promises: not just "the page
-//      didn't crash", but "a firmware, compiled fresh, drew something in
-//      response to real input, through the real ABI, in a real browser".
+//      example:build`), confirm the device actually comes up, AND drive
+//      real synthetic input at it, then read the canvas pixels back and
+//      confirm they changed. This is the concrete proof this repo's own
+//      README promises: not just "the page didn't crash", but "a firmware,
+//      compiled fresh, drew something in response to real input, through
+//      the real ABI, in a real browser".
+//
+//      Input means a touch stroke first, and then, only if the panel did
+//      not move, each button the firmware DECLARED, pressed in turn. Touch
+//      alone is not a safe proxy for "is this thing alive": a firmware is
+//      perfectly entitled to ignore a finger in whatever it happens to be
+//      showing (a stopwatch face has nothing to draw for one), and this
+//      script is not allowed to know which app that is or which button
+//      would wake it. Trying every declared input is the device-agnostic
+//      way to ask the same question, and it is a stronger check than the
+//      touch stroke was on its own, not a weaker one: the failure below
+//      now means nothing this device declares can make it draw.
 //
 // Uses puppeteer-core against a local Chrome install (no bundled Chromium
 // download), the same pattern documented in AGENTS.md.
@@ -136,15 +147,42 @@ try {
     await page.mouse.up();
     await new Promise((r) => setTimeout(r, 300)); // let a few more ticks run
 
-    const after = await page.evaluate(() => {
-      const c = document.querySelector("canvas#panel") as HTMLCanvasElement;
-      return Array.from(c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data);
-    });
+    const readPanel = () =>
+      page.evaluate(() => {
+        const c = document.querySelector("canvas#panel") as HTMLCanvasElement;
+        return Array.from(c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data);
+      });
+    const countDiff = (a: number[], b: number[]) => {
+      let n = 0;
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) n++;
+      return n;
+    };
 
-    let changed = 0;
-    for (let i = 0; i < before.length; i++) if (before[i] !== after[i]) changed++;
-    console.log(`panel pixels changed after a real synthetic stroke: ${changed} byte(s) different out of ${before.length}`);
-    if (changed === 0) fail("drove a real touch stroke across the panel and NOT ONE PIXEL changed; the firmware is not responding to input");
+    let changed = countDiff(before, await readPanel());
+    let via = "a real synthetic touch stroke";
+
+    if (changed === 0) {
+      // The chrome's buttons are built one per emu_device() entry (main.ts),
+      // so this presses exactly what this firmware said it has, in the
+      // order it declared them, and stops at the first one that draws.
+      const buttons = await page.$$("#bezel .dev-btn");
+      console.log(`touch alone moved nothing; trying the ${buttons.length} button(s) this device declared`);
+      for (let i = 0; i < buttons.length; i++) {
+        await buttons[i]!.click();
+        await new Promise((r) => setTimeout(r, 400));
+        changed = countDiff(before, await readPanel());
+        if (changed > 0) {
+          via = `a real synthetic press of declared button ${i}`;
+          break;
+        }
+      }
+    }
+
+    console.log(`panel pixels changed after ${via}: ${changed} byte(s) different out of ${before.length}`);
+    if (changed === 0)
+      fail(
+        "drove a real touch stroke across the panel AND pressed every button this firmware declared, and NOT ONE PIXEL changed; nothing this device declares as an input is reaching it"
+      );
     console.log("PASS: the panel rendered fresh pixels in response to real input, through the real ABI, in a real browser");
   }
 } finally {

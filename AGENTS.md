@@ -34,7 +34,10 @@ bun run dev             # http://127.0.0.1:5340
 writing the same `wasm/dist/emu.wasm`. It needs `zig`, and its wasm link
 segfaults on roughly one run in three; that is a known zig bug, not your
 change, so run it again. `bun run device:screens` regenerates
-`device/README.md`'s screenshots from that module.
+`device/README.md`'s screenshots from that module, and `bun run device:demo`
+regenerates both READMEs' animated GIF by driving the real page in a real
+browser and encoding the frames with `ffmpeg` (a binary this repo invokes,
+like `zig`; set `FFMPEG_EXE` if it is not on `PATH`).
 
 To point it at your own firmware instead: write a `build.ts` that compiles
 your C to `wasm/dist/emu.wasm` (copy `example/build.ts`'s shape, see

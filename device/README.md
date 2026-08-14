@@ -4,15 +4,21 @@ A stopwatch, a sketchpad and a countdown timer, in a plastic puck the size of a
 large coin, for a child who cannot read yet. You pick between them by touching
 one of three pictures.
 
-![The menu: a stopwatch, a pencil, an hourglass](preview/screen-menu.png)
+![Playing with the puck: picking the sketchpad from the menu, drawing a
+face, opening the colour palette and picking red, drawing again in red,
+holding both side buttons to get back to the menu, running the stopwatch,
+winding the timer's dial](preview/demo.gif)
 
 | | |
 |---|---|
 | ![](preview/screen-chrono.png) | ![](preview/screen-sketch.png) |
 | ![](preview/screen-timer.png) | ![](preview/palette-open.png) |
 
-Those are not mockups. Every image here is the real firmware's own
-framebuffer, dumped by [`tools/screens.ts`](tools/screens.ts).
+Those are not mockups. The four stills are the real firmware's own
+framebuffer, dumped by [`tools/screens.ts`](tools/screens.ts). The animation
+is that same firmware running in the emulator at the repository root, played
+with by [`tools/demo.ts`](tools/demo.ts): a script pressing one mouse and two
+keys in a real browser, recorded frame by frame.
 
 ## Put it on your board
 
@@ -164,7 +170,8 @@ wasm/               builds the same firmware to WebAssembly for the emulator
                     at the repository root, plus the regression tests.
 tools/              dev.ts (drive the board), invariants/ (static checks over
                     the linked image, run by the build), screens.ts (the
-                    images in this file), and the Lucide icon converters.
+                    stills in this file), demo.ts (the animation in this
+                    file), and the Lucide icon converters.
 docs/decisions/     why things are the way they are. Start at its README.
 preview/            the images above.
 third_party/lucide/ five icons, ISC. See NOTICE.md.
