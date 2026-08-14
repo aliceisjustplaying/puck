@@ -77,10 +77,12 @@ device:build` (which also needs zig) and reload. That is the same command
 so there is no wiring step between the two.
 
 To point this at your own firmware, write a build script that compiles
-your C to `wasm/dist/emu.wasm` (copy `example/build.ts`, which is a real,
-working reference, not a stub) and implement the ABI it needs
-(`wasm/emu_abi.h`, or the readable version at `docs/abi.md`). Live reload
-picks up a rebuilt module automatically, no manual browser refresh.
+your source to `wasm/dist/emu.wasm` and implement the ABI it needs
+(`wasm/emu_abi.h`, or the readable version at `docs/abi.md`). Copy
+`example/build.ts` for freestanding C. C++20 firmware can instead use a
+`wasm32-wasip1` reactor with libc++; `test/wasi/build.ts` is the executable
+reference and documents its toolchain dependencies. Live reload picks up a
+rebuilt module automatically, no manual browser refresh.
 
 ## MCU and board support
 
@@ -95,10 +97,14 @@ Board revisions that use different physical controllers usually share one
 Puck device description when their logical panel and inputs are the same. Keep
 revision detection and driver selection in the firmware project. Use separate
 wasm builds or descriptors only when a revision changes behavior visible at
-the ABI. The reference build is freestanding C. A C++ firmware that depends
-on a standard library needs its own wasm C++ runtime/toolchain rather than
-assuming `example/build.ts` supplies one. C++ ABI implementations must also use
-C linkage so their exported names match `wasm/emu_abi.h` exactly.
+the ABI. The smallest reference build is freestanding C. For C++20 firmware,
+Puck also loads WASI Preview 1 reactors backed by libc++; install a matching
+Clang, `wasi-libc`, and libc++ runtime (on macOS with Homebrew: `brew install
+llvm wasi-libc wasi-runtimes`). This route supplies containers and allocation
+while Puck deliberately implements only the runtime's terminal stdout/stderr
+file calls, not clocks, randomness, networking, environment, or a filesystem.
+C++ ABI implementations must use C linkage so their exported names match
+`wasm/emu_abi.h` exactly.
 
 ## What this actually guarantees, read before you trust it
 
@@ -169,8 +175,9 @@ src/            the page itself: wasm loader, panel blitter, push-window
                 declares at runtime.
 wasm/           wasm/emu_abi.h, the ABI contract every firmware in this
                 ecosystem implements.
-example/        a tiny, real, working example firmware (see below) and
-                its build script.
+example/        a tiny, real, working freestanding-C firmware (see below)
+                and its build script.
+test/wasi/      a C++20/libc++ reactor fixture and loader regression test.
 harness/        the differential test harness. links/ holds the real
                 HardwareLink for the puck (over device/'s USB devlink),
                 inputs/ the traces it replays, fixtures/ the no-hardware
@@ -236,8 +243,9 @@ function it implements and links back to where.
 
 ## Conventions
 
-TypeScript only for everything this repo owns; C only for the ABI header
-and firmware (yours, or the example); a build toolchain like `zig` is
-invoked as a binary, never authored as a language here. See
+TypeScript only for the emulator implementation; C/C++ is limited to the ABI
+header and firmware fixtures (yours, the example, or the C++ reactor test). A
+build toolchain like `zig` or Clang is invoked as a binary, never authored as
+a language here. See
 [`AGENTS.md`](AGENTS.md) for the full set of conventions and the gotchas
 that bite.

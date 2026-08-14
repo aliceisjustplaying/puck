@@ -8,8 +8,8 @@ repo gives it a panel, input devices and a clock, in a browser page served
 by a local CLI, so the app logic can be iterated on and debugged without a
 flash cycle.
 
-**It runs the firmware's own C, compiled again.** Same source, a different
-compiler, a different target than what ships. NOT the same object code as
+**It runs the firmware's own C or C++, compiled again.** Same source, a
+different compiler, a different target than what ships. NOT the same object code as
 the shipped binary - see `docs/decisions/0002-two-compilers-not-one.md`
 before assuming more than that. This distinction is load-bearing; do not
 describe this tool as running "the exact binary" anywhere.
@@ -40,9 +40,9 @@ browser and encoding the frames with `ffmpeg` (a binary this repo invokes,
 like `zig`; set `FFMPEG_EXE` if it is not on `PATH`).
 
 To point it at your own firmware instead: write a `build.ts` that compiles
-your C to `wasm/dist/emu.wasm` (copy `example/build.ts`'s shape, see
-`docs/abi.md`'s "Building your firmware to wasm"), run it, then `bun run
-dev`. Live reload picks up a rebuilt module automatically.
+your source to `wasm/dist/emu.wasm`. Copy `example/build.ts` for
+freestanding C or `test/wasi/build.ts` for a C++20/libc++ reactor, then run
+`bun run dev`. Live reload picks up a rebuilt module automatically.
 
 `bun run typecheck` must pass before any change is considered done.
 `bun run verify` drives the page headlessly with `puppeteer-core` against a
@@ -69,6 +69,11 @@ check (`src/regression.ts`, the "baseline"/"check" buttons - see
 tiny fixture firmwares that differ by one draw call, and confirms a check
 fails and names the exact capture point that changed.
 
+`bun run test:wasi` builds a C++20/libc++ WASI reactor and loads it through
+the real wasm loader. It requires a matching Clang, wasi-libc, and libc++
+runtime; on macOS, install them with `brew install llvm wasi-libc
+wasi-runtimes`.
+
 ## Conventions
 
 - **TypeScript only, for everything this repo owns.** The page, the wasm
@@ -80,13 +85,10 @@ fails and names the exact capture point that changed.
 - **Zig (or whatever C-to-wasm32-freestanding toolchain you use) is a
   binary this repo's build scripts invoke, exactly like `git` or `cmake`.
   It is never a language anything in this repo is authored in.**
-- **C belongs to firmware, not to this repo's own tooling.** The only C
-  this repo carries is `wasm/emu_abi.h` (the ABI contract) and
-  `example/firmware/main.c` (a worked example of someone else's firmware,
-  demonstrating the contract - not this repo's own code in the sense the
-  rule above means). Anything under `example/` is written the way a
-  firmware author would write it, not the way this repo's tooling is
-  written.
+- **C and C++ belong to firmware, not to this repo's own tooling.** This
+  repo carries the C ABI header, firmware examples, and focused firmware
+  fixtures under `test/`. They demonstrate the contract and toolchain paths;
+  the emulator, loaders, build scripts, and test runners remain TypeScript.
 - **Nothing names one device.** No hardcoded panel size, no hardcoded
   button name, anywhere in `src/`, `server.ts`, or `harness/`. A device
   declares its own shape through `emu_device()` (see `docs/abi.md`), and
@@ -140,6 +142,8 @@ test/regression/ builds two tiny fixture firmwares (one draw call
                 different between them) and proves the hardware-free
                 regression check actually catches the difference - see
                 docs/harness.md and run.ts's own header comment.
+test/wasi/      builds a C++20/libc++ reactor and verifies the loader's
+                narrow WASI import and reactor-initialization support.
 docs/           abi.md (the ABI as a page), requirements.md, agent-loop.md
                 (the optional freeze/annotate layer, plus the failed-
                 regression-check export), harness.md (also covers the

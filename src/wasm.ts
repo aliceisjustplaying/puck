@@ -10,9 +10,13 @@
 // parameter costs nothing and avoids closing that door later.
 
 import { validateFbPtr } from "./abiGuard";
+import { ENV_IMPORT_NAMES, WASI_PREVIEW1_IMPORT_NAMES } from "./abiSurface";
 
 export interface EmuExports {
   memory: WebAssembly.Memory;
+  // WASI reactor modules export this startup hook for C/C++ static
+  // initialization. Plain freestanding modules omit it.
+  _initialize?(): void;
   emu_device(): number;
   emu_init(): number;
   emu_tick(nowMs: number): void;
@@ -108,34 +112,91 @@ export interface DeviceDescriptor {
 
 export const DEFAULT_WASM_URL = "wasm/emu.wasm";
 
-// The nine math functions and the one logging call emu_abi.h documents as
-// what a freestanding module imports, under the "env" module namespace the
-// header's own import list is written against. If the actual build uses
-// different names, a different namespace, or asks for an import not listed
-// here, WebAssembly.instantiate throws naming exactly what it asked for and
-// didn't get; that error is rethrown verbatim by loadEmuModule rather than
-// swallowed, which is the mechanism emu_abi.h itself names for reconciling
-// the two sides.
+// The env imports are the original freestanding C surface. The deliberately
+// small WASI surface below also admits libc++ reactor modules: allocation and
+// containers are self-contained in the module, while libc++abi's terminal
+// error path retains stdio file operations. We implement only those file
+// calls, not clocks, randomness, environment, networking, or a filesystem;
+// deterministic firmware must not acquire a second source of time or input.
 function buildImportObject(onLog: (text: string) => void, getMemory: () => WebAssembly.Memory | undefined): WebAssembly.Imports {
+  const decoder = new TextDecoder();
   const readString = (ptr: number, len: number): string => {
     const memory = getMemory();
     if (!memory) return "";
-    return new TextDecoder().decode(new Uint8Array(memory.buffer, ptr, len));
+    return decoder.decode(new Uint8Array(memory.buffer, ptr, len));
   };
-  return {
-    env: {
-      sinf: Math.sin,
-      cosf: Math.cos,
-      atan2f: Math.atan2,
-      sqrtf: Math.sqrt,
-      fabsf: Math.abs,
-      floorf: Math.floor,
-      fmodf: (a: number, b: number) => a % b,
-      powf: Math.pow,
-      expf: Math.exp,
-      js_log: (ptr: number, len: number) => onLog(readString(ptr, len)),
+
+  // WASI Preview 1 errno values used by this narrow adapter.
+  const E2BIG = 1;
+  const ESUCCESS = 0;
+  const EBADF = 8;
+  const EFAULT = 21;
+  const fdWrite = (fd: number, iovs: number, iovsLen: number, writtenPtr: number): number => {
+    const memory = getMemory();
+    if (!memory) return EFAULT;
+    if (fd !== 1 && fd !== 2) return EBADF;
+    // WebAssembly i32 values arrive in JavaScript as signed numbers. Convert
+    // pointer bits back to unsigned wasm32 offsets before bounds checks.
+    const iovsPtr = iovs >>> 0;
+    const count = iovsLen >>> 0;
+    const resultPtr = writtenPtr >>> 0;
+    // This is a diagnostic path, not a bulk output channel. Bound attacker-
+    // controlled counts before looping or allocating on behalf of a module.
+    if (count > 1024) return E2BIG;
+    try {
+      const view = new DataView(memory.buffer);
+      const memoryBytes = memory.buffer.byteLength;
+      const tableBytes = count * 8;
+      if (iovsPtr > memoryBytes || tableBytes > memoryBytes - iovsPtr ||
+          resultPtr > memoryBytes || 4 > memoryBytes - resultPtr) {
+        return EFAULT;
+      }
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      for (let index = 0; index < count; index++) {
+        const entry = iovsPtr + index * 8;
+        const ptr = view.getUint32(entry, true);
+        const len = view.getUint32(entry + 4, true);
+        if (ptr > memoryBytes || len > memoryBytes - ptr) return EFAULT;
+        if (len > 1_048_576 - total) return E2BIG;
+        chunks.push(new Uint8Array(memory.buffer, ptr, len));
+        total += len;
+      }
+      const bytes = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      view.setUint32(resultPtr, total, true);
+      if (total > 0) onLog(decoder.decode(bytes).replace(/\n$/, ""));
+      return ESUCCESS;
+    } catch {
+      return EFAULT;
+    }
+  };
+
+  const env = {
+    sinf: Math.sin,
+    cosf: Math.cos,
+    atan2f: Math.atan2,
+    sqrtf: Math.sqrt,
+    fabsf: Math.abs,
+    floorf: Math.floor,
+    fmodf: (a: number, b: number) => a % b,
+    powf: Math.pow,
+    expf: Math.exp,
+    js_log: (ptr: number, len: number) => onLog(readString(ptr, len)),
+  } satisfies Record<(typeof ENV_IMPORT_NAMES)[number], WebAssembly.ImportValue>;
+  const wasiSnapshotPreview1 = {
+    fd_close: () => EBADF,
+    fd_seek: () => EBADF,
+    fd_write: fdWrite,
+    proc_exit: (code: number) => {
+      throw new Error(`WASI reactor exited with status ${code}`);
     },
-  };
+  } satisfies Record<(typeof WASI_PREVIEW1_IMPORT_NAMES)[number], WebAssembly.ImportValue>;
+  return { env, wasi_snapshot_preview1: wasiSnapshotPreview1 };
 }
 
 // Fetches the module's raw bytes. Kept separate from instantiate() so a
@@ -211,6 +272,9 @@ export async function instantiate(bytes: ArrayBuffer, onLog: (text: string) => v
       "wasm module has no exported 'memory'; the emulator reads the framebuffer and emu_device() through it."
     );
   }
+  // WASI reactor startup is host-driven. Calling it here keeps the rest of
+  // Puck's lifecycle identical for freestanding C and C++ reactor modules.
+  exports._initialize?.();
   return exports;
 }
 

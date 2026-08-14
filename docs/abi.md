@@ -202,41 +202,43 @@ above.
 
 ## What your module imports from the host
 
-Freestanding wasm has no libc. The host provides exactly:
+The freestanding-C route receives:
 
 - **`env.js_log(ptr, len)`** - UTF-8 diagnostic text, your firmware's
   `printf`. Shown in the page's console pane.
 - **`env.sinf, cosf, atan2f, sqrtf, fabsf, floorf, fmodf, powf, expf`** -
   single-precision math, mapped to the host's own `Math.*`. Deliberately
   not reimplemented inside your module: they would be a second source of
-  numerical difference between your two targets, on top of the one that
-  already exists (your board's FPU is single precision, the host's
-  `Math` is double).
+  numerical difference between your two targets.
 
-Nothing else is imported. If your build asks for an import that isn't in
-this list, `WebAssembly.instantiate` throws naming exactly what it wanted
-and didn't get - that error is shown verbatim on the page.
+Puck also accepts a WASI Preview 1 **reactor** for C++20/libc++ firmware. It
+calls the reactor's optional `_initialize` export before `emu_init` can run
+and provides only `fd_write` for stdout/stderr, rejects `fd_close` and
+`fd_seek`, and surfaces `proc_exit` as a host error. Diagnostic writes are limited to
+1,024 iovecs and 1 MiB per call; larger calls return `E2BIG`. This is enough
+for the packaged libc++ allocator/runtime and its terminal diagnostic path. It
+intentionally
+does not provide a clock, randomness, environment, networking, or filesystem:
+those would violate deterministic host-driven input and time.
 
-## No malloc, no libc
+If your build asks for any other import, `WebAssembly.instantiate` throws
+naming exactly what it wanted and did not get. Treat that as an import-policy
+decision, not a reason to add a broad WASI polyfill.
 
-The freestanding `wasm32` target ships the C standard's REQUIRED
-freestanding headers (`stdint.h`, `stdbool.h`, `stddef.h`, `stdarg.h`) but
-not the hosted-only ones (`stdlib.h`, `stdio.h`, `math.h`). `malloc` and
-`printf` do not exist unless you provide them.
+## Allocation and standard libraries
 
-`example/firmware/main.c` sidesteps this entirely: its framebuffer is a
-plain static array (`static uint16_t g_fb[PANEL_W * PANEL_H];`), so there
-is nothing to allocate, and it logs through `js_log` directly rather than
-through a `printf` wrapper. If your firmware genuinely needs `malloc` (one
-large one-time allocation is the common case - a framebuffer sized from a
-runtime-read panel dimension, say) the simplest fix is a small bump
-allocator over a static array, not a real allocator: there is usually only
-one real allocation in a firmware like this, ever freed. If you need
-`printf`-shaped formatting, write a small subset covering exactly the
-specifiers your firmware's own call sites use (`%s`, `%d`, `%u`, `%%` is
-usually enough) rather than pulling in a general one. Neither of these is
-provided by this repo, because neither was needed by the example - see
-`docs/decisions/0001-example-is-minimal-not-a-shim.md` for why.
+The default `wasm32-freestanding` C target has no libc or allocator.
+`example/firmware/main.c` therefore uses a static framebuffer and logs through
+`js_log`. Small C firmware can use the same approach or provide a narrow bump
+allocator.
+
+C++ firmware that needs `std::vector`, `std::span`, `std::optional`, or other
+hosted C++20 facilities should instead build a `wasm32-wasip1` reactor against
+libc++. On macOS, `brew install llvm wasi-libc wasi-runtimes` supplies the
+matching pieces; `test/wasi/build.ts` is a working build and loader regression
+fixture. Build with `-mexec-model=reactor`, export the required `emu_*` names,
+and use `extern "C"` linkage. The reactor owns its allocator and can grow its
+linear memory; Puck still owns all external time and input.
 
 ## Building your firmware to wasm
 

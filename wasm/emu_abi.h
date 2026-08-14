@@ -312,6 +312,14 @@ int      emu_sound_frames(void);
  *                          correct. expf joined this list for the alarm
  *                          chime's decay envelope (sound_synth.c); it was not
  *                          needed before sound existed.
+ *
+ * A C++20 firmware may instead be linked as a wasm32-wasip1 reactor against
+ * libc++. Puck calls its optional _initialize export, then provides the narrow
+ * WASI Preview 1 file surface retained by the runtime's terminal diagnostics:
+ * fd_write for stdout/stderr, with fd_close/fd_seek rejected and proc_exit
+ * surfaced as a host error. Clocks, randomness, environment, networking, and
+ * filesystem access remain intentionally unavailable. See docs/abi.md and
+ * test/wasi/build.ts.
  */
 
 #ifdef __cplusplus
