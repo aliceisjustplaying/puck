@@ -391,6 +391,11 @@ either replay side, a `HardwareLink` that failed to connect). A `2` is
 never a failed comparison and must not be read as one; it means the tool
 itself couldn't finish.
 
+Trace schema version 2 includes an explicit `truncated` field. The recorder
+stops at capacity to preserve a valid fresh-boot prefix, rather than silently
+dropping old events. The differential harness refuses a truncated trace, and
+also refuses older schemas that cannot say whether their prefix was lost.
+
 Trace timestamps (`TraceEvent.t`) must be non-decreasing across the whole
 `events` array (ties are fine - a touch and the tick it's latched by
 commonly share one `t`). This matters most for a hand-built trace (see

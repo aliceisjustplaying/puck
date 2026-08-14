@@ -3,18 +3,11 @@
 // interface a real board's transport implements. See docs/harness.md for
 // the full explanation of what this proves and what it cannot.
 
-import type { DeviceDescriptor } from "../src/wasm";
 import type { TraceEvent } from "../src/recorder";
 import type { CapturedFrame } from "../src/frame";
 
-export type { TraceEvent, CapturedFrame };
-
-export interface Trace {
-  schemaVersion: 1;
-  recordedAt: string;
-  device: DeviceDescriptor;
-  events: TraceEvent[];
-}
+export type { Trace, TraceEvent } from "../src/recorder";
+export type { CapturedFrame };
 
 // A captured frame, in a common representation both sides of a comparison
 // produce: RGB, 3 bytes per pixel, row-major, top-left origin. Emulator

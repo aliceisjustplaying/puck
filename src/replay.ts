@@ -11,7 +11,7 @@
 // What this file deliberately does NOT do: rewind. A ring buffer of recent
 // framebuffer/state snapshots to step backward through would be the natural
 // next feature, but replay here is forward-only (reset-and-step-forward,
-// which for a short recent trace is cheap enough to feel instant anyway) -
+// which for a bounded trace is cheap enough to feel instant anyway) -
 // see docs/requirements.md's "Pause, single-step by frame, and rewind via a
 // snapshot ring" for why this is the deliberate choice, not a gap.
 //
@@ -20,14 +20,18 @@
 // a comparison; see harness/replayEmulator.ts.
 
 import type { EmuExports } from "./wasm";
-import type { TraceEvent } from "./recorder";
+import type { Trace, TraceEvent } from "./recorder";
 
 export class Replayer {
   private events: TraceEvent[];
   private index = 0;
 
-  constructor(events: TraceEvent[]) {
-    this.events = events;
+  constructor(trace: Trace) {
+    if (trace.schemaVersion !== 2 || typeof trace.truncated !== "boolean") {
+      throw new Error("trace schema 2 with an explicit truncated field is required");
+    }
+    if (trace.truncated) throw new Error("cannot replay a truncated trace");
+    this.events = trace.events;
   }
 
   get done(): boolean {

@@ -151,6 +151,15 @@ async function main(): Promise<void> {
 
   const trace = JSON.parse(readFileSync(args.tracePath, "utf8")) as Trace;
   if (!Array.isArray(trace.events)) throw new Error(`${args.tracePath}: not a trace file (missing events array)`);
+  if (trace.schemaVersion !== 2 || typeof trace.truncated !== "boolean") {
+    throw new Error(
+      `${args.tracePath}: unsupported trace schema. Version 2 with an explicit truncated field is required; ` +
+        "older traces may have silently lost their fresh-boot prefix",
+    );
+  }
+  if (trace.truncated) {
+    throw new Error(`${args.tracePath}: trace is truncated because recording reached capacity; refusing an incomplete replay`);
+  }
 
   const outOfOrder = findOutOfOrderEvent(trace.events);
   if (outOfOrder) {

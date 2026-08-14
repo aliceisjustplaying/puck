@@ -18,23 +18,31 @@ export type TraceEvent =
   | { t: number; k: "tick" };
 
 export interface Trace {
-  schemaVersion: 1;
+  // Bumped from 1: version 1 traces could silently lose their oldest events
+  // when the recorder reached capacity, so their event list might not begin
+  // at a fresh boot. Version 2 always says whether recording stopped early.
+  schemaVersion: 2;
   recordedAt: string;
   device: DeviceDescriptor;
+  truncated: boolean;
   events: TraceEvent[];
 }
 
 export class Recorder {
   events: TraceEvent[] = [];
   enabled = true;
+  truncated = false;
 
-  record(ev: TraceEvent): void {
-    if (!this.enabled) return;
+  record(ev: TraceEvent): "truncated" | undefined {
+    if (!this.enabled || this.truncated) return;
+    // Preserve a replayable prefix from fresh boot. Mark truncation only when
+    // an event is actually dropped, not when the final available slot is
+    // filled exactly.
+    if (this.events.length >= TRACE_MAX_EVENTS) {
+      this.truncated = true;
+      return "truncated";
+    }
     this.events.push(ev);
-    // A ring buffer, not an ever-growing array: bounds memory in a session
-    // left running, at the cost of only keeping the most recent history
-    // (see constants.ts for what that cap actually covers in wall time).
-    if (this.events.length > TRACE_MAX_EVENTS) this.events.shift();
   }
 
   recent(n: number): TraceEvent[] {
@@ -43,13 +51,15 @@ export class Recorder {
 
   clear(): void {
     this.events.length = 0;
+    this.truncated = false;
   }
 
   toTrace(device: DeviceDescriptor): Trace {
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       recordedAt: new Date().toISOString(),
       device,
+      truncated: this.truncated,
       events: this.events.slice(),
     };
   }

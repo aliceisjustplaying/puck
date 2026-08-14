@@ -36,6 +36,9 @@ import puppeteer, { type Page } from "puppeteer-core";
 import { join } from "node:path";
 import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { buildHostileFirmware, listHostileFirmwareNames } from "./build";
+import { FREEZE_SCHEMA_VERSION } from "../../src/freeze";
+import { Recorder } from "../../src/recorder";
+import { TRACE_MAX_EVENTS } from "../../src/constants";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const PORT = 53411; // distinct from scripts/verify.ts's 53409
@@ -57,6 +60,27 @@ const CHROME = process.env.CHROME_PATH || findChrome();
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+function verifyRecorderCapacity(): void {
+  const recorder = new Recorder();
+  for (let index = 0; index < TRACE_MAX_EVENTS; index++) {
+    recorder.record({ t: index, k: "tick" });
+  }
+  assert(!recorder.truncated, "a trace that exactly fills recorder capacity must not be truncated");
+  recorder.record({ t: TRACE_MAX_EVENTS, k: "tick" });
+  assert(recorder.events.length === TRACE_MAX_EVENTS, "recorder grew past TRACE_MAX_EVENTS");
+  assert(recorder.truncated, "recorder did not mark the first dropped event as truncation");
+  assert(recorder.events[0]?.t === 0, "recorder did not preserve the fresh-boot prefix at index 0");
+  const trace = recorder.toTrace({ panel: { w: 1, h: 1, format: "rgb565" } });
+  assert(trace.truncated, "toTrace() did not export recorder truncation");
+  recorder.clear();
+  assert(!recorder.truncated, "clear() did not reset recorder truncation");
+  console.log("recorder capacity: PASS");
 }
 
 async function waitForServer(url: string, timeoutMs: number): Promise<void> {
@@ -148,6 +172,7 @@ async function freezeAndReadBundle(page: Page): Promise<Record<string, unknown>>
 }
 
 async function main(): Promise<void> {
+  verifyRecorderCapacity();
   console.log("building hostile firmware modules...");
   const builds = new Map(listHostileFirmwareNames().map((name) => [name, buildHostileFirmware(name).wasmPath]));
   console.log(`built ${builds.size} hostile module(s): ${[...builds.keys()].join(", ")}`);
@@ -187,7 +212,8 @@ async function main(): Promise<void> {
       { label: "no uncaught page errors", pass: pageErrors.length === 0 },
       { label: "#wasmError hidden", pass: !baselineState.wasmErrorVisible },
       { label: "#engineDead hidden", pass: !baselineState.engineDeadVisible },
-      { label: "freeze bundle schemaVersion === 2", pass: baselineBundle.schemaVersion === 2 },
+      { label: `freeze bundle schemaVersion === ${FREEZE_SCHEMA_VERSION}`, pass: baselineBundle.schemaVersion === FREEZE_SCHEMA_VERSION },
+      { label: "freeze bundle inputTruncated is boolean", pass: typeof baselineBundle.inputTruncated === "boolean" },
       { label: "freeze bundle engine.alive === true", pass: baselineEngine?.alive === true },
     ]);
 
@@ -244,7 +270,8 @@ async function main(): Promise<void> {
       { label: 'banner names "died on tick"', pass: /died on tick/.test(s4a.engineDeadText) },
       { label: "debug state: died on tick 1", pass: s4a.deadState?.diedOnTick === 1 },
       { label: `ticking actually stopped (tickCount ${s4a.tickCount} then ${s4b.tickCount}, 800ms apart)`, pass: s4a.tickCount === s4b.tickCount },
-      { label: "freeze bundle schemaVersion === 2", pass: crashBundle.schemaVersion === 2 },
+      { label: `freeze bundle schemaVersion === ${FREEZE_SCHEMA_VERSION}`, pass: crashBundle.schemaVersion === FREEZE_SCHEMA_VERSION },
+      { label: "freeze bundle inputTruncated is boolean", pass: typeof crashBundle.inputTruncated === "boolean" },
       { label: "freeze bundle engine.alive === false (this is the honesty check: it must NOT look like an ordinary freeze)", pass: crashEngine?.alive === false },
       { label: "freeze bundle engine.diedOnTick === 1", pass: crashEngine?.diedOnTick === 1 },
       { label: "freeze bundle engine.error is a real, non-empty exception message", pass: typeof crashEngine?.error === "string" && crashEngine.error.length > 0 },

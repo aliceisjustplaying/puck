@@ -20,7 +20,7 @@ import { ShortcutRegistry, assignShortcut } from "./shortcuts";
 import { ConsoleLog, type LogLine } from "./consolelog";
 import { Recorder, type Trace, type TraceEvent } from "./recorder";
 import { Replayer } from "./replay";
-import { postFreeze, canvasToPngBase64, openAnnotationModal, type FreezeBundle, type EngineStatus } from "./freeze";
+import { FREEZE_SCHEMA_VERSION, postFreeze, canvasToPngBase64, openAnnotationModal, type FreezeBundle, type EngineStatus } from "./freeze";
 import { emptyJournal } from "./journal";
 import { captureBaseline, checkAgainstBaseline, toRegressionResultPayload, openRegressionModal, type BaselineBundle, type RegressionCheck } from "./regression";
 import { TouchSim, type TouchReport } from "./touchsim";
@@ -67,6 +67,11 @@ let accentColor = "#c4621f";
 
 const recorder = new Recorder();
 const consoleLog = new ConsoleLog(500, appendConsoleLine);
+function recordInput(event: TraceEvent): void {
+  if (recorder.record(event) === "truncated") {
+    consoleLog.push("input recording stopped: trace reached capacity and the replayable prefix was preserved");
+  }
+}
 const pushOverlay = new PushOverlay();
 // PushOverlay ships enabled (its own default), because the class is also
 // used headless where nothing would ever switch it on. In the page it
@@ -434,19 +439,19 @@ function wireContactSize(): void {
 function emuButtonDown(index: number): void {
   guardedAbiCall(`button[${index}] down`, (liveEmu) => {
     liveEmu.emu_button(index, 1);
-    recorder.record({ t: performance.now(), k: "button", i: index, down: 1 });
+    recordInput({ t: performance.now(), k: "button", i: index, down: 1 });
   });
 }
 function emuButtonUp(index: number): void {
   guardedAbiCall(`button[${index}] up`, (liveEmu) => {
     liveEmu.emu_button(index, 0);
-    recorder.record({ t: performance.now(), k: "button", i: index, down: 0 });
+    recordInput({ t: performance.now(), k: "button", i: index, down: 0 });
   });
 }
 function emuButtonVerdict(index: number, isLong: boolean): void {
   guardedAbiCall(`button[${index}] verdict (long=${isLong})`, (liveEmu) => {
     liveEmu.emu_button_verdict(index, isLong ? 1 : 0);
-    recorder.record({ t: performance.now(), k: "verdict", i: index, long: isLong ? 1 : 0 });
+    recordInput({ t: performance.now(), k: "verdict", i: index, long: isLong ? 1 : 0 });
   });
 }
 
@@ -836,7 +841,7 @@ function updateDiagStrip(): void {
   const shakeCount = Math.max(windowShake.lastJoltCount, puckDragShake.lastJoltCount);
   parts.push(`shake ${shakeCount}/${windowShake.cfg.joltMinCount}`);
   if (device) parts.push(device.panel.format);
-  parts.push(`${recorder.events.length.toLocaleString()} rec`);
+  parts.push(`${recorder.events.length.toLocaleString()} rec${recorder.truncated ? " (truncated)" : ""}`);
   if (lastReloadStatus) parts.push(lastReloadStatus);
   diagStripEl.textContent = parts.join("   ·   ");
 }
@@ -924,12 +929,12 @@ function stepOnceUnguarded(liveEmu: EmuExports): void {
   if (touchEnabled) {
     const report: TouchReport = touchDefectsEnabled && touchSim ? touchSim.poll(now) : liveTouch;
     liveEmu.emu_touch(report.fingers, Math.round(report.x), Math.round(report.y));
-    recorder.record({ t: now, k: "touch", down: report.fingers, x: Math.round(report.x), y: Math.round(report.y) });
+    recordInput({ t: now, k: "touch", down: report.fingers, x: Math.round(report.x), y: Math.round(report.y) });
     touchOverlay.recordTouch(report.fingers === 1, report.x, report.y, now);
   }
   liveEmu.emu_tick(now);
   tickCount++;
-  recorder.record({ t: now, k: "tick" });
+  recordInput({ t: now, k: "tick" });
   afterTick(now);
 }
 
@@ -996,7 +1001,7 @@ function fireShakeSensor(now: number, source: string): void {
   // stops calling stepOnce, not the rest of the frame).
   guardedAbiCall(`sensor[${shakeSensorIndex}] (shake, ${source})`, (liveEmu) => {
     liveEmu.emu_sensor_event(shakeSensorIndex);
-    recorder.record({ t: now, k: "sensor", i: shakeSensorIndex });
+    recordInput({ t: now, k: "sensor", i: shakeSensorIndex });
     consoleLog.push(`shake: ${source} accepted`);
   });
 }
@@ -1017,11 +1022,19 @@ function startReplay(trace: Trace): void {
     consoleLog.push("cannot replay: no wasm module loaded yet");
     return;
   }
+  if (trace.schemaVersion !== 2 || typeof trace.truncated !== "boolean") {
+    consoleLog.push("cannot replay: trace schema 2 with an explicit truncated field is required; older traces may have lost their fresh-boot prefix");
+    return;
+  }
+  if (trace.truncated) {
+    consoleLog.push("cannot replay: trace is truncated because recording reached capacity");
+    return;
+  }
   recorder.enabled = false;
   paused = true;
   btnPause.textContent = "resume";
   void bringUp(wasmBytes, `replay of trace recorded ${trace.recordedAt}`).then(() => {
-    replayer = new Replayer(trace.events);
+    replayer = new Replayer(trace);
     updateReplayBar();
     consoleLog.push(`replay loaded: ${trace.events.length} events. step or resume to play.`);
   });
@@ -1098,13 +1111,15 @@ async function runFreeze(): Promise<void> {
         diedAt: deadState.diedAt,
       }
     : { alive: true };
+  const input = recorder.recent(200);
   const bundle: FreezeBundle = {
-    schemaVersion: 2,
+    schemaVersion: FREEZE_SCHEMA_VERSION,
     capturedAt: new Date().toISOString(),
     device,
     currentApp,
     pushes: pushHistory.slice(-200),
-    input: recorder.recent(200),
+    input,
+    inputTruncated: recorder.truncated || recorder.events.length > input.length,
     console: consoleLog.recent(100),
     journal: emptyJournal(),
     panelPngBase64,
@@ -1167,6 +1182,10 @@ async function saveBaselineToServer(): Promise<void> {
   const trace = recorder.toTrace(device);
   if (trace.events.length === 0) {
     consoleLog.push("cannot save baseline: nothing recorded yet -- touch or press something first, or let a few ticks run");
+    return;
+  }
+  if (trace.truncated) {
+    consoleLog.push("cannot save baseline: recording reached capacity and the trace is truncated; clear it and record a shorter session");
     return;
   }
   consoleLog.push("saving baseline (replaying against a fresh module instance)...");

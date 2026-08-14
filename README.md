@@ -237,7 +237,9 @@ function it implements and links back to where.
   real touch controller's imperfections force your firmware to carry.
 - **Record and replay**: every input call is recorded; save a trace, load
   it back, and it replays bit-for-bit deterministically, because
-  `emu_tick(nowMs)` is your firmware's only clock.
+  `emu_tick(nowMs)` is your firmware's only clock. Recording stops at its
+  fixed capacity rather than dropping the fresh-boot prefix; saved traces
+  mark that state explicitly and replay refuses truncated input.
 - **Freeze**: a screenshot plus everything around it (device descriptor,
   recent pushes, recent input, recent console output), written to a
   predictable path a coding agent can read directly. See

@@ -51,17 +51,19 @@ export type EngineStatus =
       diedAt: string; // ISO timestamp
     };
 
+export const FREEZE_SCHEMA_VERSION = 3 as const;
+
 export interface FreezeBundle {
-  // Bumped from 1: schemaVersion 1 bundles had no `engine` field at all,
-  // which is exactly the silent-lie this field exists to prevent (see
-  // EngineStatus above) - a reader parsing a v1 bundle must not assume
-  // "no engine field" means "was alive."
-  schemaVersion: 2;
+  // Bumped from 2: schemaVersion 2 bundles had no `inputTruncated` field,
+  // so a reader could not tell whether recorder capacity stopped the input
+  // history. Version 1 also predates the always-present `engine` field.
+  schemaVersion: typeof FREEZE_SCHEMA_VERSION;
   capturedAt: string;
   device: DeviceDescriptor;
   currentApp: string | null;
   pushes: { tMs: number; x: number; y: number; w: number; h: number }[];
   input: TraceEvent[];
+  inputTruncated: boolean;
   console: LogLine[];
   journal: Journal;
   panelPngBase64: string;

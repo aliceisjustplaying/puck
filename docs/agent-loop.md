@@ -90,11 +90,11 @@ One freeze produces two files, written together (`server.ts`'s
   - `pushes`: the push rectangles from the tick(s) immediately preceding
     the freeze - so a partial-refresh bug is visible in the bundle itself,
     not only on screen at the moment someone was looking.
-  - `input`: the recorded `(t, event)` sequence, most recent first, that
-    produced this frame. This is what makes the bundle actionable rather
-    than merely descriptive: an agent (or a person) can replay it against
-    a rebuilt module and watch the same thing happen again,
-    deterministically, per [`requirements.md`](requirements.md#determinism-as-the-foundation).
+  - `input`: the recent recorded `(t, event)` sequence in chronological
+    order. `inputTruncated` is true whenever this bundle's list is incomplete,
+    either because recorder capacity stopped the session trace or because the
+    freeze includes only its recent input window. Freeze input is diagnostic
+    history, not a promise that it can replay from fresh boot.
   - `console`: the firmware's own log lines emitted up to the freeze.
   - `journal`: `{ strokes, notes }` - empty until the annotation modal
     saves something (`src/journal.ts`).
@@ -119,8 +119,8 @@ One freeze produces two files, written together (`server.ts`'s
     nothing anywhere saying the session that produced them is over. This
     field exists so this bundle can never make that claim by omission -
     always present, never optional, so absence is never how a reader is
-    expected to infer health. Bundle `schemaVersion` is `2` for this reason
-    (`1` bundles predate this field entirely).
+    expected to infer health. Bundle `schemaVersion` is `3`: version `1`
+    predates this field, and version `2` predates `inputTruncated`.
 
 ## A failed regression check, for an agent
 

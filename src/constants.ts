@@ -42,8 +42,7 @@ export const TOUCH_DEFECTS_DEFAULT = false;
 // fully fading (see overlay.ts). Not part of any ABI; a UI choice.
 export const PUSH_FADE_MS = 400;
 
-// Recorder ring-buffer cap (see recorder.ts). At a steady 60Hz tick rate
-// this is a little over 13 minutes of full-rate history, which comfortably
-// covers "what just happened" without growing without bound in a session
-// left running overnight.
+// Recorder cap (see recorder.ts). At a steady 60Hz tick rate this is a
+// little over 13 minutes of full-rate history. Recording stops at the cap
+// so the saved event list remains a valid prefix from fresh boot.
 export const TRACE_MAX_EVENTS = 50000;
