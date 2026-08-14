@@ -88,6 +88,12 @@ RGB, 3 bytes per pixel, row-major, top-left origin - already decoded from
 whatever your transport's wire format is. The harness makes no assumption
 about that wire format; decoding it is entirely your adapter's job.
 
+Before capturing, `screenshot()` must ensure the board has observed every
+preceding `send()` event. A transport write completing does not prove a queued
+input has reached the firmware loop. Use an acknowledgement, flush command, or
+another device-specific barrier so a capture cannot race the input it is meant
+to show.
+
 ## Against the real board
 
 Everything below this line was measured, on 2026-08-14, against the

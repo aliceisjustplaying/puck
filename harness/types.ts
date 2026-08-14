@@ -71,8 +71,10 @@ export interface HardwareLink {
   send(event: TraceEvent): Promise<void>;
 
   // Captures what the panel currently shows, decoded to a common RGB
-  // representation (see CapturedFrame above). Called at each capture
-  // point the harness was told to stop at (see harness/diff.ts's --at /
-  // --every).
+  // representation (see CapturedFrame above). Before reading the panel, the
+  // link must ensure the board has observed every preceding send() event;
+  // transport delivery alone is not enough if device processing is queued.
+  // Called at each capture point the harness was told to stop at (see
+  // harness/diff.ts's --at / --every).
   screenshot(): Promise<CapturedFrame>;
 }

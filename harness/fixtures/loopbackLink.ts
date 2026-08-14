@@ -84,6 +84,11 @@ class LoopbackLink implements HardwareLink {
 
   async screenshot(): Promise<CapturedFrame> {
     const emu = this.emu!;
+    // The interval models autonomous polling between trace events. Flush once
+    // more at capture so an input delivered on the same paced timestamp as a
+    // screenshot cannot remain latched merely because the host timer has not
+    // fired yet. Real hardware would have completed that loop independently.
+    emu.emu_tick(performance.now());
     const device = this.device!;
     const rgb = readFramebufferRGB(emu.memory, this.fbPtr, device.panel.w, this.reader!, {
       x: 0,
