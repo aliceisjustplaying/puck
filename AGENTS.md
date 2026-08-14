@@ -45,6 +45,8 @@ freestanding C or `test/wasi/build.ts` for a C++20/libc++ reactor, then run
 `bun run dev`. Live reload picks up a rebuilt module automatically.
 
 `bun run typecheck` must pass before any change is considered done.
+`bun run audit path/to/emu.wasm` checks a finished module's ABI surface and
+runtime outputs before it is loaded elsewhere.
 `bun run verify` drives the page headlessly with `puppeteer-core` against a
 local Chrome install (no bundled download - set `CHROME_PATH` if it can't
 find yours) and, if `wasm/dist/emu.wasm` exists, drives a real synthetic
@@ -68,6 +70,10 @@ check (`src/regression.ts`, the "baseline"/"check" buttons - see
 `docs/harness.md`) actually catches a firmware regression: it builds two
 tiny fixture firmwares that differ by one draw call, and confirms a check
 fails and names the exact capture point that changed.
+
+`bun run test:hostile` drives malformed firmware through the real page and
+proves ABI failures are rejected or surfaced without silently killing the
+session.
 
 `bun run test:wasi` builds a C++20/libc++ WASI reactor and loads it through
 the real wasm loader. It requires a matching Clang, wasi-libc, and libc++

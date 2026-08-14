@@ -84,6 +84,17 @@ your source to `wasm/dist/emu.wasm` and implement the ABI it needs
 reference and documents its toolchain dependencies. Live reload picks up a
 rebuilt module automatically, no manual browser refresh.
 
+Audit any finished module before loading it elsewhere:
+
+```
+bun run audit path/to/emu.wasm
+```
+
+The optional `--width`, `--height`, `--format`, `--initial-memory`, and
+`--max-memory` expectations make the audit stricter for a known target. The
+audit rejects imports or exports outside Puck's loader and ABI, then runs one
+tick and validates the descriptor, framebuffer, and push rectangles.
+
 ## MCU and board support
 
 Puck does not emulate an instruction set or run a shipped microcontroller

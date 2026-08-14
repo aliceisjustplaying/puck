@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "bun run server.ts",
     "build": "bun run build.ts",
+    "audit": "bun run scripts/audit.ts",
     "typecheck": "tsc --noEmit",
     "verify": "bun run scripts/verify.ts",
     "example:build": "bun run example/build.ts",
