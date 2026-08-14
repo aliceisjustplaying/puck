@@ -22,7 +22,7 @@ identity was never on offer.
 
 ## What your firmware exports
 
-Nine required functions, plus two optional groups (apps, sound). Every
+Thirteen required exports, plus two optional groups (apps, sound). Every
 export name below is exactly what `wasm/emu_abi.h` declares and exactly
 what your build script must pass to `-Wl,--export=`.
 

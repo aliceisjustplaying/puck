@@ -7,8 +7,8 @@ Status: accepted
 
 `example/firmware/main.c` is one self-contained file with no dependency on
 anything outside `wasm/emu_abi.h`: no malloc, no libc math, no printf, a
-plain static array for its framebuffer. It implements nine of the ABI's
-functions and deliberately skips two optional groups (apps, sound).
+plain static array for its framebuffer. It implements all 13 required ABI
+exports and deliberately skips two optional groups (apps, sound).
 
 This repo was extracted from a project whose own emulator glue
 (`emu_shim.c` in that project) was the opposite shape: it wrapped that

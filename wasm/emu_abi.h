@@ -4,8 +4,8 @@
  *
  * THE ONE IDEA. The emulator runs the REAL firmware. Application code
  * compiles to wasm unmodified, and the browser supplies what the board would
- * have supplied: a surface to push pixels at, input devices, and a clock. Not
- * "the same algorithm" as the device. The same object code.
+ * have supplied: a surface to push pixels at, input devices, and a clock. It
+ * is the same source and application logic, compiled separately for wasm.
  *
  * The alternative, a careful reimplementation in TypeScript, was tried here
  * first and is what this replaces. It was correct on the day it was written
@@ -25,9 +25,9 @@
  *
  * WHAT IS REAL, AND WHAT IS NOT
  *
- * Real, because it is the same object code: all application logic, layout and
- * redraw decisions; the framebuffer and its pixel format; whatever partial
- * refresh rules the firmware's own push path enforces.
+ * Real, because it is the firmware's own source: all application logic,
+ * layout and redraw decisions; the framebuffer and its pixel format; whatever
+ * partial refresh rules the firmware's own push path enforces.
  *
  * NOT real, and never to be trusted here:
  *   - Timing. The browser's clock drives emu_tick(). Nothing reproduces bus
@@ -78,6 +78,10 @@
 #define EMU_ABI_H
 
 #include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*
  * Everything here is exported to JavaScript. Anything that is not a scalar is
@@ -225,13 +229,13 @@ void emu_app_switch(int index);
  *
  * GENUINE, not simulated, in the one sense that matters most here: the
  * samples the host plays are computed by firmware/runtime/sound_synth.c,
- * compiled into this module unmodified - the exact same object code that
- * generates the samples the board's own DMA hands to the ES8311 (see
- * firmware/runtime/sound.c). Nothing in emu_shim.c re-derives the chime in
- * JavaScript; the module hands the host raw PCM it already computed, the
- * same way emu_fb() hands over a framebuffer the module already rendered.
- * That is the same "same object code, not a reimplementation" argument
- * decision 0003 makes for the graphics and app logic, extended to sound.
+ * compiled into this module from the same source that generates the samples
+ * the board's own DMA hands to the ES8311 (see firmware/runtime/sound.c).
+ * Nothing in emu_shim.c re-derives the chime in JavaScript; the module hands
+ * the host raw PCM it already computed, the same way emu_fb() hands over a
+ * framebuffer the module already rendered. That is the same "one source,
+ * not a reimplementation" argument decision 0003 makes for the graphics and
+ * app logic, extended to sound.
  *
  * NOT real, and this belongs next to the timing and input-device caveats
  * above, not hidden below them: the device's speaker is a small, cheap part
@@ -309,5 +313,9 @@ int      emu_sound_frames(void);
  *                          chime's decay envelope (sound_synth.c); it was not
  *                          needed before sound existed.
  */
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // EMU_ABI_H

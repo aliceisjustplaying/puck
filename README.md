@@ -82,6 +82,24 @@ working reference, not a stub) and implement the ABI it needs
 (`wasm/emu_abi.h`, or the readable version at `docs/abi.md`). Live reload
 picks up a rebuilt module automatically, no manual browser refresh.
 
+## MCU and board support
+
+Puck does not emulate an instruction set or run a shipped microcontroller
+binary. It hosts portable application and runtime source through a separate
+wasm build that implements the ABI. MCU startup, GPIO, DMA, RTOS integration,
+panel-controller drivers, and touch-controller drivers stay in the firmware
+project. The wasm adapter replaces or isolates those dependencies and exposes
+shared behavior as a framebuffer, push windows, and logical inputs.
+
+Board revisions that use different physical controllers usually share one
+Puck device description when their logical panel and inputs are the same. Keep
+revision detection and driver selection in the firmware project. Use separate
+wasm builds or descriptors only when a revision changes behavior visible at
+the ABI. The reference build is freestanding C. A C++ firmware that depends
+on a standard library needs its own wasm C++ runtime/toolchain rather than
+assuming `example/build.ts` supplies one. C++ ABI implementations must also use
+C linkage so their exported names match `wasm/emu_abi.h` exactly.
+
 ## What this actually guarantees, read before you trust it
 
 **It runs your firmware's own C, compiled again, not a reimplementation.**
