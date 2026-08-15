@@ -22,8 +22,8 @@ identity was never on offer.
 
 ## What your firmware exports
 
-Thirteen required exports, plus two optional groups (apps, sound). Every
-export name below is exactly what `wasm/emu_abi.h` declares and exactly
+Thirteen required exports, plus optional apps, storage, battery, and sound.
+Every export name below is exactly what `wasm/emu_abi.h` declares and exactly
 what your build script must pass to `-Wl,--export=`.
 
 ### `emu_device()` - your device's shape
@@ -44,6 +44,8 @@ touch capability, its optional apps and gestures - comes from this string.
   ],
   "touch": { "points": 1 },
   "sensors": [{ "id": "shake", "kind": "event", "label": "Shake" }],
+  "storage": { "id": "org.example.draw.world", "snapshotVersion": 1, "maxBytes": 262144 },
+  "battery": true,
   "gestures": [
     {
       "id": "chord",
@@ -77,6 +79,12 @@ Field notes, the ones easy to get wrong:
   firmware has a concept of switchable apps. Enables a jump-to-app strip
   and `emu_app_current()`/`emu_app_switch()`. Omit it entirely if you have
   no such concept; nothing calls those two functions then.
+- **`storage`** - optional. Declares a stable firmware-owned `id`, a positive
+  snapshot layout version, and the exact maximum byte size. It is present only
+  with all five storage exports. The cache key is `(id, snapshotVersion)`, not
+  the human-readable device name.
+- **`battery`** - optional. The literal `true` declares the optional
+  `emu_battery()` input. Omit it and the page shows no battery controls.
 - **`gestures`** - optional. A compound gesture across more than one input
   (a chord, a hold-then-release sequence) doesn't belong to any single
   button, so it lives here. `how` is prose for a human. `script` (also
@@ -147,6 +155,7 @@ void emu_touch(int down, int x, int y);
 void emu_button(int index, int down);
 void emu_button_verdict(int index, int isLong);
 void emu_sensor_event(int index);
+void emu_battery(int percent, int charging, int external); /* optional */
 ```
 
 Coordinates are always in the panel's own, unrotated space - if your
@@ -159,6 +168,13 @@ Buttons are identified by their index in `emu_device()`'s `buttons` array.
 for a button that declared `longPressMs`. Sensor events are identified by
 index in the `sensors` array, and only ever fire for a sensor declared
 `"kind": "event"` - "it happened", not a continuous value.
+
+Battery state is latched like touch: the call stores pending state and only
+`emu_tick()` consumes it. `percent` is 0 through 100, or `-1` for no reading;
+`charging` and `external` are 0 or 1. A battery event is recorded in schema-3
+traces. Puck does not derive voltage, battery physics, dimming, sleep, or
+wall-clock discharge from it, because those would exceed what the hardware
+contract can honestly promise.
 
 **The rule this whole ABI exists to enforce**: the host must never deliver
 an input your hardware cannot produce. If a real button, sensor, or touch
@@ -178,6 +194,32 @@ void emu_app_switch(int index);
 Only called if `emu_device()` declared a non-empty `apps` array. Leave
 these unimplemented (don't export them) if your firmware has no such
 concept - `example/firmware/main.c` does exactly that.
+
+### Optional: persistence host cache
+
+```c
+int      emu_storage_buffer(void);
+uint32_t emu_storage_capacity(void);
+uint32_t emu_storage_size(void);
+uint32_t emu_storage_revision(void);
+int      emu_storage_load(uint32_t length);
+```
+
+Export all five or none. The interactive host copies matching cached bytes into
+the guest-owned transfer buffer after `emu_init()` and calls
+`emu_storage_load()` before the first tick. Status 0 is accepted, 1 is empty,
+2 is incompatible, and 3 is corrupt. Incompatible and corrupt input must not
+partially mutate the durable guest state. A firmware with apps loads storage
+before any resumed `emu_app_switch()`, and accepted storage suppresses that
+resume.
+
+After each successful tick, the host polls the wrapping revision for
+inequality. When it changes, the host validates `size <= capacity`, stages a
+copy at the tick boundary, and writes it after a 500 ms trailing-edge debounce.
+This cache exists only for interactive reload. Replay, regression, audit,
+hostile tests, verify, and the differential harness always call the empty load
+path and never read or write the cache. See
+[decision 0006](decisions/0006-persistence-is-a-host-cache.md).
 
 ### Optional: sound
 

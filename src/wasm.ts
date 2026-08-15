@@ -30,6 +30,15 @@ export interface EmuExports {
   emu_button(index: number, down: number): void;
   emu_button_verdict(index: number, isLong: number): void;
   emu_sensor_event(index: number): void;
+  // Optional storage cache, present as one all-or-none group when the
+  // descriptor declares storage.
+  emu_storage_buffer?(): number;
+  emu_storage_capacity?(): number;
+  emu_storage_size?(): number;
+  emu_storage_revision?(): number;
+  emu_storage_load?(length: number): number;
+  // Optional latched battery input, present only when battery is true.
+  emu_battery?(percent: number, charging: number, external: number): void;
   // Optional: only present when the firmware declared an "apps" array in
   // its device descriptor (emu_abi.h, "the emulator will not call them"
   // otherwise).
@@ -100,6 +109,12 @@ export interface DeviceGesture {
   script?: GestureStep[];
 }
 
+export interface DeviceStorage {
+  id: string;
+  snapshotVersion: number;
+  maxBytes: number;
+}
+
 export interface DeviceDescriptor {
   name?: string;
   panel: { w: number; h: number; format: string };
@@ -108,6 +123,8 @@ export interface DeviceDescriptor {
   sensors?: DeviceSensor[];
   apps?: string[];
   gestures?: DeviceGesture[];
+  storage?: DeviceStorage;
+  battery?: true;
 }
 
 export const DEFAULT_WASM_URL = "wasm/emu.wasm";
@@ -400,6 +417,26 @@ export function readDeviceDescriptor(emu: EmuExports): DeviceDescriptor {
     if (t.points !== undefined && (typeof t.points !== "number" || !Number.isFinite(t.points))) {
       throw new Error(`emu_device()'s "touch.points" must be a finite number when present: ${text}`);
     }
+  }
+
+  if (d.storage !== undefined) {
+    if (typeof d.storage !== "object" || d.storage === null || Array.isArray(d.storage)) {
+      throw new Error(`emu_device()'s "storage" must be an object: ${text}`);
+    }
+    const storage = d.storage as Partial<DeviceStorage>;
+    if (typeof storage.id !== "string" || storage.id.length === 0) {
+      throw new Error(`emu_device()'s "storage.id" must be a non-empty string: ${text}`);
+    }
+    if (!Number.isSafeInteger(storage.snapshotVersion) || (storage.snapshotVersion as number) < 1) {
+      throw new Error(`emu_device()'s "storage.snapshotVersion" must be a positive integer: ${text}`);
+    }
+    if (!Number.isSafeInteger(storage.maxBytes) || (storage.maxBytes as number) < 1) {
+      throw new Error(`emu_device()'s "storage.maxBytes" must be a positive integer: ${text}`);
+    }
+  }
+
+  if (d.battery !== undefined && d.battery !== true) {
+    throw new Error(`emu_device()'s "battery" must be true when present: ${text}`);
   }
 
   return d as DeviceDescriptor;

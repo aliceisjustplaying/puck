@@ -106,6 +106,9 @@ extern "C" {
  *   "touch":   { "points": 1 },
  *   "sensors": [ { "id": "shake", "kind": "event" } ],
  *   "apps":    [ "chrono", "draw", "timer" ],
+ *   "storage": { "id": "org.example.draw.world",
+ *                "snapshotVersion": 1, "maxBytes": 2967552 },
+ *   "battery": true,
  *   "gestures": [
  *     { "id": "menu", "label": "menu",
  *       "how": "Hold BOOT, then also hold PWR. Keep both held until PWR "
@@ -138,6 +141,15 @@ extern "C" {
  *   apps          optional. Purely so the emulator can offer a jump-to-app
  *                 control. A firmware with no such concept omits it, and the
  *                 emulator shows no strip.
+ *
+ *   storage       optional. Stable persistence identity, snapshot layout
+ *                 version, and maximum byte size. It must be present exactly
+ *                 when all five emu_storage_* exports are present. The cache
+ *                 key is (id, snapshotVersion), never the display name.
+ *
+ *   battery       optional. The literal true declares that emu_battery() is
+ *                 present. Omit it, and the host shows no battery controls
+ *                 and makes no battery calls.
  *
  *   gestures      optional. A compound gesture recognised across more than
  *                 one input (a chord, a hold-then-something) belongs to no
@@ -216,6 +228,14 @@ void emu_button_verdict(int index, int isLong);
 // happened" rather than as a continuous value.
 void emu_sensor_event(int index);
 
+/* Battery is an optional latched input. A device declaring "battery": true
+ * exports this function; any other device omits both. percent is 0..100, or
+ * -1 when no reading is present. charging and external are boolean levels.
+ * Like emu_touch(), this call only records pending state. The next emu_tick()
+ * consumes it. The host records every change so replay sees the same state.
+ */
+void emu_battery(int percent, int charging, int external);
+
 /* ---- optional: apps -----------------------------------------------------
  *
  * Only meaningful if emu_device() declared an "apps" array. A firmware
@@ -224,6 +244,42 @@ void emu_sensor_event(int index);
  */
 int  emu_app_current(void);
 void emu_app_switch(int index);
+
+/* ---- optional: persistence host cache ----------------------------------
+ *
+ * Persistence is guest-owned application state cached by the interactive
+ * host. It is never a trace input. A firmware exports all five functions or
+ * none and declares matching storage identity in emu_device().
+ *
+ * Call order is instantiate, emu_init(), descriptor validation, copy a
+ * matching blob into emu_storage_buffer(), emu_storage_load(length), then the
+ * first tick. A firmware with apps is loaded before any resume through
+ * emu_app_switch(); an accepted snapshot suppresses that app resume.
+ *
+ * The transfer buffer has capacity bytes. size is the current save payload
+ * length. revision changes whenever that payload changes; the host polls it
+ * after successful ticks and compares for inequality. load returns exactly:
+ *
+ *   0  accepted: the snapshot was applied
+ *   1  empty: length was zero and initialized empty state remains
+ *   2  incompatible: the snapshot layout cannot be loaded
+ *   3  corrupt: integrity or structural checks failed
+ *
+ * The guest must not partially mutate durable state for incompatible or
+ * corrupt input. The host validates every pointer and size before copying.
+ */
+enum emu_storage_load_status {
+    EMU_STORAGE_ACCEPTED = 0,
+    EMU_STORAGE_EMPTY = 1,
+    EMU_STORAGE_INCOMPATIBLE = 2,
+    EMU_STORAGE_CORRUPT = 3,
+};
+
+int      emu_storage_buffer(void);
+uint32_t emu_storage_capacity(void);
+uint32_t emu_storage_size(void);
+uint32_t emu_storage_revision(void);
+int      emu_storage_load(uint32_t length);
 
 /* ---- sound ----------------------------------------------------------------
  *

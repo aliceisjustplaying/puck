@@ -40,6 +40,16 @@ export const REQUIRED_EMU_EXPORT_NAMES = [
 
 export const OPTIONAL_APP_EXPORT_NAMES = ["emu_app_current", "emu_app_switch"] as const;
 
+export const OPTIONAL_STORAGE_EXPORT_NAMES = [
+  "emu_storage_buffer",
+  "emu_storage_capacity",
+  "emu_storage_size",
+  "emu_storage_revision",
+  "emu_storage_load",
+] as const;
+
+export const OPTIONAL_BATTERY_EXPORT_NAMES = ["emu_battery"] as const;
+
 export const OPTIONAL_SOUND_EXPORT_NAMES = [
   "emu_sound_sample_rate",
   "emu_sound_play_seq",
