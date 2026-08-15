@@ -20,6 +20,7 @@ interface Options {
   format?: "rgb565" | "rgb565be";
   initialMemory?: number;
   maxMemory?: number;
+  allowExports: string[];
 }
 
 const ALLOWED_IMPORTS = new Set([
@@ -45,9 +46,9 @@ function positiveInteger(value: string | undefined, flag: string): number {
 
 function parseOptions(args: string[]): Options {
   if (args.length === 0 || args[0]!.startsWith("--")) {
-    fail("usage: bun run audit path/to/emu.wasm [--width N --height N --format rgb565|rgb565be --initial-memory N --max-memory N]");
+    fail("usage: bun run audit path/to/emu.wasm [--width N --height N --format rgb565|rgb565be --initial-memory N --max-memory N --allow-exports name,name]");
   }
-  const options: Options = { wasmPath: args[0]! };
+  const options: Options = { wasmPath: args[0]!, allowExports: [] };
   const seen = new Set<string>();
   for (let index = 1; index < args.length; index += 2) {
     const flag = args[index];
@@ -71,6 +72,14 @@ function parseOptions(args: string[]): Options {
         break;
       case "--max-memory":
         options.maxMemory = positiveInteger(value, flag);
+        break;
+      case "--allow-exports":
+        // Firmware-local extensions beyond the documented ABI (a debug or
+        // tuning surface, say) fail the audit unless named here, on purpose:
+        // an extra export should be a conscious, visible decision, never a
+        // silent pass. Comma-separated function names.
+        options.allowExports = value.split(",").map((name) => name.trim()).filter((name) => name.length > 0);
+        if (options.allowExports.length === 0) fail(`${flag} needs at least one export name`);
         break;
       default:
         fail(`unknown option ${flag}`);
@@ -115,6 +124,7 @@ async function audit(options: Options): Promise<string> {
     ...REQUIRED_EMU_EXPORT_NAMES,
     ...OPTIONAL_APP_EXPORT_NAMES,
     ...OPTIONAL_SOUND_EXPORT_NAMES,
+    ...options.allowExports,
   ]);
   for (const [name, kind] of exports) {
     if (!allowedExports.has(name)) fail(`unknown export ${name}`);
