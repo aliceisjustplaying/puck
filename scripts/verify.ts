@@ -88,7 +88,7 @@ try {
   // (main.ts, connectLiveReload) that stays open and reconnects on close by
   // design, so the network never goes idle and that waitUntil would hang
   // forever.
-  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+  await page.goto(`http://127.0.0.1:${PORT}/?storage=throwaway`, { waitUntil: "domcontentloaded" });
   // The boot sequence is async (fetch -> instantiate -> emu_init); give it
   // a moment to settle either way.
   await new Promise((r) => setTimeout(r, 1000));

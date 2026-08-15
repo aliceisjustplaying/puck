@@ -16,6 +16,7 @@ import { watch, existsSync, mkdirSync, writeFileSync, statSync, openSync, readSy
 import { join, basename } from "node:path";
 import index from "./src/index.html";
 import { saveBaseline, loadBaseline, saveRegressionResult, type BaselineOnDisk, type RegressionResultOnDisk } from "./baselineStore";
+import { loadStorage, saveStorage, type StorageWrite } from "./storageStore";
 
 const PORT = Number(process.env.PORT) || 5340;
 
@@ -162,6 +163,50 @@ async function postRegressionResult(req: Request): Promise<Response> {
   return Response.json({ ok: true, path });
 }
 
+function positiveInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) > 0;
+}
+
+function getStorage(req: Request): Response {
+  if (!guard(req)) return new Response("nope", { status: 403 });
+  const url = new URL(req.url);
+  const id = url.searchParams.get("id") ?? "";
+  const snapshotVersion = Number(url.searchParams.get("snapshotVersion"));
+  if (!id || !positiveInteger(snapshotVersion)) return new Response("invalid storage identity", { status: 400 });
+  try {
+    const record = loadStorage(id, snapshotVersion);
+    return record ? Response.json(record) : new Response("no stored snapshot", { status: 404 });
+  } catch (error) {
+    return new Response(error instanceof Error ? error.message : String(error), { status: 500 });
+  }
+}
+
+async function putStorage(req: Request): Promise<Response> {
+  if (!guard(req)) return new Response("nope", { status: 403 });
+  let body: StorageWrite;
+  try {
+    body = (await req.json()) as StorageWrite;
+  } catch {
+    return new Response("bad json", { status: 400 });
+  }
+  if (
+    typeof body.id !== "string" || body.id.length === 0 ||
+    !positiveInteger(body.snapshotVersion) || !positiveInteger(body.maxBytes) ||
+    !Number.isSafeInteger(body.size) || body.size < 0 || body.size > body.maxBytes ||
+    !Number.isSafeInteger(body.revision) || body.revision < 0 ||
+    !Number.isSafeInteger(body.expectedGeneration) || body.expectedGeneration < 0 ||
+    typeof body.blobBase64 !== "string"
+  ) {
+    return new Response("invalid storage record", { status: 400 });
+  }
+  try {
+    const { record, concurrent } = saveStorage(body);
+    return Response.json({ generation: record.generation, concurrent });
+  } catch (error) {
+    return new Response(error instanceof Error ? error.message : String(error), { status: 400 });
+  }
+}
+
 // ---- live reload: watch the wasm build output, tell connected pages -----
 //
 // A dev server that reloads on any filesystem event is a trap the moment
@@ -294,6 +339,7 @@ const server = Bun.serve({
     "/api/trace": { POST: saveTrace },
     "/api/baseline": { GET: getBaseline, POST: postBaseline },
     "/api/regression-result": { POST: postRegressionResult },
+    "/api/storage": { GET: getStorage, PUT: putStorage },
     "/api/livereload": {
       GET(req, srv) {
         if (srv.upgrade(req)) return;

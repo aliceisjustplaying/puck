@@ -28,6 +28,7 @@ import { type TouchSimConfig, TOUCHSIM_DEFAULTS, TOUCH_DEFECTS_DEFAULT } from ".
 import { WindowShakeDetector } from "./windowshake";
 import { PuckMotion } from "./puckmotion";
 import { SoundPlayer } from "./audio";
+import { StorageHostCache, type InteractiveRestoreSource, type PreparedStorage, type StorageMode } from "./storage";
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
@@ -67,6 +68,9 @@ let accentColor = "#c4621f";
 
 const recorder = new Recorder();
 const consoleLog = new ConsoleLog(500, appendConsoleLine);
+const storageCache = new StorageHostCache();
+const pageStorageMode: StorageMode = new URLSearchParams(location.search).get("storage") === "throwaway" ? "throwaway" : "interactive";
+window.addEventListener("pagehide", () => storageCache.pageHide((text) => consoleLog.push(text)));
 function recordInput(event: TraceEvent): void {
   if (recorder.record(event) === "truncated") {
     consoleLog.push("input recording stopped: trace reached capacity and the replayable prefix was preserved");
@@ -716,13 +720,14 @@ async function reloadModule(reason: string): Promise<void> {
       failReload(err);
       return;
     }
-    await bringUp(bytes, reason);
+    const restoreSource: InteractiveRestoreSource = emu ? "staged" : "disk";
+    await bringUp(bytes, reason, pageStorageMode, restoreSource);
   } finally {
     reloadInFlight = false;
   }
 }
 
-async function bringUp(bytes: ArrayBuffer, reason: string): Promise<void> {
+async function bringUp(bytes: ArrayBuffer, reason: string, storageMode: StorageMode, restoreSource: InteractiveRestoreSource): Promise<void> {
   let newEmu: EmuExports;
   try {
     newEmu = await instantiate(bytes, (text) => consoleLog.push(text));
@@ -743,6 +748,14 @@ async function bringUp(bytes: ArrayBuffer, reason: string): Promise<void> {
     failReload(err);
     return;
   }
+  let preparedStorage: PreparedStorage;
+  try {
+    preparedStorage = await storageCache.prepare(newEmu, newDevice, storageMode, restoreSource, (text) => consoleLog.push(text));
+  } catch (err) {
+    failReload(err);
+    return;
+  }
+
   // The framebuffer pointer, validated BEFORE anything touches it (see
   // abiGuard.ts's validateFbPtr): a hostile/buggy emu_fb() used to throw a
   // raw RangeError from inside blitAll() below, well after `emu` had
@@ -783,6 +796,7 @@ async function bringUp(bytes: ArrayBuffer, reason: string): Promise<void> {
     fbPtr = newFbPtr;
     pixelReader = reader;
     soundPlayer.resetForReload(newEmu);
+    storageCache.activate(preparedStorage);
     // A fresh, successfully-brought-up module means whatever killed the
     // previous one (if anything) no longer applies.
     deadState = null;
@@ -794,7 +808,7 @@ async function bringUp(bytes: ArrayBuffer, reason: string): Promise<void> {
 
     buildChrome(newDevice);
 
-    if (newDevice.apps && newDevice.apps.length > 0 && newEmu.emu_app_switch && newEmu.emu_app_current) {
+    if (!preparedStorage.presence.present && newDevice.apps && newDevice.apps.length > 0 && newEmu.emu_app_switch && newEmu.emu_app_current) {
       const idx = Math.min(prevAppIndex, newDevice.apps.length - 1);
       if (idx !== newEmu.emu_app_current()) {
         newEmu.emu_app_switch(idx);
@@ -934,6 +948,7 @@ function stepOnceUnguarded(liveEmu: EmuExports): void {
   }
   liveEmu.emu_tick(now);
   tickCount++;
+  storageCache.poll(liveEmu, device!, (text) => consoleLog.push(text));
   recordInput({ t: now, k: "tick" });
   afterTick(now);
 }
@@ -1033,7 +1048,7 @@ function startReplay(trace: Trace): void {
   recorder.enabled = false;
   paused = true;
   btnPause.textContent = "resume";
-  void bringUp(wasmBytes, `replay of trace recorded ${trace.recordedAt}`).then(() => {
+  void bringUp(wasmBytes, `replay of trace recorded ${trace.recordedAt}`, "throwaway", "staged").then(() => {
     replayer = new Replayer(trace);
     updateReplayBar();
     consoleLog.push(`replay loaded: ${trace.events.length} events. step or resume to play.`);

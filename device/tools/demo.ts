@@ -171,7 +171,7 @@ try {
   const frameH = LAND_H + 2 * BEZEL_PAD + 2 * MARGIN_PX;
   await page.setViewport({ width: frameW, height: frameH, deviceScaleFactor: 1 });
 
-  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+  await page.goto(`http://127.0.0.1:${PORT}/?storage=throwaway`, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => {
     const c = document.querySelector("canvas#panel") as HTMLCanvasElement | null;
     return !!c && c.width > 1;

@@ -19,6 +19,7 @@ import { readFileSync } from "node:fs";
 import { instantiate, readDeviceDescriptor, type EmuExports, type DeviceDescriptor } from "../../src/wasm";
 import { pixelReaderFor, readFramebufferRGB, type PixelReader } from "../../src/panel";
 import type { CapturedFrame, HardwareLink, TraceEvent } from "../types";
+import { loadEmptyStorage } from "../../src/storage";
 
 class LoopbackLink implements HardwareLink {
   private wasmPath: string;
@@ -37,6 +38,7 @@ class LoopbackLink implements HardwareLink {
     this.emu = await instantiate(bytes, () => {});
     if (this.emu.emu_init() === 0) throw new Error("loopback: emu_init() returned 0");
     this.device = readDeviceDescriptor(this.emu);
+    loadEmptyStorage(this.emu, this.device);
     this.reader = pixelReaderFor(this.device.panel.format);
     this.fbPtr = this.emu.emu_fb();
     // Real hardware runs its own tick/main loop continuously and

@@ -31,6 +31,7 @@ traces/
 # Both transient by the same reasoning as freezes/ and traces/ above.
 baselines/
 regressions/
+storage/
 
 # Differential harness output (PNGs from `bun run harness/diff.ts --out`)
 harness/out/

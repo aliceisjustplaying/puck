@@ -147,7 +147,7 @@ async function readPageState(page: Page): Promise<PageState> {
 // load") path every real user's first page load takes, driven for real.
 async function loadCase(page: Page, wasmPath: string): Promise<void> {
   writeFileSync(WASM_FILE, readFileSync(wasmPath));
-  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+  await page.goto(`http://127.0.0.1:${PORT}/?storage=throwaway`, { waitUntil: "domcontentloaded" });
 }
 
 interface CaseResult {
@@ -203,7 +203,7 @@ async function main(): Promise<void> {
 
     // ---- baseline: a healthy session's freeze must say so honestly ----
     pageErrors = [];
-    await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+    await page.goto(`http://127.0.0.1:${PORT}/?storage=throwaway`, { waitUntil: "domcontentloaded" });
     await sleep(1000);
     const baselineState = await readPageState(page);
     const baselineBundle = await freezeAndReadBundle(page);

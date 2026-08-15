@@ -30,6 +30,7 @@ import { instantiate, readDeviceDescriptor, type EmuExports, type DeviceDescript
 import { pixelReaderFor, readFramebufferRGB } from "./panel";
 import type { CapturedFrame } from "./frame";
 import type { TraceEvent } from "./recorder";
+import { loadEmptyStorage } from "./storage";
 
 export interface ReplayResult {
   device: DeviceDescriptor;
@@ -50,6 +51,7 @@ export async function replayFromBytes(bytes: ArrayBuffer, events: TraceEvent[], 
   if (emu.emu_init() === 0) throw new Error("emu_init() returned 0");
 
   const device = readDeviceDescriptor(emu);
+  loadEmptyStorage(emu, device);
   const reader = pixelReaderFor(device.panel.format);
   const fbPtr = emu.emu_fb();
 

@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { instantiate, readDeviceDescriptor } from "../../src/wasm";
+import { loadEmptyStorage } from "../../src/storage";
 import {
   MEMORY_EXPORT_NAME,
   REQUIRED_EMU_EXPORT_NAMES,
@@ -49,6 +50,7 @@ assert(
 const first = await freshInstance();
 assert(first.logs.includes("cxx reactor ready"), "WASI stderr was not routed to the firmware log");
 const descriptor = readDeviceDescriptor(first.emu);
+loadEmptyStorage(first.emu, descriptor);
 assert(descriptor.name === "cxx-reactor", "wrong descriptor name");
 assert(descriptor.panel.w === 4 && descriptor.panel.h === 4, "wrong panel dimensions");
 assert(descriptor.panel.format === "rgb565", "wrong framebuffer format");
@@ -64,6 +66,7 @@ assert(first.emu.emu_push_count() === 1, "expected one push");
 
 const second = await freshInstance();
 const secondDescriptor = readDeviceDescriptor(second.emu);
+loadEmptyStorage(second.emu, secondDescriptor);
 const secondFramebuffer = new Uint16Array(
   second.emu.memory.buffer,
   second.emu.emu_fb(),
