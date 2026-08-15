@@ -31,6 +31,33 @@ phase includes:
 Phase 1 is complete only when those behaviors are tested in that repository,
 not merely described here.
 
+## Next Puck work
+
+### Persistence host cache
+
+Implement the optional storage group from
+[decision 0006](decisions/0006-persistence-is-a-host-cache.md). Interactive
+reload may restore a matching guest-owned snapshot after initialization and
+before the first tick. Replay, regression, audit, hostile tests, verify, and
+the harness keep isolated empty stores, and traces remain event-only.
+
+### Battery input
+
+Implement the optional latched battery input from
+[decision 0007](decisions/0007-battery-is-a-latched-input.md). Battery state is
+recorded in trace schema 3 and delivered before a tick like touch. The page
+does not simulate voltage, dimming, sleep, or battery physics.
+
+## Out of this campaign
+
+### Shared kit extraction
+
+The kit is explicitly outside this campaign.
+
+**Unblocks when:** both TinyDraw V1 and V2 are real, working consumers with
+concrete duplicated integration code. The kit must be born from those two
+consumers, not designed speculatively from one.
+
 ## Parked work
 
 ### TinyDraw V2 port
@@ -41,18 +68,17 @@ same integration boundary rather than copy a moving target.
 Landing V2 provides the second real consumer needed before extracting a shared
 kit.
 
-### Shared kit extraction
+### RTC input
 
-**Unblocks when:** both TinyDraw V1 and V2 are real, working consumers with
-concrete duplicated integration code. The kit must be born from those two
-consumers, not designed speculatively from one.
+**Rejected for now:** no current application needs epoch time, and recorded
+clock anchors would widen the deterministic trace contract without a concrete
+consumer.
 
-### Epoch time and persistence ABI groups
+### Dim and sleep simulation
 
-**Unblocks when:** the first application has a concrete need for each group.
-Epoch time will use recorded clock anchors. Persistence restore will happen
-after initialization and before the first tick. Replay runs will use isolated
-stores so one run cannot leak state into another.
+**Rejected for now:** browser dimming or tick suspension would invent display
+and power-management behavior that Puck cannot claim matches hardware; see
+[decision 0007](decisions/0007-battery-is-a-latched-input.md).
 
 ### Hardware differential link
 
