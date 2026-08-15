@@ -75,6 +75,10 @@ class LoopbackLink implements HardwareLink {
       case "sensor":
         emu.emu_sensor_event(event.i);
         break;
+      case "battery":
+        if (!emu.emu_battery) throw new Error("loopback trace contains battery but the module does not export emu_battery");
+        emu.emu_battery(event.percent, event.charging, event.external);
+        break;
       case "tick":
         // Real hardware has no such call, and hardwareSide.ts never sends
         // one - see its header comment. Nothing to do here for parity with

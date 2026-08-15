@@ -408,6 +408,8 @@ export class DevlinkLink implements HardwareLink {
       case "sensor":
         if (event.i === 0) return ["ERASE"];
         throw new Error(`no devlink command for sensor index ${event.i} (this device declares exactly one, 0 = shake)`);
+      case "battery":
+        throw new Error("this devlink has no hardware command for battery input; refusing to drop the battery event");
       case "tick":
         // Never sent: emu_tick(nowMs) is the emulator's synthetic clock and
         // has no hardware equivalent. harness/hardwareSide.ts already

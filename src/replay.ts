@@ -20,18 +20,16 @@
 // a comparison; see harness/replayEmulator.ts.
 
 import type { EmuExports } from "./wasm";
-import type { Trace, TraceEvent } from "./recorder";
+import { validateTrace, type Trace, type TraceEvent } from "./recorder";
 
 export class Replayer {
   private events: TraceEvent[];
   private index = 0;
 
   constructor(trace: Trace) {
-    if (trace.schemaVersion !== 2 || typeof trace.truncated !== "boolean") {
-      throw new Error("trace schema 2 with an explicit truncated field is required");
-    }
-    if (trace.truncated) throw new Error("cannot replay a truncated trace");
-    this.events = trace.events;
+    const valid = validateTrace(trace);
+    if (valid.truncated) throw new Error("cannot replay a truncated trace");
+    this.events = valid.events;
   }
 
   get done(): boolean {
@@ -64,6 +62,10 @@ export class Replayer {
           break;
         case "sensor":
           emu.emu_sensor_event(ev.i);
+          break;
+        case "battery":
+          if (!emu.emu_battery) throw new Error("trace contains a battery event but the module does not export emu_battery");
+          emu.emu_battery(ev.percent, ev.charging, ev.external);
           break;
         case "tick":
           emu.emu_tick(ev.t);

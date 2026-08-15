@@ -111,6 +111,16 @@
           <div id="buttonShortcuts" class="shortcut-list"></div>
           <div id="sensorControls" class="sensor-controls"></div>
           <div id="gesturesWrap" class="hidden"></div>
+          <div id="batteryControls" class="battery-controls hidden">
+            <div class="slider-row">
+              <div class="row-head"><b>battery</b><span id="batteryPercentValue">absent</span></div>
+              <input id="batteryPercent" type="range" min="-1" max="100" step="1" value="-1" />
+            </div>
+            <div class="toggle-row">
+              <input id="batteryCharging" type="checkbox" />
+              <label for="batteryCharging">charging</label>
+            </div>
+          </div>
           <div id="appStripWrap" class="hidden">
             <div id="appStrip" class="app-strip"></div>
           </div>

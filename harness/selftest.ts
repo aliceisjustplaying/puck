@@ -54,7 +54,7 @@ const capturePoints = [32, 320];
 
 console.log(`replaying ${events.length} synthetic events against ${WASM}`);
 
-const emuResult = await replayEmulator(WASM, events, capturePoints);
+const emuResult = await replayEmulator(WASM, 2, events, capturePoints);
 console.log(`emulator side: ${emuResult.frames.length} frame(s), device "${emuResult.device.name}"`);
 
 const hwResult = await replayHardware(makeLoopbackLink(WASM), events, capturePoints);

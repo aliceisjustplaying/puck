@@ -18,7 +18,7 @@ import { buildSensorControls } from "./sensors";
 import { buildAppStrip, type AppStripControl } from "./appstrip";
 import { ShortcutRegistry, assignShortcut } from "./shortcuts";
 import { ConsoleLog, type LogLine } from "./consolelog";
-import { Recorder, type Trace, type TraceEvent } from "./recorder";
+import { Recorder, validateTrace, type Trace, type TraceEvent } from "./recorder";
 import { Replayer } from "./replay";
 import { FREEZE_SCHEMA_VERSION, postFreeze, canvasToPngBase64, openAnnotationModal, type FreezeBundle, type EngineStatus } from "./freeze";
 import { emptyJournal } from "./journal";
@@ -117,6 +117,8 @@ let touchDefectsEnabled = TOUCH_DEFECTS_DEFAULT;
 let touchSim: TouchSim | null = null;
 let liveTouch: TouchReport = { fingers: 0, x: 0, y: 0 };
 let pointerIdDown: number | null = null;
+let batteryState = { percent: -1, charging: 0, external: 0 };
+let batteryDirty = false;
 
 // Default view rotation. 0 means "the framebuffer's own orientation is
 // shown as-is": most firmware declares a panel whose w/h already match how
@@ -229,6 +231,8 @@ function describeTraceEvent(ev: TraceEvent): string {
       return `button[${ev.i}] verdict long=${ev.long} @${ev.t.toFixed(1)}ms`;
     case "sensor":
       return `sensor[${ev.i}] @${ev.t.toFixed(1)}ms`;
+    case "battery":
+      return `battery ${ev.percent}% charging=${ev.charging} external=${ev.external} @${ev.t.toFixed(1)}ms`;
     case "tick":
       return `tick @${ev.t.toFixed(1)}ms`;
   }
@@ -541,6 +545,17 @@ function buildChrome(d: DeviceDescriptor): void {
 
   touchEnabled = (d.touch?.points ?? 0) > 0;
   panelEl.style.cursor = touchEnabled ? "crosshair" : "default";
+
+  const batteryControls = $("#batteryControls");
+  batteryControls.classList.toggle("hidden", d.battery !== true);
+  if (d.battery === true) {
+    $<HTMLInputElement>("#batteryPercent").value = String(batteryState.percent);
+    $("#batteryPercentValue").textContent = batteryState.percent < 0 ? "absent" : `${batteryState.percent}%`;
+    $<HTMLInputElement>("#batteryCharging").checked = batteryState.charging === 1;
+    batteryDirty = true;
+  } else {
+    batteryDirty = false;
+  }
 
   touchOverlay.pxPerMm = derivePxPerMm(d);
   refreshContactInfo();
@@ -946,6 +961,12 @@ function stepOnceUnguarded(liveEmu: EmuExports): void {
     recordInput({ t: now, k: "touch", down: report.fingers, x: Math.round(report.x), y: Math.round(report.y) });
     touchOverlay.recordTouch(report.fingers === 1, report.x, report.y, now);
   }
+  if (batteryDirty && device?.battery === true) {
+    if (!liveEmu.emu_battery) throw new Error("descriptor declares battery but emu_battery is missing");
+    liveEmu.emu_battery(batteryState.percent, batteryState.charging, batteryState.external);
+    recordInput({ t: now, k: "battery", ...batteryState });
+    batteryDirty = false;
+  }
   liveEmu.emu_tick(now);
   tickCount++;
   storageCache.poll(liveEmu, device!, (text) => consoleLog.push(text));
@@ -1037,10 +1058,6 @@ function startReplay(trace: Trace): void {
     consoleLog.push("cannot replay: no wasm module loaded yet");
     return;
   }
-  if (trace.schemaVersion !== 2 || typeof trace.truncated !== "boolean") {
-    consoleLog.push("cannot replay: trace schema 2 with an explicit truncated field is required; older traces may have lost their fresh-boot prefix");
-    return;
-  }
   if (trace.truncated) {
     consoleLog.push("cannot replay: trace is truncated because recording reached capacity");
     return;
@@ -1071,8 +1088,7 @@ function wireTraceFile(): void {
     void (async () => {
       try {
         const text = await file.text();
-        const trace = JSON.parse(text) as Trace;
-        if (!Array.isArray(trace.events)) throw new Error("not a trace file (missing events array)");
+        const trace = validateTrace(JSON.parse(text));
         startReplay(trace);
       } catch (err) {
         consoleLog.push(`could not load trace: ${errMsg(err)}`);
@@ -1139,6 +1155,7 @@ async function runFreeze(): Promise<void> {
     journal: emptyJournal(),
     panelPngBase64,
     engine,
+    storage: storageCache.presence,
   };
   const first = await postFreeze(bundle);
   if (!first.ok) {
@@ -1349,6 +1366,17 @@ function wireStaticUI(): void {
   wirePanelInput();
   connectLiveReload();
   wireTraceFile();
+
+  $<HTMLInputElement>("#batteryPercent").addEventListener("input", (event) => {
+    batteryState.percent = Number((event.target as HTMLInputElement).value);
+    $("#batteryPercentValue").textContent = batteryState.percent < 0 ? "absent" : `${batteryState.percent}%`;
+    batteryDirty = true;
+  });
+  $<HTMLInputElement>("#batteryCharging").addEventListener("change", (event) => {
+    const on = (event.target as HTMLInputElement).checked ? 1 : 0;
+    batteryState = { ...batteryState, charging: on, external: on };
+    batteryDirty = true;
+  });
 
   // AudioContext creation (and resuming a suspended one) must happen
   // inside a real user gesture, per the browser's autoplay policy. Every

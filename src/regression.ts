@@ -34,7 +34,7 @@ import { replayFromBytes } from "./replayCore";
 import { compareFrames } from "./compare";
 import type { CapturedFrame } from "./frame";
 import type { DeviceDescriptor } from "./wasm";
-import type { TraceEvent } from "./recorder";
+import type { TraceEvent, TraceSchemaVersion } from "./recorder";
 
 export interface BaselineFrame {
   atMs: number;
@@ -48,6 +48,8 @@ export interface BaselineBundle {
   capturedAt: string;
   device: DeviceDescriptor;
   events: TraceEvent[];
+  // Missing on existing bundles means schema 2.
+  traceSchemaVersion?: TraceSchemaVersion;
   capturePoints: number[];
   frames: BaselineFrame[];
 }
@@ -121,18 +123,19 @@ const DEFAULT_MAX_CAPTURE_POINTS = 8;
 // packages the result as a baseline: the trace itself plus a frame at each
 // chosen capture point, base64-encoded so the whole thing is one JSON
 // object a server route can persist verbatim.
-export async function captureBaseline(wasmBytes: ArrayBuffer, events: TraceEvent[], maxCapturePoints = DEFAULT_MAX_CAPTURE_POINTS): Promise<BaselineBundle> {
+export async function captureBaseline(wasmBytes: ArrayBuffer, events: TraceEvent[], maxCapturePoints = DEFAULT_MAX_CAPTURE_POINTS, traceSchemaVersion: TraceSchemaVersion = 3): Promise<BaselineBundle> {
   const tickTimes = events.filter((e) => e.k === "tick").map((e) => e.t);
   const capturePoints = pickCapturePoints(tickTimes, maxCapturePoints);
   if (capturePoints.length === 0) {
     throw new Error("nothing to baseline: the recorded trace has no tick events yet");
   }
-  const replay = await replayFromBytes(wasmBytes, events, capturePoints);
+  const replay = await replayFromBytes(wasmBytes, traceSchemaVersion, events, capturePoints);
   return {
     schemaVersion: 1,
     capturedAt: new Date().toISOString(),
     device: replay.device,
     events,
+    traceSchemaVersion,
     capturePoints,
     frames: replay.frames.map((f) => ({ atMs: f.atMs, width: f.frame.width, height: f.frame.height, rgbBase64: bytesToBase64(f.frame.rgb) })),
   };
@@ -145,7 +148,7 @@ export async function captureBaseline(wasmBytes: ArrayBuffer, events: TraceEvent
 // harness/diff.ts's own --tolerance: 0 (exact match) unless a caller has a
 // reason to allow noise.
 export async function checkAgainstBaseline(wasmBytes: ArrayBuffer, baseline: BaselineBundle, tolerance = 0): Promise<RegressionCheck> {
-  const replay = await replayFromBytes(wasmBytes, baseline.events, baseline.capturePoints);
+  const replay = await replayFromBytes(wasmBytes, baseline.traceSchemaVersion ?? 2, baseline.events, baseline.capturePoints);
   const baselineFrames = baseline.frames.map((f) => ({ atMs: f.atMs, frame: { width: f.width, height: f.height, rgb: base64ToBytes(f.rgbBase64) } }));
   const byAtMs = new Map(baselineFrames.map((f) => [f.atMs, f.frame]));
 

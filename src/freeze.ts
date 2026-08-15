@@ -13,6 +13,7 @@ import type { DeviceDescriptor } from "./wasm";
 import type { TraceEvent } from "./recorder";
 import type { LogLine } from "./consolelog";
 import { type Journal, type MarkType, type Stroke, MARK_COLORS, MARK_LABELS, emptyJournal } from "./journal";
+import type { StoragePresence } from "./storage";
 
 // Whether the tick loop that produced this freeze is still alive. A freeze
 // reads the last-painted canvas and the recorder's existing history,
@@ -51,12 +52,12 @@ export type EngineStatus =
       diedAt: string; // ISO timestamp
     };
 
-export const FREEZE_SCHEMA_VERSION = 3 as const;
+export const FREEZE_SCHEMA_VERSION = 4 as const;
 
 export interface FreezeBundle {
-  // Bumped from 2: schemaVersion 2 bundles had no `inputTruncated` field,
-  // so a reader could not tell whether recorder capacity stopped the input
-  // history. Version 1 also predates the always-present `engine` field.
+  // Bumped from 3: version 4 adds schema-3 battery input and the storage
+  // presence indicator together. Version 3 added inputTruncated, and version
+  // 1 predates the always-present engine field.
   schemaVersion: typeof FREEZE_SCHEMA_VERSION;
   capturedAt: string;
   device: DeviceDescriptor;
@@ -68,6 +69,7 @@ export interface FreezeBundle {
   journal: Journal;
   panelPngBase64: string;
   engine: EngineStatus;
+  storage: StoragePresence;
 }
 
 export interface FreezeResult {

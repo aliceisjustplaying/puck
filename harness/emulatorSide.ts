@@ -10,11 +10,11 @@
 
 import { readFileSync } from "node:fs";
 import { replayFromBytes, type ReplayResult } from "../src/replayCore";
-import type { TraceEvent } from "./types";
+import type { TraceEvent, TraceSchemaVersion } from "../src/recorder";
 
 export type EmulatorReplayResult = ReplayResult;
 
-export async function replayEmulator(wasmPath: string, events: TraceEvent[], capturePoints: number[]): Promise<ReplayResult> {
+export async function replayEmulator(wasmPath: string, schemaVersion: TraceSchemaVersion, events: TraceEvent[], capturePoints: number[]): Promise<ReplayResult> {
   const bytes = readFileSync(wasmPath).buffer as ArrayBuffer;
-  return replayFromBytes(bytes, events, capturePoints);
+  return replayFromBytes(bytes, schemaVersion, events, capturePoints);
 }

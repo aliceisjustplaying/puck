@@ -54,6 +54,7 @@ import { replayHardware } from "./hardwareSide";
 import { encodeRGBPNG } from "./png";
 import { compareFrames } from "../src/compare";
 import type { CapturedFrame, HardwareLink, Trace } from "./types";
+import { validateTrace } from "../src/recorder";
 
 // Three distinct outcomes, three distinct exit codes: CI reads exit codes,
 // not prose, so "the comparison ran and frames matched," "the comparison
@@ -149,14 +150,7 @@ function capturePointsFor(events: Trace["events"], args: Args): number[] {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
-  const trace = JSON.parse(readFileSync(args.tracePath, "utf8")) as Trace;
-  if (!Array.isArray(trace.events)) throw new Error(`${args.tracePath}: not a trace file (missing events array)`);
-  if (trace.schemaVersion !== 2 || typeof trace.truncated !== "boolean") {
-    throw new Error(
-      `${args.tracePath}: unsupported trace schema. Version 2 with an explicit truncated field is required; ` +
-        "older traces may have silently lost their fresh-boot prefix",
-    );
-  }
+  const trace = validateTrace(JSON.parse(readFileSync(args.tracePath, "utf8")));
   if (trace.truncated) {
     throw new Error(`${args.tracePath}: trace is truncated because recording reached capacity; refusing an incomplete replay`);
   }
@@ -180,7 +174,7 @@ async function main(): Promise<void> {
   console.log(`replaying ${trace.events.length} events, capturing at ${capturePoints.length} point(s): ${capturePoints.join(", ")}`);
 
   console.log(`\n-- emulator side --`);
-  const emuResult = await replayEmulator(args.wasmPath, trace.events, capturePoints);
+  const emuResult = await replayEmulator(args.wasmPath, trace.schemaVersion, trace.events, capturePoints);
   console.log(`${args.wasmPath}: ${emuResult.device.name ?? "device"} ${emuResult.device.panel.w}x${emuResult.device.panel.h}, ${emuResult.frames.length} frame(s) captured`);
 
   console.log(`\n-- hardware side (${args.linkPath}) --`);

@@ -41,6 +41,8 @@ export async function replayHardware(link: HardwareLink, events: TraceEvent[], c
     for (const ev of events) {
       const targetWall = wallStart + (ev.t - traceStart);
       await sleep(targetWall - Date.now());
+      // Every real input, including battery, is forwarded unchanged. Tick is
+      // the only emulator-only event.
       if (ev.k !== "tick") await link.send(ev);
       while (capIdx < sortedPoints.length && sortedPoints[capIdx]! <= ev.t) {
         frames.push({ atMs: sortedPoints[capIdx]!, frame: await link.screenshot() });

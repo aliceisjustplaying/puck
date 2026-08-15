@@ -34,7 +34,7 @@ export type { CapturedFrame };
 // Every input method mirrors an ABI call from wasm/emu_abi.h exactly,
 // because the whole point of the differential harness is replaying the
 // SAME trace both ways: what the emulator received via emu_touch/
-// emu_button/emu_button_verdict/emu_sensor_event, your hardware must
+// emu_button/emu_button_verdict/emu_sensor_event/emu_battery, your hardware must
 // receive through whatever real mechanism reaches the same input path on
 // the board (a button GPIO, a touch controller register, an injected
 // event over your own debug link - see docs/harness.md's worked example

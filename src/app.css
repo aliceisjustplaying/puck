@@ -67,6 +67,7 @@
 .disclosure[open] summary::before { transform: rotate(90deg); }
 .disclosure[open] summary { color: var(--ink-soft); }
 .disclosure > *:not(summary) { margin-top: 6px; }
+.battery-controls { margin: 8px 0; }
 
 .topbar {
   display: flex; align-items: center; gap: 2px;

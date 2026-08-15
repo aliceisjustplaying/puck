@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   const v2Bytes = await Bun.file(v2.wasmPath).arrayBuffer();
 
   console.log("\ncapturing a baseline against v1...");
-  const baseline = await captureBaseline(v1Bytes, events);
+  const baseline = await captureBaseline(v1Bytes, events, undefined, 2);
   // The trace has three tick events (t=0, t=10, t=20) and pickCapturePoints
   // keeps every one of them when there are fewer ticks than its cap (8
   // here) - see src/regression.ts. t=0 and t=10 are both before the

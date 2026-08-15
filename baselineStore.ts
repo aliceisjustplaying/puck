@@ -38,6 +38,7 @@ export interface BaselineOnDisk {
   capturedAt: string;
   device: unknown;
   events: unknown[];
+  traceSchemaVersion?: 2 | 3;
   capturePoints: number[];
   frames: StoredFrame[];
 }

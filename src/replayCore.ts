@@ -29,7 +29,7 @@
 import { instantiate, readDeviceDescriptor, type EmuExports, type DeviceDescriptor } from "./wasm";
 import { pixelReaderFor, readFramebufferRGB } from "./panel";
 import type { CapturedFrame } from "./frame";
-import type { TraceEvent } from "./recorder";
+import { validateTraceEvents, type TraceEvent, type TraceSchemaVersion } from "./recorder";
 import { loadEmptyStorage } from "./storage";
 
 export interface ReplayResult {
@@ -45,7 +45,8 @@ export interface ReplayResult {
 // happens right after the emu_tick() whose timestamp is >= the requested
 // point - the same "capture at whatever the state is after this tick"
 // semantics the live page's push overlay uses.
-export async function replayFromBytes(bytes: ArrayBuffer, events: TraceEvent[], capturePoints: number[]): Promise<ReplayResult> {
+export async function replayFromBytes(bytes: ArrayBuffer, schemaVersion: TraceSchemaVersion, events: TraceEvent[], capturePoints: number[]): Promise<ReplayResult> {
+  validateTraceEvents(schemaVersion, events);
   const log: string[] = [];
   const emu: EmuExports = await instantiate(bytes, (text) => log.push(text));
   if (emu.emu_init() === 0) throw new Error("emu_init() returned 0");
@@ -81,6 +82,10 @@ export async function replayFromBytes(bytes: ArrayBuffer, events: TraceEvent[], 
         break;
       case "sensor":
         emu.emu_sensor_event(ev.i);
+        break;
+      case "battery":
+        if (!emu.emu_battery) throw new Error("trace contains a battery event but the module does not export emu_battery");
+        emu.emu_battery(ev.percent, ev.charging, ev.external);
         break;
       case "tick":
         emu.emu_tick(ev.t);

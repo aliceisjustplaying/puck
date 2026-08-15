@@ -438,6 +438,11 @@ export function readDeviceDescriptor(emu: EmuExports): DeviceDescriptor {
   if (d.battery !== undefined && d.battery !== true) {
     throw new Error(`emu_device()'s "battery" must be true when present: ${text}`);
   }
+  if ((d.battery === true) !== (emu.emu_battery !== undefined)) {
+    throw new Error(d.battery === true
+      ? "emu_device() declares battery but emu_battery is missing"
+      : "emu_battery is exported but emu_device() does not declare battery");
+  }
 
   return d as DeviceDescriptor;
 }
