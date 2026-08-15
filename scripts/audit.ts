@@ -7,7 +7,9 @@ import {
   ENV_IMPORT_NAMES,
   MEMORY_EXPORT_NAME,
   OPTIONAL_APP_EXPORT_NAMES,
+  OPTIONAL_BATTERY_EXPORT_NAMES,
   OPTIONAL_SOUND_EXPORT_NAMES,
+  OPTIONAL_STORAGE_EXPORT_NAMES,
   REQUIRED_EMU_EXPORT_NAMES,
   WASI_INITIALIZE_EXPORT_NAME,
   WASI_PREVIEW1_IMPORT_NAMES,
@@ -123,7 +125,9 @@ async function audit(options: Options): Promise<string> {
     WASI_INITIALIZE_EXPORT_NAME,
     ...REQUIRED_EMU_EXPORT_NAMES,
     ...OPTIONAL_APP_EXPORT_NAMES,
+    ...OPTIONAL_BATTERY_EXPORT_NAMES,
     ...OPTIONAL_SOUND_EXPORT_NAMES,
+    ...OPTIONAL_STORAGE_EXPORT_NAMES,
     ...options.allowExports,
   ]);
   for (const [name, kind] of exports) {
@@ -141,6 +145,8 @@ async function audit(options: Options): Promise<string> {
   }
   requireWholeGroup(exports, OPTIONAL_APP_EXPORT_NAMES, "optional app");
   requireWholeGroup(exports, OPTIONAL_SOUND_EXPORT_NAMES, "optional sound");
+  requireWholeGroup(exports, OPTIONAL_STORAGE_EXPORT_NAMES, "optional storage");
+  requireWholeGroup(exports, OPTIONAL_BATTERY_EXPORT_NAMES, "optional battery");
 
   const logs: string[] = [];
   const emu = await instantiate(bytes, (text) => logs.push(text));
@@ -153,6 +159,40 @@ async function audit(options: Options): Promise<string> {
       declaresApps
         ? "descriptor declares an apps array but the optional app export pair is missing"
         : "optional app exports are present but the descriptor does not declare an apps array",
+    );
+  }
+
+  const declaresStorage = descriptor.storage !== undefined;
+  const exportsStorage = OPTIONAL_STORAGE_EXPORT_NAMES.every((name) => exports.get(name) === "function");
+  if (declaresStorage !== exportsStorage) {
+    fail(
+      declaresStorage
+        ? "descriptor declares storage but the optional storage export group is missing"
+        : "optional storage exports are present but the descriptor does not declare storage",
+    );
+  }
+  if (declaresStorage) {
+    const storage = descriptor.storage!;
+    const capacity = emu.emu_storage_capacity!() >>> 0;
+    const pointer = emu.emu_storage_buffer!() >>> 0;
+    const size = emu.emu_storage_size!() >>> 0;
+    if (capacity !== storage.maxBytes) fail(`storage capacity is ${capacity}, descriptor maxBytes is ${storage.maxBytes}`);
+    if (size > capacity) fail(`storage size ${size} exceeds capacity ${capacity}`);
+    if (pointer > emu.memory.buffer.byteLength || capacity > emu.memory.buffer.byteLength - pointer) {
+      fail(`storage buffer [${pointer}, ${pointer + capacity}) is outside memory (${emu.memory.buffer.byteLength} bytes)`);
+    }
+    emu.emu_storage_revision!();
+    const emptyStatus = emu.emu_storage_load!(0);
+    if (emptyStatus !== 1) fail(`emu_storage_load(0) returned ${emptyStatus}, expected 1 (empty)`);
+  }
+
+  const declaresBattery = descriptor.battery === true;
+  const exportsBattery = OPTIONAL_BATTERY_EXPORT_NAMES.every((name) => exports.get(name) === "function");
+  if (declaresBattery !== exportsBattery) {
+    fail(
+      declaresBattery
+        ? "descriptor declares battery but emu_battery is missing"
+        : "emu_battery is exported but the descriptor does not declare battery",
     );
   }
   pixelReaderFor(descriptor.panel.format);
