@@ -93,7 +93,11 @@ bun run audit path/to/emu.wasm
 The optional `--width`, `--height`, `--format`, `--initial-memory`, and
 `--max-memory` expectations make the audit stricter for a known target. The
 audit rejects imports or exports outside Puck's loader and ABI, then runs one
-tick and validates the descriptor, framebuffer, and push rectangles.
+tick and validates the descriptor, framebuffer, and push rectangles. A
+firmware that deliberately exports something beyond the documented ABI (the
+puck's own `emu_tune_*` live-tuning surface, say) must name it with
+`--allow-exports`; an extra export is a conscious decision, never a silent
+pass.
 
 ## MCU and board support
 
@@ -119,12 +123,13 @@ C++ ABI implementations must use C linkage so their exported names match
 
 ## What this actually guarantees, read before you trust it
 
-**It runs your firmware's own C, compiled again, not a reimplementation.**
-Application logic, layout, and redraw decisions cannot silently drift from
-your real firmware, because there is one source feeding both builds.
+**It runs your firmware's own C or C++, compiled again, not a
+reimplementation.** Application logic, layout, and redraw decisions cannot
+silently drift from your real firmware, because there is one source feeding
+both builds.
 
 **It does NOT run the same object code your device runs.** Your wasm build
-and your real build are the same C, compiled by two different compilers,
+and your real build are the same source, compiled by two different compilers,
 to two different targets. A bug that depends on code generation, integer
 width, float precision, or undefined-behaviour resolution differing
 between the two compilers is out of reach here. See
@@ -198,7 +203,7 @@ docs/           docs/abi.md (the ABI as a page), docs/requirements.md,
                 a coding agent working alongside you), docs/harness.md,
                 and docs/decisions/ (the why behind the choices above).
 scripts/        headless verification (puppeteer-core against a local
-                Chrome install).
+                Chrome install) and the ABI auditor behind `bun run audit`.
 server.ts       the local dev server. Binds 127.0.0.1 explicitly. Also
                 backs the hardware-free regression check's persistence
                 (baselineStore.ts).
@@ -256,8 +261,9 @@ function it implements and links back to where.
 
 ## Conventions
 
-TypeScript only for the emulator implementation; C/C++ is limited to the ABI
-header and firmware fixtures (yours, the example, or the C++ reactor test). A
+TypeScript only for the emulator implementation; C and C++ belong to
+firmware: the ABI header, the puck's own firmware under `device/`, the
+example, and the test fixtures. A
 build toolchain like `zig` or Clang is invoked as a binary, never authored as
 a language here. See
 [`AGENTS.md`](AGENTS.md) for the full set of conventions and the gotchas
