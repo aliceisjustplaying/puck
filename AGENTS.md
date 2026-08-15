@@ -75,6 +75,10 @@ fails and names the exact capture point that changed.
 proves ABI failures are rejected or surfaced without silently killing the
 session.
 
+`bun run test:storage` builds the focused optional-storage and battery fixture.
+It proves all four storage load statuses, staged and disk restore, replay
+isolation, battery latching and recording, and schema-2 trace compatibility.
+
 `bun run test:wasi` builds a C++20/libc++ WASI reactor and loads it through
 the real wasm loader. It requires a matching Clang, wasi-libc, and libc++
 runtime; on macOS, install them with `brew install llvm wasi-libc

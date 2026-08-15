@@ -16,6 +16,7 @@
     "harness:hardware:pacing": "bun run harness/hardwarePacing.ts",
     "test:hostile": "bun run test/hostile/run.ts",
     "test:regression": "bun run test/regression/run.ts",
+    "test:storage": "bun run test/storage/run.ts",
     "test:wasi": "bun run test/wasi/run.ts"
   },
   "devDependencies": {

@@ -17,6 +17,7 @@ test/hostile/dist/
 # Regression-check test fixture build output: regenerate with
 # `bun run test:regression` (or `bun run test/regression/build.ts` on its own)
 test/regression/dist/
+test/storage/dist/
 
 # C++20/WASI loader fixture build output: regenerate with `bun run test:wasi`
 test/wasi/build/
@@ -31,7 +32,7 @@ traces/
 # Both transient by the same reasoning as freezes/ and traces/ above.
 baselines/
 regressions/
-storage/
+/storage/
 
 # Differential harness output (PNGs from `bun run harness/diff.ts --out`)
 harness/out/
