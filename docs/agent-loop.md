@@ -91,7 +91,8 @@ One freeze produces two files, written together (`server.ts`'s
     the freeze - so a partial-refresh bug is visible in the bundle itself,
     not only on screen at the moment someone was looking.
   - `input`: the recent recorded `(t, event)` sequence in chronological
-    order. `inputTruncated` is true whenever this bundle's list is incomplete,
+    order, including schema-3 battery events when the device declares that
+    input. `inputTruncated` is true whenever this bundle's list is incomplete,
     either because recorder capacity stopped the session trace or because the
     freeze includes only its recent input window. Freeze input is diagnostic
     history, not a promise that it can replay from fresh boot.
@@ -99,6 +100,9 @@ One freeze produces two files, written together (`server.ts`'s
   - `journal`: `{ strokes, notes }` - empty until the annotation modal
     saves something (`src/journal.ts`).
   - `panelPngPath`: always `"panel.png"`, the sibling file.
+  - `storage`: `{ present: false }`, or the active snapshot's identity, size,
+    and revision. It never embeds the blob. Presence tells the reader when the
+    displayed state may not be reproducible from recent input alone.
   - `engine`: `{ alive: true }`, or `{ alive: false, error, diedOnTick,
     cause, lastInputEvent, diedAt }` when the module trapped before this
     freeze was taken (`src/main.ts`'s `enterDeadState`). A trap can happen
@@ -119,8 +123,9 @@ One freeze produces two files, written together (`server.ts`'s
     nothing anywhere saying the session that produced them is over. This
     field exists so this bundle can never make that claim by omission -
     always present, never optional, so absence is never how a reader is
-    expected to infer health. Bundle `schemaVersion` is `3`: version `1`
-    predates this field, and version `2` predates `inputTruncated`.
+    expected to infer health. Bundle `schemaVersion` is `4`: version `1`
+    predates this field, version `2` predates `inputTruncated`, and version `3`
+    predates battery input plus the storage presence indicator.
 
 ## A failed regression check, for an agent
 

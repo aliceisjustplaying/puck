@@ -240,13 +240,22 @@ function it implements and links back to where.
 - **Simulated touch-controller defects** (report rate, dropped contact,
   stray reports), off by default, for exercising the robustness code a
   real touch controller's imperfections force your firmware to carry.
+- **Battery input**: a percent slider and charging toggle appear only when
+  firmware declares a battery. Changes are latched until the next tick and
+  recorded in schema-3 traces. Puck does not invent voltage, dimming, sleep,
+  or battery physics.
+- **Interactive storage cache**: firmware that declares the optional storage
+  group can restore its own versioned snapshot across page reloads and live
+  rebuilds. The host never interprets the blob, and replay, regression, audit,
+  hostile tests, verify, demos, and the harness always use an empty store.
 - **Record and replay**: every input call is recorded; save a trace, load
   it back, and it replays bit-for-bit deterministically, because
   `emu_tick(nowMs)` is your firmware's only clock. Recording stops at its
   fixed capacity rather than dropping the fresh-boot prefix; saved traces
   mark that state explicitly and replay refuses truncated input.
 - **Freeze**: a screenshot plus everything around it (device descriptor,
-  recent pushes, recent input, recent console output), written to a
+  recent pushes, recent input, recent console output, and storage presence
+  metadata but never the storage blob), written to a
   predictable path a coding agent can read directly. See
   [`docs/agent-loop.md`](docs/agent-loop.md).
 - **Regression check, no hardware required**: "baseline" saves your current
