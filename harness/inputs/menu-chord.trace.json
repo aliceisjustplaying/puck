@@ -1,5 +1,6 @@
 {
- "schemaVersion": 1,
+ "schemaVersion": 2,
+ "truncated": false,
  "recordedAt": "2026-08-14T20:20:48.964Z",
  "device": {
   "name": "RP2350-Touch-AMOLED-1.8",
