@@ -17,8 +17,9 @@
 // flash-ui.ts's isWebUsbSupported() check exists to handle, and then
 // clicks the real button and reads the real DOM.
 import puppeteer from "puppeteer-core";
-import { join, extname } from "node:path";
+import { join } from "node:path";
 import { existsSync } from "node:fs";
+import { serveDist } from "./staticSite";
 
 const ROOT = join(import.meta.dir, "..");
 const DIST = join(ROOT, "site", "dist");
@@ -45,35 +46,15 @@ function fail(msg: string): never {
   process.exit(1);
 }
 
-const MIME: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".wasm": "application/wasm",
-  ".uf2": "application/octet-stream",
-  ".png": "image/png",
-};
-
 if (!existsSync(DIST)) fail(`site/dist/ does not exist. Run \`bun run site:build\` first.`);
 
-const server = Bun.serve({
-  port: PORT,
-  hostname: "127.0.0.1",
-  async fetch(req) {
-    const url = new URL(req.url);
-    let path = decodeURIComponent(url.pathname);
-    if (path === "/") path = "/index.html";
-    // The shared emulator bundle's main.ts unconditionally tries to open a
-    // live-reload websocket on boot (by design, see scripts/verify.ts's own
-    // comment); this static server has no such endpoint, so answer it
-    // (and any other unknown path, e.g. /favicon.ico) with a plain 404
-    // instead of letting Bun.file's ENOENT bubble into a noisy 500.
-    const file = Bun.file(join(DIST, path));
-    if (!(await file.exists())) return new Response("not found", { status: 404 });
-    const type = MIME[extname(path)] || "application/octet-stream";
-    return new Response(file, { headers: { "content-type": type } });
-  },
-});
+// The shared emulator bundle's main.ts unconditionally tries to open a
+// live-reload websocket on boot (by design, see scripts/verify.ts's own
+// comment); this static server (scripts/staticSite.ts) answers that (and
+// any other unknown path, e.g. /favicon.ico) with a plain 404 instead of
+// letting a missing file bubble into a noisy 500 - nothing this script
+// needs to special-case itself.
+const server = serveDist(DIST, PORT);
 
 try {
   const browser = await puppeteer.launch({ executablePath: CHROME, headless: true });

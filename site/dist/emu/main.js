@@ -496,6 +496,10 @@ function mapClientPoint(clientX, clientY, canvas, quickDeg, tiltDeg, panelW, pan
   };
   return { panel, view, viewW, viewH };
 }
+function gravityForQuickDeg(quickDeg) {
+  const theta = quickDeg * Math.PI / 180;
+  return { x: Math.sin(theta), y: Math.cos(theta), z: 0 };
+}
 
 // src/device.ts
 function makeDraggable(bezel, wrapper, onDrag) {
@@ -814,6 +818,9 @@ class Replayer {
         case "sensor":
           emu.emu_sensor_event(ev.i);
           break;
+        case "vector":
+          emu.emu_sensor_vector?.(ev.i, ev.x, ev.y, ev.z);
+          break;
         case "tick":
           emu.emu_tick(ev.t);
           return ev.t;
@@ -1035,6 +1042,9 @@ async function replayFromBytes(bytes, events, capturePoints) {
         break;
       case "sensor":
         emu.emu_sensor_event(ev.i);
+        break;
+      case "vector":
+        emu.emu_sensor_vector?.(ev.i, ev.x, ev.y, ev.z);
         break;
       case "tick":
         emu.emu_tick(ev.t);
@@ -1531,6 +1541,7 @@ var btnStopReplay = $("#btnStopReplay");
 var btnPause = $("#btnPause");
 var stageEl = $("#stage");
 var WASM_URL = new URLSearchParams(location.search).get("module") || DEFAULT_WASM_URL;
+var EMBED = new URLSearchParams(location.search).get("embed") === "1";
 var emu = null;
 var wasmBytes = null;
 var device = null;
@@ -1551,6 +1562,7 @@ var puckDragShake = new WindowShakeDetector;
 var puckMotion = new PuckMotion;
 var soundPlayer = new SoundPlayer;
 var shakeSensorIndex = -1;
+var vectorSensorIndices = [];
 var centeredOnce = false;
 var overlayEnabled = false;
 var lastTouchMapped = null;
@@ -1614,6 +1626,8 @@ function describeTraceEvent(ev) {
       return `button[${ev.i}] verdict long=${ev.long} @${ev.t.toFixed(1)}ms`;
     case "sensor":
       return `sensor[${ev.i}] @${ev.t.toFixed(1)}ms`;
+    case "vector":
+      return `sensor[${ev.i}] vector (${ev.x.toFixed(2)},${ev.y.toFixed(2)},${ev.z.toFixed(2)}) @${ev.t.toFixed(1)}ms`;
     case "tick":
       return `tick @${ev.t.toFixed(1)}ms`;
   }
@@ -1805,12 +1819,18 @@ function buildChrome(d) {
     appStripControl = buildAppStrip($("#appStrip"), d.apps || [], emu, guardedAbiCall);
   }
   shakeSensorIndex = (d.sensors || []).findIndex((s) => s.id.toLowerCase() === "shake");
+  vectorSensorIndices = (d.sensors || []).reduce((acc, s, i) => {
+    if (s.kind === "vector")
+      acc.push(i);
+    return acc;
+  }, []);
   touchEnabled = (d.touch?.points ?? 0) > 0;
   panelEl.style.cursor = touchEnabled ? "crosshair" : "default";
   touchOverlay.pxPerMm = derivePxPerMm(d);
   refreshContactInfo();
   buildGestures(d);
   centerDeviceOnce();
+  fitDeviceToStage();
 }
 function scriptButtonIds(script) {
   if (!Array.isArray(script) || script.length === 0)
@@ -1912,6 +1932,10 @@ function buildGestures(d) {
 function centerDeviceOnce() {
   if (centeredOnce)
     return;
+  if (EMBED) {
+    centeredOnce = true;
+    return;
+  }
   const stageRect = stageEl.getBoundingClientRect();
   const bw = bezelEl.offsetWidth;
   const bh = bezelEl.offsetHeight;
@@ -1920,6 +1944,29 @@ function centerDeviceOnce() {
   deviceWrapEl.style.left = `${Math.max(20, Math.round((stageRect.width - bw) / 2))}px`;
   deviceWrapEl.style.top = `${Math.max(20, Math.round((stageRect.height - bh) / 2))}px`;
   centeredOnce = true;
+}
+function applyEmbedMode() {
+  if (!EMBED)
+    return;
+  document.documentElement.classList.add("embed");
+  const strip = $("#rotQuick").parentElement;
+  const sensorControls = $("#sensorControls");
+  strip.appendChild(sensorControls);
+}
+function fitDeviceToStage() {
+  if (!EMBED)
+    return;
+  const stageRect = stageEl.getBoundingClientRect();
+  const bw = bezelEl.offsetWidth;
+  const bh = bezelEl.offsetHeight;
+  if (bw === 0 || bh === 0 || stageRect.width === 0 || stageRect.height === 0)
+    return;
+  const quarterTurned = (Math.round(quickDeg / 90) % 2 + 2) % 2 === 1;
+  const boxW = quarterTurned ? bh : bw;
+  const boxH = quarterTurned ? bw : bh;
+  const margin = 16;
+  const scale = Math.min(1, (stageRect.width - margin) / boxW, (stageRect.height - margin) / boxH);
+  deviceWrapEl.style.setProperty("--embed-scale", String(scale > 0 ? scale : 1));
 }
 var reloadInFlight = false;
 async function reloadModule(reason) {
@@ -1989,6 +2036,7 @@ async function bringUp(bytes, reason) {
     else
       touchSim = new TouchSim(touchCfg, panelW, panelH);
     buildChrome(newDevice);
+    sendGravityForRotation();
     if (newDevice.apps && newDevice.apps.length > 0 && newEmu.emu_app_switch && newEmu.emu_app_current) {
       const idx = Math.min(prevAppIndex, newDevice.apps.length - 1);
       if (idx !== newEmu.emu_app_current()) {
@@ -2142,6 +2190,17 @@ function frame() {
   applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX, puckMotion.offsetY);
   updateDiagStrip();
   requestAnimationFrame(frame);
+}
+function sendGravityForRotation() {
+  if (!emu || !emu.emu_sensor_vector || vectorSensorIndices.length === 0)
+    return;
+  const g = gravityForQuickDeg(quickDeg);
+  for (const i of vectorSensorIndices) {
+    guardedAbiCall(`sensor[${i}] vector (rotation)`, (liveEmu) => {
+      liveEmu.emu_sensor_vector(i, g.x, g.y, g.z);
+      recorder.record({ t: performance.now(), k: "vector", i, x: g.x, y: g.y, z: g.z });
+    });
+  }
 }
 function fireShakeSensor(now, source) {
   if (shakeSensorIndex < 0 || replayer)
@@ -2410,6 +2469,8 @@ function buildTouchControls() {
   });
 }
 function wireStaticUI() {
+  applyEmbedMode();
+  window.addEventListener("resize", () => fitDeviceToStage());
   wireContactSize();
   makeDraggable(bezelEl, deviceWrapEl, onPuckDrag);
   bezelEl.title = "drag to move; shake it back and forth to trigger the shake sensor";
@@ -2440,6 +2501,8 @@ function wireStaticUI() {
       $("#rotQuick").querySelectorAll("button").forEach((x) => x.classList.remove("active"));
       b.classList.add("active");
       applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX, puckMotion.offsetY);
+      sendGravityForRotation();
+      fitDeviceToStage();
     });
   });
   $("#tilt").addEventListener("input", (e) => {

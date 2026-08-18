@@ -66,9 +66,18 @@ function readJson<T>(path: string): T {
 const registry = readJson<Registry>(join(REPO_ROOT, "registry.json"));
 
 const packLabel = new Map<string, string>();
+// Panel dimensions per pack, read from the SAME device.json packLabel
+// already reads (not a second file read) - what sizes each run page's
+// embed iframe below, so a run page never hardcodes one device's pixel
+// size the way the shared instrument itself is forbidden to (AGENTS.md's
+// "nothing names one device" is about src/server.ts/harness/, not this
+// site generator, but staying data-driven here costs nothing and avoids a
+// magic number per pack anyway).
+const packPanel = new Map<string, { w: number; h: number }>();
 for (const p of registry.packs) {
-  const device = readJson<{ name?: string }>(join(REPO_ROOT, p.path, "device.json"));
+  const device = readJson<{ name?: string; panel?: { w: number; h: number } }>(join(REPO_ROOT, p.path, "device.json"));
   packLabel.set(p.name, device.name || p.name);
+  if (device.panel) packPanel.set(p.name, device.panel);
 }
 
 interface AppEntry {
@@ -118,6 +127,32 @@ const COMBO_BUILD: Record<string, ComboBuild> = {
     blurb: "Ported down from a 900-particle, dual-core donor to 130 particles, single core: the interaction surface changed (fixed gravity, a touch stir), so this is verified by invariants, not pixel identity.",
   },
 };
+
+// The instrument's own minimal reference firmware (example/firmware/main.c,
+// docs/decisions/0001-example-is-minimal-not-a-shim.md), built and embedded
+// live the same way every proven combo is: not a device pack (no CMake, no
+// real board), not a ported app - this is what a new firmware author
+// targeting this instrument for the first time starts from. Panel size is
+// a plain literal here, not read from a device.json (example/ has none;
+// AGENTS.md's "nothing names one device" rule exempts example/ by name for
+// exactly this reason - it is real, minimal, single-purpose firmware, not
+// shared instrument code).
+const INSTRUMENT_EXAMPLE = {
+  id: "example",
+  name: "puck-example",
+  script: "example/build.ts",
+  args: [] as string[],
+  doc: "example/firmware/main.c",
+  panel: { w: 240, h: 240 },
+  blurb: "The instrument's own minimal reference firmware: a 240x240 panel, two buttons (one with a long-press verdict), a shake sensor, and a scripted two-button chord. Not a device pack, not a ported app - the smallest complete emu_device() implementation, and where a new firmware author starts.",
+};
+// Registered into the SAME two lookup maps every real pack uses (never into
+// registry.packs itself, so it never appears in the proof matrix, which
+// iterates registry.packs specifically) - this is what lets writeRunPage/
+// embedFrameSize below treat "example" as just another pack id with no
+// special-casing of its own.
+packLabel.set(INSTRUMENT_EXAMPLE.id, INSTRUMENT_EXAMPLE.name);
+packPanel.set(INSTRUMENT_EXAMPLE.id, INSTRUMENT_EXAMPLE.panel);
 
 // A fourth card that is not part of the proof matrix at all: the ESP32-S3
 // pack's own shipped reference app, included per this site's brief as a
@@ -176,16 +211,35 @@ for (const app of apps) {
 const REPO_WASM_OUT = join(REPO_ROOT, "wasm", "dist", "emu.wasm");
 const MODULES_DIR = join(DIST, "modules");
 
+// Retried here too, not just inside packs/rp2350-touch-amoled-18/wasm/build.ts's own loop
+// (AGENTS.md: "its wasm link segfaults on roughly one run in three; that is
+// a known zig bug, not your change, so run it again"). That pack's own
+// build.ts already retries internally, but example/build.ts and the
+// esp32-s3 pack's build.ts do not, and this function invokes every one of
+// them - without a retry HERE, a whole `bun run site:build` fails on a
+// single flaky exit from a script that has no retry loop of its own, for a
+// reason that has nothing to do with anything this task changed.
+const BUILD_MAX_ATTEMPTS = 4;
+
 function runBuild(script: string, args: string[]): void {
   console.log(`\n--- building: bun run ${script} ${args.join(" ")}`);
-  const result = Bun.spawnSync(["bun", "run", script, ...args], {
+  let result = Bun.spawnSync(["bun", "run", script, ...args], {
     cwd: REPO_ROOT,
     stdout: "inherit",
     stderr: "inherit",
     env: { ...process.env },
   });
+  for (let attempt = 2; !result.success && attempt <= BUILD_MAX_ATTEMPTS; attempt++) {
+    console.error(`bun run ${script} exited ${result.exitCode}, retrying (${attempt}/${BUILD_MAX_ATTEMPTS}) - see this function's comment`);
+    result = Bun.spawnSync(["bun", "run", script, ...args], {
+      cwd: REPO_ROOT,
+      stdout: "inherit",
+      stderr: "inherit",
+      env: { ...process.env },
+    });
+  }
   if (!result.success) {
-    throw new Error(`build failed: bun run ${script} ${args.join(" ")} (exit ${result.exitCode})`);
+    throw new Error(`build failed: bun run ${script} ${args.join(" ")} (exit ${result.exitCode}) on all ${BUILD_MAX_ATTEMPTS} attempts`);
   }
 }
 
@@ -203,6 +257,10 @@ function buildAllModules(): void {
     copyFileSync(REPO_WASM_OUT, join(MODULES_DIR, `${r.id}.wasm`));
     console.log(`copied -> site/dist/modules/${r.id}.wasm`);
   }
+  runBuild(INSTRUMENT_EXAMPLE.script, INSTRUMENT_EXAMPLE.args);
+  if (!existsSync(REPO_WASM_OUT)) throw new Error(`${INSTRUMENT_EXAMPLE.script} did not write ${REPO_WASM_OUT}`);
+  copyFileSync(REPO_WASM_OUT, join(MODULES_DIR, `${INSTRUMENT_EXAMPLE.id}.wasm`));
+  console.log(`copied -> site/dist/modules/${INSTRUMENT_EXAMPLE.id}.wasm`);
 }
 
 // ---- 1.5. flash artifacts + the WebUSB flasher's own bundled JS --------
@@ -277,33 +335,53 @@ ${body}
 `;
 }
 
-// ---- thumbnails: apps/*/frames carries the proof material itself -------
-// Chrono's app declares a landscape layout (see apps/chrono/descriptor.md);
-// the captured frame is the panel's own, unrotated buffer (its native
-// orientation is portrait, see packs/*/device.json's panel.w/h), so the
-// digits read top-to-bottom in the raw PNG. The CSS class below (site/
-// styles.css's .rot-ccw) rotates the <img> -90deg for display only, the
-// same quarter turn this repository's own "quick rotate" viewer control
-// applies (src/rotate.ts's quickDeg convention: negative = counter-
-// clockwise, top edge to left edge) - never touching the source PNG.
-// FluidBox has no landscape flag (it fills the panel in its native
-// orientation), so its frame needs no rotation.
-const THUMBNAILS: Record<string, { src: string; rotate: boolean }> = {
-  chrono: { src: "apps/chrono/frames/chrono-idle.t1008.png", rotate: true },
-  fluidbox: { src: "apps/fluidbox/frames/fluid-settle-shake.t9024.png", rotate: false },
-};
-
-function copyThumbnails(): string[] {
-  const assetsDir = join(DIST, "assets");
-  mkdirSync(assetsDir, { recursive: true });
-  const names: string[] = [];
-  for (const [app, t] of Object.entries(THUMBNAILS)) {
-    const dest = `${app}-thumb.png`;
-    copyFileSync(join(REPO_ROOT, t.src), join(assetsDir, dest));
-    names.push(dest);
-  }
-  return names;
+// ---- live card embeds: the landing page's own cards run the real thing --
+// Every app card on the index embeds the SAME shared emulator bundle every
+// run page does (?embed=1&module=...), pointed at that app's first proven
+// combo (app.proven[0] - deterministic since bundle.json's provenPacks is
+// an ordered array), so a visitor can click and touch the device right on
+// the landing page rather than only seeing a static screenshot and
+// following a link. `loading="lazy"` (native, no library) so a card below
+// the fold does not fetch and instantiate its wasm module - a real network
+// request plus a compile step, unlike a plain <img> - until it is actually
+// about to scroll into view, keeping the page's initial load cheap however
+// many combos the matrix grows to.
+//
+// ROOT-ABSOLUTE, deliberately, not relative. src/main.ts's fetchWasmBytes()
+// calls fetch(WASM_URL) INSIDE the emu/index.html document, so a relative
+// value in the ?module= param resolves against THAT document's own
+// location (site/dist/emu/), never against whichever page is embedding it.
+// A relative "modules/<id>.wasm" from an index-page card therefore resolved
+// to site/dist/emu/modules/<id>.wasm (one directory too deep - it does not
+// exist, 404) even though the exact same relative depth ("../modules/") was
+// correct from a run page one level further down in run/. Root-absolute
+// sidesteps embedding depth entirely: it means the same thing regardless of
+// which page (or how deeply nested) embeds emu/index.html. Correct on both
+// targets this repo ever serves site/dist/ from: Cloudflare Pages (a
+// project's dist is served at its own domain root) and this repo's own
+// local static servers (scripts/verify-flash-ui.ts, scripts/verify-embed.ts
+// pointed at site/dist/, and any other server that maps site/dist/ itself
+// to "/"), never at a deeper mount path.
+function moduleUrlAbs(moduleId: string): string {
+  return `/modules/${moduleId}.wasm`;
 }
+
+// From site/dist/index.html (DIST root), the shared bundle lives at
+// emu/index.html (one level down, not two - run pages need `../emu/`
+// because THEY live one level down in run/; the index page itself does
+// not). The iframe's own `src` path is fine relative (it is resolved by the
+// BROWSER against the embedding page's URL, the normal way <iframe src>
+// always works); only the ?module= VALUE inside it needed to stop being
+// relative, per this function's own header comment above.
+function embedIframeSrc(moduleId: string): string {
+  return `emu/index.html?embed=1&module=${encodeURIComponent(moduleUrlAbs(moduleId))}`;
+}
+
+// Chrono's app declares a landscape layout (see apps/chrono/descriptor.md):
+// the panel's native buffer is portrait, so its live embed below also
+// clicks the same "-90deg" quick-rotate button the run page's own script
+// does, once loaded, rather than showing the digits sideways.
+const CARD_AUTO_ROTATE: Record<string, boolean> = { chrono: true };
 
 // ---- hand-written one-liners: bundle.json has no prose, this is it -----
 const APP_BLURB: Record<string, string> = {
@@ -326,12 +404,10 @@ function renderProofCell(entry: ProvenEntry | undefined, comboIdFor: string | nu
 }
 
 function buildIndexHtml(): void {
-  const thumbs = copyThumbnails();
-
   const cardsHtml = apps
-    .map((app, i) => {
-      const thumb = THUMBNAILS[app.name]!;
-      const imgClass = thumb.rotate ? ' class="rot-ccw"' : "";
+    .map((app) => {
+      const primary = combos.find((x) => x.app === app.name && x.pack === app.proven[0]!.pack)!;
+      const autoRotate = CARD_AUTO_ROTATE[app.name] ?? false;
       const provenLinks = app.proven
         .map((p) => {
           const c = combos.find((x) => x.app === app.name && x.pack === p.pack)!;
@@ -351,7 +427,7 @@ function buildIndexHtml(): void {
         .map((p) => `<span class="badge${p.degraded ? "" : " accent"}">${escapeHtml(modeLabel(p.mode))} · ${escapeHtml(p.verification)}</span>`)
         .join("");
       return `<div class="card">
-  <div class="thumb"><img src="assets/${thumbs[i]}"${imgClass} alt="${escapeHtml(app.name)} panel capture" /></div>
+  <div class="thumb thumb-live" data-autorotate="${autoRotate ? "1" : "0"}"><iframe loading="lazy" allowtransparency="true" src="${embedIframeSrc(primary.id)}" width="400" height="300" title="${escapeHtml(app.name)}, running live" allow="autoplay"></iframe></div>
   <div class="body">
     <h3>${escapeHtml(app.name)}</h3>
     <p>${escapeHtml(APP_BLURB[app.name] || "")}</p>
@@ -383,13 +459,35 @@ function buildIndexHtml(): void {
     .join("\n");
   const matrixHead = packNames.map((p) => `<th>${escapeHtml(packLabel.get(p) || p)}</th>`).join("\n        ");
 
-  const refCardsHtml = REFERENCE_APPS.map(
-    (r) => `<div class="ref-card">
-  <h3>${escapeHtml(packLabel.get(r.pack) || r.pack)}: ${escapeHtml(r.name)}</h3>
+  // Every "reference" tile (a device pack proving itself, plus the
+  // instrument's own minimal example) also embeds its live emulator
+  // directly, same as the app cards above - see embedIframeSrc's header
+  // comment for why loading="lazy" is enough here rather than a bigger
+  // intersection-observer mechanism.
+  const refTiles = [
+    ...REFERENCE_APPS.map((r) => ({
+      id: r.id,
+      title: `${packLabel.get(r.pack) || r.pack}: ${r.name}`,
+      blurb: r.blurb,
+      docHref: gh(r.doc),
+    })),
+    {
+      id: INSTRUMENT_EXAMPLE.id,
+      title: INSTRUMENT_EXAMPLE.name,
+      blurb: INSTRUMENT_EXAMPLE.blurb,
+      docHref: gh(INSTRUMENT_EXAMPLE.doc),
+    },
+  ];
+  const refCardsHtml = refTiles
+    .map(
+      (r) => `<div class="ref-card">
+  <div class="thumb thumb-live"><iframe loading="lazy" allowtransparency="true" src="${embedIframeSrc(r.id)}" width="320" height="240" title="${escapeHtml(r.title)}, running live" allow="autoplay"></iframe></div>
+  <h3>${escapeHtml(r.title)}</h3>
   <p>${escapeHtml(r.blurb)}</p>
-  <div class="links"><a href="run/${r.id}.html">run it</a> <a href="${gh(r.doc)}">source</a></div>
+  <div class="links"><a href="run/${r.id}.html">open full page</a> <a href="${r.docHref}">source</a></div>
 </div>`
-  ).join("\n");
+    )
+    .join("\n");
 
   const body = `<div class="wrap">
   <header class="hero">
@@ -426,7 +524,7 @@ ${matrixRows}
   <section id="reference">
     <div class="wrap" style="padding:0">
       <h2>reference app</h2>
-      <p class="lede">Not a port: each device pack's own shipped app, run through the same emulator.</p>
+      <p class="lede">Not a port: each device pack's own shipped app, plus the instrument's own minimal example firmware - every tile below is running live, click into it the same as the cards above.</p>
       <div class="ref-cards">
 ${refCardsHtml}
       </div>
@@ -461,7 +559,27 @@ ${refCardsHtml}
       <a href="${gh("README.md")}">s0lness/puck</a> on GitHub, MIT licensed.
     </div>
   </footer>
-</div>`;
+</div>
+<script>
+(function () {
+  // Chrono's live card embed (see CARD_AUTO_ROTATE above) gets the same
+  // one-time "-90deg" quick-rotate click the run page's own script gives
+  // it, once that iframe's document is actually loaded - lazy-loaded
+  // iframes fire their own "load" event the same as an eager one, just
+  // later, so no extra polling is needed here.
+  document.querySelectorAll(".thumb-live[data-autorotate=\\"1\\"] iframe").forEach(function (emu) {
+    emu.addEventListener("load", function () {
+      setTimeout(function () {
+        try {
+          var doc = emu.contentDocument;
+          var btn = doc && doc.querySelector('#rotQuick button[data-deg="-90"]');
+          if (btn) btn.click();
+        } catch (e) {}
+      }, 400);
+    });
+  });
+})();
+</script>`;
 
   writeFileSync(join(DIST, "index.html"), page("puck: apps that travel between tiny computers", "A live gallery of firmware ported between device packs, running for real in the browser.", "styles.css", body));
 }
@@ -524,14 +642,31 @@ function renderFlashSection(comboId: string, pack: string): string {
   return "";
 }
 
-// Native size the emulator page is comfortable at (topbar + a 368x448
-// bezel with padding + the fixed-width sidebar, app.css's own
-// --sidebar-w/--bezel-pad): generous enough that nothing in the embedded
-// page has to wrap, then scaled down to fit narrower viewports by the run
-// page's own script below (a CSS transform on the wrapper, not a rewrite
-// of the emulator's own layout).
-const EMU_NATIVE_W = 980;
-const EMU_NATIVE_H = 760;
+// Native size for the run page's iframe: since site/build.ts's iframe now
+// points at the emulator's `?embed=1` view (device + minimal control strip
+// only, no topbar/sidebar/console - see src/main.ts's EMBED and
+// src/app.css's html.embed rules), the iframe only needs to fit the
+// device itself, not the full dev-UI layout the old fixed 980x760 was
+// sized for. Computed per pack from its own device.json panel size (never
+// a hardcoded 368x448 here), plus fixed margins for the bezel's own
+// padding and the bottom control strip - generous enough that nothing
+// wraps, and the embed page's own fitDeviceToStage() scales the device
+// down further still if a narrower viewport asks for it. A quarter-turned
+// device (chrono's autoRotate below) is still comfortable at these
+// margins since they are added on both axes.
+const EMBED_MARGIN_W = 80; // bezel padding, both sides, plus breathing room
+const EMBED_MARGIN_H = 170; // bezel padding + the bottom control strip
+const EMBED_MIN = 260; // floor, so a very small/no-panel pack still gets a usable frame
+
+function embedFrameSize(pack: string): { w: number; h: number } {
+  const panel = packPanel.get(pack);
+  const pw = panel?.w ?? 368;
+  const ph = panel?.h ?? 448;
+  return {
+    w: Math.max(EMBED_MIN, pw + EMBED_MARGIN_W),
+    h: Math.max(EMBED_MIN, ph + EMBED_MARGIN_H),
+  };
+}
 
 function buildRunDir(): void {
   const runDir = join(DIST, "run");
@@ -548,8 +683,12 @@ function buildRunDir(): void {
     docLinks: { label: string; href: string }[];
     autoRotate: boolean;
   }) {
-    const moduleUrl = `../modules/${opts.id}.wasm`;
-    const iframeSrc = `../emu/index.html?module=${encodeURIComponent(moduleUrl)}`;
+    // Root-absolute module URL, same reasoning and same helper as the
+    // index page's live card embeds (moduleUrlAbs's own header comment);
+    // the run page's iframe `src` itself stays relative ("../emu/..."),
+    // resolved normally by the browser against this page's own location.
+    const iframeSrc = `../emu/index.html?embed=1&module=${encodeURIComponent(moduleUrlAbs(opts.id))}`;
+    const { w: nativeW, h: nativeH } = embedFrameSize(opts.pack);
     const badges = [opts.modeStr, opts.verifStr]
       .filter((x): x is string => !!x)
       .map((x) => `<span class="badge accent">${escapeHtml(x)}</span>`)
@@ -570,8 +709,8 @@ function buildRunDir(): void {
   </div>
 
   <div class="emu-stage" id="stage">
-    <div class="emu-frame" id="frame" style="width:${EMU_NATIVE_W}px;height:${EMU_NATIVE_H}px">
-      <iframe id="emu" src="${iframeSrc}" width="${EMU_NATIVE_W}" height="${EMU_NATIVE_H}" title="${escapeHtml(opts.title)} running live" allow="autoplay"></iframe>
+    <div class="emu-frame" id="frame" style="width:${nativeW}px;height:${nativeH}px">
+      <iframe id="emu" allowtransparency="true" src="${iframeSrc}" width="${nativeW}" height="${nativeH}" title="${escapeHtml(opts.title)} running live" allow="autoplay"></iframe>
     </div>
   </div>
 
@@ -581,7 +720,7 @@ ${flashSection}
 </div>${flashScript}
 <script>
 (function () {
-  var NATIVE_W = ${EMU_NATIVE_W}, NATIVE_H = ${EMU_NATIVE_H};
+  var NATIVE_W = ${nativeW}, NATIVE_H = ${nativeH};
   var stage = document.getElementById("stage");
   var frame = document.getElementById("frame");
   function fit() {
@@ -594,7 +733,7 @@ ${flashSection}
   ${
     opts.autoRotate
       ? `// Chrono renders landscape into a portrait-native panel (see
-  // site/build.ts's THUMBNAILS comment); this clicks the emulator's own
+  // site/build.ts's CARD_AUTO_ROTATE comment); this clicks the emulator's own
   // "-90deg" quick-rotate button once the page loads, the same control a
   // person would click by hand, rather than defaulting to a sideways view.
   var emu = document.getElementById("emu");
@@ -645,6 +784,18 @@ ${flashSection}
       autoRotate: false,
     });
   }
+
+  writeRunPage({
+    id: INSTRUMENT_EXAMPLE.id,
+    title: INSTRUMENT_EXAMPLE.name,
+    pack: INSTRUMENT_EXAMPLE.id, // pseudo-pack, registered into packLabel/packPanel above
+    packLabelStr: "the instrument itself, no device pack",
+    modeStr: null,
+    verifStr: null,
+    blurb: INSTRUMENT_EXAMPLE.blurb,
+    docLinks: [{ label: "source", href: gh(INSTRUMENT_EXAMPLE.doc) }],
+    autoRotate: false,
+  });
 }
 
 // ---- run everything -------------------------------------------------

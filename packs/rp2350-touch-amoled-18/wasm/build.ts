@@ -80,6 +80,7 @@ const EMU_EXPORTS = [
   "emu_button",
   "emu_button_verdict",
   "emu_sensor_event",
+  "emu_sensor_vector",
   "emu_app_current",
   "emu_app_switch",
   "emu_tune_get",

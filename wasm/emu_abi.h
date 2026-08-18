@@ -100,7 +100,10 @@
  *       "longPressMs": 1500 }
  *   ],
  *   "touch":   { "points": 1 },
- *   "sensors": [ { "id": "shake", "kind": "event" } ],
+ *   "sensors": [
+ *     { "id": "shake", "kind": "event" },
+ *     { "id": "tilt", "kind": "vector" }
+ *   ],
  *   "apps":    [ "chrono", "draw", "timer" ],
  *   "gestures": [
  *     { "id": "menu", "label": "menu",
@@ -130,6 +133,20 @@
  *                 that reports "long press" rather than a raw level, say),
  *                 declare its threshold so the emulator reproduces the same
  *                 verdict instead of inventing its own.
+ *
+ *   sensors[].kind
+ *                 "event" is a one-shot "it happened" signal, delivered via
+ *                 emu_sensor_event() below. "vector" is a continuous 3-float
+ *                 signal, delivered via the OPTIONAL emu_sensor_vector()
+ *                 below (a firmware that does not implement it simply does
+ *                 not export it, and the host never calls it - same
+ *                 "unimplemented means uncalled" contract emu_app_switch()
+ *                 and the sound exports already use). A vector sensor's
+ *                 "id" says what physical quantity it carries (e.g. "tilt"
+ *                 for a gravity direction); the host must not special-case
+ *                 a particular id, only the "kind", so a future second
+ *                 vector sensor (a compass heading, say) works with no host
+ *                 change.
  *
  *   apps          optional. Purely so the emulator can offer a jump-to-app
  *                 control. A firmware with no such concept omits it, and the
@@ -211,6 +228,28 @@ void emu_button_verdict(int index, int isLong);
 // array. A shake, a tap, a step: anything the firmware receives as "it
 // happened" rather than as a continuous value.
 void emu_sensor_event(int index);
+
+// OPTIONAL. Only meaningful for a sensor declared "kind": "vector" (see
+// emu_device()'s field notes above). The host calls this whenever the
+// vector sensor's current reading changes; a firmware without a continuous
+// signal to feed leaves this unimplemented (unexported) and the host will
+// not call it, same as emu_app_switch()/the sound exports.
+//
+// AXIS CONVENTION, for a "tilt" vector sensor specifically (the one kind
+// this repo's reference pack declares today): the gravity direction, in
+// DEVICE coordinates, units of g (1.0 = 9.81 m/s^2). x points to the
+// panel's right, y points down the panel, z points into the screen (from
+// the glass toward the back of the case). Flat on a table, screen facing
+// up, is approximately (0, 0, -1). A device held upright in portrait, not
+// tilted, reads approximately (0, 1, 0) - gravity pulling straight down the
+// panel. This is the SAME convention a firmware's own app_frame_t tilt
+// field documents (see a device pack's sensors.h/app.h) - the host must
+// reproduce exactly this, never a different handedness or axis order, per
+// this file's own "keeping the emulator honest" rule: an emulator that
+// hands an app a gravity vector in the wrong axes is exactly the kind of
+// dishonesty that rule exists to catch, just for a continuous signal
+// instead of a discrete one.
+void emu_sensor_vector(int index, float x, float y, float z);
 
 /* ---- optional: apps -----------------------------------------------------
  *

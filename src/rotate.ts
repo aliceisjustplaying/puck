@@ -96,3 +96,39 @@ export function mapClientPoint(
 
   return { panel, view, viewW, viewH };
 }
+
+// A "kind": "vector" sensor's gravity reading, derived from the SAME
+// quick-rotate control (quickDeg: 0/90/-90/180 only) mapClientPoint already
+// undoes for touch, and by the same reasoning: rotating the on-screen view
+// means physically rotating the device, so whatever the emulator sends as
+// "down" through the ABI has to rotate with it, in the panel's own
+// unrotated space (emu_abi.h: input coordinates - and, per
+// emu_sensor_vector's own doc, a vector sensor's reading - are always
+// panel-space, never view-space).
+//
+// tiltDeg (the cosmetic slider) is deliberately NOT an input here, same as
+// mapClientPoint's own "view" space: it is a jauntier photo of the puck,
+// not a physical re-orientation, and folding it in would make gravity
+// wobble with a control nobody asked to mean "tilt the device" in the ABI
+// sense.
+//
+// Convention (wasm/emu_abi.h's emu_sensor_vector doc, must match exactly):
+// x right, y down the panel, z into the screen, units of g. This function
+// only ever produces an in-plane (x, y) reading with z = 0: the quick-
+// rotate control simulates holding the device upright at four possible
+// rotations, never laying it flat, so there is never a z component to
+// report here.
+//
+// Derivation: CSS applies `rotate(quickDeg)` to the bezel, i.e. screen =
+// R(quickDeg) * panel for any panel-space offset. We want the panel-space
+// vector that maps FORWARD to screen-down (0, 1) under that same rotation,
+// i.e. panel = R(quickDeg)^-1 * (0, 1) = R(-quickDeg) * (0, 1), which is
+// exactly (sin(theta), cos(theta)) for theta = quickDeg in radians (R(-θ)
+// applied to (0,1) = (sinθ, cosθ) by the same matrix mapClientPoint's own
+// inverse-rotation comment already works out for a point). Checked against
+// all four quick-rotate positions: 0deg -> (0,1) (down stays down), 90deg
+// -> (1,0), -90deg -> (-1,0), 180deg -> (0,-1).
+export function gravityForQuickDeg(quickDeg: number): { x: number; y: number; z: number } {
+  const theta = (quickDeg * Math.PI) / 180;
+  return { x: Math.sin(theta), y: Math.cos(theta), z: 0 };
+}

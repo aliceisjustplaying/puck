@@ -386,3 +386,75 @@
 .regression-thumb canvas { display: block; image-rendering: pixelated; border: 1px solid var(--border); border-radius: 4px; max-width: 200px; height: auto; }
 .regression-thumb-label { font-size: 10px; color: var(--muted); text-align: center; margin-top: 3px; }
 .regression-modal-actions { display: flex; justify-content: flex-end; margin-top: 4px; }
+
+/* ---------- embed mode: device (+ minimal control strip) only, no chrome.
+   Additive: everything below is scoped under html.embed, so plain-mode
+   layout above is completely untouched. See main.ts's EMBED/applyEmbedMode
+   for what gets moved (nothing here reaches into main.ts's DOM logic, this
+   is presentation only) and docs/decisions/ for why this exists (a public
+   run page embedding just the device, not the dev tool around it). ---- */
+/* Both html and body: family-budget.css's own `body { background:
+   var(--paper) }` is what showed up as a hard white/paper stripe behind the
+   device in the embedding page's own dark background (site/styles.css's
+   .emu-frame iframe also had a hardcoded white behind THIS, fixed
+   separately there - see that rule's own comment). html itself has no
+   background rule elsewhere today, but is included here too so this stays
+   correct even if one is added later without anyone remembering embed mode
+   depends on staying transparent. */
+html.embed, html.embed body { background: transparent; }
+html.embed .topbar,
+html.embed .side.controls,
+html.embed .diag-strip,
+/* the cosmetic tilt slider and the pause/step/replay deck: not part of the
+   minimal strip (rotation + any declared event-sensor button only) */
+html.embed .tilt-slider,
+html.embed .stage-controls > .divider,
+html.embed #btnPause,
+html.embed #btnStep,
+html.embed #replayBar,
+html.embed #btnStopReplay {
+  display: none !important;
+}
+/* Sidebar column gone entirely: the stage and the bottom bar both size off
+   --sidebar-w (app.css above), so zeroing it here is the one change that
+   lets both reflow to the full width with no other rule needing to know
+   embed mode exists. */
+html.embed { --sidebar-w: 0px; }
+html.embed .stage { background: transparent; min-height: 0; }
+/* #sensorControls (main.ts moves this node into .stage-controls itself, so
+   the wrap/gap it already has is enough) sits right after the rotation
+   segtog in source order once moved; no extra spacing rule needed beyond
+   the strip's own existing `gap`. */
+
+/* Scales the whole device (bezel + its buttons) to fit the viewport/iframe,
+   contained in BOTH dimensions - main.ts's fitDeviceToStage computes
+   --embed-scale on load, resize and rotation change.
+
+   TRUE (50%, 50%) CSS centering, not the plain-mode left/top main.ts's
+   centerDeviceOnce() computes in PIXELS. That function measures the
+   stage vs the device's UNSCALED size and clamps a too-small stage to a
+   20px minimum offset rather than going negative - correct for the plain
+   dev UI, where the stage is large and scrollable and the device is never
+   scaled down. In embed mode the device usually IS bigger than the
+   card/iframe before scaling, so that clamped, unscaled position's own
+   geometric centre sits well below the iframe's actual visual centre;
+   scaling around that off-centre point (a plain `transform: scale()`,
+   which was tried first here) shrinks the device toward the WRONG point
+   and leaves its bottom edge still hanging off the bottom of the iframe -
+   this is the exact crop the fluidbox landing-page card showed (confirmed
+   by measuring both rects: device bottom edge past the iframe's own
+   bottom edge, by design of the plain-mode centering math, not a
+   plain arithmetic mistake in the scale factor itself). Percentage
+   left/top plus translate(-50%,-50%) is centring math that is correct
+   at ANY scale, because translate()'s percentages resolve against the
+   element's own (unscaled) box regardless of what scale() does in the
+   same transform list - this is why main.ts's embed path skips setting
+   left/top at all (see centerDeviceOnce's own EMBED guard) rather than
+   this rule trying to fight an inline style with !important. */
+html.embed .device-wrap {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(var(--embed-scale, 1));
+  transform-origin: center center;
+}

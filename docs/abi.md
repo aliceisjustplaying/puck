@@ -43,7 +43,10 @@ touch capability, its optional apps and gestures - comes from this string.
     { "id": "b", "label": "B", "edge": "left", "at": 0.5 }
   ],
   "touch": { "points": 1 },
-  "sensors": [{ "id": "shake", "kind": "event", "label": "Shake" }],
+  "sensors": [
+    { "id": "shake", "kind": "event", "label": "Shake" },
+    { "id": "tilt", "kind": "vector" }
+  ],
   "gestures": [
     {
       "id": "chord",
@@ -147,6 +150,7 @@ void emu_touch(int down, int x, int y);
 void emu_button(int index, int down);
 void emu_button_verdict(int index, int isLong);
 void emu_sensor_event(int index);
+void emu_sensor_vector(int index, float x, float y, float z); // optional
 ```
 
 Coordinates are always in the panel's own, unrotated space - if your
@@ -159,6 +163,18 @@ Buttons are identified by their index in `emu_device()`'s `buttons` array.
 for a button that declared `longPressMs`. Sensor events are identified by
 index in the `sensors` array, and only ever fire for a sensor declared
 `"kind": "event"` - "it happened", not a continuous value.
+
+`emu_sensor_vector` is the continuous counterpart, OPTIONAL, and only ever
+called for a sensor declared `"kind": "vector"`: the host calls it whenever
+that sensor's reading changes. For a `"tilt"` vector sensor specifically,
+the three floats are the gravity direction in device coordinates, units of
+g: x to the panel's right, y down the panel, z into the screen. Flat on a
+table, screen up, is approximately `(0, 0, -1)`; held upright, not tilted,
+is approximately `(0, 1, 0)`. This must match exactly whatever a device
+pack's own firmware documents for the same signal (its `app_frame_t`'s tilt
+field and `sensors.h`) - see `wasm/emu_abi.h`'s own comment on
+`emu_sensor_vector` for why this is not a convention the host gets to pick
+independently.
 
 **The rule this whole ABI exists to enforce**: the host must never deliver
 an input your hardware cannot produce. If a real button, sensor, or touch

@@ -15,6 +15,13 @@ export type TraceEvent =
   | { t: number; k: "button"; i: number; down: number }
   | { t: number; k: "verdict"; i: number; long: number }
   | { t: number; k: "sensor"; i: number }
+  // A "kind": "vector" sensor's current reading (emu_abi.h's
+  // emu_sensor_vector), by index into the declared sensors array. Recorded
+  // whenever the host sends one (see main.ts); replayed by replayCore.ts/
+  // replay.ts, which skip it silently against a module that never exported
+  // emu_sensor_vector - a trace with no "vector" events (every trace
+  // recorded before this event kind existed) replays exactly as before.
+  | { t: number; k: "vector"; i: number; x: number; y: number; z: number }
   | { t: number; k: "tick" };
 
 export interface Trace {

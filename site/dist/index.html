@@ -19,7 +19,7 @@
     <div class="wrap" style="padding:0">
       <div class="cards">
 <div class="card">
-  <div class="thumb"><img src="assets/chrono-thumb.png" class="rot-ccw" alt="chrono panel capture" /></div>
+  <div class="thumb thumb-live" data-autorotate="1"><iframe loading="lazy" allowtransparency="true" src="emu/index.html?embed=1&module=%2Fmodules%2Fchrono-rp2350.wasm" width="400" height="300" title="chrono, running live" allow="autoplay"></iframe></div>
   <div class="body">
     <h3>chrono</h3>
     <p>A full-screen stopwatch: six seven-segment digits, two buttons, nothing else on screen.</p>
@@ -31,7 +31,7 @@
   </div>
 </div>
 <div class="card">
-  <div class="thumb"><img src="assets/fluidbox-thumb.png" alt="fluidbox panel capture" /></div>
+  <div class="thumb thumb-live" data-autorotate="0"><iframe loading="lazy" allowtransparency="true" src="emu/index.html?embed=1&module=%2Fmodules%2Ffluidbox-rp2350.wasm" width="400" height="300" title="fluidbox, running live" allow="autoplay"></iframe></div>
   <div class="body">
     <h3>fluidbox</h3>
     <p>A particle liquid that sloshes and settles inside the device&#39;s own enclosure shape.</p>
@@ -76,12 +76,19 @@
   <section id="reference">
     <div class="wrap" style="padding:0">
       <h2>reference app</h2>
-      <p class="lede">Not a port: each device pack's own shipped app, run through the same emulator.</p>
+      <p class="lede">Not a port: each device pack's own shipped app, plus the instrument's own minimal example firmware - every tile below is running live, click into it the same as the cards above.</p>
       <div class="ref-cards">
 <div class="ref-card">
+  <div class="thumb thumb-live"><iframe loading="lazy" allowtransparency="true" src="emu/index.html?embed=1&module=%2Fmodules%2Fesp32-demo.wasm" width="320" height="240" title="ESP32-S3-Touch-AMOLED-1.8: demo, running live" allow="autoplay"></iframe></div>
   <h3>ESP32-S3-Touch-AMOLED-1.8: demo</h3>
   <p>A bouncing square: the pack&#39;s own reference app, proving its band-render contract with nothing borrowed from another device.</p>
-  <div class="links"><a href="run/esp32-demo.html">run it</a> <a href="https://github.com/s0lness/puck/blob/master/packs/esp32-s3-touch-amoled-18/firmware/apps/demo.c">source</a></div>
+  <div class="links"><a href="run/esp32-demo.html">open full page</a> <a href="https://github.com/s0lness/puck/blob/master/packs/esp32-s3-touch-amoled-18/firmware/apps/demo.c">source</a></div>
+</div>
+<div class="ref-card">
+  <div class="thumb thumb-live"><iframe loading="lazy" allowtransparency="true" src="emu/index.html?embed=1&module=%2Fmodules%2Fexample.wasm" width="320" height="240" title="puck-example, running live" allow="autoplay"></iframe></div>
+  <h3>puck-example</h3>
+  <p>The instrument&#39;s own minimal reference firmware: a 240x240 panel, two buttons (one with a long-press verdict), a shake sensor, and a scripted two-button chord. Not a device pack, not a ported app - the smallest complete emu_device() implementation, and where a new firmware author starts.</p>
+  <div class="links"><a href="run/example.html">open full page</a> <a href="https://github.com/s0lness/puck/blob/master/example/firmware/main.c">source</a></div>
 </div>
       </div>
     </div>
@@ -116,5 +123,25 @@
     </div>
   </footer>
 </div>
+<script>
+(function () {
+  // Chrono's live card embed (see CARD_AUTO_ROTATE above) gets the same
+  // one-time "-90deg" quick-rotate click the run page's own script gives
+  // it, once that iframe's document is actually loaded - lazy-loaded
+  // iframes fire their own "load" event the same as an eager one, just
+  // later, so no extra polling is needed here.
+  document.querySelectorAll(".thumb-live[data-autorotate=\"1\"] iframe").forEach(function (emu) {
+    emu.addEventListener("load", function () {
+      setTimeout(function () {
+        try {
+          var doc = emu.contentDocument;
+          var btn = doc && doc.querySelector('#rotQuick button[data-deg="-90"]');
+          if (btn) btn.click();
+        } catch (e) {}
+      }, 400);
+    });
+  });
+})();
+</script>
 </body>
 </html>

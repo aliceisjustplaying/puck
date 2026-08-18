@@ -28,6 +28,10 @@
     {
       "id": "shake",
       "kind": "event"
+    },
+    {
+      "id": "tilt",
+      "kind": "vector"
     }
   ],
   "apps": [

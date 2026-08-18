@@ -26,6 +26,12 @@ export interface EmuExports {
   emu_button(index: number, down: number): void;
   emu_button_verdict(index: number, isLong: number): void;
   emu_sensor_event(index: number): void;
+  // Optional: only present for a firmware that declared at least one
+  // sensor with "kind": "vector" (emu_abi.h) and implemented the export.
+  // The host must never assume this exists; every call site guards it
+  // (e.g. `emu.emu_sensor_vector?.(...)`) exactly like the sound exports
+  // below.
+  emu_sensor_vector?(index: number, x: number, y: number, z: number): void;
   // Optional: only present when the firmware declared an "apps" array in
   // its device descriptor (emu_abi.h, "the emulator will not call them"
   // otherwise).

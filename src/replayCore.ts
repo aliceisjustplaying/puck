@@ -80,6 +80,16 @@ export async function replayFromBytes(bytes: ArrayBuffer, events: TraceEvent[], 
       case "sensor":
         emu.emu_sensor_event(ev.i);
         break;
+      case "vector":
+        // Optional export: a module that never declared a "kind": "vector"
+        // sensor (or predates this ABI addition) simply does not have it,
+        // and this is a silent no-op against it, per emu_abi.h's own
+        // "unimplemented means uncalled" contract - see recorder.ts's
+        // header comment on this event kind for why that is what keeps a
+        // pre-existing trace (no vector events at all) replaying bit-
+        // identically either way.
+        emu.emu_sensor_vector?.(ev.i, ev.x, ev.y, ev.z);
+        break;
       case "tick":
         emu.emu_tick(ev.t);
         while (remainingPoints.length > 0 && remainingPoints[0]! <= ev.t) {

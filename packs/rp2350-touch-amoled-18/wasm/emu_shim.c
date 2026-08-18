@@ -388,6 +388,59 @@ void sensors_boot_consume_click(void) {
     g_bootSwallowNextClick = true;
 }
 
+/* ---- tilt: a continuous gravity-direction reading, fed by emu_sensor_vector()
+ * (wasm/emu_abi.h, OPTIONAL export) for the "tilt" sensor declared in
+ * emu_device() below. Convention: x right, y down the panel, z into the
+ * screen, units of g - see emu_abi.h's emu_sensor_vector doc for the
+ * authoritative text this must match exactly.
+ *
+ * NOT plumbed through app_frame_t / sensors.h. Those belong to
+ * firmware/runtime/ - pack firmware this task does not touch, real code
+ * that ships to real silicon - so this deliberately stops short of adding a
+ * tiltX/Y/Z field there. What this DOES provide is emu_shim_tilt_get() just
+ * below: a private, non-ABI accessor, local to this one wasm build, that an
+ * --app port compiled alongside this shim (wasm/build.ts's --app flag) may
+ * call directly via its own `extern` declaration - see
+ * apps/fluidbox/ports/rp2350-touch-amoled-18/fluid.c for the one consumer
+ * today. This is emulator-only until a future change (out of this task's
+ * scope, since it requires editing firmware/runtime/app.h and sensors.c)
+ * adds the same reading to app_frame_t for every app and wires a real
+ * QMI8658 read on real hardware - see that fluid.c port's own README for
+ * the honesty note this implies.
+ *
+ * Default (0, 0, 0) until the host sends a first vector: deliberately a
+ * zero vector, not a unit one, so a build that never receives one (every
+ * trace recorded before this ABI addition, and the headless harness/
+ * invariant runner, which never drives a DOM and so never calls
+ * emu_sensor_vector at all) reads back a magnitude the fluidbox port's own
+ * "tilt is ~zero" fallback recognises and falls back on - see that port's
+ * fluid.c for the consuming side of this exact default.
+ * ======================================================================= */
+static float g_tiltX = 0.0f, g_tiltY = 0.0f, g_tiltZ = 0.0f;
+
+// index into emu_device()'s "sensors" array - see that function below for
+// the declaration this must stay in sync with. Any other index is a host
+// bug (the device only ever declares one vector sensor today); ignored
+// rather than trapped, same policy emu_button() already uses for a bad
+// button index.
+#define SENSOR_IDX_TILT 1
+
+void emu_sensor_vector(int index, float x, float y, float z) {
+    if (index != SENSOR_IDX_TILT) return;
+    g_tiltX = x;
+    g_tiltY = y;
+    g_tiltZ = z;
+}
+
+// Private, non-ABI: not declared in wasm/emu_abi.h, not part of the
+// contract a firmware author reads there. See this section's header
+// comment for exactly what this is and is not.
+void emu_shim_tilt_get(float *x, float *y, float *z) {
+    *x = g_tiltX;
+    *y = g_tiltY;
+    *z = g_tiltZ;
+}
+
 /* ---- shake: one monotonic counter, bumped by emu_sensor_event() for the
  * declared "shake" sensor, suppressed while a finger is down - the same
  * rule sensors.h documents for the real IMU path, so a resting hand while
@@ -667,7 +720,8 @@ int emu_device(void) {
     p = json_append(p, "{\"id\":\"pwr\",\"label\":\"PWR\",\"edge\":\"right\",\"at\":0.62,\"longPressMs\":1500}");
     p = json_append(p, "],");
     p = json_append(p, "\"touch\":{\"points\":1},");
-    p = json_append(p, "\"sensors\":[{\"id\":\"shake\",\"kind\":\"event\"}],");
+    p = json_append(p, "\"sensors\":[{\"id\":\"shake\",\"kind\":\"event\"},");
+    p = json_append(p, "{\"id\":\"tilt\",\"kind\":\"vector\"}],");
     p = json_append(p, "\"apps\":[");
     // Deduplicated by name: the --app roster (wasm/build.ts's --app flag,
     // see its own header comment) aliases every one of the three app-table

@@ -10,8 +10,8 @@ Comparing `apps/fluidbox/descriptor.md`'s `Demands` against this pack's `device.
 | Continuous per-frame particle solver (donor: 900 particles @ 240MHz dual-core ESP32-S3) | `memory.model = "full-framebuffer"`, single-core RP2350 @ 150MHz Cortex-M33, single-precision FPU | met, at a **much smaller particle count** (see below) |
 | Full-screen redraw every frame | full-framebuffer memory model, `gfx_push`/`gfx_push_all` | met |
 | A colour panel | `panel.format = "rgb565be"` | met exactly |
-| Motion input: gravity vector preferred, shake event minimum | `sensors: [{"id":"shake","kind":"event"}]` - **no continuous gravity-vector ABI call exists**, only a discrete event | **only the minimum is met**, not the preference |
-| *(prefers)* 60fps, IMU-driven gravity, 368x448 colour panel | panel is exactly 368x448 rgb565be; no continuous IMU surface; fps unproven (see Honesty below) | panel matches exactly, gravity does not, fps is asserted plausible, not proven |
+| Motion input: gravity vector preferred, shake event minimum | `sensors: [{"id":"shake","kind":"event"},{"id":"tilt","kind":"vector"}]` - a continuous gravity-vector ABI call now exists (`emu_sensor_vector`, `wasm/emu_abi.h`) | **met, in the emulator**; real hardware still only has the shake event (see "The missing ABI call" below for exactly what changed and what did not) |
+| *(prefers)* 60fps, IMU-driven gravity, 368x448 colour panel | panel is exactly 368x448 rgb565be; the emulator's rotation control now drives a continuous tilt vector; fps unproven (see Honesty below) | panel matches exactly, gravity follows tilt IN THE EMULATOR ONLY, fps is asserted plausible, not proven |
 
 Two real mismatches decide the verdict:
 
@@ -40,7 +40,7 @@ becomes a stirring input instead), so the mode is **adaptation**, and verificati
 | **Shake response** | A visible burst - particles spray outward and read whiter/faster, then settle back | Continuous IMU shake (a magnitude that scales with how hard the board is actually shaken); this port gets one fixed-magnitude impulse per discrete event, however hard or soft the real shake was |
 | | | **Particle count**: 130 vs the donor's 900 (~14%) |
 | | | **fps**: unproven on real silicon (see Honesty) vs the donor's measured ~90fps display / ~38 steps/s |
-| | | **IMU tilt steering**: gravity is fixed straight down, never derived from device orientation |
+| | | **IMU tilt steering on real hardware**: still fixed straight down - see "The missing ABI call", below, for what changed (the emulator) and what did not (the board) |
 
 What is *gained*, not merely lost-and-kept: this pack has touch (`device.json`'s `touch.points:
 1`), which the donor board also has but never reads (`descriptor.md`'s Interactions: "the donor
@@ -117,21 +117,38 @@ proven. The real constraint most likely to bite is not the solver at all but the
 deferred - this is exactly the class of question `AGENTS.md`'s own regression-test section says
 the emulator cannot answer, not a gap specific to this port.
 
-## The missing ABI call is a pack limitation, not a board one
+## The missing ABI call: landed in the emulator, still open on the board
 
 The RP2350-Touch-AMOLED-1.8 **has** a QMI8658 IMU on real hardware
-(`packs/rp2350-touch-amoled-18/AGENTS.md`'s board table lists it). What this port cannot do is a
-consequence of the *current emulator ABI this pack's `device.json` declares* - one `shake` sensor,
-`kind: "event"` - not of the silicon. `wasm/emu_abi.h` has no call analogous to `emu_touch()` that
-hands a continuous vector into the app's per-frame input; the closest existing shape,
-`emu_sensor_event(index)`, is a one-shot event by design (see its own comment: "Sensor events
-declared with `kind: "event"`, by index into the sensors array"). Adding a continuous
-`kind: "vector"` sensor (a per-tick 2 or 3-float gravity direction, analogous to how touch already
-carries `x`/`y` per frame) is a candidate ABI extension for a future pack revision - **not
-attempted here**: this task's own rules forbid touching pack firmware sources or the shared ABI to
-make one port easier, and hacking a private, undocumented channel into `emu_shim.c` would be
-exactly that. Fixed-down gravity plus a shake event is what the CURRENT device descriptor honestly
-supports.
+(`packs/rp2350-touch-amoled-18/AGENTS.md`'s board table lists it). The candidate extension this
+README used to describe as "not attempted here" has landed, generically, in the shared instrument:
+`wasm/emu_abi.h` now declares an OPTIONAL `emu_sensor_vector(int index, float x, float y, float z)`
+export for any sensor declared `"kind": "vector"`, and this pack's `device.json` / `emu_device()`
+now declares one, `{"id":"tilt","kind":"vector"}`, alongside the existing `shake` event. The host
+(`src/main.ts`) drives it from the SAME rotation control that already remaps touch coordinates:
+rotating the on-screen view is physically rotating the device, so the emulator now sends a gravity
+reading that keeps "down" reading correctly in all four quick-rotate positions (`src/rotate.ts`'s
+`gravityForQuickDeg`). This app's own gravity direction now follows that reading (see
+`update_gravity_direction()` in `fluid.c`), falling back to fixed straight down when the reading is
+near zero - which is exactly what a pre-tilt trace, or a build that never received one, reads back
+as, so nothing about the existing invariant trace's behaviour changed (see "Invariant thresholds"
+below).
+
+**What did NOT change: real hardware.** `wasm/emu_abi.h` is the shared instrument's contract, but
+`app_frame_t` (`firmware/runtime/app.h`) and the QMI8658 read (`firmware/runtime/sensors.c`) are
+pack FIRMWARE - real code that ships to real silicon - and this task's own rules forbid editing
+pack firmware sources. So this port's tilt reading is wired through a private, non-ABI accessor
+local to this one `--app` build (`emu_shim_tilt_get()`, declared in
+`packs/rp2350-touch-amoled-18/wasm/emu_shim.c`'s own "tilt" section, called directly by `fluid.c`
+via its own `extern` declaration - valid only because `wasm/build.ts`'s `--app` flag always compiles
+this file alongside that exact shim), NOT through `app_frame_t`, which gets no new field here. A
+build of this port for real hardware does not exist today (CMakeLists.txt never compiles
+`apps/fluidbox/`), so this gap is theoretical rather than a live inconsistency, but it is worth
+stating plainly: **tilt-driven gravity works in the emulator only.** Wiring it for real silicon
+would mean adding a `tiltX/Y/Z` field to `app_frame_t` and a low-pass-filtered QMI8658 read to
+`sensors.c` (reusing the same accelerometer burst `imu_poll_core1()` already takes for shake
+detection) - a firmware change, out of scope for an app port, left for whoever next touches that
+pack's own `firmware/runtime/`.
 
 ## Invariant thresholds, and why
 

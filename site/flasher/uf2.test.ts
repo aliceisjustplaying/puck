@@ -55,13 +55,23 @@ describe("fluidbox-rp2350.uf2 (single-app fluid build)", () => {
   const bytes = loadArtifact("fluidbox-rp2350.uf2");
   const { blocks, familyGroups } = parseUf2(bytes);
 
-  test("has 305 total blocks", () => {
-    expect(blocks.length).toBe(305);
+  // Refreshed after apps/fluidbox/ports/rp2350-touch-amoled-18/fluid.c's
+  // emu_shim_tilt_get() changed from a plain `extern` declaration to a weak
+  // default definition (the fix for the native single-app build's
+  // undefined-reference failure - the emulator's own emu_shim.c still
+  // provides the strong, real definition that wins in that build, see that
+  // function's own comment): the weak function body adds a handful of
+  // instructions to the native single-app link, so the built binary is
+  // slightly bigger and its block count and reported binary end both moved
+  // up from the previous artifact's numbers.
+
+  test("has 306 total blocks", () => {
+    expect(blocks.length).toBe(306);
   });
 
-  test("has one absolute/info block and 304 rp2350-arm-s blocks", () => {
+  test("has one absolute/info block and 305 rp2350-arm-s blocks", () => {
     expect(familyGroups.get(0xe48bff57)?.length).toBe(1);
-    expect(familyGroups.get(FAMILY_RP2350_ARM_S)?.length).toBe(304);
+    expect(familyGroups.get(FAMILY_RP2350_ARM_S)?.length).toBe(305);
   });
 
   test("every rp2350-arm-s block carries a contiguous 256-byte payload", () => {
@@ -69,17 +79,17 @@ describe("fluidbox-rp2350.uf2 (single-app fluid build)", () => {
     for (const b of family) expect(b.payloadSize).toBe(256);
   });
 
-  test("flash plan: range starts at 0x10000000 and covers picotool's reported binary end (0x10012f7c)", () => {
+  test("flash plan: range starts at 0x10000000 and covers picotool's reported binary end (0x10013004)", () => {
     const plan = computeFlashPlan(blocks, FAMILY_RP2350_ARM_S);
-    const BINARY_END = 0x10012f7c;
+    const BINARY_END = 0x10013004;
     expect(plan.rangeStart).toBe(0x10000000);
     expect(plan.rangeEnd).toBeGreaterThanOrEqual(BINARY_END);
-    expect(plan.chunks.length).toBe(304);
+    expect(plan.chunks.length).toBe(305);
   });
 
   test("erase range is 4096-aligned and covers the binary end", () => {
     const plan = computeFlashPlan(blocks, FAMILY_RP2350_ARM_S);
-    const BINARY_END = 0x10012f7c;
+    const BINARY_END = 0x10013004;
     expect(plan.eraseStart % FLASH_SECTOR_SIZE).toBe(0);
     expect(plan.eraseEnd % FLASH_SECTOR_SIZE).toBe(0);
     expect(plan.eraseStart).toBeLessThanOrEqual(plan.rangeStart);

@@ -12,7 +12,7 @@ import { type EmuExports, type DeviceDescriptor, DEFAULT_WASM_URL, fetchWasmByte
 import { readPushes, pixelReaderFor, blitRect, blitAll, type PixelReader } from "./panel";
 import { PushOverlay } from "./overlay";
 import { TouchOverlay, CONTACT_PRESETS, DEFAULT_PX_PER_MM } from "./touchoverlay";
-import { mapClientPoint } from "./rotate";
+import { mapClientPoint, gravityForQuickDeg } from "./rotate";
 import { makeDraggable, wireButton, createButtonElement, applyRotation, type WiredButton } from "./device";
 import { buildSensorControls } from "./sensors";
 import { buildAppStrip, type AppStripControl } from "./appstrip";
@@ -63,6 +63,17 @@ const stageEl = $("#stage");
 // made.
 const WASM_URL = new URLSearchParams(location.search).get("module") || DEFAULT_WASM_URL;
 
+// ---- embed mode ----
+// Additive hook for a static gallery run page that wants ONLY the device
+// (frame, panel, its declared buttons) plus a minimal control strip
+// (rotation, plus any declared "kind": "event" sensor button - see
+// applyEmbedMode below), for embedding in a narrow iframe with no huge
+// empty area around a full dev-UI layout it will never use (topbar, the
+// input/device/console sidebar, the tuning disclosure, the diagnostics
+// strip). Composes with ?module=; with no ?embed=1 the page is exactly the
+// existing dev UI, byte-for-byte the same behaviour as before this existed.
+const EMBED = new URLSearchParams(location.search).get("embed") === "1";
+
 // ---- state ----
 let emu: EmuExports | null = null;
 let wasmBytes: ArrayBuffer | null = null;
@@ -97,6 +108,16 @@ const puckDragShake = new WindowShakeDetector();
 const puckMotion = new PuckMotion();
 const soundPlayer = new SoundPlayer();
 let shakeSensorIndex = -1;
+// Every declared "kind": "vector" sensor's index, generic (this repo's
+// AGENTS.md rule: nothing in src/ special-cases a sensor by id, only by
+// kind - see buildChrome below, which fills this from emu_device() the
+// same way shakeSensorIndex is filled by kind "event" + id "shake" is
+// filled by buildSensorControls). Every entry gets the SAME gravity
+// reading (sendGravityForRotation below): a device with more than one
+// vector sensor is not something this repo's reference packs declare
+// today, and nothing here assumes a particular count beyond "zero or
+// more".
+let vectorSensorIndices: number[] = [];
 let centeredOnce = false;
 
 // The contact toggle (disc, trail and coordinate readout together, one
@@ -229,6 +250,8 @@ function describeTraceEvent(ev: TraceEvent): string {
       return `button[${ev.i}] verdict long=${ev.long} @${ev.t.toFixed(1)}ms`;
     case "sensor":
       return `sensor[${ev.i}] @${ev.t.toFixed(1)}ms`;
+    case "vector":
+      return `sensor[${ev.i}] vector (${ev.x.toFixed(2)},${ev.y.toFixed(2)},${ev.z.toFixed(2)}) @${ev.t.toFixed(1)}ms`;
     case "tick":
       return `tick @${ev.t.toFixed(1)}ms`;
   }
@@ -538,6 +561,10 @@ function buildChrome(d: DeviceDescriptor): void {
   }
 
   shakeSensorIndex = (d.sensors || []).findIndex((s) => s.id.toLowerCase() === "shake");
+  vectorSensorIndices = (d.sensors || []).reduce<number[]>((acc, s, i) => {
+    if (s.kind === "vector") acc.push(i);
+    return acc;
+  }, []);
 
   touchEnabled = (d.touch?.points ?? 0) > 0;
   panelEl.style.cursor = touchEnabled ? "crosshair" : "default";
@@ -546,6 +573,7 @@ function buildChrome(d: DeviceDescriptor): void {
   refreshContactInfo();
   buildGestures(d);
   centerDeviceOnce();
+  fitDeviceToStage();
 }
 
 // ---- gestures: give every declared gesture a button that PERFORMS it ----
@@ -687,6 +715,24 @@ function buildGestures(d: DeviceDescriptor): void {
 // ---- centre the puck over the stage, once, on first load ----------------
 function centerDeviceOnce(): void {
   if (centeredOnce) return;
+  // Embed mode centres purely in CSS (app.css's html.embed .device-wrap:
+  // left/top 50% + translate(-50%,-50%), which stays correct at any
+  // --embed-scale) rather than here. This function's own left/top math is
+  // in UNSCALED pixels, clamped to a 20px floor when the stage is smaller
+  // than the device - exactly the plain dev UI's case (a large, scrollable
+  // stage), never the embed case (the device is usually BIGGER than the
+  // card/iframe before fitDeviceToStage's scale shrinks it). Setting an
+  // inline left/top here would fight that CSS rule's own centring (an
+  // inline style otherwise wins over an external stylesheet), and letting
+  // it through was the actual cause of the fluidbox landing-page card
+  // cropping the bottom of the device: this function's clamped, unscaled
+  // "centre" is not where the SCALED device's centre needs to be, so
+  // scaling around it left the device's bottom edge past the iframe's own
+  // bottom edge. See that CSS rule's own comment for the full geometry.
+  if (EMBED) {
+    centeredOnce = true;
+    return;
+  }
   const stageRect = stageEl.getBoundingClientRect();
   const bw = bezelEl.offsetWidth;
   const bh = bezelEl.offsetHeight;
@@ -694,6 +740,55 @@ function centerDeviceOnce(): void {
   deviceWrapEl.style.left = `${Math.max(20, Math.round((stageRect.width - bw) / 2))}px`;
   deviceWrapEl.style.top = `${Math.max(20, Math.round((stageRect.height - bh) / 2))}px`;
   centeredOnce = true;
+}
+
+// ---- embed mode: device (+ minimal control strip) only -------------------
+// See EMBED's own header comment above. Everything here is DOM/CSS only -
+// no ABI behaviour changes, touch/keyboard input keeps working exactly as
+// before - and it is device-agnostic: the strip's contents are whatever
+// buildChrome/buildSensorControls already built generically from
+// emu_device() (the rotation control always exists; the sensor-event
+// button group is only non-empty for a device that declared one, e.g.
+// "shake" today), never a hardcoded button or sensor name.
+function applyEmbedMode(): void {
+  if (!EMBED) return;
+  document.documentElement.classList.add("embed");
+  // Physically relocates the two DOM nodes (not a copy - moving an
+  // existing element via appendChild carries its already-wired event
+  // listeners with it, so buildSensorControls/wireStaticUI never need to
+  // know embed mode exists) out of the sidebar/bottom-bar's normal spots
+  // and into one visible strip together. CSS (app.css's .embed rules)
+  // hides everything else (topbar, the rest of the sidebar, tune, console,
+  // the diagnostics strip, the tilt slider).
+  const strip = $("#rotQuick").parentElement!; // .stage-controls
+  const sensorControls = $("#sensorControls");
+  strip.appendChild(sensorControls);
+}
+
+// ---- embed mode: scale the device to fit whatever viewport/iframe this
+// page is running in, instead of the normal dev UI's scroll-and-drag stage.
+// Recomputed on load, on window resize, and on every rotation change (a
+// quarter turn swaps the on-screen bounding box) - see wireStaticUI's
+// #rotQuick handler and boot() for the call sites. A pure CSS transform on
+// #deviceWrap (app.css), so it composes cleanly with applyRotation's own
+// transform on the bezel one level down (device.ts) rather than fighting
+// it. No-ops instantly outside embed mode.
+function fitDeviceToStage(): void {
+  if (!EMBED) return;
+  const stageRect = stageEl.getBoundingClientRect();
+  const bw = bezelEl.offsetWidth;
+  const bh = bezelEl.offsetHeight;
+  if (bw === 0 || bh === 0 || stageRect.width === 0 || stageRect.height === 0) return; // not laid out yet
+  // bezelEl.offsetWidth/Height are the panel's own, UNROTATED layout size
+  // (a CSS transform never changes layout size, only paint); at a quarter
+  // turn the on-screen bounding box swaps, so fitting has to account for
+  // that the same way rotate.ts's own "view" space does.
+  const quarterTurned = ((Math.round(quickDeg / 90) % 2) + 2) % 2 === 1;
+  const boxW = quarterTurned ? bh : bw;
+  const boxH = quarterTurned ? bw : bh;
+  const margin = 16; // breathing room so the bezel's own drop-shadow never clips
+  const scale = Math.min(1, (stageRect.width - margin) / boxW, (stageRect.height - margin) / boxH);
+  deviceWrapEl.style.setProperty("--embed-scale", String(scale > 0 ? scale : 1));
 }
 
 // ---- load / reload ----
@@ -797,6 +892,7 @@ async function bringUp(bytes: ArrayBuffer, reason: string): Promise<void> {
     else touchSim = new TouchSim(touchCfg, panelW, panelH);
 
     buildChrome(newDevice);
+    sendGravityForRotation(); // once at module ready, see this function's header comment
 
     if (newDevice.apps && newDevice.apps.length > 0 && newEmu.emu_app_switch && newEmu.emu_app_current) {
       const idx = Math.min(prevAppIndex, newDevice.apps.length - 1);
@@ -996,6 +1092,29 @@ function frame(): void {
 // frames, and arguably reads as a better gesture besides (you are shaking
 // the device, not the window it happens to be displayed in). Wired below
 // via device.ts's makeDraggable onDrag callback, same jolt-detector shape.
+// ---- vector sensors (e.g. tilt): driven by the existing rotation control --
+// Rotating the on-screen view IS physically rotating the device (see
+// rotate.ts's gravityForQuickDeg header comment), so the same quick-rotate
+// buttons that already remap touch coordinates also send a fresh gravity
+// reading to every declared "kind": "vector" sensor - generic over kind,
+// never over a sensor's id/name (this repo's AGENTS.md rule). No-ops
+// instantly if the device declared no vector sensor, or if the loaded
+// module never exported emu_sensor_vector (an older/other firmware).
+// Called on every rotation change and once right after a module comes up
+// (bringUp below), so a fresh module always starts with a reading that
+// matches whatever rotation was already selected, rather than waiting for
+// the next click to correct it.
+function sendGravityForRotation(): void {
+  if (!emu || !emu.emu_sensor_vector || vectorSensorIndices.length === 0) return;
+  const g = gravityForQuickDeg(quickDeg);
+  for (const i of vectorSensorIndices) {
+    guardedAbiCall(`sensor[${i}] vector (rotation)`, (liveEmu) => {
+      liveEmu.emu_sensor_vector!(i, g.x, g.y, g.z);
+      recorder.record({ t: performance.now(), k: "vector", i, x: g.x, y: g.y, z: g.z });
+    });
+  }
+}
+
 function fireShakeSensor(now: number, source: string): void {
   if (shakeSensorIndex < 0 || replayer) return;
   // Also called every frame from pollWindowShake below, unconditionally --
@@ -1317,6 +1436,8 @@ function buildTouchControls(): void {
 
 // ---- static UI: everything not dependent on a loaded module ----
 function wireStaticUI(): void {
+  applyEmbedMode(); // before anything below, so the strip is already in place for first paint
+  window.addEventListener("resize", () => fitDeviceToStage()); // no-op outside embed mode
   wireContactSize();
 
   makeDraggable(bezelEl, deviceWrapEl, onPuckDrag);
@@ -1359,6 +1480,8 @@ function wireStaticUI(): void {
           .forEach((x) => x.classList.remove("active"));
         b.classList.add("active");
         applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX, puckMotion.offsetY);
+        sendGravityForRotation();
+        fitDeviceToStage();
       });
     });
   $<HTMLInputElement>("#tilt").addEventListener("input", (e) => {

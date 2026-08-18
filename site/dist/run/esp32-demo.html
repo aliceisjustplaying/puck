@@ -21,8 +21,8 @@
   </div>
 
   <div class="emu-stage" id="stage">
-    <div class="emu-frame" id="frame" style="width:980px;height:760px">
-      <iframe id="emu" src="../emu/index.html?module=..%2Fmodules%2Fesp32-demo.wasm" width="980" height="760" title="ESP32-S3-Touch-AMOLED-1.8: demo running live" allow="autoplay"></iframe>
+    <div class="emu-frame" id="frame" style="width:448px;height:618px">
+      <iframe id="emu" allowtransparency="true" src="../emu/index.html?embed=1&module=%2Fmodules%2Fesp32-demo.wasm" width="448" height="618" title="ESP32-S3-Touch-AMOLED-1.8: demo running live" allow="autoplay"></iframe>
     </div>
   </div>
 
@@ -35,7 +35,7 @@
 </div>
 <script>
 (function () {
-  var NATIVE_W = 980, NATIVE_H = 760;
+  var NATIVE_W = 448, NATIVE_H = 618;
   var stage = document.getElementById("stage");
   var frame = document.getElementById("frame");
   function fit() {

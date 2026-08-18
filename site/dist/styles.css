@@ -75,6 +75,14 @@ section > .wrap > p.lede { color: var(--text-soft); margin: -8px 0 22px; max-wid
 }
 .card .thumb img { display: block; max-width: 100%; max-height: 100%; image-rendering: pixelated; }
 .card .thumb img.rot-ccw { transform: rotate(-90deg); max-width: none; max-height: none; width: 132%; }
+/* ---- live card embeds: the real emulator, not a screenshot. The iframe
+   fills whatever box .thumb (or .ref-card's own thumb below) already sizes
+   via aspect-ratio; the embedded page's own fitDeviceToStage() (src/app.css/
+   main.ts) scales the device to fit that box, so no size math is needed
+   here beyond "fill the parent". pointer-events left at their default
+   (auto) so touch/click reach the device directly - this is the whole
+   point of embedding it live rather than a static image. */
+.thumb-live iframe { display: block; width: 100%; height: 100%; border: 0; }
 .card .body { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
 .card h3 { margin: 0; font-size: 1.15rem; }
 .card p { margin: 0; color: var(--text-soft); font-size: 0.94rem; }
@@ -121,11 +129,14 @@ table.matrix td.app-row { font-weight: 600; background: var(--surface-2); }
 .ref-card {
   border: 1px dashed var(--border);
   border-radius: var(--radius);
-  padding: 16px 18px;
+  padding: 0 0 16px;
   background: var(--surface);
+  overflow: hidden;
 }
-.ref-card h3 { margin: 0 0 6px; font-size: 1rem; }
-.ref-card p { margin: 0 0 10px; color: var(--text-soft); font-size: 0.88rem; }
+.ref-card .thumb { background: #000; aspect-ratio: 4 / 3; margin-bottom: 12px; }
+.ref-card h3 { margin: 0 6px 6px; padding: 0 12px; font-size: 1rem; }
+.ref-card p { margin: 0 0 10px; padding: 0 18px; color: var(--text-soft); font-size: 0.88rem; }
+.ref-card .links { padding: 0 18px; }
 
 footer { padding: 30px 0 60px; color: var(--text-soft); font-size: 0.85rem; border-top: 1px solid var(--border); margin-top: 20px; }
 
@@ -153,7 +164,15 @@ footer { padding: 30px 0 60px; color: var(--text-soft); font-size: 0.85rem; bord
   border-radius: var(--radius);
 }
 .emu-frame { transform-origin: top left; }
-.emu-frame iframe { display: block; border: 0; background: #fff; }
+/* Transparent, not white: the embedded emulator page (src/app.css's
+   html.embed rules) makes its own html/body transparent in embed mode so
+   only the device and its control strip paint - a hardcoded white here
+   would sit BEHIND that transparent document and repaint the "page
+   background" this whole mechanism exists to remove, which is exactly what
+   showed up as a hard white stripe behind the device in dark mode before
+   this was transparent. .emu-stage (above) is the deliberate themed card
+   frame around the iframe; this is the iframe's own box, one level in. */
+.emu-frame iframe { display: block; border: 0; background: transparent; }
 
 .run-footer { padding: 24px 0 60px; }
 

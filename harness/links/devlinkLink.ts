@@ -408,6 +408,15 @@ export class DevlinkLink implements HardwareLink {
       case "sensor":
         if (event.i === 0) return ["ERASE"];
         throw new Error(`no devlink command for sensor index ${event.i} (this device declares exactly one, 0 = shake)`);
+      case "vector":
+        // No devlink command exists to inject a continuous vector sensor
+        // reading onto real hardware (this pack's own firmware.runtime/
+        // sensors.c is not wired for it either - see
+        // apps/fluidbox/ports/rp2350-touch-amoled-18/README.md's "The
+        // missing ABI call" section). Per this function's own header
+        // comment, an event this link cannot deliver throws rather than
+        // being silently dropped.
+        throw new Error(`no devlink command for a vector sensor event (index ${event.i}): real-hardware tilt injection is not wired`);
       case "tick":
         // Never sent: emu_tick(nowMs) is the emulator's synthetic clock and
         // has no hardware equivalent. harness/hardwareSide.ts already

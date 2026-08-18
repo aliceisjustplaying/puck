@@ -4,12 +4,20 @@
 // app_frame_t, gfx_fill_rect/gfx_push). See
 // apps/fluidbox/ports/rp2350-touch-amoled-18/README.md for the verdict this
 // implements (degraded, mode adaptation, verified by invariants) and the
-// honesty requirements it documents in full: 2D rather than 3D, fixed
-// downward gravity rather than IMU tilt (this pack's emulated sensor surface
-// exposes only a shake EVENT, not a continuous gravity vector - see that
-// README's "what the pack cannot give this app" section), a reduced
+// honesty requirements it documents in full: 2D rather than 3D, a reduced
 // particle count, and an emulator that cannot prove a real-hardware fps
 // floor.
+//
+// GRAVITY DIRECTION. In the EMULATOR, this now follows the rotation
+// control's "kind": "vector" tilt sensor (wasm/emu_abi.h's emu_sensor_vector,
+// packs/rp2350-touch-amoled-18/wasm/emu_shim.c's emu_shim_tilt_get - a
+// private, non-ABI accessor scoped to this one --app build, NOT plumbed
+// through app_frame_t/sensors.h, since those are pack firmware this task
+// does not touch). ON REAL HARDWARE this still falls back to fixed-down
+// gravity: wiring a real QMI8658 reading into every app via app_frame_t
+// would mean editing firmware/runtime/app.h and sensors.c, out of scope
+// here (see this port's README, "the missing ABI call" section, for the
+// full honesty statement of what is and is not wired on which target).
 //
 // This file defines no app_t of its own (unlike firmware/apps/chrono.c):
 // see packs/rp2350-touch-amoled-18/wasm/build.ts's --app header comment for
@@ -22,6 +30,31 @@
 #include "app.h"
 #include "gfx.h"
 #include "sensors.h"
+
+// ONE .c, TWO TARGETS. This port also builds native, straight to the real
+// board (packs/rp2350-touch-amoled-18/tools/build-native.ts's --app flag),
+// and native has no emu_shim.c to link against at all - that file is
+// wasm-only (packs/rp2350-touch-amoled-18/wasm/). A plain `extern` here
+// would leave the native single-app link with an undefined reference.
+//
+// `weak` is the fix: the wasm build's real, STRONG emu_shim_tilt_get()
+// (emu_shim.c) always overrides this weak default when both are linked
+// together (that is exactly what `weak` means to the linker) - so the
+// emulator's tilt-follows-rotation behaviour is unaffected. The native
+// build links only this weak definition, since nothing else in that build
+// provides the symbol, and gets a constant zero vector: exactly what
+// update_gravity_direction() below already treats as "no tilt reading
+// yet" and falls back on, straight-down gravity, this port's original
+// behaviour and its ONLY behaviour on real hardware until a future
+// firmware change (see this file's header comment) wires a real QMI8658
+// read through app_frame_t. Nothing about the fallback threshold or logic
+// needed to change; the weak symbol just makes that fallback the native
+// build's only path rather than an unresolved symbol.
+__attribute__((weak)) void emu_shim_tilt_get(float *x, float *y, float *z) {
+    *x = 0.0f;
+    *y = 0.0f;
+    *z = 0.0f;
+}
 
 /* ===========================================================================
  * Particle count
@@ -79,13 +112,25 @@
 // through the scaled dt multiplying it (see integrate_velocities below), the
 // same mechanism the donor's own sim.c uses, so the physical magnitude does
 // not need retuning on its own - only the box/particle-count context around
-// it changed. Fixed DOWN (+y, panel coordinates), never derived from tilt:
-// this pack's emulated sensor surface has no continuous gravity-vector ABI
-// call, only a discrete shake event (see the README).
+// it changed. This is now a MAGNITUDE only; the DIRECTION comes from
+// s->gravX/gravY (see integrate_velocities and port_tick's tilt read below) -
+// straight down, (0, 1), unless the emulator's tilt sensor overrides it.
 #define PX_PER_METER      12677.0f
 #define GRAVITY_MPS2      9.81f
 #define GRAVITY_GAIN      2.2f
 #define GRAVITY_PXS2      (GRAVITY_MPS2 * GRAVITY_GAIN * PX_PER_METER)
+
+// Below this tilt magnitude (g), gravity direction falls back to fixed
+// straight down rather than trusting a near-zero vector's direction (noise
+// dominates a vector this small, and a near-zero magnitude is exactly what
+// "no tilt reading yet" - the emu_shim.c default - looks like). Chosen well
+// under the ~1g a live rotation reading actually sends (rotate.ts's
+// gravityForQuickDeg always returns a unit vector) and well above 0, so the
+// existing invariant trace (which never sends a vector event at all, see
+// apps/fluidbox/ports/rp2350-touch-amoled-18/README.md) reads a magnitude of
+// exactly 0 and takes this fallback every tick, UNCHANGED from this port's
+// pre-tilt behaviour.
+#define TILT_MIN_G        0.2f
 
 #define K_PRESSURE        400000.0f
 #define K_NEAR_PRESSURE   800000.0f
@@ -141,6 +186,12 @@ typedef struct {
 
     bool touchWasDown;
     int  touchLastX, touchLastY;
+
+    // Current gravity DIRECTION (unit vector, panel coordinates), read once
+    // per tick from emu_shim_tilt_get() and used by every integrate_velocities()
+    // call until the next tick refreshes it - see port_tick and
+    // integrate_velocities below.
+    float gravX, gravY;
 } fluid_state_t;
 
 static fluid_state_t *s;
@@ -204,8 +255,11 @@ static void seed_block(void) {
 }
 
 static void integrate_velocities(float dt) {
+    const float ax = s->gravX * GRAVITY_PXS2 * dt;
+    const float ay = s->gravY * GRAVITY_PXS2 * dt;
     for (int i = 0; i < FLUID_N; i++) {
-        s->vy[i] += GRAVITY_PXS2 * dt;
+        s->vx[i] += ax;
+        s->vy[i] += ay;
     }
 }
 
@@ -461,9 +515,31 @@ static void draw_particles(void) {
     }
 }
 
+// Reads the emulator's tilt vector (if any) and resolves it to a unit
+// gravity DIRECTION in s->gravX/gravY, falling back to fixed straight down
+// when the reading is ~zero (see TILT_MIN_G's own comment for why that is
+// exactly what "no reading yet" and every pre-tilt trace both look like).
+// The z component (into-screen) is read and deliberately ignored: this is
+// a 2D solver, gravity only ever pulls within the panel plane.
+static void update_gravity_direction(void) {
+    float tx, ty, tz;
+    emu_shim_tilt_get(&tx, &ty, &tz);
+    (void)tz;
+    const float mag = sqrtf(tx * tx + ty * ty);
+    if (mag > TILT_MIN_G) {
+        s->gravX = tx / mag;
+        s->gravY = ty / mag;
+    } else {
+        s->gravX = 0.0f;
+        s->gravY = 1.0f; // fallback: fixed straight down, this port's original behaviour
+    }
+}
+
 void port_enter(void) {
     s = APP_STATE(fluid_state_t);
     s->rng = 0x2545F491u; // fixed seed: replay determinism, see rand_unit()'s comment
+    s->gravX = 0.0f;
+    s->gravY = 1.0f; // straight down until the first tick reads a live tilt
     calibrate_rest_density();
     seed_block();
 
@@ -486,6 +562,7 @@ void port_tick(const app_frame_t *f) {
         apply_shake();
     }
     handle_touch(f);
+    update_gravity_direction();
 
     // dtMs is already clamped upstream (runtime_core.c: max 250ms per tick),
     // and SIM_DT_MAX caps the physics step itself the same way sim.c's own
