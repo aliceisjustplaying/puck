@@ -1,0 +1,15 @@
+version: "1.0.0"
+
+# Same two managed components esp32-fluidbox depends on for this exact
+# board (fluidbox/main/idf_component.yml): the display driver and the IMU
+# driver. Nothing else is vendored - see this pack's AGENTS.md for why
+# touch.c has no equivalent managed component (fluidbox never drives touch
+# itself, so there was nothing to inherit there).
+dependencies:
+  idf: ">=5.5"
+  espressif/esp_lcd_co5300:
+    version: "^2.1.0"
+    public: true
+  waveshare/qmi8658:
+    version: "^2.0.0"
+    public: true

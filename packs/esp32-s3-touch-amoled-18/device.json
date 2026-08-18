@@ -1,0 +1,40 @@
+{
+  "convention": "0.1",
+  "name": "ESP32-S3-Touch-AMOLED-1.8",
+  "panel": {
+    "w": 368,
+    "h": 448,
+    "format": "rgb565be"
+  },
+  "buttons": [
+    {
+      "id": "boot",
+      "label": "BOOT",
+      "edge": "right",
+      "at": 0.38
+    },
+    {
+      "id": "pwr",
+      "label": "PWR",
+      "edge": "right",
+      "at": 0.62,
+      "longPressMs": 1500
+    }
+  ],
+  "touch": {
+    "points": 1
+  },
+  "sensors": [
+    {
+      "id": "shake",
+      "kind": "event"
+    }
+  ],
+  "memory": {
+    "model": "band",
+    "bands": 16,
+    "bandRows": 28,
+    "bandBufferKB": 20,
+    "doubleBuffered": true
+  }
+}
