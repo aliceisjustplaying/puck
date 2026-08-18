@@ -6,6 +6,17 @@
 // repo root, never .js/.mjs (AGENTS.md: TypeScript only, build scripts
 // included).
 //
+// --app <path-to-c-file>: swaps apps/demo.c for a different single C file
+// implementing this pack's one app slot (added for the first cross-device
+// port, apps/chrono/ports/esp32-s3-touch-amoled-18/chrono.c - see that
+// directory's README.md). Additive only: the default with no --app is
+// still exactly apps/demo.c, and runtime_core.c (this pack's runtime,
+// never touched by a port) is unmodified either way - it declares `extern
+// const app_t g_demoApp;` regardless of which .c file defines that symbol,
+// so a replacement app file must define a symbol of that same name (see
+// the chrono port's own header comment for why that is a wart worth
+// naming, not hiding).
+//
 // This pack needs no shim/ directory at all, unlike the RP2350 sibling: its
 // firmware sources (runtime_core.c, gfx_band.c, apps/demo.c, emu_shim.c)
 // include nothing beyond app.h, gfx_band.h, runtime_core.h and emu_abi.h -
@@ -17,7 +28,7 @@
 // target at all) - none of it needed re-discovering here, all of it still
 // applies.
 import { existsSync, mkdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const WASM_DIR = import.meta.dir; // packs/esp32-s3-touch-amoled-18/wasm
 const DEVICE_ROOT = resolve(WASM_DIR, ".."); // packs/esp32-s3-touch-amoled-18/
@@ -60,14 +71,40 @@ const EMU_EXPORTS = [
   "emu_sensor_event",
 ];
 
+// --app <path> overrides which single C file supplies this pack's one app
+// slot (default: firmware/apps/demo.c). Resolved relative to cwd, same as
+// any other path a person types on a command line - not relative to this
+// script's own directory, which would be surprising for a flag whose whole
+// point is pointing somewhere else in the tree (e.g.
+// apps/chrono/ports/esp32-s3-touch-amoled-18/chrono.c).
+function parseAppArg(argv: string[]): string {
+  const defaultApp = join(FIRMWARE, "apps", "demo.c");
+  const i = argv.indexOf("--app");
+  if (i === -1) return defaultApp;
+  const value = argv[i + 1];
+  if (!value) {
+    console.error("--app needs a path argument (a single .c file implementing this pack's app.h contract)");
+    process.exit(1);
+  }
+  return resolve(process.cwd(), value);
+}
+
+const APP_SOURCE = parseAppArg(process.argv.slice(2));
+
 const SOURCES = [
   join(WASM_DIR, "emu_shim.c"),
   join(FIRMWARE, "runtime", "runtime_core.c"),
   join(FIRMWARE, "runtime", "gfx_band.c"),
-  join(FIRMWARE, "apps", "demo.c"),
+  APP_SOURCE,
 ];
 
+// dirname(APP_SOURCE) is included too, and comes first, so a ported app
+// living outside firmware/apps/ (e.g. under apps/<name>/ports/) can #include
+// a private helper header of its own without needing one added by hand
+// here; the chrono port doesn't need this today (it includes only app.h and
+// gfx_band.h) but a later port might.
 const INCLUDES = [
+  dirname(APP_SOURCE),
   join(FIRMWARE, "runtime"),
   join(FIRMWARE, "apps"),
   ABI_DIR, // emu_abi.h, included bare from emu_shim.c
