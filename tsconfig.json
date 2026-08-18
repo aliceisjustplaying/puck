@@ -13,7 +13,7 @@
   "include": [
     "src/**/*.ts", "server.ts", "build.ts", "baselineStore.ts",
     "scripts/**/*.ts", "harness/**/*.ts", "example/*.ts", "test/**/*.ts",
-    "device/tools/*.ts", "device/wasm/**/*.ts"
+    "packs/rp2350-touch-amoled-18/tools/*.ts", "packs/rp2350-touch-amoled-18/wasm/**/*.ts"
   ],
-  "//": "device/tools/invariants/ is a separate project with its own tsconfig.json (it runs under a different toolchain contract); typecheck it there."
+  "//": "packs/rp2350-touch-amoled-18/tools/invariants/ is a separate project with its own tsconfig.json (it runs under a different toolchain contract); typecheck it there."
 }

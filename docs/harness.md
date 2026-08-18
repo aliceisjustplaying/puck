@@ -30,12 +30,12 @@ Full option list is documented at the top of `harness/diff.ts`. The
 (see `harness/types.ts`).
 
 **This repo now ships a real one.** `harness/links/devlinkLink.ts` drives
-the RP2350 board `device/` is the firmware for, over devlink
-(`device/tools/README-devlink.md`), and `bun run harness:hardware` is a
+the RP2350 board `packs/rp2350-touch-amoled-18/` is the firmware for, over devlink
+(`packs/rp2350-touch-amoled-18/tools/README-devlink.md`), and `bun run harness:hardware` is a
 complete run against it:
 
 ```
-bun run device:build          # the board's firmware, compiled to wasm
+bun run pack:build          # the board's firmware, compiled to wasm
 bun run harness:hardware      # replay one trace both ways and diff
 ```
 
@@ -129,7 +129,7 @@ where a stroke goes and disagree on its coverage. The worst case loses half
 the stroke.
 
 **This is decision 0008 arriving on schedule**
-([`device/docs/decisions/0008-the-emulator-seam-is-in-the-wrong-place.md`](../device/docs/decisions/0008-the-emulator-seam-is-in-the-wrong-place.md)).
+([`packs/rp2350-touch-amoled-18/docs/decisions/0008-the-emulator-seam-is-in-the-wrong-place.md`](../packs/rp2350-touch-amoled-18/docs/decisions/0008-the-emulator-seam-is-in-the-wrong-place.md)).
 Both sides run the same `sketch.c` - it is above the seam - so identical
 input has to produce identical pixels, and these pixels differ. Therefore
 the input differed. `emu_shim.c` pushes an `emu_touch()` straight into a
@@ -206,7 +206,7 @@ the panel pushes cheap.
 
 A board that reboots mid-run comes back in app 0 with a zeroed arena, and
 diffing frames across that is exactly the instrument that lies
-([`device/docs/decisions/0004`](../device/docs/decisions/0004-the-day-the-instruments-lied.md)).
+([`packs/rp2350-touch-amoled-18/docs/decisions/0004`](../packs/rp2350-touch-amoled-18/docs/decisions/0004-the-day-the-instruments-lied.md)).
 Two readings, both over devlink, both free:
 
 1. **Which app is running.** Every capture is followed by `APP`. `reset()`
@@ -231,7 +231,7 @@ whatever the trace navigated to, and that is not a subtle diff.
 
 **The board and the emulator were not built from the same source, and the
 harness could not have told you.** The board answers `SWITCH 3` with `OK`
-and reports `APP 3 four`; `device/firmware`'s `g_apps[]` has three entries.
+and reports `APP 3 four`; `packs/rp2350-touch-amoled-18/firmware`'s `g_apps[]` has three entries.
 Nothing in devlink carries a build identity - `PING` returns a protocol
 version and the panel size - so a differential run cannot verify that the
 two sides are the same program, which is a strictly larger hole than the
@@ -251,7 +251,7 @@ found by the first real divergence.
 
 This repo's `HardwareLink` implementation is
 `harness/links/devlinkLink.ts`, over the protocol
-`device/tools/README-devlink.md` documents: a small line-based command
+`packs/rp2350-touch-amoled-18/tools/README-devlink.md` documents: a small line-based command
 protocol over the same USB-serial port the runtime already prints debug
 output to:
 
@@ -329,8 +329,8 @@ firmware. Do not point this at a coloured screen and believe the number.
 injected downstream of the silicon that produces it: `KEY` skips the
 AXP2101's register read and its write-1-to-clear, `BOOT` skips the flash
 chip-select borrow, and `DOWN`/`MOVE`/`UP` skip the FT3168 entirely. See
-`device/tools/README-devlink.md`'s "What injection cannot test" and
-[`device/docs/decisions/0004`](../device/docs/decisions/0004-the-day-the-instruments-lied.md),
+`packs/rp2350-touch-amoled-18/tools/README-devlink.md`'s "What injection cannot test" and
+[`packs/rp2350-touch-amoled-18/docs/decisions/0004`](../packs/rp2350-touch-amoled-18/docs/decisions/0004-the-day-the-instruments-lied.md),
 where a whole day was lost to a rig that injected downstream of the layer
 that had failed: every hardware verification run passed while the device
 was unusable by hand. **A green run of this harness is not evidence that a

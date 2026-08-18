@@ -1,13 +1,13 @@
 // A REAL HardwareLink, over devlink, against the RP2350 board this repo's
-// device/ half is the firmware for. This is the file harness/types.ts left a
+// packs/rp2350-touch-amoled-18/ half is the firmware for. This is the file harness/types.ts left a
 // seam for and docs/harness.md described in the abstract for months without
 // anybody writing: everything under harness/ was built to compare an
 // emulator against real hardware and had only ever been run against
 // harness/fixtures/loopbackLink.ts, which is a second copy of the same wasm
 // module and therefore proves nothing about a board.
 //
-// The transport is device/tools/dev.ts's devlink protocol
-// (device/tools/README-devlink.md): one command per line over the board's USB
+// The transport is packs/rp2350-touch-amoled-18/tools/dev.ts's devlink protocol
+// (packs/rp2350-touch-amoled-18/tools/README-devlink.md): one command per line over the board's USB
 // CDC port, shared with the runtime's own debug prints. Nothing here
 // reimplements that protocol - the port opening (DTR before Open(), the one
 // gotcha most likely to make a first run look like a dead board), the
@@ -41,7 +41,7 @@
 //    comes back in app 0 with a cleared arena, and every frame after that
 //    point is a comparison against a different device state. Diffing that
 //    and reporting "divergence" would be exactly the instrument that lies
-//    (device/docs/decisions/0004). So every capture is bracketed by an APP
+//    (packs/rp2350-touch-amoled-18/docs/decisions/0004). So every capture is bracketed by an APP
 //    query, and every line of shared-port noise this file reads on its way
 //    to a reply is checked for the profiler's own cumulative counters going
 //    backwards. Either one aborts the run with what was seen.
@@ -69,7 +69,7 @@ import {
   openServerBridge,
   readLineWithTimeout,
   type Bridge,
-} from "../../device/tools/dev";
+} from "../../packs/rp2350-touch-amoled-18/tools/dev";
 import type { CapturedFrame, HardwareLink, TraceEvent } from "../types";
 
 // Measured, not guessed: 60 consecutive screenshots at a ZERO gap, across
@@ -150,7 +150,7 @@ export interface RawShot {
   decodedBytes: number;
   truncated: boolean;
   // One byte per pixel, row-major: the panel's own 6-bit green channel
-  // shifted up by two (device/firmware/runtime/gfx.h's px_to_gray). null
+  // shifted up by two (packs/rp2350-touch-amoled-18/firmware/runtime/gfx.h's px_to_gray). null
   // when the payload was truncated.
   grey: Uint8Array | null;
   // Wall-clock cost of the whole exchange, command written to END read.
@@ -380,7 +380,7 @@ export class DevlinkLink implements HardwareLink {
   // silently dropped input would make the hardware side replay a DIFFERENT
   // trace from the emulator side and then report the resulting mismatch as
   // a firmware divergence, which is the shape of instrument failure
-  // device/docs/decisions/0004 is about.
+  // packs/rp2350-touch-amoled-18/docs/decisions/0004 is about.
   //
   // Button indices are the ones emu_shim.c declares and firmware/runtime
   // agrees with: 0 = BOOT, 1 = PWR. Sensor 0 is "shake", the only sensor

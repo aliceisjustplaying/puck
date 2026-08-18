@@ -14,12 +14,17 @@ the shipped binary - see `docs/decisions/0002-two-compilers-not-one.md`
 before assuming more than that. This distinction is load-bearing; do not
 describe this tool as running "the exact binary" anywhere.
 
-**The repository has two halves.** The root is that emulator, and it names
-no device. `device/` is one real firmware: the puck itself, a stopwatch, a
-sketchpad and a countdown timer for the Waveshare RP2350-Touch-AMOLED-1.8.
-`device/` has its own `AGENTS.md`, and it is the first thing to read before
-touching any C, any CMake, or anything about that board. The two are wired
-together by exactly one artefact: `device/wasm/build.ts` writes this repo's
+**The repository has three surfaces.** The instrument is `src/`, `harness/`
+and `wasm/`: a device-agnostic emulator and verifier. `packs/` contains
+self-contained device folders an LLM can target, with
+`packs/rp2350-touch-amoled-18/` as the reference pack. `apps/` contains
+portable app bundles, with `apps/chrono/` as the reference bundle. Read
+[`docs/convention/`](docs/convention/) before changing either format.
+
+The reference pack is real firmware for the Waveshare
+RP2350-Touch-AMOLED-1.8. Its `AGENTS.md` is the first thing to read before
+touching any C, CMake, or board-specific material. It connects to the
+instrument through one artifact: its `wasm/build.ts` writes this repository's
 `wasm/dist/emu.wasm`.
 
 ## How to run it
@@ -30,11 +35,11 @@ bun run example:build   # compiles example/firmware/main.c -> wasm/dist/emu.wasm
 bun run dev             # http://127.0.0.1:5340
 ```
 
-`bun run device:build` swaps the example for the puck's real firmware,
+`bun run pack:build` swaps the example for the puck's real firmware,
 writing the same `wasm/dist/emu.wasm`. It needs `zig`, and its wasm link
 segfaults on roughly one run in three; that is a known zig bug, not your
-change, so run it again. `bun run device:screens` regenerates
-`device/README.md`'s screenshots from that module, and `bun run device:demo`
+change, so run it again. `bun run pack:screens` regenerates
+`packs/rp2350-touch-amoled-18/README.md`'s screenshots from that module, and `bun run pack:demo`
 regenerates both READMEs' animated GIF by driving the real page in a real
 browser and encoding the frames with `ffmpeg` (a binary this repo invokes,
 like `zig`; set `FFMPEG_EXE` if it is not on `PATH`).
@@ -80,22 +85,21 @@ fails and names the exact capture point that changed.
 - **Zig (or whatever C-to-wasm32-freestanding toolchain you use) is a
   binary this repo's build scripts invoke, exactly like `git` or `cmake`.
   It is never a language anything in this repo is authored in.**
-- **C belongs to firmware, not to this repo's own tooling.** The only C
-  this repo carries is `wasm/emu_abi.h` (the ABI contract) and
-  `example/firmware/main.c` (a worked example of someone else's firmware,
-  demonstrating the contract - not this repo's own code in the sense the
-  rule above means). Anything under `example/` is written the way a
-  firmware author would write it, not the way this repo's tooling is
-  written.
+- **C belongs to firmware, not to this repo's own tooling.** The instrument
+  carries `wasm/emu_abi.h` and the worked firmware under `example/`. Device
+  packs carry their own firmware, and app bundles may carry reference source
+  snapshots. Everything under those firmware and reference boundaries is
+  written as firmware, not as repository tooling.
 - **Nothing names one device.** No hardcoded panel size, no hardcoded
   button name, anywhere in `src/`, `server.ts`, or `harness/`. A device
   declares its own shape through `emu_device()` (see `docs/abi.md`), and
   everything else is built from that JSON at runtime. If you're about to
   write `368` or `"PWR"` as a literal anywhere outside `example/` or
-  `device/`, stop - that number or name belongs in a firmware's own
-  `emu_device()`, not here. `device/` is allowed to name its own board
-  because it IS one board's firmware; that is the whole point of the
-  boundary, and it is why the emulator half must never import from it.
+  `packs/` or `apps/`, stop. That number or name belongs in a pack's own
+  `emu_device()` or an app descriptor, not in the instrument. A pack may name
+  its own board because it is one board's firmware. The device-specific
+  `harness/links/devlinkLink.ts` adapter may import the pack's public USB
+  tooling, but shared emulator and harness logic must not.
 - **No em dashes**, anywhere, including code comments and docs. Use
   commas, colons, parentheses, or periods.
 - **No ASCII art, no badges** in any markdown file.
@@ -143,7 +147,8 @@ test/regression/ builds two tiny fixture firmwares (one draw call
 docs/           abi.md (the ABI as a page), requirements.md, agent-loop.md
                 (the optional freeze/annotate layer, plus the failed-
                 regression-check export), harness.md (also covers the
-                hardware-free regression check), and decisions/ (the why).
+                hardware-free regression check), convention/ (pack and app
+                formats), and decisions/ (the why).
 scripts/        scripts/verify.ts: headless proof the page works and, once
                 a wasm module exists, that it actually renders in response
                 to real input.
@@ -159,16 +164,15 @@ baselineStore.ts disk persistence for the regression check: where a saved
                 server and no browser.
 build.ts        static dist/ build, for serving this page from something
                 other than the dev server.
-device/         the OTHER half of this repository: the puck's own firmware,
-                for the Waveshare RP2350-Touch-AMOLED-1.8. It has its own
-                README.md, AGENTS.md, NOTICE.md and docs/decisions/, and
-                it is the one place in this repo that is allowed to name a
-                specific board. `bun run device:build` compiles its C to
-                wasm/dist/emu.wasm, which is how the page above ends up
-                running a real firmware instead of example/. The
-                dependency runs one way only: device/ builds into this
-                repo's wasm/dist/, and nothing in src/, harness/ or
-                server.ts may ever import from device/.
+packs/          self-contained device folders. The reference pack is
+                rp2350-touch-amoled-18, which owns its board firmware,
+                drivers, build, checks, descriptor, gotchas and decisions.
+                `bun run pack:build` writes wasm/dist/emu.wasm.
+apps/           portable app bundles defined by descriptors and traces.
+                chrono is the reference bundle and includes a source
+                snapshot from the reference pack.
+registry.json   local pack and app paths, plus the registration point for
+                external bundles by URL.
 ```
 
 ## Gotchas that bite

@@ -6,7 +6,7 @@
 // WHY THIS IS NOT A FOOTNOTE. A SHOT walks the whole framebuffer twice and
 // writes the reply one character at a time from inside a single
 // devlink_poll(), which is one step of the main loop that feeds the 4s
-// watchdog (device/firmware/runtime/runtime.c). The firmware caps one reply
+// watchdog (packs/rp2350-touch-amoled-18/firmware/runtime/runtime.c). The firmware caps one reply
 // at DEVLINK_SHOT_BUDGET_US (750ms) and truncates past it - that bounds a
 // single shot, and says nothing about a loop of them, or about what happens
 // when the screen being captured does not compress. A differential run is by

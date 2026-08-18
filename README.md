@@ -5,7 +5,7 @@ A small touchscreen toy, and the tools that made it.
 ![Playing with the puck: picking the sketchpad from the menu, drawing a
 face, opening the colour palette and picking red, drawing again in red,
 holding both side buttons to get back to the menu, running the stopwatch,
-winding the timer's dial](device/preview/demo.gif)
+winding the timer's dial](packs/rp2350-touch-amoled-18/preview/demo.gif)
 
 The puck is a plastic disc the size of a large coin with a 368x448 AMOLED in
 it: a stopwatch, a sketchpad and a countdown timer, for a child who cannot
@@ -14,26 +14,27 @@ read yet. You pick between them by touching one of three pictures.
 That recording is not a mockup and not a screen capture of a design tool. It
 is this repository's firmware, compiled to WebAssembly, running in this
 repository's emulator, driven by a script that presses one mouse and two
-keys ([`device/tools/demo.ts`](device/tools/demo.ts) regenerates it). The
+keys ([`packs/rp2350-touch-amoled-18/tools/demo.ts`](packs/rp2350-touch-amoled-18/tools/demo.ts) regenerates it). The
 finger and its trail are the emulator's own touch-contact overlay; the two
 side buttons are its chrome, filling as a hold approaches its threshold.
 Everything else on the panel was drawn by the firmware.
 
-This repository is two halves of the same thing.
+This repository has three connected surfaces.
 
 | | |
 |---|---|
-| **[`device/`](device/)** | The firmware. Real C for a real board (the Waveshare RP2350-Touch-AMOLED-1.8, and nothing else). One binary, three apps, a picture menu. |
-| the root | An emulator. It compiles that same firmware's own C a second time, to WebAssembly, and runs it in a browser page with a panel, buttons, touch and a clock. |
+| the instrument | The device-agnostic emulator and differential verifier in `src/`, `harness/` and `wasm/`. |
+| **[`packs/rp2350-touch-amoled-18/`](packs/rp2350-touch-amoled-18/)** | A self-contained device pack. Real C for the Waveshare RP2350-Touch-AMOLED-1.8, plus its drivers, traps, checks and WebAssembly build. |
+| **[`apps/chrono/`](apps/chrono/)** | A portable app bundle. Its descriptor and traces define the stopwatch independently of one implementation. |
 
 **Just want it on your board?** Download the `.uf2` from
 [Releases](../../releases), hold the upper side button, plug in the USB
 cable, and drag the file onto the drive that appears.
-[`device/README.md`](device/README.md) has the four steps in full, and what
+[`packs/rp2350-touch-amoled-18/README.md`](packs/rp2350-touch-amoled-18/README.md) has the four steps in full, and what
 to do if it ever stops responding.
 
 **Want to try it without buying anything?** `bun install && bun run
-device:build && bun run dev` gives you the puck in a browser page. Same
+pack:build && bun run dev` gives you the puck in a browser page. Same
 apps, same rasteriser, same app-switching logic, because it is the same C.
 The one thing it can never answer is whether the real thing feels fast.
 
@@ -43,14 +44,26 @@ A stopwatch, a sketchpad and a countdown timer, chosen from a menu of three
 pictures. Hold BOOT and PWR together to open it.
 
 What each one does, how it is played and why it behaves the way it does:
-**[`device/firmware/apps/README.md`](device/firmware/apps/README.md)**, next to
+**[`packs/rp2350-touch-amoled-18/firmware/apps/README.md`](packs/rp2350-touch-amoled-18/firmware/apps/README.md)**, next to
 the source, one file per app.
+
+## Packs and apps
+
+A device pack is a self-contained hardware target an LLM can read and build
+without importing emulator internals. An app bundle describes portable
+behavior through `Essence`, `Interactions`, `Demands`, and replayable traces.
+Porting starts with a verdict against the target pack's `device.json`, then an
+idiomatic implementation, then shared-harness verification. The reference
+entries are the [RP2350 AMOLED pack](packs/rp2350-touch-amoled-18/) and the
+[chrono bundle](apps/chrono/). The concrete formats are in
+[`docs/convention/`](docs/convention/), and [`registry.json`](registry.json)
+lists local or externally hosted entries.
 
 ## The emulator
 
 It is not specific to this device. It is built entirely from what a
 firmware's `emu_device()` declares at runtime, so it will run yours too;
-everything below is about that, and `device/` is the worked example that
+everything below is about that, and `packs/rp2350-touch-amoled-18/` is the worked example that
 proves it carries a real firmware rather than a toy one.
 
 ## Run it
@@ -72,8 +85,8 @@ another C-to-`wasm32-freestanding` compiler; `example/build.ts` uses `zig
 cc` and documents why). Set `ZIG_EXE` if it isn't at `zig` on your `PATH`.
 
 To run the puck's own firmware instead of the example, `bun run
-device:build` (which also needs zig) and reload. That is the same command
-`device/README.md` gives, and it writes to the same `wasm/dist/emu.wasm`,
+pack:build` (which also needs zig) and reload. That is the same command
+`packs/rp2350-touch-amoled-18/README.md` gives, and it writes to the same `wasm/dist/emu.wasm`,
 so there is no wiring step between the two.
 
 To point this at your own firmware, write a build script that compiles
@@ -128,7 +141,7 @@ Your hardware side is a small interface (`harness/types.ts`'s
 implement against whatever transport you actually have. Nothing in
 `harness/` is hardwired to one device; `harness/links/devlinkLink.ts` is
 this repo's own implementation of it, over the USB-serial link in
-`device/`.
+`packs/rp2350-touch-amoled-18/`.
 
 **It has been run against the real board, and the results are in the
 docs.** The idle stopwatch screen matches pixel for pixel with zero
@@ -154,7 +167,8 @@ wasm/           wasm/emu_abi.h, the ABI contract every firmware in this
 example/        a tiny, real, working example firmware (see below) and
                 its build script.
 harness/        the differential test harness. links/ holds the real
-                HardwareLink for the puck (over device/'s USB devlink),
+                HardwareLink for the puck (over the reference pack's USB
+                devlink),
                 inputs/ the traces it replays, fixtures/ the no-hardware
                 fake the self-test uses.
 docs/           docs/abi.md (the ABI as a page), docs/requirements.md,
@@ -166,12 +180,12 @@ scripts/        headless verification (puppeteer-core against a local
 server.ts       the local dev server. Binds 127.0.0.1 explicitly. Also
                 backs the hardware-free regression check's persistence
                 (baselineStore.ts).
-device/         the puck's own firmware: the C that runs on the board, the
-                build that turns it into a .uf2, the build that turns the
-                same files into wasm/dist/emu.wasm for the page above, the
-                regression tests, the USB link that drives a real board
-                headlessly, and the decision records. Read
-                device/README.md first.
+packs/          self-contained device packs. The RP2350 AMOLED pack is the
+                reference, with board C, drivers, checks, USB tooling and a
+                build that writes wasm/dist/emu.wasm.
+apps/           portable app bundles. Chrono is the reference descriptor,
+                trace set and source snapshot.
+registry.json   local paths and external URLs for packs and apps.
 ```
 
 ## The example firmware
