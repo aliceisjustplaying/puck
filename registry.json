@@ -14,6 +14,10 @@
     {
       "name": "chrono",
       "path": "apps/chrono"
+    },
+    {
+      "name": "fluidbox",
+      "path": "apps/fluidbox"
     }
   ]
 }

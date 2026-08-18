@@ -1,0 +1,214 @@
+#!/usr/bin/env bun
+// invariantRun: the device-agnostic runner half of "verified by invariants"
+// (docs/convention/app-bundle.md's `adaptation` port mode). A `faithful`
+// port is checked by harness/portdiff.ts's pixel-exact frame diff against a
+// second module; an `adaptation` port changes the interaction surface, so
+// there is no second module to diff against pixel-for-pixel, and the
+// bundle instead states behavioural invariants and checks those instead.
+//
+// The split this file exists to keep: THE BUNDLE OWNS ITS CHECKS, THE
+// INSTRUMENT OWNS THE RUNNER. Nothing here knows what "settled" or "shaken"
+// means for any particular app - it only knows how to replay a trace
+// against one wasm module, capture the framebuffer at the requested points,
+// and hand the resulting frames to whatever checker module the bundle
+// supplies. A checker file lives with its bundle (e.g.
+// apps/fluidbox/invariants.ts) and is loaded by PATH, not registered here,
+// so a new invariant-verified app needs zero changes to this file - the
+// same reason harness/portdiff.ts stays device-agnostic (see that file's
+// own header comment).
+//
+// Usage:
+//   bun run invariants <wasm> <trace.json> <checker.ts> [options]
+//   bun run harness/invariantRun.ts <wasm> <trace.json> <checker.ts> [options]
+//
+// Options:
+//   --at <ms,ms,...>   explicit capture points, as trace-relative
+//                       milliseconds (matching TraceEvent.t) - this is the
+//                       normal way to drive this file: an invariant bundle
+//                       usually cares about specific moments ("settled",
+//                       "right after the shake", "settled again"), not an
+//                       even sampling, so most checkers expect an exact,
+//                       documented number of captures in a known order (see
+//                       the checker interface below and each bundle's own
+//                       invariants.ts for what order it expects).
+//   --every <ms>       capture every N ms instead of explicit points
+//                       (same semantics as harness/portdiff.ts's --every)
+//                       (default if neither --at nor --every given:
+//                       capture once, at the trace's final tick)
+//
+// Exit codes, the same three-way split every other harness CLI in this repo
+// uses (CI reads the code, not the prose): 0 = ran, every invariant passed;
+// 1 = ran, the checker reported at least one failure; 2 = never ran to
+// completion (bad args, a malformed or out-of-order trace, a module that
+// failed to instantiate, a checker that failed to load or does not export
+// `check`).
+//
+// THE CHECKER INTERFACE, small and documented here because it is the
+// contract between this file and every bundle's own invariants.ts:
+//
+//   export function check(frames: TimedFrame[], meta: InvariantMeta): InvariantResult
+//
+// `frames` is one TimedFrame per requested capture point, IN THE SAME ORDER
+// the capture points were requested (see TimedFrame/InvariantMeta/
+// InvariantResult below) - a checker is free to assume that order encodes
+// meaning (frames[0] is "before", frames[1] is "right after", etc.) as long
+// as it documents what it assumes, since this file makes no promise beyond
+// "same order you asked for."
+
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { replayEmulator } from "./emulatorSide";
+import type { CapturedFrame, Trace } from "./types";
+import type { DeviceDescriptor } from "../src/wasm";
+
+const EXIT_OK = 0;
+const EXIT_FAIL = 1;
+const EXIT_INFRA = 2;
+
+// One captured frame plus the trace-relative millisecond it was captured
+// at - the same pairing harness/portdiff.ts's own ReplayResult.frames
+// already uses, renamed here so a checker file importing this module's
+// types does not have to reach into harness/emulatorSide.ts's return shape
+// to name it.
+export interface TimedFrame {
+  atMs: number;
+  frame: CapturedFrame;
+}
+
+// Deliberately small. A checker that needs more than "what device is this"
+// can read it off `device` (panel size/format, buttons, sensors - the same
+// DeviceDescriptor every other consumer in this repo already uses) rather
+// than this file inventing a second, app-specific metadata shape per
+// bundle.
+export interface InvariantMeta {
+  device: DeviceDescriptor;
+}
+
+export interface InvariantResult {
+  pass: boolean;
+  failures: string[];
+}
+
+export type InvariantChecker = (frames: TimedFrame[], meta: InvariantMeta) => InvariantResult;
+
+interface Args {
+  wasmPath: string;
+  tracePath: string;
+  checkerPath: string;
+  at: number[] | null;
+  every: number | null;
+}
+
+function parseArgs(argv: string[]): Args {
+  const positional: string[] = [];
+  let at: number[] | null = null;
+  let every: number | null = null;
+
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === "--at") at = (argv[++i] ?? "").split(",").map(Number).filter((n) => Number.isFinite(n));
+    else if (a === "--every") every = Number(argv[++i]);
+    else positional.push(a);
+  }
+  if (positional.length < 3) {
+    console.error("usage: bun run invariants <wasm> <trace.json> <checker.ts> [--at ms,ms,... | --every ms]");
+    process.exit(EXIT_INFRA);
+  }
+  return { wasmPath: positional[0]!, tracePath: positional[1]!, checkerPath: positional[2]!, at, every };
+}
+
+// Identical rule to harness/portdiff.ts's findOutOfOrderEvent, for the
+// identical reason: the replay side assumes ticks arrive with
+// non-decreasing `t`, so an out-of-order trace would otherwise produce a
+// wrong or skipped capture point rather than an error.
+function findOutOfOrderEvent(events: Trace["events"]): { index: number; t: number; prevT: number } | null {
+  let prevT = -Infinity;
+  for (let i = 0; i < events.length; i++) {
+    const t = events[i]!.t;
+    if (t < prevT) return { index: i, t, prevT };
+    prevT = t;
+  }
+  return null;
+}
+
+function capturePointsFor(events: Trace["events"], args: Args): number[] {
+  const tickTimes = events.filter((e) => e.k === "tick").map((e) => e.t);
+  if (args.at && args.at.length > 0) return args.at;
+  if (args.every && args.every > 0) {
+    if (tickTimes.length === 0) return [];
+    const first = tickTimes[0]!, last = tickTimes[tickTimes.length - 1]!;
+    const points: number[] = [];
+    for (let t = first; t <= last; t += args.every) points.push(t);
+    return points;
+  }
+  return tickTimes.length > 0 ? [tickTimes[tickTimes.length - 1]!] : [];
+}
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+
+  const trace = JSON.parse(readFileSync(args.tracePath, "utf8")) as Trace;
+  if (!Array.isArray(trace.events)) throw new Error(`${args.tracePath}: not a trace file (missing events array)`);
+
+  const outOfOrder = findOutOfOrderEvent(trace.events);
+  if (outOfOrder) {
+    console.error(
+      `${args.tracePath}: event[${outOfOrder.index}].t = ${outOfOrder.t} is earlier than the previous event's t = ${outOfOrder.prevT}. ` +
+        `Trace timestamps must be non-decreasing (ties are fine). Fix the trace and retry.`
+    );
+    process.exit(EXIT_INFRA);
+  }
+
+  const capturePoints = capturePointsFor(trace.events, args);
+  if (capturePoints.length === 0) {
+    console.error("no capture points (trace has no tick events, and neither --at nor --every produced any)");
+    process.exit(EXIT_INFRA);
+  }
+  console.log(`replaying ${trace.events.length} events, capturing at ${capturePoints.length} point(s): ${capturePoints.join(", ")}`);
+
+  const result = await replayEmulator(args.wasmPath, trace.events, capturePoints);
+  console.log(`${args.wasmPath}: ${result.device.name ?? "device"} ${result.device.panel.w}x${result.device.panel.h}, ${result.frames.length} frame(s) captured`);
+
+  const checkerUrl = pathToFileURL(resolve(args.checkerPath)).href;
+  let checkerModule: { check?: unknown };
+  try {
+    checkerModule = await import(checkerUrl);
+  } catch (err) {
+    console.error(`could not load checker ${args.checkerPath}: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(EXIT_INFRA);
+  }
+  if (typeof checkerModule.check !== "function") {
+    console.error(`${args.checkerPath} does not export a "check" function - see this file's header comment for the required interface`);
+    process.exit(EXIT_INFRA);
+  }
+  const check = checkerModule.check as InvariantChecker;
+
+  const frames: TimedFrame[] = result.frames.map((f) => ({ atMs: f.atMs, frame: f.frame }));
+  const meta: InvariantMeta = { device: result.device };
+
+  let verdict: InvariantResult;
+  try {
+    verdict = check(frames, meta);
+  } catch (err) {
+    console.error(`checker threw: ${err instanceof Error ? err.message : String(err)}`);
+    if (err instanceof Error && err.stack) console.error(err.stack);
+    process.exit(EXIT_INFRA);
+  }
+
+  console.log(`\n-- invariants (${args.checkerPath}) --`);
+  if (verdict.pass) {
+    console.log(`PASS: all invariants held over ${frames.length} captured frame(s)`);
+  } else {
+    console.log(`FAIL: ${verdict.failures.length} invariant(s) failed:`);
+    for (const f of verdict.failures) console.log(`  - ${f}`);
+  }
+
+  process.exit(verdict.pass ? EXIT_OK : EXIT_FAIL);
+}
+
+main().catch((err) => {
+  console.error(`harness/invariantRun.ts: unexpected error: ${err instanceof Error ? err.message : String(err)}`);
+  if (err instanceof Error && err.stack) console.error(err.stack);
+  process.exit(EXIT_INFRA);
+});

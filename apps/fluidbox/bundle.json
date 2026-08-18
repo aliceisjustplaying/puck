@@ -1,0 +1,13 @@
+{
+  "convention": "0.1",
+  "name": "fluidbox",
+  "origin": "ported from s0lness/esp32-fluidbox (MIT), a pre-convention ESP32-S3 app; see reference/esp32-fluidbox/README.md",
+  "provenPacks": [
+    {
+      "name": "rp2350-touch-amoled-18",
+      "degraded": true
+    }
+  ],
+  "portMode": "adaptation",
+  "verification": "invariants"
+}
