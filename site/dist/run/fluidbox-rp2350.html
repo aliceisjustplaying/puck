@@ -28,7 +28,27 @@
   </div>
 
   <div class="run-footer"></div>
+
+  <section class="flash-section" data-uf2="../flash/fluidbox-rp2350.uf2">
+    <h2>Flash to the real device</h2>
+    
+    <div class="flash-actions">
+      <button type="button" class="flash-btn btn-flash">Flash over USB</button>
+      <a class="flash-btn-alt" href="../flash/fluidbox-rp2350.uf2" download>Download .uf2</a>
+    </div>
+    <p class="flash-hint">No install needed: copy the downloaded file onto the RP2350 BOOTSEL drive once it appears.</p>
+    <div class="flash-progress" hidden>
+      <div class="flash-progress-track"><div class="flash-progress-bar"></div></div>
+      <p class="flash-status"></p>
+    </div>
+    <p class="flash-error" hidden></p>
+    <details class="flash-ritual">
+      <summary>BOOTSEL entry ritual</summary>
+      <p>Unplug USB. Hold PWR for at least 12 seconds, until the screen goes black (replugging alone does not reset the board: the PMIC keeps the rails up). Then hold BOOT while plugging the USB cable back in.</p>
+    </details>
+  </section>
 </div>
+<script type="module" src="../flash/flash.js"></script>
 <script>
 (function () {
   var NATIVE_W = 980, NATIVE_H = 760;

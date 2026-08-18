@@ -205,6 +205,44 @@ function buildAllModules(): void {
   }
 }
 
+// ---- 1.5. flash artifacts + the WebUSB flasher's own bundled JS --------
+// The two verified RP2350 UF2s live in site/flash-artifacts/ (tracked,
+// source), never directly in site/dist/flash/ (untracked build output):
+// this step's whole job is making sure a clean rebuild (which rm -rf's
+// DIST first, see "run everything" below) never deletes the artifacts, it
+// only ever regenerates a copy of them.
+const FLASH_ARTIFACTS_SRC = join(SITE_DIR, "flash-artifacts");
+
+function copyFlashArtifacts(): void {
+  const flashDir = join(DIST, "flash");
+  mkdirSync(flashDir, { recursive: true });
+  for (const name of readdirSync(FLASH_ARTIFACTS_SRC)) {
+    if (!name.endsWith(".uf2")) continue;
+    copyFileSync(join(FLASH_ARTIFACTS_SRC, name), join(flashDir, name));
+    console.log(`copied -> site/dist/flash/${name}`);
+  }
+}
+
+// flash-ui.ts is the run page's own small entrypoint (wires the "Flash
+// over USB" button to site/flasher/flash.ts); bundled the same way the
+// root build.ts bundles src/main.ts, so this page ships one local JS file
+// and never a CDN import.
+async function buildFlashUi(): Promise<void> {
+  const result = await Bun.build({
+    entrypoints: [join(SITE_DIR, "flasher", "flash-ui.ts")],
+    outdir: join(DIST, "flash"),
+    naming: "flash.js",
+    target: "browser",
+    format: "esm",
+    minify: false,
+  });
+  if (!result.success) {
+    for (const log of result.logs) console.error(log);
+    throw new Error("site/build.ts: failed to bundle site/flasher/flash-ui.ts");
+  }
+  console.log("built -> site/dist/flash/flash.js");
+}
+
 // ---- 2. the shared emulator bundle, built once via the repo's own build.ts ----
 function buildEmulatorBundle(): void {
   runBuild("build.ts", []);
@@ -428,6 +466,64 @@ ${refCardsHtml}
   writeFileSync(join(DIST, "index.html"), page("puck: apps that travel between tiny computers", "A live gallery of firmware ported between device packs, running for real in the browser.", "styles.css", body));
 }
 
+// ---- flash section: real-device flashing over WebUSB, or an honest note ----
+// Keyed by combo id (not by pack) because the artifact choice is per
+// combo, not per pack: both chrono-rp2350 and fluidbox-rp2350 target the
+// same pack but ship different firmware.
+interface FlashArtifact {
+  file: string; // filename under site/flash-artifacts/ and site/dist/flash/
+  note?: string; // shown above the buttons; chrono's explains the artifact is the full firmware, not an app-only build
+}
+const FLASH_ARTIFACTS: Record<string, FlashArtifact> = {
+  "chrono-rp2350": {
+    file: "puck-full.uf2",
+    note: "This artifact is the full puck firmware for this board, not a chrono-only build: chrono is simply the app it boots into.",
+  },
+  "fluidbox-rp2350": {
+    file: "fluidbox-rp2350.uf2",
+  },
+};
+
+// Quoted compactly from packs/rp2350-touch-amoled-18/gotchas.md's own
+// recovery ritual: replugging alone does not reset this board, because its
+// PMIC keeps the rails powered through a simple unplug/replug.
+const BOOTSEL_RITUAL =
+  "Unplug USB. Hold PWR for at least 12 seconds, until the screen goes black (replugging alone does not reset the board: the PMIC keeps the rails up). Then hold BOOT while plugging the USB cable back in.";
+
+const ESP32_FLASH_NOTE = "Flashing arrives when this pack's ESP-IDF half has been validated on real silicon (it has not).";
+
+function renderFlashSection(comboId: string, pack: string): string {
+  const artifact = FLASH_ARTIFACTS[comboId];
+  if (artifact) {
+    const uf2Href = `../flash/${artifact.file}`;
+    return `  <section class="flash-section" data-uf2="${uf2Href}">
+    <h2>Flash to the real device</h2>
+    ${artifact.note ? `<p class="flash-note">${escapeHtml(artifact.note)}</p>` : ""}
+    <div class="flash-actions">
+      <button type="button" class="flash-btn btn-flash">Flash over USB</button>
+      <a class="flash-btn-alt" href="${uf2Href}" download>Download .uf2</a>
+    </div>
+    <p class="flash-hint">No install needed: copy the downloaded file onto the RP2350 BOOTSEL drive once it appears.</p>
+    <div class="flash-progress" hidden>
+      <div class="flash-progress-track"><div class="flash-progress-bar"></div></div>
+      <p class="flash-status"></p>
+    </div>
+    <p class="flash-error" hidden></p>
+    <details class="flash-ritual">
+      <summary>BOOTSEL entry ritual</summary>
+      <p>${escapeHtml(BOOTSEL_RITUAL)}</p>
+    </details>
+  </section>`;
+  }
+  if (pack.startsWith("esp32")) {
+    return `  <section class="flash-section flash-section-note">
+    <h2>Flash to the real device</h2>
+    <p class="flash-note">${escapeHtml(ESP32_FLASH_NOTE)}</p>
+  </section>`;
+  }
+  return "";
+}
+
 // Native size the emulator page is comfortable at (topbar + a 368x448
 // bezel with padding + the fixed-width sidebar, app.css's own
 // --sidebar-w/--bezel-pad): generous enough that nothing in the embedded
@@ -444,6 +540,7 @@ function buildRunDir(): void {
   function writeRunPage(opts: {
     id: string;
     title: string;
+    pack: string;
     packLabelStr: string;
     modeStr: string | null;
     verifStr: string | null;
@@ -458,6 +555,8 @@ function buildRunDir(): void {
       .map((x) => `<span class="badge accent">${escapeHtml(x)}</span>`)
       .join(" ");
     const links = opts.docLinks.map((l) => `<a href="${l.href}">${escapeHtml(l.label)}</a>`).join("\n      ");
+    const flashSection = renderFlashSection(opts.id, opts.pack);
+    const flashScript = FLASH_ARTIFACTS[opts.id] ? `\n<script type="module" src="../flash/flash.js"></script>` : "";
     const body = `<div class="wrap">
   <div class="run-header">
     <div class="back"><a href="../index.html">&larr; puck</a></div>
@@ -477,7 +576,9 @@ function buildRunDir(): void {
   </div>
 
   <div class="run-footer"></div>
-</div>
+
+${flashSection}
+</div>${flashScript}
 <script>
 (function () {
   var NATIVE_W = ${EMU_NATIVE_W}, NATIVE_H = ${EMU_NATIVE_H};
@@ -518,6 +619,7 @@ function buildRunDir(): void {
     writeRunPage({
       id: c.id,
       title: `${c.app} on ${packLabel.get(c.pack) || c.pack}`,
+      pack: c.pack,
       packLabelStr: packLabel.get(c.pack) || c.pack,
       modeStr: modeLabel(entry.mode),
       verifStr: entry.degraded ? `${entry.verification} (degraded)` : entry.verification,
@@ -534,6 +636,7 @@ function buildRunDir(): void {
     writeRunPage({
       id: r.id,
       title: `${packLabel.get(r.pack) || r.pack}: ${r.name}`,
+      pack: r.pack,
       packLabelStr: packLabel.get(r.pack) || r.pack,
       modeStr: null,
       verifStr: null,
@@ -551,6 +654,8 @@ mkdirSync(DIST, { recursive: true });
 buildAllModules();
 buildEmulatorBundle();
 copyFileSync(join(SITE_DIR, "styles.css"), join(DIST, "styles.css"));
+copyFlashArtifacts();
+await buildFlashUi();
 buildRunDir();
 buildIndexHtml();
 

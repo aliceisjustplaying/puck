@@ -74,17 +74,6 @@ target_sources(main PRIVATE
     runtime/sound_synth.c
     runtime/sound.c
 
-    # The apps. None of them owns any hardware.
-    apps/menu.c
-    apps/sketch.c
-    apps/chrono.c
-    apps/timer.c
-    apps/digits.c
-    # Round-silhouette helpers (ring/wedge row math), used by menu.c's
-    # stopwatch icon. See shapes.h for why it is not also wired into
-    # timer.c yet.
-    apps/shapes.c
-
     # BOOT is not a GPIO on this part: reading it borrows the flash chip
     # select with interrupts off, so it lives in its own file with the
     # explanation of what that costs.
@@ -102,6 +91,44 @@ target_sources(main PRIVATE
     # tools/README-devlink.md for the full story.
     devlink.c
 )
+
+# The apps. Normally the pack's own four (menu, sketch, chrono, timer) plus
+# their shared helpers (digits, shapes) - see AGENTS.md. A single-app NATIVE
+# build (packs/rp2350-touch-amoled-18/tools/build-native.ts's --app flag, the
+# native equivalent of wasm/build.ts's own --app) instead links exactly one
+# ported app plus a GENERATED roster.c that aliases every app-table slot onto
+# it: runtime_core.c hardcodes g_chronoApp/g_sketchApp/g_timerApp/g_menuApp by
+# exact symbol name and is a pack firmware source a port may never edit (see
+# AGENTS.md), so the roster is what lets one app satisfy all four names
+# without touching it. PUCK_SINGLE_APP_ROSTER/PUCK_SINGLE_APP_SOURCE are never
+# set by hand: build-native.ts writes the roster into its own out-of-tree
+# build dir and passes both on the cmake command line, so the DEFAULT build
+# below is unchanged unless that flag is given.
+if(DEFINED PUCK_SINGLE_APP_ROSTER)
+    if(NOT DEFINED PUCK_SINGLE_APP_SOURCE)
+        message(FATAL_ERROR "PUCK_SINGLE_APP_ROSTER also needs PUCK_SINGLE_APP_SOURCE (the port's own .c file)")
+    endif()
+    target_sources(main PRIVATE
+        ${PUCK_SINGLE_APP_SOURCE}
+        ${PUCK_SINGLE_APP_ROSTER}
+    )
+    # So a port file outside firmware/apps/ can #include a private helper
+    # header of its own - the same allowance wasm/build.ts's --app gives it.
+    get_filename_component(PUCK_SINGLE_APP_DIR ${PUCK_SINGLE_APP_SOURCE} DIRECTORY)
+    target_include_directories(main PRIVATE ${PUCK_SINGLE_APP_DIR})
+else()
+    target_sources(main PRIVATE
+        apps/menu.c
+        apps/sketch.c
+        apps/chrono.c
+        apps/timer.c
+        apps/digits.c
+        # Round-silhouette helpers (ring/wedge row math), used by menu.c's
+        # stopwatch icon. See shapes.h for why it is not also wired into
+        # timer.c yet.
+        apps/shapes.c
+    )
+endif()
 
 # appswitch.c and bootreq.h are deliberately NOT built any more. They existed
 # to reboot into the other flash slot, which is what this architecture

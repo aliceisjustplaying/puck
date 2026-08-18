@@ -156,3 +156,56 @@ footer { padding: 30px 0 60px; color: var(--text-soft); font-size: 0.85rem; bord
 .emu-frame iframe { display: block; border: 0; background: #fff; }
 
 .run-footer { padding: 24px 0 60px; }
+
+/* ---- flash section (site/flasher/) ---- */
+.flash-section {
+  margin: 0 0 40px;
+  padding: 20px 22px 22px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.flash-section h2 { margin: 0 0 10px; font-size: 1.15rem; }
+.flash-section .flash-note { margin: 0 0 14px; color: var(--text-soft); font-size: 0.92rem; }
+.flash-section-note { padding: 16px 22px; }
+.flash-section-note h2 { margin-bottom: 6px; }
+.flash-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.flash-btn, .flash-btn-alt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 18px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border: 1px solid var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+}
+.flash-btn { background: var(--accent); color: var(--accent-ink); }
+.flash-btn:hover { opacity: 0.92; text-decoration: none; }
+.flash-btn:disabled { opacity: 0.55; cursor: default; }
+.flash-btn-alt { background: transparent; color: var(--accent); border-color: var(--border); }
+.flash-btn-alt:hover { border-color: var(--accent); text-decoration: none; }
+.flash-hint { margin: 12px 0 0; color: var(--text-soft); font-size: 0.85rem; }
+.flash-progress { margin-top: 16px; }
+.flash-progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.flash-progress-bar { height: 100%; width: 0%; background: var(--accent); transition: width 0.2s ease; }
+.flash-status { margin: 8px 0 0; color: var(--text-soft); font-size: 0.85rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.flash-error {
+  margin-top: 14px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.88rem;
+}
+.flash-ritual { margin-top: 16px; font-size: 0.88rem; }
+.flash-ritual summary { cursor: pointer; color: var(--text-soft); font-weight: 600; }
+.flash-ritual p { margin: 8px 0 0; color: var(--text-soft); }
