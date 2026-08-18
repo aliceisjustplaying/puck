@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>puck: apps that travel between tiny computers</title>
+<meta name="description" content="A live gallery of firmware ported between device packs, running for real in the browser." />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <h1>puck</h1>
+    <p class="tagline">apps that travel between tiny computers.</p>
+    <p class="sub">Every app below is running for real, compiled to WebAssembly, in the browser: not a recording, not a mockup. <a href="https://github.com/s0lness/puck/blob/master/README.md">puck</a> is a device-agnostic emulator, a set of self-contained device packs, and a set of portable app bundles; this page proves the porting story with the real thing.</p>
+  </header>
+
+  <section id="apps">
+    <div class="wrap" style="padding:0">
+      <div class="cards">
+<div class="card">
+  <div class="thumb"><img src="assets/chrono-thumb.png" class="rot-ccw" alt="chrono panel capture" /></div>
+  <div class="body">
+    <h3>chrono</h3>
+    <p>A full-screen stopwatch: six seven-segment digits, two buttons, nothing else on screen.</p>
+    <div class="badges"><span class="badge accent">faithful port · pixel-exact</span></div>
+    <div class="links">
+      <a href="run/chrono-rp2350.html">run on RP2350-Touch-AMOLED-1.8</a><a href="run/chrono-esp32.html">run on ESP32-S3-Touch-AMOLED-1.8</a>
+      <a href="https://github.com/s0lness/puck/blob/master/apps/chrono/descriptor.md">descriptor</a>
+    </div>
+  </div>
+</div>
+<div class="card">
+  <div class="thumb"><img src="assets/fluidbox-thumb.png" alt="fluidbox panel capture" /></div>
+  <div class="body">
+    <h3>fluidbox</h3>
+    <p>A particle liquid that sloshes and settles inside the device&#39;s own enclosure shape.</p>
+    <div class="badges"><span class="badge">adaptation · invariants</span></div>
+    <div class="links">
+      <a href="run/fluidbox-rp2350.html">run on RP2350-Touch-AMOLED-1.8</a>
+      <a href="https://github.com/s0lness/puck/blob/master/apps/fluidbox/descriptor.md">descriptor</a>
+    </div>
+  </div>
+</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="proof">
+    <div class="wrap" style="padding:0">
+      <h2>proof matrix</h2>
+      <p class="lede">Each cell is a real build of that app's own port, for that device pack's real firmware, verified by the shared harness and running live below.</p>
+      <div class="matrix-scroll">
+        <table class="matrix">
+          <thead><tr><th></th>
+        <th>RP2350-Touch-AMOLED-1.8</th>
+        <th>ESP32-S3-Touch-AMOLED-1.8</th>
+          </tr></thead>
+          <tbody>
+      <tr>
+        <td class="app-row">chrono</td>
+        <td class="proof-cell"><a href="run/chrono-rp2350.html"><span class="proof-mode">faithful port</span><span class="proof-verif">pixel-exact</span></a></td>
+        <td class="proof-cell"><a href="run/chrono-esp32.html"><span class="proof-mode">faithful port</span><span class="proof-verif">pixel-exact</span></a></td>
+      </tr>
+      <tr>
+        <td class="app-row">fluidbox</td>
+        <td class="proof-cell"><a href="run/fluidbox-rp2350.html"><span class="proof-mode">adaptation</span><span class="proof-verif">invariants (degraded)</span></a></td>
+        <td class="proof-cell empty">not ported</td>
+      </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="reference">
+    <div class="wrap" style="padding:0">
+      <h2>reference app</h2>
+      <p class="lede">Not a port: each device pack's own shipped app, run through the same emulator.</p>
+      <div class="ref-cards">
+<div class="ref-card">
+  <h3>ESP32-S3-Touch-AMOLED-1.8: demo</h3>
+  <p>A bouncing square: the pack&#39;s own reference app, proving its band-render contract with nothing borrowed from another device.</p>
+  <div class="links"><a href="run/esp32-demo.html">run it</a> <a href="https://github.com/s0lness/puck/blob/master/packs/esp32-s3-touch-amoled-18/firmware/apps/demo.c">source</a></div>
+</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap" style="padding:0">
+      <h2>how it works</h2>
+      <div class="how-grid">
+        <div class="item">
+          <h3>device packs</h3>
+          <p>A self-contained folder for one hardware target: real drivers, a real board's firmware, and a <code>device.json</code> descriptor the emulator reads at runtime. Nothing in the shared instrument names one device; every panel size and button comes from the pack itself.</p>
+          <span class="src"><a href="https://github.com/s0lness/puck/blob/master/docs/convention/device-pack.md">device-pack.md</a></span>
+        </div>
+        <div class="item">
+          <h3>app descriptors</h3>
+          <p>An app is defined by its descriptor and traces, not by one implementation's source code: what appears on screen, every interaction, and separate requirements from preferences. A port starts with a verdict against the target pack, stated plainly, before any code is written.</p>
+          <span class="src"><a href="https://github.com/s0lness/puck/blob/master/docs/convention/app-bundle.md">app-bundle.md</a></span>
+        </div>
+        <div class="item">
+          <h3>the verifier</h3>
+          <p>A faithful port replays its traces and compares frames pixel for pixel. An adaptation states behavioral invariants instead, and gets checked against those. Either way, the same shared harness decides, not a claim in a README.</p>
+          <span class="src"><a href="https://github.com/s0lness/puck/blob/master/docs/harness.md">harness.md</a></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap" style="padding:0">
+      <a href="https://github.com/s0lness/puck/blob/master/README.md">s0lness/puck</a> on GitHub, MIT licensed.
+    </div>
+  </footer>
+</div>
+</body>
+</html>

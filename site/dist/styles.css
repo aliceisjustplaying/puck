@@ -1,0 +1,158 @@
+/* site/styles.css: the public gallery's own look. Deliberately not this
+   repo's dev-tool aesthetic (family-budget.css / app.css, which the
+   embedded emulator keeps): system sans-serif, one accent, real light and
+   dark via prefers-color-scheme (no toggle, so no flash to guard against),
+   no external fonts, no CDN. Copied byte for byte into site/dist/ by
+   site/build.ts; this file is the source. */
+
+:root {
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-2: #f2f3f5;
+  --text: #14161a;
+  --text-soft: #57606a;
+  --border: #e2e5e9;
+  --accent: #2f6feb;
+  --accent-ink: #ffffff;
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --surface: #151a21;
+    --surface-2: #1b222b;
+    --text: #e6e8eb;
+    --text-soft: #9aa4af;
+    --border: #262c33;
+    --accent: #5b9dff;
+    --accent-ink: #0d1117;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.55;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
+
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+
+/* ---- hero ---- */
+.hero { padding: 72px 0 40px; }
+.hero h1 { font-size: 2.4rem; margin: 0 0 10px; letter-spacing: -0.02em; }
+.hero .tagline { font-size: 1.15rem; color: var(--text-soft); margin: 0; max-width: 620px; }
+.hero .sub { margin-top: 18px; color: var(--text-soft); font-size: 0.95rem; }
+.hero .sub a { color: var(--text-soft); text-decoration: underline; }
+
+section { padding: 36px 0; }
+section h2 { font-size: 1.4rem; margin: 0 0 18px; }
+section > .wrap > p.lede { color: var(--text-soft); margin: -8px 0 22px; max-width: 680px; }
+
+/* ---- app cards ---- */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.card .thumb {
+  background: #000;
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.card .thumb img { display: block; max-width: 100%; max-height: 100%; image-rendering: pixelated; }
+.card .thumb img.rot-ccw { transform: rotate(-90deg); max-width: none; max-height: none; width: 132%; }
+.card .body { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.card h3 { margin: 0; font-size: 1.15rem; }
+.card p { margin: 0; color: var(--text-soft); font-size: 0.94rem; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-soft);
+  border: 1px solid var(--border);
+}
+.badge.accent { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.card .links { margin-top: auto; padding-top: 10px; display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.9rem; }
+
+/* ---- proof matrix ---- */
+.matrix-scroll { overflow-x: auto; }
+table.matrix { border-collapse: collapse; width: 100%; min-width: 480px; }
+table.matrix th, table.matrix td {
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+  text-align: left;
+  vertical-align: top;
+  font-size: 0.92rem;
+}
+table.matrix th { background: var(--surface-2); font-weight: 600; }
+table.matrix td.app-row { font-weight: 600; background: var(--surface-2); }
+.proof-cell .proof-mode { display: block; font-weight: 600; }
+.proof-cell .proof-verif { display: block; color: var(--text-soft); font-size: 0.85rem; margin-top: 2px; }
+.proof-cell.empty { color: var(--text-soft); }
+
+/* ---- how it works ---- */
+.how-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+.how-grid .item h3 { margin: 0 0 8px; font-size: 1.02rem; }
+.how-grid .item p { margin: 0; color: var(--text-soft); font-size: 0.92rem; }
+.how-grid .item .src { display: block; margin-top: 8px; font-size: 0.85rem; }
+
+/* ---- reference apps (non-matrix) ---- */
+.ref-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.ref-card {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  background: var(--surface);
+}
+.ref-card h3 { margin: 0 0 6px; font-size: 1rem; }
+.ref-card p { margin: 0 0 10px; color: var(--text-soft); font-size: 0.88rem; }
+
+footer { padding: 30px 0 60px; color: var(--text-soft); font-size: 0.85rem; border-top: 1px solid var(--border); margin-top: 20px; }
+
+@media (max-width: 720px) {
+  .hero { padding: 48px 0 28px; }
+  .hero h1 { font-size: 1.9rem; }
+  .how-grid { grid-template-columns: 1fr; }
+  .cards { grid-template-columns: 1fr; }
+}
+
+/* ---- run page ---- */
+.run-header { padding: 28px 0 18px; }
+.run-header .back { font-size: 0.88rem; color: var(--text-soft); }
+.run-header h1 { margin: 10px 0 6px; font-size: 1.6rem; }
+.run-header .meta { color: var(--text-soft); font-size: 0.95rem; margin: 0 0 10px; }
+.run-header .links { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.9rem; margin-top: 12px; }
+
+.emu-stage {
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.emu-frame { transform-origin: top left; }
+.emu-frame iframe { display: block; border: 0; background: #fff; }
+
+.run-footer { padding: 24px 0 60px; }

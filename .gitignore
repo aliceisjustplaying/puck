@@ -2,7 +2,7 @@ node_modules/
 
 # Build outputs: regenerate with `bun run example:build` / `bun run build`
 wasm/dist/
-dist/
+/dist/
 
 # The device firmware's CMake build tree (25MB of objects and a copy of half
 # the Pico SDK's object files). Regenerate with the two cmake commands in
@@ -19,14 +19,14 @@ test/hostile/dist/
 test/regression/dist/
 
 # Runtime-written, transient (see docs/agent-loop.md)
-freezes/
-traces/
+/freezes/
+/traces/
 
 # The hardware-free regression check's own state (src/regression.ts):
 # baselines/ is what you saved, regressions/ is the last check's result.
 # Both transient by the same reasoning as freezes/ and traces/ above.
-baselines/
-regressions/
+/baselines/
+/regressions/
 
 # Differential harness output (PNGs from `bun run harness/diff.ts --out`)
 harness/out/
@@ -34,3 +34,7 @@ harness/out/
 *.log
 .DS_Store
 Thumbs.db
+
+# Pack-local native build outputs (the .uf2 goes on a GitHub release,
+# never in git - see the comment above about firmware/build/)
+packs/*/dist/

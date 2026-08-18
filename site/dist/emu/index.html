@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>device emulator</title>
+    <!-- No <link rel="icon">: Bun's HTML bundler tries to resolve it as a
+         build asset and fails the whole page. The browser auto-requests
+         /favicon.ico, unhandled here on purpose (this is a dev tool, not a
+         desktop app with a taskbar icon to wire). -->
+    <link rel="stylesheet" href="./family-budget.css" />
+    <link rel="stylesheet" href="./app.css" />
+  </head>
+  <body>
+    <div id="root">
+      <div class="topbar">
+        <b id="deviceName">device emulator</b>
+        <span id="reloadDot" class="reload-dot" title="watching the wasm build for changes"></span>
+        <!-- Sound is a device OUTPUT (the same samples the firmware plays,
+             see audio.ts), so it sits with the device's own identity here,
+             not in the input group or the capture actions. -->
+        <button id="btnMute" class="chrome-btn icon-btn" title="mute">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 9v6h4l5 5V4L8 9H4z" />
+            <path d="M16 8.5a4.5 4.5 0 0 1 0 7" />
+            <path d="M19 6a8 8 0 0 1 0 12" />
+          </svg>
+        </button>
+        <span class="spacer"></span>
+        <!-- capture: quiet, text-only, grouped. An icon, not a word naming
+             a file format, because it names what pressing it DOES. -->
+        <button id="btnPng" class="chrome-btn icon-btn" title="save a screenshot of the panel">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="7" width="18" height="13" rx="2" />
+            <path d="M8 7l1.5-3h5L16 7" />
+            <circle cx="12" cy="13.5" r="3.5" />
+          </svg>
+        </button>
+        <button id="btnFreeze" class="chrome-btn" title="freeze: screenshot + state + recent input, written for an agent to read">freeze</button>
+        <button id="btnSaveTrace" class="chrome-btn" title="save the full input trace (replayable)">save</button>
+        <label class="chrome-btn filebtn" title="load a saved trace and replay it">load<input id="traceFileInput" type="file" accept="application/json" /></label>
+        <span class="divider"></span>
+        <!-- A regression check needing no hardware: save the current input
+             trace + frames as a baseline, then later ask whether the SAME
+             trace still draws the same thing. Compares the emulator against
+             itself only - see docs/harness.md - so it catches a firmware
+             regression, and proves nothing about real hardware or timing. -->
+        <button id="btnSaveBaseline" class="chrome-btn" title="save the current input trace and its captured frames as your regression baseline: a later check replays it and tells you if firmware behaviour changed, no hardware involved">baseline</button>
+        <button id="btnCheckBaseline" class="chrome-btn" title="replay the saved baseline's trace against the current module and report any pixel divergence. Catches a firmware regression against itself; proves nothing about real hardware or timing">check</button>
+        <span id="regressionPill" class="pill hint hidden"></span>
+        <span class="divider"></span>
+        <button id="btnQuit" class="btn danger sm">quit</button>
+      </div>
+
+      <div id="wasmError" class="wasm-error hidden"></div>
+      <!-- Distinct from #wasmError on purpose: that one means "a module
+           never came up," this one means "a module WAS up and something in
+           the tick loop threw partway through." Impossible-to-confuse is
+           the point (see main.ts's showEngineDead / paintDeadOverlay). -->
+      <div id="engineDead" class="engine-dead hidden"></div>
+
+      <div class="layout">
+        <div id="stage" class="stage">
+          <div id="deviceWrap" class="device-wrap">
+            <div id="bezel" class="bezel">
+              <canvas id="panel" class="panel"></canvas>
+              <canvas id="overlay" class="overlay-canvas"></canvas>
+              <!-- buttons are inserted here at runtime, one per emu_device() entry -->
+            </div>
+          </div>
+        </div>
+
+        <div class="side controls">
+          <h3>input</h3>
+          <div class="toggle-row">
+            <input id="overlayOn" type="checkbox" />
+            <!-- "overlay" names the rendering mechanism, not what it shows
+                 you; "contact" says what a fingertip is doing. -->
+            <label for="overlayOn" title="show the touch disc, trail and coordinates on the panel">contact</label>
+          </div>
+          <!-- The push-window outlines are their own switch, not part of
+               "contact": one answers "where is the finger", the other
+               "what geometry did the firmware actually send", and wanting
+               one is not wanting the other. They do share a canvas, which
+               is a rendering detail and not a reason to share a control. -->
+          <div class="toggle-row">
+            <input id="pushesOn" type="checkbox" />
+            <label for="pushesOn" title="outline every rectangle the firmware's push path actually sent, fading">pushes</label>
+          </div>
+          <div class="toggle-row">
+            <input id="touchDefectsOn" type="checkbox" />
+            <label for="touchDefectsOn" title="simulate a real touch controller: report rate, dropped contact, stray reports. Off = clean pass-through">defects</label>
+          </div>
+          <!-- Finger size is a QUANTITY (contact diameter, mm); the
+               presets are shortcuts to a value, not the only values, so
+               the number is the primary control and they set it. -->
+          <div class="contact-row">
+            <input id="contactMm" type="number" min="1" max="20" step="0.5" class="control mm-input" title="contact diameter, millimetres" />
+            <span class="unit">mm</span>
+            <span id="contactPx" class="px-readout"></span>
+          </div>
+          <div id="contactPreset" class="segtog seg-sm"></div>
+          <details class="disclosure">
+            <summary>tune</summary>
+            <div id="touchControls"></div>
+            <button id="btnResetTouch" class="chrome-btn">reset</button>
+          </details>
+
+          <h3>device</h3>
+          <div id="deviceInfo" class="device-info"></div>
+          <div id="buttonShortcuts" class="shortcut-list"></div>
+          <div id="sensorControls" class="sensor-controls"></div>
+          <div id="gesturesWrap" class="hidden"></div>
+          <div id="appStripWrap" class="hidden">
+            <div id="appStrip" class="app-strip"></div>
+          </div>
+
+          <h3>console</h3>
+          <div id="consolePane" class="console-pane"></div>
+        </div>
+      </div>
+
+      <!-- Fixed to the viewport, not the device: the puck can be dragged
+           anywhere on the stage and stays the visual centre of the page,
+           but these controls stay put at the bottom centre. -->
+      <div class="bottom-bar">
+        <div class="stage-controls">
+          <span class="segtog seg-sm" id="rotQuick" title="view rotation">
+            <button data-deg="0" class="active">0&deg;</button>
+            <button data-deg="90">90&deg;</button>
+            <button data-deg="-90">-90&deg;</button>
+            <button data-deg="180">180&deg;</button>
+          </span>
+          <input id="tilt" type="range" min="-25" max="25" step="1" value="0" title="tilt" class="tilt-slider" />
+          <span class="divider"></span>
+          <button id="btnPause" class="chrome-btn deck-btn" title="pause the tick loop">&#10074;&#10074;</button>
+          <button id="btnStep" class="chrome-btn deck-btn" title="advance one frame">&#9654;&#124;</button>
+          <span id="replayBar" class="pill hint hidden"></span>
+          <button id="btnStopReplay" class="chrome-btn hidden">stop replay</button>
+        </div>
+        <div id="diagStrip" class="diag-strip"></div>
+      </div>
+    </div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

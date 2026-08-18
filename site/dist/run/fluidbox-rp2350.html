@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>fluidbox on RP2350-Touch-AMOLED-1.8: puck</title>
+<meta name="description" content="Ported down from a 900-particle, dual-core donor to 130 particles, single core: the interaction surface changed (fixed gravity, a touch stir), so this is verified by invariants, not pixel identity." />
+<link rel="stylesheet" href="../styles.css" />
+</head>
+<body>
+<div class="wrap">
+  <div class="run-header">
+    <div class="back"><a href="../index.html">&larr; puck</a></div>
+    <h1>fluidbox on RP2350-Touch-AMOLED-1.8</h1>
+    <p class="meta">running on RP2350-Touch-AMOLED-1.8</p>
+    <div class="badges"><span class="badge accent">adaptation</span> <span class="badge accent">invariants (degraded)</span></div>
+    <p>Ported down from a 900-particle, dual-core donor to 130 particles, single core: the interaction surface changed (fixed gravity, a touch stir), so this is verified by invariants, not pixel identity.</p>
+    <div class="links">
+      <a href="https://github.com/s0lness/puck/blob/master/apps/fluidbox/descriptor.md">descriptor</a>
+      <a href="https://github.com/s0lness/puck/blob/master/apps/fluidbox/ports/rp2350-touch-amoled-18/README.md">port notes</a>
+    </div>
+  </div>
+
+  <div class="emu-stage" id="stage">
+    <div class="emu-frame" id="frame" style="width:980px;height:760px">
+      <iframe id="emu" src="../emu/index.html?module=..%2Fmodules%2Ffluidbox-rp2350.wasm" width="980" height="760" title="fluidbox on RP2350-Touch-AMOLED-1.8 running live" allow="autoplay"></iframe>
+    </div>
+  </div>
+
+  <div class="run-footer"></div>
+</div>
+<script>
+(function () {
+  var NATIVE_W = 980, NATIVE_H = 760;
+  var stage = document.getElementById("stage");
+  var frame = document.getElementById("frame");
+  function fit() {
+    var scale = Math.min(1, stage.clientWidth / NATIVE_W);
+    frame.style.transform = "scale(" + scale + ")";
+    stage.style.height = Math.round(NATIVE_H * scale) + "px";
+  }
+  window.addEventListener("resize", fit);
+  fit();
+  
+})();
+</script>
+</body>
+</html>

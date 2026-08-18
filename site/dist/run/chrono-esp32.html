@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>chrono on ESP32-S3-Touch-AMOLED-1.8: puck</title>
+<meta name="description" content="The same descriptor, ported to a second board with no persistent framebuffer. Pixel-identical to the reference, verified capture by capture." />
+<link rel="stylesheet" href="../styles.css" />
+</head>
+<body>
+<div class="wrap">
+  <div class="run-header">
+    <div class="back"><a href="../index.html">&larr; puck</a></div>
+    <h1>chrono on ESP32-S3-Touch-AMOLED-1.8</h1>
+    <p class="meta">running on ESP32-S3-Touch-AMOLED-1.8</p>
+    <div class="badges"><span class="badge accent">faithful port</span> <span class="badge accent">pixel-exact</span></div>
+    <p>The same descriptor, ported to a second board with no persistent framebuffer. Pixel-identical to the reference, verified capture by capture.</p>
+    <div class="links">
+      <a href="https://github.com/s0lness/puck/blob/master/apps/chrono/descriptor.md">descriptor</a>
+      <a href="https://github.com/s0lness/puck/blob/master/apps/chrono/ports/esp32-s3-touch-amoled-18/README.md">port notes</a>
+    </div>
+  </div>
+
+  <div class="emu-stage" id="stage">
+    <div class="emu-frame" id="frame" style="width:980px;height:760px">
+      <iframe id="emu" src="../emu/index.html?module=..%2Fmodules%2Fchrono-esp32.wasm" width="980" height="760" title="chrono on ESP32-S3-Touch-AMOLED-1.8 running live" allow="autoplay"></iframe>
+    </div>
+  </div>
+
+  <div class="run-footer"></div>
+</div>
+<script>
+(function () {
+  var NATIVE_W = 980, NATIVE_H = 760;
+  var stage = document.getElementById("stage");
+  var frame = document.getElementById("frame");
+  function fit() {
+    var scale = Math.min(1, stage.clientWidth / NATIVE_W);
+    frame.style.transform = "scale(" + scale + ")";
+    stage.style.height = Math.round(NATIVE_H * scale) + "px";
+  }
+  window.addEventListener("resize", fit);
+  fit();
+  // Chrono renders landscape into a portrait-native panel (see
+  // site/build.ts's THUMBNAILS comment); this clicks the emulator's own
+  // "-90deg" quick-rotate button once the page loads, the same control a
+  // person would click by hand, rather than defaulting to a sideways view.
+  var emu = document.getElementById("emu");
+  emu.addEventListener("load", function () {
+    setTimeout(function () {
+      try {
+        var doc = emu.contentDocument;
+        var btn = doc && doc.querySelector('#rotQuick button[data-deg="-90"]');
+        if (btn) btn.click();
+      } catch (e) {}
+    }, 400);
+  });
+})();
+</script>
+</body>
+</html>
