@@ -54,6 +54,15 @@ const btnStopReplay = $<HTMLButtonElement>("#btnStopReplay");
 const btnPause = $<HTMLButtonElement>("#btnPause");
 const stageEl = $("#stage");
 
+// ---- module URL ----
+// Additive hook for a static gallery page that embeds this same emulator
+// page multiple times, once per proven app+pack combo, each pointed at its
+// own prebuilt .wasm (see site/build.ts). The dev server and its live
+// reload are untouched: with no ?module= param this is exactly
+// DEFAULT_WASM_URL, byte for byte the same request reloadModule() always
+// made.
+const WASM_URL = new URLSearchParams(location.search).get("module") || DEFAULT_WASM_URL;
+
 // ---- state ----
 let emu: EmuExports | null = null;
 let wasmBytes: ArrayBuffer | null = null;
@@ -706,7 +715,7 @@ async function reloadModule(reason: string): Promise<void> {
   try {
     let bytes: ArrayBuffer;
     try {
-      bytes = await fetchWasmBytes(`${DEFAULT_WASM_URL}?t=${Date.now()}`);
+      bytes = await fetchWasmBytes(`${WASM_URL}?t=${Date.now()}`);
     } catch (err) {
       failReload(err);
       return;

@@ -1,0 +1,567 @@
+// site/build.ts: builds the public gallery, site/dist/, the COMMITTED
+// static output Cloudflare Pages serves as-is (no Pages-side build). This
+// script is the only build step; site/dist/ is checked in.
+//
+// What it does, in order:
+//   1. For every proven app+pack combo (from registry.json + each app's
+//      bundle.json, not hand-listed twice), invoke that pack's own
+//      wasm/build.ts with the arguments its port README documents. Every
+//      pack build writes the SAME repo-root wasm/dist/emu.wasm (see each
+//      pack's own build.ts header comment), so these run one at a time,
+//      and each output is copied out to site/dist/modules/<combo>.wasm
+//      before the next build overwrites it.
+//   2. Runs the repo's own root build.ts (bun run build), which produces a
+//      plain static bundle of the emulator page (index.html, main.js,
+//      family-budget.css, app.css). Copied once into site/dist/emu/ and
+//      shared by every run page: one bundle, loaded with a different
+//      module each time via the ?module= hook (src/main.ts).
+//   3. Writes one run page per combo (site/dist/run/<combo>.html): this
+//      repository's own design, embedding the shared emulator bundle in an
+//      iframe pointed at that combo's module.
+//   4. Writes the gallery (site/dist/index.html) from the same
+//      registry.json + bundle.json data used to decide which combos to
+//      build, plus a small hand-written table of labels and GitHub doc
+//      links (registry.json and bundle.json carry no prose).
+//
+// Idempotent: every step is deterministic (a compiled .wasm from the same
+// C, a template rendered from the same data), so running this twice
+// produces byte-identical site/dist/, no timestamps embedded anywhere.
+//
+// TypeScript only, no shell script, per this repo's own AGENTS.md.
+import { existsSync, mkdirSync, rmSync, copyFileSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+const SITE_DIR = import.meta.dir;
+const REPO_ROOT = resolve(SITE_DIR, "..");
+const DIST = join(SITE_DIR, "dist");
+const GITHUB_BASE = "https://github.com/s0lness/puck/blob/master";
+
+function gh(path: string): string {
+  return `${GITHUB_BASE}/${path}`;
+}
+
+// ---- read the data that decides what gets built -------------------------
+interface Registry {
+  packs: { name: string; path: string }[];
+  apps: { name: string; path: string }[];
+}
+interface ChronoLikeBundle {
+  convention: string;
+  name: string;
+  provenPacks: (string | { name: string; degraded?: boolean })[];
+  portMode: string;
+  verification: string;
+}
+interface ProvenEntry {
+  pack: string;
+  mode: string;
+  verification: string;
+  degraded: boolean;
+}
+
+function readJson<T>(path: string): T {
+  return JSON.parse(readFileSync(path, "utf8")) as T;
+}
+
+const registry = readJson<Registry>(join(REPO_ROOT, "registry.json"));
+
+const packLabel = new Map<string, string>();
+for (const p of registry.packs) {
+  const device = readJson<{ name?: string }>(join(REPO_ROOT, p.path, "device.json"));
+  packLabel.set(p.name, device.name || p.name);
+}
+
+interface AppEntry {
+  name: string;
+  path: string;
+  bundle: ChronoLikeBundle;
+  proven: ProvenEntry[];
+}
+const apps: AppEntry[] = registry.apps.map((a) => {
+  const bundle = readJson<ChronoLikeBundle>(join(REPO_ROOT, a.path, "bundle.json"));
+  const proven: ProvenEntry[] = bundle.provenPacks.map((entry) =>
+    typeof entry === "string"
+      ? { pack: entry, mode: bundle.portMode, verification: bundle.verification, degraded: false }
+      : { pack: entry.name, mode: bundle.portMode, verification: bundle.verification, degraded: entry.degraded ?? false }
+  );
+  return { name: a.name, path: a.path, bundle, proven };
+});
+
+// ---- the one piece of prose this data cannot carry: how to build each
+// proven combo's module, and which doc on GitHub explains that specific
+// port. Keyed by "app:pack" and cross-checked against the proven combos
+// derived above, so an app+pack this table doesn't know how to build fails
+// the build loudly instead of silently skipping a proof the gallery claims.
+interface ComboBuild {
+  script: string; // relative to REPO_ROOT
+  args: string[];
+  portDoc: string; // relative to REPO_ROOT, linked on GitHub
+  blurb: string; // one line, shown on the run page
+}
+const COMBO_BUILD: Record<string, ComboBuild> = {
+  "chrono:rp2350-touch-amoled-18": {
+    script: "packs/rp2350-touch-amoled-18/wasm/build.ts",
+    args: [],
+    portDoc: "packs/rp2350-touch-amoled-18/firmware/apps/README.md",
+    blurb: "Chrono's native home: one of the three apps this pack's own firmware ships, built with no --app override.",
+  },
+  "chrono:esp32-s3-touch-amoled-18": {
+    script: "packs/esp32-s3-touch-amoled-18/wasm/build.ts",
+    args: ["--app", "apps/chrono/ports/esp32-s3-touch-amoled-18/chrono.c"],
+    portDoc: "apps/chrono/ports/esp32-s3-touch-amoled-18/README.md",
+    blurb: "The same descriptor, ported to a second board with no persistent framebuffer. Pixel-identical to the reference, verified capture by capture.",
+  },
+  "fluidbox:rp2350-touch-amoled-18": {
+    script: "packs/rp2350-touch-amoled-18/wasm/build.ts",
+    args: ["--app", "apps/fluidbox/ports/rp2350-touch-amoled-18/fluid.c", "--shake"],
+    portDoc: "apps/fluidbox/ports/rp2350-touch-amoled-18/README.md",
+    blurb: "Ported down from a 900-particle, dual-core donor to 130 particles, single core: the interaction surface changed (fixed gravity, a touch stir), so this is verified by invariants, not pixel identity.",
+  },
+};
+
+// A fourth card that is not part of the proof matrix at all: the ESP32-S3
+// pack's own shipped reference app, included per this site's brief as a
+// fourth "reference app" tile (a device pack proving itself, not a ported
+// app).
+interface ReferenceApp {
+  id: string;
+  name: string;
+  pack: string;
+  script: string;
+  args: string[];
+  doc: string;
+  blurb: string;
+}
+const REFERENCE_APPS: ReferenceApp[] = [
+  {
+    id: "esp32-demo",
+    name: "demo",
+    pack: "esp32-s3-touch-amoled-18",
+    script: "packs/esp32-s3-touch-amoled-18/wasm/build.ts",
+    args: [],
+    doc: "packs/esp32-s3-touch-amoled-18/firmware/apps/demo.c",
+    blurb: "A bouncing square: the pack's own reference app, proving its band-render contract with nothing borrowed from another device.",
+  },
+];
+
+function comboId(app: string, pack: string): string {
+  const short = pack.split("-")[0]; // "rp2350" / "esp32"
+  return `${app}-${short}`;
+}
+
+interface Combo {
+  id: string;
+  app: string;
+  appPath: string;
+  pack: string;
+  build: ComboBuild;
+  proven: ProvenEntry;
+}
+const combos: Combo[] = [];
+for (const app of apps) {
+  for (const entry of app.proven) {
+    const key = `${app.name}:${entry.pack}`;
+    const build = COMBO_BUILD[key];
+    if (!build) {
+      throw new Error(
+        `site/build.ts has no COMBO_BUILD entry for "${key}", but ${app.path}/bundle.json lists it as proven. ` +
+          `Add one (script, args, portDoc, blurb) or this gallery would silently under-claim what's proven.`
+      );
+    }
+    combos.push({ id: comboId(app.name, entry.pack), app: app.name, appPath: app.path, pack: entry.pack, build, proven: entry });
+  }
+}
+
+// ---- 1. build every combo's module, one at a time (shared wasm/dist/emu.wasm output) ----
+const REPO_WASM_OUT = join(REPO_ROOT, "wasm", "dist", "emu.wasm");
+const MODULES_DIR = join(DIST, "modules");
+
+function runBuild(script: string, args: string[]): void {
+  console.log(`\n--- building: bun run ${script} ${args.join(" ")}`);
+  const result = Bun.spawnSync(["bun", "run", script, ...args], {
+    cwd: REPO_ROOT,
+    stdout: "inherit",
+    stderr: "inherit",
+    env: { ...process.env },
+  });
+  if (!result.success) {
+    throw new Error(`build failed: bun run ${script} ${args.join(" ")} (exit ${result.exitCode})`);
+  }
+}
+
+function buildAllModules(): void {
+  mkdirSync(MODULES_DIR, { recursive: true });
+  for (const c of combos) {
+    runBuild(c.build.script, c.build.args);
+    if (!existsSync(REPO_WASM_OUT)) throw new Error(`${c.build.script} did not write ${REPO_WASM_OUT}`);
+    copyFileSync(REPO_WASM_OUT, join(MODULES_DIR, `${c.id}.wasm`));
+    console.log(`copied -> site/dist/modules/${c.id}.wasm`);
+  }
+  for (const r of REFERENCE_APPS) {
+    runBuild(r.script, r.args);
+    if (!existsSync(REPO_WASM_OUT)) throw new Error(`${r.script} did not write ${REPO_WASM_OUT}`);
+    copyFileSync(REPO_WASM_OUT, join(MODULES_DIR, `${r.id}.wasm`));
+    console.log(`copied -> site/dist/modules/${r.id}.wasm`);
+  }
+}
+
+// ---- 2. the shared emulator bundle, built once via the repo's own build.ts ----
+function buildEmulatorBundle(): void {
+  runBuild("build.ts", []);
+  const repoDist = join(REPO_ROOT, "dist");
+  const emuDir = join(DIST, "emu");
+  mkdirSync(emuDir, { recursive: true });
+  for (const f of ["index.html", "main.js", "family-budget.css", "app.css"]) {
+    copyFileSync(join(repoDist, f), join(emuDir, f));
+  }
+  console.log("copied -> site/dist/emu/ (shared emulator bundle)");
+}
+
+// ---- html helpers ----
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+
+function page(title: string, description: string, stylesHref: string, body: string): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${escapeHtml(title)}</title>
+<meta name="description" content="${escapeHtml(description)}" />
+<link rel="stylesheet" href="${stylesHref}" />
+</head>
+<body>
+${body}
+</body>
+</html>
+`;
+}
+
+// ---- thumbnails: apps/*/frames carries the proof material itself -------
+// Chrono's app declares a landscape layout (see apps/chrono/descriptor.md);
+// the captured frame is the panel's own, unrotated buffer (its native
+// orientation is portrait, see packs/*/device.json's panel.w/h), so the
+// digits read top-to-bottom in the raw PNG. The CSS class below (site/
+// styles.css's .rot-ccw) rotates the <img> -90deg for display only, the
+// same quarter turn this repository's own "quick rotate" viewer control
+// applies (src/rotate.ts's quickDeg convention: negative = counter-
+// clockwise, top edge to left edge) - never touching the source PNG.
+// FluidBox has no landscape flag (it fills the panel in its native
+// orientation), so its frame needs no rotation.
+const THUMBNAILS: Record<string, { src: string; rotate: boolean }> = {
+  chrono: { src: "apps/chrono/frames/chrono-idle.t1008.png", rotate: true },
+  fluidbox: { src: "apps/fluidbox/frames/fluid-settle-shake.t9024.png", rotate: false },
+};
+
+function copyThumbnails(): string[] {
+  const assetsDir = join(DIST, "assets");
+  mkdirSync(assetsDir, { recursive: true });
+  const names: string[] = [];
+  for (const [app, t] of Object.entries(THUMBNAILS)) {
+    const dest = `${app}-thumb.png`;
+    copyFileSync(join(REPO_ROOT, t.src), join(assetsDir, dest));
+    names.push(dest);
+  }
+  return names;
+}
+
+// ---- hand-written one-liners: bundle.json has no prose, this is it -----
+const APP_BLURB: Record<string, string> = {
+  chrono: "A full-screen stopwatch: six seven-segment digits, two buttons, nothing else on screen.",
+  fluidbox: "A particle liquid that sloshes and settles inside the device's own enclosure shape.",
+};
+
+// ---- 3 & 4: generate every page --------------------------------------
+function modeLabel(mode: string): string {
+  return mode === "faithful" ? "faithful port" : "adaptation";
+}
+
+function renderProofCell(entry: ProvenEntry | undefined, comboIdFor: string | null): string {
+  if (!entry) return `<td class="proof-cell empty">not ported</td>`;
+  const verif = entry.degraded ? `${entry.verification} (degraded)` : entry.verification;
+  const inner = `<span class="proof-mode">${escapeHtml(modeLabel(entry.mode))}</span><span class="proof-verif">${escapeHtml(verif)}</span>`;
+  return comboIdFor
+    ? `<td class="proof-cell"><a href="run/${comboIdFor}.html">${inner}</a></td>`
+    : `<td class="proof-cell">${inner}</td>`;
+}
+
+function buildIndexHtml(): void {
+  const thumbs = copyThumbnails();
+
+  const cardsHtml = apps
+    .map((app, i) => {
+      const thumb = THUMBNAILS[app.name]!;
+      const imgClass = thumb.rotate ? ' class="rot-ccw"' : "";
+      const provenLinks = app.proven
+        .map((p) => {
+          const c = combos.find((x) => x.app === app.name && x.pack === p.pack)!;
+          return `<a href="run/${c.id}.html">run on ${escapeHtml(packLabel.get(p.pack) || p.pack)}</a>`;
+        })
+        .join("");
+      // Deduped: chrono is proven the same way (faithful/pixel-exact) on
+      // both packs, and showing that badge twice would just be noise.
+      const seenBadges = new Set<string>();
+      const badges = app.proven
+        .filter((p) => {
+          const key = `${p.mode}:${p.verification}:${p.degraded}`;
+          if (seenBadges.has(key)) return false;
+          seenBadges.add(key);
+          return true;
+        })
+        .map((p) => `<span class="badge${p.degraded ? "" : " accent"}">${escapeHtml(modeLabel(p.mode))} · ${escapeHtml(p.verification)}</span>`)
+        .join("");
+      return `<div class="card">
+  <div class="thumb"><img src="assets/${thumbs[i]}"${imgClass} alt="${escapeHtml(app.name)} panel capture" /></div>
+  <div class="body">
+    <h3>${escapeHtml(app.name)}</h3>
+    <p>${escapeHtml(APP_BLURB[app.name] || "")}</p>
+    <div class="badges">${badges}</div>
+    <div class="links">
+      ${provenLinks}
+      <a href="${gh(`${app.path}/descriptor.md`)}">descriptor</a>
+    </div>
+  </div>
+</div>`;
+    })
+    .join("\n");
+
+  const packNames = registry.packs.map((p) => p.name);
+  const matrixRows = apps
+    .map((app) => {
+      const cells = packNames
+        .map((pack) => {
+          const entry = app.proven.find((p) => p.pack === pack);
+          const c = entry ? combos.find((x) => x.app === app.name && x.pack === pack) : undefined;
+          return renderProofCell(entry, c ? c.id : null);
+        })
+        .join("\n        ");
+      return `      <tr>
+        <td class="app-row">${escapeHtml(app.name)}</td>
+        ${cells}
+      </tr>`;
+    })
+    .join("\n");
+  const matrixHead = packNames.map((p) => `<th>${escapeHtml(packLabel.get(p) || p)}</th>`).join("\n        ");
+
+  const refCardsHtml = REFERENCE_APPS.map(
+    (r) => `<div class="ref-card">
+  <h3>${escapeHtml(packLabel.get(r.pack) || r.pack)}: ${escapeHtml(r.name)}</h3>
+  <p>${escapeHtml(r.blurb)}</p>
+  <div class="links"><a href="run/${r.id}.html">run it</a> <a href="${gh(r.doc)}">source</a></div>
+</div>`
+  ).join("\n");
+
+  const body = `<div class="wrap">
+  <header class="hero">
+    <h1>puck</h1>
+    <p class="tagline">apps that travel between tiny computers.</p>
+    <p class="sub">Every app below is running for real, compiled to WebAssembly, in the browser: not a recording, not a mockup. <a href="${gh("README.md")}">puck</a> is a device-agnostic emulator, a set of self-contained device packs, and a set of portable app bundles; this page proves the porting story with the real thing.</p>
+  </header>
+
+  <section id="apps">
+    <div class="wrap" style="padding:0">
+      <div class="cards">
+${cardsHtml}
+      </div>
+    </div>
+  </section>
+
+  <section id="proof">
+    <div class="wrap" style="padding:0">
+      <h2>proof matrix</h2>
+      <p class="lede">Each cell is a real build of that app's own port, for that device pack's real firmware, verified by the shared harness and running live below.</p>
+      <div class="matrix-scroll">
+        <table class="matrix">
+          <thead><tr><th></th>
+        ${matrixHead}
+          </tr></thead>
+          <tbody>
+${matrixRows}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="reference">
+    <div class="wrap" style="padding:0">
+      <h2>reference app</h2>
+      <p class="lede">Not a port: each device pack's own shipped app, run through the same emulator.</p>
+      <div class="ref-cards">
+${refCardsHtml}
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap" style="padding:0">
+      <h2>how it works</h2>
+      <div class="how-grid">
+        <div class="item">
+          <h3>device packs</h3>
+          <p>A self-contained folder for one hardware target: real drivers, a real board's firmware, and a <code>device.json</code> descriptor the emulator reads at runtime. Nothing in the shared instrument names one device; every panel size and button comes from the pack itself.</p>
+          <span class="src"><a href="${gh("docs/convention/device-pack.md")}">device-pack.md</a></span>
+        </div>
+        <div class="item">
+          <h3>app descriptors</h3>
+          <p>An app is defined by its descriptor and traces, not by one implementation's source code: what appears on screen, every interaction, and separate requirements from preferences. A port starts with a verdict against the target pack, stated plainly, before any code is written.</p>
+          <span class="src"><a href="${gh("docs/convention/app-bundle.md")}">app-bundle.md</a></span>
+        </div>
+        <div class="item">
+          <h3>the verifier</h3>
+          <p>A faithful port replays its traces and compares frames pixel for pixel. An adaptation states behavioral invariants instead, and gets checked against those. Either way, the same shared harness decides, not a claim in a README.</p>
+          <span class="src"><a href="${gh("docs/harness.md")}">harness.md</a></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap" style="padding:0">
+      <a href="${gh("README.md")}">s0lness/puck</a> on GitHub, MIT licensed.
+    </div>
+  </footer>
+</div>`;
+
+  writeFileSync(join(DIST, "index.html"), page("puck: apps that travel between tiny computers", "A live gallery of firmware ported between device packs, running for real in the browser.", "styles.css", body));
+}
+
+// Native size the emulator page is comfortable at (topbar + a 368x448
+// bezel with padding + the fixed-width sidebar, app.css's own
+// --sidebar-w/--bezel-pad): generous enough that nothing in the embedded
+// page has to wrap, then scaled down to fit narrower viewports by the run
+// page's own script below (a CSS transform on the wrapper, not a rewrite
+// of the emulator's own layout).
+const EMU_NATIVE_W = 980;
+const EMU_NATIVE_H = 760;
+
+function buildRunDir(): void {
+  const runDir = join(DIST, "run");
+  mkdirSync(runDir, { recursive: true });
+
+  function writeRunPage(opts: {
+    id: string;
+    title: string;
+    packLabelStr: string;
+    modeStr: string | null;
+    verifStr: string | null;
+    blurb: string;
+    docLinks: { label: string; href: string }[];
+    autoRotate: boolean;
+  }) {
+    const moduleUrl = `../modules/${opts.id}.wasm`;
+    const iframeSrc = `../emu/index.html?module=${encodeURIComponent(moduleUrl)}`;
+    const badges = [opts.modeStr, opts.verifStr]
+      .filter((x): x is string => !!x)
+      .map((x) => `<span class="badge accent">${escapeHtml(x)}</span>`)
+      .join(" ");
+    const links = opts.docLinks.map((l) => `<a href="${l.href}">${escapeHtml(l.label)}</a>`).join("\n      ");
+    const body = `<div class="wrap">
+  <div class="run-header">
+    <div class="back"><a href="../index.html">&larr; puck</a></div>
+    <h1>${escapeHtml(opts.title)}</h1>
+    <p class="meta">running on ${escapeHtml(opts.packLabelStr)}</p>
+    <div class="badges">${badges}</div>
+    <p>${escapeHtml(opts.blurb)}</p>
+    <div class="links">
+      ${links}
+    </div>
+  </div>
+
+  <div class="emu-stage" id="stage">
+    <div class="emu-frame" id="frame" style="width:${EMU_NATIVE_W}px;height:${EMU_NATIVE_H}px">
+      <iframe id="emu" src="${iframeSrc}" width="${EMU_NATIVE_W}" height="${EMU_NATIVE_H}" title="${escapeHtml(opts.title)} running live" allow="autoplay"></iframe>
+    </div>
+  </div>
+
+  <div class="run-footer"></div>
+</div>
+<script>
+(function () {
+  var NATIVE_W = ${EMU_NATIVE_W}, NATIVE_H = ${EMU_NATIVE_H};
+  var stage = document.getElementById("stage");
+  var frame = document.getElementById("frame");
+  function fit() {
+    var scale = Math.min(1, stage.clientWidth / NATIVE_W);
+    frame.style.transform = "scale(" + scale + ")";
+    stage.style.height = Math.round(NATIVE_H * scale) + "px";
+  }
+  window.addEventListener("resize", fit);
+  fit();
+  ${
+    opts.autoRotate
+      ? `// Chrono renders landscape into a portrait-native panel (see
+  // site/build.ts's THUMBNAILS comment); this clicks the emulator's own
+  // "-90deg" quick-rotate button once the page loads, the same control a
+  // person would click by hand, rather than defaulting to a sideways view.
+  var emu = document.getElementById("emu");
+  emu.addEventListener("load", function () {
+    setTimeout(function () {
+      try {
+        var doc = emu.contentDocument;
+        var btn = doc && doc.querySelector('#rotQuick button[data-deg="-90"]');
+        if (btn) btn.click();
+      } catch (e) {}
+    }, 400);
+  });`
+      : ""
+  }
+})();
+</script>`;
+    writeFileSync(join(runDir, `${opts.id}.html`), page(`${opts.title}: puck`, opts.blurb, "../styles.css", body));
+  }
+
+  for (const c of combos) {
+    const entry = c.proven;
+    writeRunPage({
+      id: c.id,
+      title: `${c.app} on ${packLabel.get(c.pack) || c.pack}`,
+      packLabelStr: packLabel.get(c.pack) || c.pack,
+      modeStr: modeLabel(entry.mode),
+      verifStr: entry.degraded ? `${entry.verification} (degraded)` : entry.verification,
+      blurb: c.build.blurb,
+      docLinks: [
+        { label: "descriptor", href: gh(`${c.appPath}/descriptor.md`) },
+        { label: c.build.args.length === 0 ? "reference source" : "port notes", href: gh(c.build.portDoc) },
+      ],
+      autoRotate: c.app === "chrono",
+    });
+  }
+
+  for (const r of REFERENCE_APPS) {
+    writeRunPage({
+      id: r.id,
+      title: `${packLabel.get(r.pack) || r.pack}: ${r.name}`,
+      packLabelStr: packLabel.get(r.pack) || r.pack,
+      modeStr: null,
+      verifStr: null,
+      blurb: r.blurb,
+      docLinks: [{ label: "source", href: gh(r.doc) }],
+      autoRotate: false,
+    });
+  }
+}
+
+// ---- run everything -------------------------------------------------
+if (existsSync(DIST)) rmSync(DIST, { recursive: true, force: true });
+mkdirSync(DIST, { recursive: true });
+
+buildAllModules();
+buildEmulatorBundle();
+copyFileSync(join(SITE_DIR, "styles.css"), join(DIST, "styles.css"));
+buildRunDir();
+buildIndexHtml();
+
+function totalSize(dir: string): number {
+  let total = 0;
+  for (const name of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, name.name);
+    if (name.isDirectory()) total += totalSize(p);
+    else total += Bun.file(p).size;
+  }
+  return total;
+}
+const bytes = totalSize(DIST);
+console.log(`\nbuilt site/dist/ (${(bytes / 1024).toFixed(0)} KiB)`);

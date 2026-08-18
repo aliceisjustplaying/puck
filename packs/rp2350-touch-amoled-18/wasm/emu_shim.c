@@ -615,6 +615,19 @@ static char *json_append(char *p, const char *s) {
     return p;
 }
 
+// Plain char-by-char equality, not strcmp: this target is freestanding and
+// carries no libc (see this file's own header comment), so a comparison
+// this small is a loop, not an import. Used only by emu_device()'s
+// apps-array dedup below.
+static int str_eq(const char *a, const char *b) {
+    while (*a && *b) {
+        if (*a != *b) return 0;
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+
 // Formats a non-negative float as a plain JSON number, at most two
 // fractional digits, trailing zero fractional digits trimmed (250 prints as
 // "250", 0.5 prints as "0.5"). Not a general float formatter - every
@@ -656,8 +669,22 @@ int emu_device(void) {
     p = json_append(p, "\"touch\":{\"points\":1},");
     p = json_append(p, "\"sensors\":[{\"id\":\"shake\",\"kind\":\"event\"}],");
     p = json_append(p, "\"apps\":[");
+    // Deduplicated by name: the --app roster (wasm/build.ts's --app flag,
+    // see its own header comment) aliases every one of the three app-table
+    // slots to the SAME app, so g_apps[] can hold repeated names there.
+    // Three identical "switch to fluid" buttons on the page would be
+    // nonsense, so a name that already appeared earlier in this array is
+    // skipped. The default roster's three apps (chrono/sketch/timer) have
+    // distinct names, so this loop is a no-op for it.
+    int wroteApp = 0;
     for (int i = 0; i < g_appCount; i++) {
-        if (i > 0) p = json_append(p, ",");
+        int dup = 0;
+        for (int j = 0; j < i; j++) {
+            if (str_eq(g_apps[j]->name, g_apps[i]->name)) { dup = 1; break; }
+        }
+        if (dup) continue;
+        if (wroteApp) p = json_append(p, ",");
+        wroteApp = 1;
         p = json_append(p, "\"");
         p = json_append(p, g_apps[i]->name);
         p = json_append(p, "\"");

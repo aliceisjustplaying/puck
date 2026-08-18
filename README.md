@@ -59,6 +59,13 @@ entries are the [RP2350 AMOLED pack](packs/rp2350-touch-amoled-18/) and the
 [`docs/convention/`](docs/convention/), and [`registry.json`](registry.json)
 lists local or externally hosted entries.
 
+Two worked examples prove the convention against a second pack: chrono ported
+to the [ESP32-S3 AMOLED pack](apps/chrono/ports/esp32-s3-touch-amoled-18/)
+(faithful, pixel-exact), and [FluidBox](apps/fluidbox/) ported to the RP2350
+pack (an adaptation, verified by invariants, degraded per its own port
+notes). Both run live, alongside the reference pair, at
+[puck.sylve.org](https://puck.sylve.org).
+
 ## The emulator
 
 It is not specific to this device. It is built entirely from what a
