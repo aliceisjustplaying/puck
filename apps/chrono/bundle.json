@@ -1,10 +1,36 @@
 {
-  "convention": "0.1",
+  "convention": "0.2",
   "name": "chrono",
-  "provenPacks": [
-    "rp2350-touch-amoled-18",
-    "esp32-s3-touch-amoled-18"
-  ],
-  "portMode": "faithful",
-  "verification": "pixel-exact"
+  "ports": [
+    {
+      "pack": "rp2350-touch-amoled-18",
+      "mode": "native",
+      "verification": {
+        "kind": "pixel-exact",
+        "traces": [
+          "apps/chrono/traces/chrono-idle.trace.json",
+          "apps/chrono/traces/chrono-startstop.trace.json"
+        ],
+        "frames": "apps/chrono/frames"
+      },
+      "source": "packs/rp2350-touch-amoled-18/firmware/apps/chrono.c",
+      "silicon": {
+        "attestedAt": "2026-08-14",
+        "how": "differential harness (harness/links/devlinkLink.ts) run against the physical rp2350 board over USB serial, commit f1958c3: the idle stopwatch trace matched pixel-for-pixel at tolerance zero, 164,864 identical pixels."
+      }
+    },
+    {
+      "pack": "esp32-s3-touch-amoled-18",
+      "mode": "faithful",
+      "verification": {
+        "kind": "pixel-exact",
+        "traces": [
+          "apps/chrono/traces/chrono-idle.trace.json",
+          "apps/chrono/traces/chrono-startstop.trace.json"
+        ],
+        "frames": "apps/chrono/frames"
+      },
+      "source": "apps/chrono/ports/esp32-s3-touch-amoled-18/chrono.c"
+    }
+  ]
 }

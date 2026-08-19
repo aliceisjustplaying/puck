@@ -55,6 +55,91 @@ function concat(chunks: Uint8Array[]): Uint8Array {
   return out;
 }
 
+// The decode half of the pair above: reads back exactly the shape
+// encodeRGBPNG writes (8-bit RGB, one IDAT chunk, filter type None on every
+// scanline), not a general PNG reader. Every frames/ PNG in this repository
+// was written by encodeRGBPNG (harness/portdiff.ts's writePng), so this is
+// a closed round trip, not a subset implementation of the PNG spec: tools/
+// verify-bundle.ts's job is comparing a freshly captured frame against
+// those recorded PNGs, which needs exactly this, and nothing a general
+// decoder (interlacing, other bit depths, other filter types, palettes)
+// would add is ever produced by this repository's own encoder.
+export interface DecodedRGBPNG {
+  width: number;
+  height: number;
+  rgb: Uint8Array;
+}
+
+function u32beAt(buf: Uint8Array, offset: number): number {
+  return ((buf[offset]! << 24) | (buf[offset + 1]! << 16) | (buf[offset + 2]! << 8) | buf[offset + 3]!) >>> 0;
+}
+
+const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
+
+export function decodeRGBPNG(bytes: Uint8Array): DecodedRGBPNG {
+  for (let i = 0; i < PNG_SIGNATURE.length; i++) {
+    if (bytes[i] !== PNG_SIGNATURE[i]) throw new Error("decodeRGBPNG: not a PNG file (bad signature)");
+  }
+
+  let width = -1;
+  let height = -1;
+  let bitDepth = -1;
+  let colorType = -1;
+  const idatParts: Uint8Array[] = [];
+
+  let offset = PNG_SIGNATURE.length;
+  while (offset < bytes.length) {
+    const length = u32beAt(bytes, offset);
+    const type = String.fromCharCode(bytes[offset + 4]!, bytes[offset + 5]!, bytes[offset + 6]!, bytes[offset + 7]!);
+    const dataStart = offset + 8;
+    const data = bytes.subarray(dataStart, dataStart + length);
+    if (type === "IHDR") {
+      width = u32beAt(data, 0);
+      height = u32beAt(data, 4);
+      bitDepth = data[8]!;
+      colorType = data[9]!;
+    } else if (type === "IDAT") {
+      idatParts.push(data);
+    } else if (type === "IEND") {
+      break;
+    }
+    offset = dataStart + length + 4; // skip the trailing CRC
+  }
+
+  if (width < 0 || height < 0) throw new Error("decodeRGBPNG: no IHDR chunk found");
+  if (bitDepth !== 8 || colorType !== 2) {
+    throw new Error(`decodeRGBPNG: only 8-bit RGB (colour type 2) is supported, got bit depth ${bitDepth}, colour type ${colorType}`);
+  }
+  if (idatParts.length === 0) throw new Error("decodeRGBPNG: no IDAT chunk found");
+
+  const zlibStream = idatParts.length === 1 ? idatParts[0]! : concat(idatParts);
+  // Strip the 2-byte zlib header and 4-byte Adler-32 trailer encodeRGBPNG
+  // wrote by hand around Bun.deflateSync's raw DEFLATE output, then invert
+  // that same call with Bun.inflateSync.
+  // Copied into a fresh, non-shared ArrayBuffer: Bun.inflateSync's types
+  // want a Uint8Array<ArrayBuffer>, and a subarray view keeps whatever
+  // buffer type the caller's original bytes happened to have.
+  const deflated = new Uint8Array(zlibStream.subarray(2, zlibStream.length - 4));
+  const raw = Bun.inflateSync(deflated);
+
+  const stride = width * 3;
+  const expectedRawLength = (stride + 1) * height;
+  if (raw.length !== expectedRawLength) {
+    throw new Error(`decodeRGBPNG: decompressed size ${raw.length} does not match the expected ${expectedRawLength} for ${width}x${height} RGB`);
+  }
+
+  const rgb = new Uint8Array(stride * height);
+  for (let y = 0; y < height; y++) {
+    const filterType = raw[y * (stride + 1)];
+    if (filterType !== 0) {
+      throw new Error(`decodeRGBPNG: scanline ${y} uses filter type ${filterType}, only filter type 0 (None) is supported`);
+    }
+    rgb.set(raw.subarray(y * (stride + 1) + 1, y * (stride + 1) + 1 + stride), y * stride);
+  }
+
+  return { width, height, rgb };
+}
+
 // rgb: width * height * 3 bytes, row-major, top-left origin.
 export function encodeRGBPNG(width: number, height: number, rgb: Uint8Array): Uint8Array {
   const sig = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);

@@ -17,6 +17,13 @@
 // same reason harness/portdiff.ts stays device-agnostic (see that file's
 // own header comment).
 //
+// runInvariants(), below, is this file's core check as an importable
+// function: tools/verify-bundle.ts calls it directly with the capture
+// points a bundle's own bundle.json states (verification.captureAt), so
+// the verifier never reimplements "replay, then hand frames to a checker"
+// itself. main() is now a thin CLI wrapper around the same function, with
+// the same flags, output and exit codes as before.
+//
 // Usage:
 //   bun run invariants <wasm> <trace.json> <checker.ts> [options]
 //   bun run harness/invariantRun.ts <wasm> <trace.json> <checker.ts> [options]
@@ -92,6 +99,13 @@ export interface InvariantResult {
 
 export type InvariantChecker = (frames: TimedFrame[], meta: InvariantMeta) => InvariantResult;
 
+// Thrown by runInvariants() for a failure that isn't the checker reporting
+// a real invariant failure (a checker that won't load, doesn't export
+// `check`, or throws): main() maps this to exit code 2, same as every
+// infra failure always has; tools/verify-bundle.ts maps it to its own
+// "malformed" bucket instead of a verification failure.
+export class InvariantInfraError extends Error {}
+
 interface Args {
   wasmPath: string;
   tracePath: string;
@@ -121,8 +135,9 @@ function parseArgs(argv: string[]): Args {
 // Identical rule to harness/portdiff.ts's findOutOfOrderEvent, for the
 // identical reason: the replay side assumes ticks arrive with
 // non-decreasing `t`, so an out-of-order trace would otherwise produce a
-// wrong or skipped capture point rather than an error.
-function findOutOfOrderEvent(events: Trace["events"]): { index: number; t: number; prevT: number } | null {
+// wrong or skipped capture point rather than an error. Exported for the
+// same reuse reason harness/portdiff.ts's own copy is.
+export function findOutOfOrderEvent(events: Trace["events"]): { index: number; t: number; prevT: number } | null {
   let prevT = -Infinity;
   for (let i = 0; i < events.length; i++) {
     const t = events[i]!.t;
@@ -144,6 +159,64 @@ function capturePointsFor(events: Trace["events"], args: Args): number[] {
   }
   return tickTimes.length > 0 ? [tickTimes[tickTimes.length - 1]!] : [];
 }
+
+// ---- runInvariants: the core check, importable -------------------------
+
+export interface RunInvariantsOptions {
+  wasmPath: string;
+  trace: Trace;
+  capturePoints: number[];
+  checkerPath: string;
+  quiet?: boolean; // default false: prints the same lines the CLI always has
+}
+
+export interface RunInvariantsResult {
+  pass: boolean;
+  failures: string[];
+  device: DeviceDescriptor;
+  frameCount: number;
+}
+
+export async function runInvariants(opts: RunInvariantsOptions): Promise<RunInvariantsResult> {
+  const log = opts.quiet ? (_s: string) => {} : (s: string) => console.log(s);
+
+  const result = await replayEmulator(opts.wasmPath, opts.trace.events, opts.capturePoints);
+  log(`${opts.wasmPath}: ${result.device.name ?? "device"} ${result.device.panel.w}x${result.device.panel.h}, ${result.frames.length} frame(s) captured`);
+
+  const checkerUrl = pathToFileURL(resolve(opts.checkerPath)).href;
+  let checkerModule: { check?: unknown };
+  try {
+    checkerModule = await import(checkerUrl);
+  } catch (err) {
+    throw new InvariantInfraError(`could not load checker ${opts.checkerPath}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (typeof checkerModule.check !== "function") {
+    throw new InvariantInfraError(`${opts.checkerPath} does not export a "check" function - see harness/invariantRun.ts's header comment for the required interface`);
+  }
+  const check = checkerModule.check as InvariantChecker;
+
+  const frames: TimedFrame[] = result.frames.map((f) => ({ atMs: f.atMs, frame: f.frame }));
+  const meta: InvariantMeta = { device: result.device };
+
+  let verdict: InvariantResult;
+  try {
+    verdict = check(frames, meta);
+  } catch (err) {
+    throw new InvariantInfraError(`checker threw: ${err instanceof Error ? err.message : String(err)}${err instanceof Error && err.stack ? `\n${err.stack}` : ""}`);
+  }
+
+  log(`\n-- invariants (${opts.checkerPath}) --`);
+  if (verdict.pass) {
+    log(`PASS: all invariants held over ${frames.length} captured frame(s)`);
+  } else {
+    log(`FAIL: ${verdict.failures.length} invariant(s) failed:`);
+    for (const f of verdict.failures) log(`  - ${f}`);
+  }
+
+  return { pass: verdict.pass, failures: verdict.failures, device: result.device, frameCount: frames.length };
+}
+
+// ---- CLI entrypoint, unchanged behaviour -------------------------------
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
@@ -167,48 +240,24 @@ async function main(): Promise<void> {
   }
   console.log(`replaying ${trace.events.length} events, capturing at ${capturePoints.length} point(s): ${capturePoints.join(", ")}`);
 
-  const result = await replayEmulator(args.wasmPath, trace.events, capturePoints);
-  console.log(`${args.wasmPath}: ${result.device.name ?? "device"} ${result.device.panel.w}x${result.device.panel.h}, ${result.frames.length} frame(s) captured`);
-
-  const checkerUrl = pathToFileURL(resolve(args.checkerPath)).href;
-  let checkerModule: { check?: unknown };
+  let result: RunInvariantsResult;
   try {
-    checkerModule = await import(checkerUrl);
+    result = await runInvariants({ wasmPath: args.wasmPath, trace, capturePoints, checkerPath: args.checkerPath });
   } catch (err) {
-    console.error(`could not load checker ${args.checkerPath}: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(EXIT_INFRA);
-  }
-  if (typeof checkerModule.check !== "function") {
-    console.error(`${args.checkerPath} does not export a "check" function - see this file's header comment for the required interface`);
-    process.exit(EXIT_INFRA);
-  }
-  const check = checkerModule.check as InvariantChecker;
-
-  const frames: TimedFrame[] = result.frames.map((f) => ({ atMs: f.atMs, frame: f.frame }));
-  const meta: InvariantMeta = { device: result.device };
-
-  let verdict: InvariantResult;
-  try {
-    verdict = check(frames, meta);
-  } catch (err) {
-    console.error(`checker threw: ${err instanceof Error ? err.message : String(err)}`);
-    if (err instanceof Error && err.stack) console.error(err.stack);
-    process.exit(EXIT_INFRA);
+    if (err instanceof InvariantInfraError) {
+      console.error(err.message);
+      process.exit(EXIT_INFRA);
+    }
+    throw err;
   }
 
-  console.log(`\n-- invariants (${args.checkerPath}) --`);
-  if (verdict.pass) {
-    console.log(`PASS: all invariants held over ${frames.length} captured frame(s)`);
-  } else {
-    console.log(`FAIL: ${verdict.failures.length} invariant(s) failed:`);
-    for (const f of verdict.failures) console.log(`  - ${f}`);
-  }
-
-  process.exit(verdict.pass ? EXIT_OK : EXIT_FAIL);
+  process.exit(result.pass ? EXIT_OK : EXIT_FAIL);
 }
 
-main().catch((err) => {
-  console.error(`harness/invariantRun.ts: unexpected error: ${err instanceof Error ? err.message : String(err)}`);
-  if (err instanceof Error && err.stack) console.error(err.stack);
-  process.exit(EXIT_INFRA);
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(`harness/invariantRun.ts: unexpected error: ${err instanceof Error ? err.message : String(err)}`);
+    if (err instanceof Error && err.stack) console.error(err.stack);
+    process.exit(EXIT_INFRA);
+  });
+}

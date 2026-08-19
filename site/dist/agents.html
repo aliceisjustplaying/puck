@@ -9,14 +9,14 @@
 <meta property="og:description" content="What this site is, its machine-readable surfaces (registry.json, convention docs, app descriptors), and how an agent consumes a pack or app." />
 <meta property="og:type" content="website" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%2214%22%20fill%3D%22%232f6feb%22%2F%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%225%22%20fill%3D%22%23fafafa%22%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="styles.css?v=a5a8f0da18" />
+<link rel="stylesheet" href="styles.css?v=4a4e3b0394" />
 </head>
 <body>
 <div class="wrap">
   <div class="run-header">
     <div class="back"><a href="index.html">&larr; puck</a></div>
     <h1>puck, for an agent</h1>
-    <p class="meta">the same content as <a href="llms.txt?v=8a2ff4ed27">/llms.txt</a>, in HTML</p>
+    <p class="meta">the same content as <a href="llms.txt?v=5bf23b7ec3">/llms.txt</a>, in HTML</p>
   </div>
   <section>
     <div class="wrap" style="padding:0">
@@ -24,7 +24,7 @@
       <ul class="agent-links">
         <li><a href="registry.json?v=1f11884c7c">registry.json</a>: local paths and external URLs for every device pack and app bundle.</li>
         <li><a href="docs/convention/device-pack.md?v=f196164814">docs/convention/device-pack.md</a></li>
-        <li><a href="docs/convention/app-bundle.md?v=2901ba39cf">docs/convention/app-bundle.md</a></li>
+        <li><a href="docs/convention/app-bundle.md?v=1b91db23a1">docs/convention/app-bundle.md</a></li>
         <li><a href="apps/chrono/descriptor.md?v=7818c482fb">apps/chrono/descriptor.md</a></li>
         <li><a href="apps/fluidbox/descriptor.md?v=f378793c92">apps/fluidbox/descriptor.md</a></li>
         <li><a href="https://github.com/s0lness/puck/blob/master/README.md">github.com/s0lness/puck</a>, MIT licensed.</li>
@@ -55,10 +55,10 @@ firmware also flashes onto real hardware over WebUSB.
 1. git clone https://github.com/s0lness/puck
 2. Read docs/convention/device-pack.md and docs/convention/app-bundle.md.
 3. Pick a target device pack from registry.json; read its own AGENTS.md and device.json.
-4. Pick an app from registry.json; read its descriptor.md and bundle.json (provenPacks, portMode, verification).
+4. Pick an app from registry.json; read its descriptor.md and bundle.json (its &quot;ports&quot; array: pack, mode, verification).
 5. Give a verdict against the target pack&#39;s device.json before writing any code: go, degraded, or refuse, stated plainly.
 6. Build: bun install, then bun run &lt;pack&gt;/wasm/build.ts (writes wasm/dist/emu.wasm), then bun run dev for http://127.0.0.1:5340.
-7. Verify: bun run harness:selftest proves the differential harness with no hardware; bun run harness/diff.ts &lt;trace.json&gt; --link &lt;yourBoardLink.ts&gt; replays a trace against real hardware and diffs the resulting frames.
+7. Verify: bun run verify-bundle &lt;bundle&gt; rebuilds every declared port and replays its traces end to end; bun run harness:selftest proves the differential harness with no hardware; bun run harness/diff.ts &lt;trace.json&gt; --link &lt;yourBoardLink.ts&gt; replays a trace against real hardware and diffs the resulting frames.
 
 ## Further reading
 

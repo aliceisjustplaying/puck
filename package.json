@@ -18,6 +18,7 @@
     "harness:selftest": "bun run harness/selftest.ts",
     "portdiff": "bun run harness/portdiff.ts",
     "invariants": "bun run harness/invariantRun.ts",
+    "verify-bundle": "bun run tools/verify-bundle.ts",
     "harness:hardware": "bun run harness/diff.ts harness/inputs/chrono-idle.trace.json --link harness/links/devlinkLink.ts",
     "harness:hardware:pacing": "bun run harness/hardwarePacing.ts",
     "test:hostile": "bun run test/hostile/run.ts",

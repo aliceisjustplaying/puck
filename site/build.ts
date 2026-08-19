@@ -64,18 +64,40 @@ interface Registry {
   packs: { name: string; path: string }[];
   apps: { name: string; path: string }[];
 }
+// Schema v0.2 (docs/convention/app-bundle.md): one "ports" entry per pack
+// this app is proven on, replacing 0.1's loose "provenPacks" array. Read
+// generically here (verification only down to its "kind" discriminator,
+// the two shapes' own extra fields are the verifier's concern, not the
+// site generator's) so this file never has to know the difference between
+// a pixel-exact port and an invariants one beyond that one label.
+interface BundlePort {
+  pack: string;
+  mode: string;
+  verification: { kind: string };
+  source: string;
+  // Optional, beyond the bundle schema's minimal shape (documented in
+  // app-bundle.md alongside "buildArgs"): the porting flow's own
+  // go/degraded/refuse verdict (docs/convention/app-bundle.md's "Porting
+  // flow"), carried through so a degraded port (fluidbox's touch-and-
+  // fixed-gravity rp2350 port) still reads as degraded here, the way 0.1's
+  // per-pack "degraded" boolean used to.
+  verdict?: "go" | "degraded";
+  // Present once a port has been run against real hardware, not only the
+  // emulator (docs/convention/app-bundle.md): an attestation, not an
+  // automatic guarantee. Drives the matrix's second mark, below.
+  silicon?: { attestedAt: string; how: string };
+}
 interface ChronoLikeBundle {
   convention: string;
   name: string;
-  provenPacks: (string | { name: string; degraded?: boolean })[];
-  portMode: string;
-  verification: string;
+  ports: BundlePort[];
 }
 interface ProvenEntry {
   pack: string;
   mode: string;
   verification: string;
   degraded: boolean;
+  silicon: { attestedAt: string; how: string } | null;
 }
 
 function readJson<T>(path: string): T {
@@ -236,11 +258,13 @@ interface AppEntry {
 }
 const apps: AppEntry[] = registry.apps.map((a) => {
   const bundle = readJson<ChronoLikeBundle>(join(REPO_ROOT, a.path, "bundle.json"));
-  const proven: ProvenEntry[] = bundle.provenPacks.map((entry) =>
-    typeof entry === "string"
-      ? { pack: entry, mode: bundle.portMode, verification: bundle.verification, degraded: false }
-      : { pack: entry.name, mode: bundle.portMode, verification: bundle.verification, degraded: entry.degraded ?? false }
-  );
+  const proven: ProvenEntry[] = bundle.ports.map((entry) => ({
+    pack: entry.pack,
+    mode: entry.mode,
+    verification: entry.verification.kind,
+    degraded: entry.verdict === "degraded",
+    silicon: entry.silicon ?? null,
+  }));
   return { name: a.name, path: a.path, bundle, proven };
 });
 
@@ -684,13 +708,26 @@ const APP_BLURB: Record<string, string> = {
 
 // ---- 3 & 4: generate every page --------------------------------------
 function modeLabel(mode: string): string {
-  return mode === "faithful" ? "faithful port" : "adaptation";
+  if (mode === "faithful") return "faithful port";
+  if (mode === "native") return "native";
+  return "adaptation";
 }
 
+// The two-mark matrix (docs/convention/publishing.md): EVERY cell rendered
+// here already passed the shared harness (site/build.ts only ever builds a
+// combo listed as a bundle.json "port", and bun run verify-bundle is what
+// decides a port belongs there at all) - that is the first mark, implicit
+// in the cell simply being filled in rather than "not ported". The second,
+// distinct mark is proof-silicon below: only present when that port's own
+// bundle.json carries a "silicon" attestation, meaning it has ALSO been
+// run against real hardware, not only the emulator.
 function renderProofCell(entry: ProvenEntry | undefined, comboIdFor: string | null): string {
   if (!entry) return `<td class="proof-cell empty">not ported</td>`;
   const verif = entry.degraded ? `${entry.verification} (degraded)` : entry.verification;
-  const inner = `<span class="proof-mode">${escapeHtml(modeLabel(entry.mode))}</span><span class="proof-verif">${escapeHtml(verif)}</span>`;
+  const silicon = entry.silicon
+    ? `<span class="proof-silicon" title="run against real hardware, attested ${escapeHtml(entry.silicon.attestedAt)}: ${escapeHtml(entry.silicon.how)}">&#9679; on silicon</span>`
+    : "";
+  const inner = `<span class="proof-mode">${escapeHtml(modeLabel(entry.mode))}</span><span class="proof-verif">${escapeHtml(verif)}</span>${silicon}`;
   return comboIdFor
     ? `<td class="proof-cell"><a href="run/${comboIdFor}.html">${inner}</a></td>`
     : `<td class="proof-cell">${inner}</td>`;
@@ -800,7 +837,7 @@ ${cardsHtml}
   <section id="proof">
     <div class="wrap" style="padding:0">
       <h2>proof matrix</h2>
-      <p class="lede">Each cell is a real build of that app's own port, for that device pack's real firmware, verified by the shared harness: click through to run it live.</p>
+      <p class="lede">Each cell is a real build of that app's own port, for that device pack's real firmware, verified by the shared harness (<code>bun run verify-bundle</code>): click through to run it live. Every cell shown is emulator-proven; a cell additionally marked <strong>&#9679; on silicon</strong> has also been run against the real board over serial, an attestation, not an automatic guarantee (hover or focus the mark for when and how).</p>
       <div class="matrix-scroll">
         <table class="matrix">
           <thead><tr><th></th>
@@ -1140,10 +1177,10 @@ firmware also flashes onto real hardware over WebUSB.
 1. git clone https://github.com/s0lness/puck
 2. Read docs/convention/device-pack.md and docs/convention/app-bundle.md.
 3. Pick a target device pack from registry.json; read its own AGENTS.md and device.json.
-4. Pick an app from registry.json; read its descriptor.md and bundle.json (provenPacks, portMode, verification).
+4. Pick an app from registry.json; read its descriptor.md and bundle.json (its "ports" array: pack, mode, verification).
 5. Give a verdict against the target pack's device.json before writing any code: go, degraded, or refuse, stated plainly.
 6. Build: bun install, then bun run <pack>/wasm/build.ts (writes wasm/dist/emu.wasm), then bun run dev for http://127.0.0.1:5340.
-7. Verify: bun run harness:selftest proves the differential harness with no hardware; bun run harness/diff.ts <trace.json> --link <yourBoardLink.ts> replays a trace against real hardware and diffs the resulting frames.
+7. Verify: bun run verify-bundle <bundle> rebuilds every declared port and replays its traces end to end; bun run harness:selftest proves the differential harness with no hardware; bun run harness/diff.ts <trace.json> --link <yourBoardLink.ts> replays a trace against real hardware and diffs the resulting frames.
 
 ## Further reading
 

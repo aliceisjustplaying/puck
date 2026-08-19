@@ -147,6 +147,13 @@ table.matrix td.app-row { font-weight: 600; background: var(--surface-2); }
 .proof-cell .proof-mode { display: block; font-weight: 600; }
 .proof-cell .proof-verif { display: block; color: var(--text-soft); font-size: 0.85rem; margin-top: 2px; }
 .proof-cell.empty { color: var(--text-soft); }
+/* The second of the two-mark matrix (docs/convention/publishing.md): every
+   proven cell is emulator-proven by the harness itself; this small dot +
+   label is the additional, distinct claim that a port has ALSO been run
+   against real hardware (bundle.json's own "silicon" field on that port).
+   The attestation date and method sit in the title attribute (a tooltip on
+   hover/focus), not inline, so the matrix stays scannable at a glance. */
+.proof-cell .proof-silicon { display: block; margin-top: 4px; font-size: 0.78rem; color: var(--accent); font-weight: 600; }
 
 /* ---- how it works ---- */
 .how-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }

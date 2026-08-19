@@ -9,7 +9,7 @@
 <meta property="og:description" content="A gallery of firmware ported between device packs: recorded demo loops on this page, the real WebAssembly build one click away on every run page." />
 <meta property="og:type" content="website" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%2214%22%20fill%3D%22%232f6feb%22%2F%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%225%22%20fill%3D%22%23fafafa%22%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="styles.css?v=a5a8f0da18" />
+<link rel="stylesheet" href="styles.css?v=4a4e3b0394" />
 </head>
 <body>
 <div class="wrap">
@@ -37,7 +37,7 @@
   <div class="body">
     <h3>chrono</h3>
     <p>A full-screen stopwatch: six seven-segment digits, two buttons, nothing else on screen.</p>
-    <div class="badges"><span class="badge accent">faithful port · pixel-exact</span></div>
+    <div class="badges"><span class="badge accent">native · pixel-exact</span><span class="badge accent">faithful port · pixel-exact</span></div>
     <div class="links">
       <a href="run/chrono-rp2350.html">run on RP2350-Touch-AMOLED-1.8</a><a href="run/chrono-esp32.html">run on ESP32-S3-Touch-AMOLED-1.8</a>
       <a href="https://github.com/s0lness/puck/blob/master/apps/chrono/descriptor.md">descriptor</a>
@@ -73,7 +73,7 @@
   <section id="proof">
     <div class="wrap" style="padding:0">
       <h2>proof matrix</h2>
-      <p class="lede">Each cell is a real build of that app's own port, for that device pack's real firmware, verified by the shared harness: click through to run it live.</p>
+      <p class="lede">Each cell is a real build of that app's own port, for that device pack's real firmware, verified by the shared harness (<code>bun run verify-bundle</code>): click through to run it live. Every cell shown is emulator-proven; a cell additionally marked <strong>&#9679; on silicon</strong> has also been run against the real board over serial, an attestation, not an automatic guarantee (hover or focus the mark for when and how).</p>
       <div class="matrix-scroll">
         <table class="matrix">
           <thead><tr><th></th>
@@ -83,7 +83,7 @@
           <tbody>
       <tr>
         <td class="app-row">chrono</td>
-        <td class="proof-cell"><a href="run/chrono-rp2350.html"><span class="proof-mode">faithful port</span><span class="proof-verif">pixel-exact</span></a></td>
+        <td class="proof-cell"><a href="run/chrono-rp2350.html"><span class="proof-mode">native</span><span class="proof-verif">pixel-exact</span><span class="proof-silicon" title="run against real hardware, attested 2026-08-14: differential harness (harness/links/devlinkLink.ts) run against the physical rp2350 board over USB serial, commit f1958c3: the idle stopwatch trace matched pixel-for-pixel at tolerance zero, 164,864 identical pixels.">&#9679; on silicon</span></a></td>
         <td class="proof-cell"><a href="run/chrono-esp32.html"><span class="proof-mode">faithful port</span><span class="proof-verif">pixel-exact</span></a></td>
       </tr>
       <tr>
@@ -164,7 +164,7 @@
   <footer>
     <div class="wrap" style="padding:0">
       <a href="https://github.com/s0lness/puck/blob/master/README.md">s0lness/puck</a> on GitHub, MIT licensed.
-      &middot; <a href="agents.html?v=84da64b8de">agents</a>
+      &middot; <a href="agents.html?v=23cfefdb97">agents</a>
     </div>
   </footer>
 </div>

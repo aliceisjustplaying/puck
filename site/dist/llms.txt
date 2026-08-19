@@ -24,10 +24,10 @@ firmware also flashes onto real hardware over WebUSB.
 1. git clone https://github.com/s0lness/puck
 2. Read docs/convention/device-pack.md and docs/convention/app-bundle.md.
 3. Pick a target device pack from registry.json; read its own AGENTS.md and device.json.
-4. Pick an app from registry.json; read its descriptor.md and bundle.json (provenPacks, portMode, verification).
+4. Pick an app from registry.json; read its descriptor.md and bundle.json (its "ports" array: pack, mode, verification).
 5. Give a verdict against the target pack's device.json before writing any code: go, degraded, or refuse, stated plainly.
 6. Build: bun install, then bun run <pack>/wasm/build.ts (writes wasm/dist/emu.wasm), then bun run dev for http://127.0.0.1:5340.
-7. Verify: bun run harness:selftest proves the differential harness with no hardware; bun run harness/diff.ts <trace.json> --link <yourBoardLink.ts> replays a trace against real hardware and diffs the resulting frames.
+7. Verify: bun run verify-bundle <bundle> rebuilds every declared port and replays its traces end to end; bun run harness:selftest proves the differential harness with no hardware; bun run harness/diff.ts <trace.json> --link <yourBoardLink.ts> replays a trace against real hardware and diffs the resulting frames.
 
 ## Further reading
 
