@@ -44,10 +44,29 @@ const DTR = process.env.DEVLINK_DTR ?? "1";
 // fine. Getting that ordering wrong is the single most likely reason this
 // would fail on first real use.
 //
-// Reading and writing happen on separate threads (a background runspace
-// for port -> stdout, the main thread for stdin -> port) because
-// System.IO.Ports.SerialPort has no natural way to multiplex both
-// directions from one thread without either polling or blocking one side.
+// EVERY SerialPort CALL HAPPENS ON ONE THREAD, and that is not a style
+// preference, it is a bug fix measured on real hardware.
+//
+// This script used to put the port's READ loop on a background runspace and
+// write to the port from the main thread. That works on the RP2350 and fails
+// on the ESP32-S3, silently and completely: with the reader parked inside
+// SerialPort.Read(), every WriteLine() from the main thread returned without
+// error and nothing ever reached the board, so the port looked alive (log
+// lines kept arriving) while no command was ever answered. Isolated on
+// 2026-08-19 by three runs against the same board in the same minute: the
+// bridge received "PING" on its stdin and called WriteLine (proven with a
+// stderr echo) and got no reply; the identical open/write/read sequence done
+// single-threaded in one PowerShell process got "OK devlink 1 368 448" back
+// immediately. DTR was ruled out separately, both ways.
+//
+// So the threads are swapped. The background runspace now reads this
+// process's own STDIN (a different object entirely, with no SerialPort
+// involvement) into a concurrent queue, and the main thread owns the port
+// completely: drain the queue and write each line, then drain whatever bytes
+// have arrived and relay them to stdout, then sleep briefly. Reading with
+// BytesToRead + Read() rather than a blocking Read() is what makes a single
+// thread able to do both, and it keeps the relay byte-exact (no text
+// decoding), which the base64 body of a SHOT reply depends on.
 const BRIDGE_PS1 = `
 param(
     [Parameter(Mandatory=$true)][string]$Port,
@@ -76,43 +95,53 @@ try {
 
 $stdout = [Console]::OpenStandardOutput()
 
-# Serial -> stdout, on a background runspace, so it never blocks the stdin
-# read loop below. Writes raw bytes straight to the process's own stdout
-# stream (bypassing PowerShell's object pipeline / formatting entirely),
-# which is what makes it safe to carry the binary-ish base64 SHOT payload.
-$readerScript = {
-    param($portRef, $streamRef)
-    $buf = New-Object byte[] 4096
+# stdin -> a queue, on a background runspace. This thread never touches the
+# serial port; it only blocks on this process's own standard input, which is
+# what lets the main thread below own the port outright. EOF on stdin (dev.ts
+# closing the pipe) is how dev.ts asks this bridge to shut down, and it is
+# reported through the shared state object rather than by killing anything.
+$queue = New-Object System.Collections.Concurrent.ConcurrentQueue[string]
+$state = [hashtable]::Synchronized(@{ Eof = $false })
+$stdinScript = {
+    param($queueRef, $stateRef)
+    $stdin = [Console]::In
     while ($true) {
-        try {
-            $n = $portRef.Read($buf, 0, $buf.Length)
-            if ($n -gt 0) {
-                $streamRef.Write($buf, 0, $n)
-                $streamRef.Flush()
-            }
-        } catch [System.TimeoutException] {
-            continue
-        } catch {
-            break
-        }
+        $line = $stdin.ReadLine()
+        if ($null -eq $line) { $stateRef.Eof = $true; break }
+        $queueRef.Enqueue($line)
     }
 }
 $rs = [runspacefactory]::CreateRunspace()
 $rs.Open()
 $reader = [powershell]::Create()
 $reader.Runspace = $rs
-[void]$reader.AddScript($readerScript).AddArgument($p).AddArgument($stdout)
+[void]$reader.AddScript($stdinScript).AddArgument($queue).AddArgument($state)
 $readerHandle = $reader.BeginInvoke()
 
-# stdin -> serial: block reading lines from our own stdin (dev.ts writes one
-# command per line) and forward each as a line to the port. EOF on stdin
-# (dev.ts closing the pipe) is how dev.ts asks this bridge to shut down.
+# The main thread, and the only thread that ever touches $p: write whatever
+# commands have queued up, then relay whatever bytes have arrived. Reading
+# with BytesToRead + Read() instead of a blocking Read() is what makes one
+# thread able to do both. Raw bytes go straight to the process's own stdout
+# stream (bypassing PowerShell's object pipeline and any text decoding),
+# which is what makes it safe to carry a SHOT reply's base64 payload.
+$buf = New-Object byte[] 4096
 try {
-    $stdin = [Console]::In
     while ($true) {
-        $line = $stdin.ReadLine()
-        if ($null -eq $line) { break }
-        $p.WriteLine($line)
+        $line = $null
+        while ($queue.TryDequeue([ref]$line)) {
+            $p.WriteLine($line)
+        }
+        $waiting = $p.BytesToRead
+        if ($waiting -gt 0) {
+            $n = $p.Read($buf, 0, [Math]::Min($waiting, $buf.Length))
+            if ($n -gt 0) {
+                $stdout.Write($buf, 0, $n)
+                $stdout.Flush()
+            }
+        } else {
+            if ($state.Eof) { break }
+            Start-Sleep -Milliseconds 2
+        }
     }
 } finally {
     $reader.Stop()

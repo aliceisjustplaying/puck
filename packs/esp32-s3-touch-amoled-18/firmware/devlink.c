@@ -104,6 +104,31 @@ static void dl_flush(void) {
     fflush(stdout);
 }
 
+// EVERY REPLY STARTS BY ENDING WHATEVER LINE WAS IN FLIGHT. Measured on the
+// bench, and it cost an afternoon: the console's own writer drops characters
+// once 50ms have passed since the last one the host accepted
+// (usb_serial_jtag_tx_char_no_driver's TX_FLUSH_TIMEOUT_US), which is exactly
+// the state a board sitting unattached is in. So the first moment a devlink
+// client opens the port, the log line in flight loses its tail and the reply
+// lands welded onto the remnant:
+//
+//   I (434687) imu: accel peak residual 0.02 m/s2 over the last secoOK devlink 1 368 448
+//
+// A host that matches the reply's SHAPE - which is the discipline this
+// protocol asks of every client, for good reasons the sibling pack's
+// README-devlink.md sets out at length - correctly refuses that line, and the
+// command times out. The board looks dead while answering perfectly.
+//
+// Two bytes fix it: open every reply with a line terminator, so a reply
+// always begins a line of its own no matter what was cut short before it. The
+// cost is a blank line in an otherwise clean stream, which every client
+// already discards as noise. This does not, and cannot, protect a reply whose
+// OWN characters are dropped; that still shows up as a timeout, and the next
+// command works.
+static void dl_reply_begin(void) {
+    dl_puts("\r\n");
+}
+
 /* ---------------------------------------------------------------------
  * Screenshot: run-length encoding + base64 over the platform's greyscale
  * capture. No colour conversion happens here, unlike the sibling: the
@@ -197,6 +222,7 @@ static void devlink_rle_emit_b64_cb(uint8_t value, uint8_t count, void *ctx) {
 }
 
 static void devlink_send_shot(void) {
+    dl_reply_begin();
     const uint8_t *grey = g_hooks.shot_grey ? g_hooks.shot_grey() : NULL;
     if (grey == NULL || g_hooks.w <= 0 || g_hooks.h <= 0) {
         dl_puts("ERR no framebuffer\r\n");
@@ -280,6 +306,10 @@ static void devlink_dispatch(char *line) {
     while (*args == ' ') args++;
 
     if (cmdLen == 0) return; // blank line: ignore silently
+
+    // Before any reply byte, including SHOT's (which is emitted later, from
+    // devlink_poll(), and opens itself the same way).
+    dl_reply_begin();
 
     char cmd[16];
     if (cmdLen >= sizeof(cmd)) {
