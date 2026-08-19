@@ -420,6 +420,129 @@ try {
     }
     console.log(`completed state shown: "${reboot.doneText}"`);
 
+    // ---- the ESP32-S3 run pages ----------------------------------------
+    // Same three questions as the RP2350 page above, against the other
+    // board's section: does it render at all, does the unsupported-browser
+    // branch produce a sentence rather than an exception, and do the URLs
+    // it points at actually resolve. What is NOT here is any equivalent of
+    // the fake-USB scenarios: esptool-js drives a Web Serial port through a
+    // ROM loader handshake, a RAM stub upload and SLIP framing, and a fake
+    // that answered all of that would be a reimplementation of the chip,
+    // grading itself. That part is the bench's (see this repo's report and
+    // the pack's README).
+    const espPage = await browser.newPage();
+    const espErrors: string[] = [];
+    espPage.on("pageerror", (e) => espErrors.push(String(e)));
+    // Web Serial is behind a secure context and is not exposed in every
+    // headless build, so the unsupported branch is forced deterministically
+    // rather than depending on this Chrome's own answer - exactly the trick
+    // used for navigator.usb above.
+    await espPage.evaluateOnNewDocument(() => {
+      Object.defineProperty(window.navigator, "serial", { value: undefined, configurable: true });
+    });
+
+    await espPage.goto(`http://127.0.0.1:${PORT}/run/chrono-esp32.html`, { waitUntil: "domcontentloaded" });
+    await new Promise((r) => setTimeout(r, 500));
+
+    const espSection = await espPage.evaluate(() => {
+      const section = document.querySelector<HTMLElement>(".flash-section[data-esp32-manifest]");
+      const alt = document.querySelector<HTMLAnchorElement>(".flash-btn-alt");
+      const details = document.querySelector("details.flash-ritual");
+      return {
+        manifest: section?.dataset.esp32Manifest ?? null,
+        image: section?.dataset.esp32Image ?? null,
+        altHref: alt?.getAttribute("href") ?? null,
+        altDownload: alt?.hasAttribute("download") ?? false,
+        ritualText: details?.textContent ?? null,
+        ritualIntro: details?.querySelector(".flash-ritual-intro")?.textContent ?? null,
+        bodyText: document.body.textContent ?? "",
+      };
+    });
+    if (!espSection.manifest) fail("chrono-esp32.html has no .flash-section[data-esp32-manifest]: the flash section did not render");
+    if (espSection.image !== "chrono-esp32") {
+      fail(`chrono-esp32.html's flash section points at image ${JSON.stringify(espSection.image)}, not "chrono-esp32"`);
+    }
+    console.log(`esp32 flash section renders on chrono-esp32.html (image ${espSection.image})`);
+
+    if (espSection.altHref !== "../flash/esp32/chrono-esp32.bin" || !espSection.altDownload) {
+      fail(`no working .flash-btn-alt download link pointing at ../flash/esp32/chrono-esp32.bin (got ${JSON.stringify(espSection.altHref)})`);
+    }
+    console.log("download .bin fallback link present and correct");
+
+    if (!espSection.ritualText || !/BOOT/.test(espSection.ritualText)) fail("no ROM download-mode ritual <details> found on the esp32 page");
+    if (!espSection.ritualIntro || !/only needed/i.test(espSection.ritualIntro)) {
+      fail(`the esp32 ritual fold does not open with its "only needed..." caveat, got: ${JSON.stringify(espSection.ritualIntro)}`);
+    }
+    console.log(`esp32 ritual fold framed as recovery only: "${espSection.ritualIntro}"`);
+
+    // The old page said browser flashing was waiting on something. It is
+    // not waiting on anything any more, and a stale sentence saying so is
+    // the exact failure this check exists to catch.
+    if (/waits? for silicon|arrives when the firmware is validated|flashing it from a browser does not/i.test(espSection.bodyText)) {
+      fail("an esp32 run page still carries a sentence saying browser flashing is unavailable or pending");
+    }
+    console.log("no stale \"flashing is not available here\" sentence left on the esp32 page");
+
+    const espClicked = await espPage.evaluate(() => {
+      const btn = document.querySelector<HTMLButtonElement>(".flash-btn");
+      if (!btn) return false;
+      btn.click();
+      return true;
+    });
+    if (!espClicked) fail("no .flash-btn found to click on the esp32 page");
+    await new Promise((r) => setTimeout(r, 400));
+
+    const espError = await espPage.evaluate(() => {
+      const el = document.querySelector<HTMLElement>(".flash-error");
+      return { hidden: el ? el.hidden : null, text: el ? el.textContent : null };
+    });
+    if (espError.hidden !== false) fail(`clicking Flash over USB on the esp32 page did not surface a visible .flash-error (state: ${JSON.stringify(espError)})`);
+    if (!espError.text || !/web serial/i.test(espError.text)) {
+      fail(`expected an unsupported-browser message mentioning Web Serial, got: ${JSON.stringify(espError.text)}`);
+    }
+    console.log(`esp32 unsupported-browser message shown: "${espError.text}"`);
+    if (espErrors.length > 0) {
+      fail(`the esp32 page threw instead of rendering a message: ${espErrors.join(" | ")}`);
+    }
+    console.log("no exceptions thrown on the esp32 page");
+
+    // The artifact index and every image it names have to be reachable from
+    // the page's own location, at the size the build recorded. A section
+    // that renders while its .bin 404s is worse than no section at all: the
+    // failure would land after the human has already picked a port.
+    const artifacts = await espPage.evaluate(async () => {
+      const section = document.querySelector<HTMLElement>(".flash-section[data-esp32-manifest]")!;
+      const manifestUrl = new URL(section.dataset.esp32Manifest!, window.location.href).href;
+      const resp = await fetch(manifestUrl);
+      if (!resp.ok) return { ok: false, why: `manifest HTTP ${resp.status}`, images: [] as { id: string; ok: boolean; bytes: number; expected: number }[] };
+      const manifest = (await resp.json()) as { images: Record<string, { file: string; bytes: number }> };
+      const images: { id: string; ok: boolean; bytes: number; expected: number }[] = [];
+      for (const [id, image] of Object.entries(manifest.images)) {
+        const url = new URL(image.file, manifestUrl).href;
+        const r = await fetch(url);
+        const bytes = r.ok ? (await r.arrayBuffer()).byteLength : -1;
+        images.push({ id, ok: r.ok && bytes === image.bytes, bytes, expected: image.bytes });
+      }
+      return { ok: true, why: "", images };
+    });
+    if (!artifacts.ok) fail(`the esp32 artifact index is not reachable from the run page: ${artifacts.why}`);
+    if (artifacts.images.length === 0) fail("the esp32 artifact index names no images");
+    for (const image of artifacts.images) {
+      if (!image.ok) fail(`esp32 artifact ${image.id} did not resolve at the size the index records (${image.bytes} vs ${image.expected})`);
+    }
+    console.log(`esp32 artifacts resolve: ${artifacts.images.map((i) => `${i.id} (${i.expected} bytes)`).join(", ")}`);
+
+    // The demo combo is the other one the task names by hand, and it has to
+    // point at its OWN image, not chrono's.
+    await espPage.goto(`http://127.0.0.1:${PORT}/run/esp32-demo.html`, { waitUntil: "domcontentloaded" });
+    await new Promise((r) => setTimeout(r, 300));
+    const demoImage = await espPage.evaluate(
+      () => document.querySelector<HTMLElement>(".flash-section[data-esp32-manifest]")?.dataset.esp32Image ?? null
+    );
+    if (demoImage !== "esp32-demo") fail(`esp32-demo.html's flash section points at ${JSON.stringify(demoImage)}, not "esp32-demo"`);
+    console.log("esp32-demo.html points at its own image");
+    await espPage.close();
+
     console.log("\nOK: flash UI verified.");
   } finally {
     await closeBrowser(browser);

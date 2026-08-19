@@ -517,22 +517,11 @@ async function flashUf2(uf2Bytes, onProgress) {
   }
 }
 
-// site/flasher/flash-ui.ts
-var PHASE_LABELS = {
-  connecting: "connecting",
-  "entering-bootsel": "rebooting into BOOTSEL",
-  erasing: "erasing",
-  writing: "writing",
-  rebooting: "rebooting",
-  done: "done"
-};
+// site/flasher/flash-ui-common.ts
 var FLASH_DONE_HOLD_MS = 900;
 var FLASH_DONE_FADE_MS = 400;
 var FLASH_DONE_MESSAGE = "✓ Flashed. The board is restarting with the new firmware.";
-function initSection(section) {
-  const uf2Url = section.dataset.uf2;
-  if (!uf2Url)
-    return;
+function wireFlashSection(section, phaseLabels, run) {
   const btn = section.querySelector(".flash-btn");
   const progressWrap = section.querySelector(".flash-progress");
   const progressBar = section.querySelector(".flash-progress-bar");
@@ -555,7 +544,6 @@ function initSection(section) {
     const token = ++doneToken;
     progressBar.style.width = "100%";
     progressBar.classList.add("done");
-    statusEl.textContent = "done: Done. The board is rebooting into the new firmware.";
     window.setTimeout(() => {
       if (token !== doneToken)
         return;
@@ -580,46 +568,60 @@ function initSection(section) {
     progressWrap.classList.remove("fade-out");
     progressBar.classList.remove("done");
     progressBar.style.width = `${p.percent}%`;
-    statusEl.textContent = `${PHASE_LABELS[p.phase] ?? p.phase}: ${p.message}`;
+    statusEl.textContent = `${phaseLabels[p.phase] ?? p.phase}: ${p.message}`;
     if (p.phase === "done")
       showDone();
   }
-  async function run() {
+  async function runOnce() {
     errorEl.hidden = true;
-    if (!isWebUsbSupported()) {
-      showError("WebUSB isn't available in this browser. Use Chrome or Edge on desktop.");
-      return;
-    }
     btn.disabled = true;
     try {
-      showProgress({ phase: "connecting", percent: 0, message: "Fetching firmware image…" });
-      const resp = await fetch(uf2Url);
-      if (!resp.ok)
-        throw new Error(`could not fetch ${uf2Url}: HTTP ${resp.status}`);
-      const bytes = new Uint8Array(await resp.arrayBuffer());
-      await flashUf2(bytes, showProgress);
+      await run(showProgress);
     } catch (err) {
-      if (err instanceof FlashError) {
-        showError(err.message);
-      } else {
-        showError(err instanceof Error ? err.message : String(err));
-      }
+      showError(err instanceof Error ? err.message : String(err));
     } finally {
       btn.disabled = false;
     }
   }
   btn.addEventListener("click", () => {
-    run();
+    runOnce();
   });
 }
-function init() {
-  const sections = document.querySelectorAll(".flash-section[data-uf2]");
-  for (let i = 0;i < sections.length; i++) {
-    initSection(sections[i]);
+function onSections(selector, init) {
+  function go() {
+    const sections = document.querySelectorAll(selector);
+    for (let i = 0;i < sections.length; i++)
+      init(sections[i]);
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", go);
+  } else {
+    go();
   }
 }
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", init);
-} else {
-  init();
-}
+
+// site/flasher/flash-ui.ts
+var PHASE_LABELS = {
+  connecting: "connecting",
+  "entering-bootsel": "rebooting into BOOTSEL",
+  erasing: "erasing",
+  writing: "writing",
+  rebooting: "rebooting",
+  done: "done"
+};
+onSections(".flash-section[data-uf2]", (section) => {
+  const uf2Url = section.dataset.uf2;
+  if (!uf2Url)
+    return;
+  wireFlashSection(section, PHASE_LABELS, async (report) => {
+    if (!isWebUsbSupported()) {
+      throw new Error("WebUSB isn't available in this browser. Use Chrome or Edge on desktop.");
+    }
+    report({ phase: "connecting", percent: 0, message: "Fetching firmware image…" });
+    const resp = await fetch(uf2Url);
+    if (!resp.ok)
+      throw new Error(`could not fetch ${uf2Url}: HTTP ${resp.status}`);
+    const bytes = new Uint8Array(await resp.arrayBuffer());
+    await flashUf2(bytes, report);
+  });
+});

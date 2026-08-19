@@ -28,6 +28,7 @@ Not the RP2350 board of the same name, in the same case, sold on the same page.
 | devlink, on real silicon | **Yes.** `PING`, `APP`, `SWITCH`, touch injection and `SHOT` all answered; a full screenshot round trip costs 0.08s and RLE-compresses a black-on-white screen to 1482 bytes. |
 | Touch, from a real finger | **No.** devlink injection drives the runtime's touch path; nobody has put a finger on this board through this pack. |
 | The shake threshold | **No, and it needs a human.** See `gotchas.md`. |
+| Flashing from the website | **No, not yet on this board.** The images, the artifact index, the write plan and the page's failure states are all checked without hardware; the serial round trip needs one human, one board and one click. |
 
 ## Building it
 
@@ -64,6 +65,23 @@ cd build
 python -m esptool --chip esp32s3 --port <PORT> -b 460800 \
     --before default-reset --after hard-reset write-flash "@flash_args"
 ```
+
+**The website's artifact** (`tools/build-native.ts`) is the same build with two
+steps after it: `esptool merge-bin` folds the three parts into one image at
+offset 0, and a `manifest.json` records the chip, the flash parameters and each
+image's MD5 so a browser can write it without reading `flasher_args.json`
+itself.
+
+```
+bun run packs/esp32-s3-touch-amoled-18/tools/build-native.ts \
+  --app apps/chrono/ports/esp32-s3-touch-amoled-18/chrono.c \
+  --id chrono-esp32 --out site/flash-artifacts/esp32/chrono-esp32.bin \
+  --manifest site/flash-artifacts/esp32/manifest.json
+```
+
+The run pages flash that image over Web Serial with Espressif's own esptool-js
+(`site/flasher/esp32.ts`). Nothing on this board has answered that path yet:
+see the table above.
 
 ## Driving it without a human: devlink
 

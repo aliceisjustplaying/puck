@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "chip": "esp32s3",
+  "flashSize": "16MB",
+  "flashMode": "dio",
+  "flashFreq": "80m",
+  "images": {
+    "chrono-esp32": {
+      "file": "chrono-esp32.bin",
+      "offset": 0,
+      "bytes": 366096,
+      "md5": "12e331fe859c97ecef1eed152bd06cc8",
+      "app": "apps/chrono/ports/esp32-s3-touch-amoled-18/chrono.c",
+      "builtAt": "2026-08-19",
+      "parts": [
+        {
+          "offset": 0,
+          "file": "bootloader/bootloader.bin",
+          "bytes": 22528
+        },
+        {
+          "offset": 32768,
+          "file": "partition_table/partition-table.bin",
+          "bytes": 3072
+        },
+        {
+          "offset": 65536,
+          "file": "esp32-s3-touch-amoled-18.bin",
+          "bytes": 300560
+        }
+      ]
+    },
+    "esp32-demo": {
+      "file": "esp32-demo.bin",
+      "offset": 0,
+      "bytes": 365168,
+      "md5": "6a4e552ca65248970a0a79c32b3fe0e3",
+      "app": "packs/esp32-s3-touch-amoled-18/firmware/apps/demo.c",
+      "builtAt": "2026-08-19",
+      "parts": [
+        {
+          "offset": 0,
+          "file": "bootloader/bootloader.bin",
+          "bytes": 22528
+        },
+        {
+          "offset": 32768,
+          "file": "partition_table/partition-table.bin",
+          "bytes": 3072
+        },
+        {
+          "offset": 65536,
+          "file": "esp32-s3-touch-amoled-18.bin",
+          "bytes": 299632
+        }
+      ]
+    },
+    "fluidbox-esp32": {
+      "file": "fluidbox-esp32.bin",
+      "offset": 0,
+      "bytes": 371600,
+      "md5": "11341ebd3c9b2771ef774e367323a0d7",
+      "app": "apps/fluidbox/ports/esp32-s3-touch-amoled-18/fluid.c",
+      "builtAt": "2026-08-19",
+      "parts": [
+        {
+          "offset": 0,
+          "file": "bootloader/bootloader.bin",
+          "bytes": 22528
+        },
+        {
+          "offset": 32768,
+          "file": "partition_table/partition-table.bin",
+          "bytes": 3072
+        },
+        {
+          "offset": 65536,
+          "file": "esp32-s3-touch-amoled-18.bin",
+          "bytes": 306064
+        }
+      ]
+    }
+  }
+}

@@ -34,9 +34,25 @@
 
   <div class="run-footer"></div>
 
-  <section class="flash-section flash-section-note">
+  <section class="flash-section" data-esp32-manifest="../flash/esp32/manifest.json" data-esp32-image="fluidbox-esp32">
     <h2>Flash to the real device</h2>
-    <p class="flash-note">This pack&#39;s firmware runs on the real board, but flashing it from a browser does not: an ESP32-S3 takes an esptool write over serial, not a single file dropped on a drive. Build and flash it from the pack&#39;s own README.</p>
+    <p class="flash-note">This artifact is the full pack firmware for this board with fluidbox in its one app slot, not an app-only build.</p>
+    <div class="flash-actions">
+      <button type="button" class="flash-btn btn-flash">Flash over USB</button>
+      <a class="flash-btn-alt" href="../flash/esp32/fluidbox-esp32.bin" download>Download .bin</a>
+    </div>
+    <p class="flash-hint">No install needed: the download is one merged image (bootloader, partition table and app) written at offset 0, the same bytes this button writes.</p>
+    <div class="flash-progress" hidden>
+      <div class="flash-progress-track"><div class="flash-progress-bar"></div></div>
+      <p class="flash-status"></p>
+    </div>
+    <p class="flash-done" hidden></p>
+    <p class="flash-error" hidden></p>
+    <details class="flash-ritual">
+      <summary>ROM download-mode ritual</summary>
+      <p class="flash-ritual-intro">Only needed if the board&#39;s own USB port never appears in the browser&#39;s list, which means firmware too broken to answer. Otherwise the flasher puts the chip in download mode itself.</p>
+      <p>Unplug USB. Hold BOOT while plugging the cable back in, then release it. The board comes up in the ROM download mode, its port appears, and this button works from there.</p>
+    </details>
   </section>
 <footer>
     <div class="wrap" style="padding:0">
@@ -45,6 +61,7 @@
     </div>
   </footer>
 </div>
+<script type="module" src="../flash/esp32-flash.js?v=3762a2ceea"></script>
 <script>
 (function () {
   var NATIVE_W = 448, NATIVE_H = 618;

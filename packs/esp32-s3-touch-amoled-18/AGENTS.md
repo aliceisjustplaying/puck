@@ -135,6 +135,8 @@ firmware/
   devlink.c/.h        the agent-facing command protocol over USB Serial/JTAG
   main/               the ESP-IDF half - see "built, flashed and run" above
   sdkconfig.defaults  the only configuration input the board build takes
+tools/build-native.ts  the ESP-IDF build plus the merged image and manifest
+                       the website flashes (see the section above)
 gate/run.ts          fast, hardware-free, device-specific checks
 docs/decisions/      why (0001: what the first flash found; 0002: devlink)
 wasm/
@@ -148,13 +150,44 @@ wasm/
 gotchas.md            hardware traps, most inherited from fluidbox
 ```
 
+## Building the board half, and the artifact the website flashes
+
+`tools/build-native.ts` is the ESP-IDF side of `wasm/build.ts`: same `--app`
+idea (this pack has one app SLOT, so an app build is `-DPUCK_APP_SOURCE=`
+and nothing else), run through `idf.py` with the environment ESP-IDF's own
+`idf_tools.py export` reports rather than a hardcoded tools path.
+
+```
+bun run packs/esp32-s3-touch-amoled-18/tools/build-native.ts \
+  --id esp32-demo --out site/flash-artifacts/esp32/esp32-demo.bin \
+  --manifest site/flash-artifacts/esp32/manifest.json
+bun run packs/esp32-s3-touch-amoled-18/tools/build-native.ts \
+  --app apps/chrono/ports/esp32-s3-touch-amoled-18/chrono.c \
+  --id chrono-esp32 --out site/flash-artifacts/esp32/chrono-esp32.bin \
+  --manifest site/flash-artifacts/esp32/manifest.json
+```
+
+It emits ONE merged image per app (bootloader, partition table and app in a
+single file at offset 0, via `esptool merge-bin`) plus a `manifest.json` with
+the chip, the flash parameters out of the build's own `flasher_args.json`, and
+each image's MD5. Read that script's header for why the browser gets one
+merged file rather than the three parts and their offsets. `--id` is the
+website's combo id, which is how `site/build.ts` decides whether a run page
+gets a flash button at all: no entry in the manifest, no button.
+
 ## What this pack does not have yet
 
 No screenshots or animated GIF in the README (the sibling's come from
-`tools/screens.ts`/`tools/demo.ts`, which this pack has no equivalent of), no
-`"apps"` array in `device.json` and therefore no menu, and no browser flashing
-the way the RP2350's `.uf2` drag-and-drop allows. Flashing here is `esptool`,
-documented in `README.md`.
+`tools/screens.ts`/`tools/demo.ts`, which this pack has no equivalent of), and
+no `"apps"` array in `device.json` and therefore no menu.
+
+Browser flashing now exists (`site/flasher/esp32.ts`, esptool-js over Web
+Serial, wired into every run page whose combo has an image in the manifest),
+but **nobody has run it against this board yet**: the artifacts, the manifest
+parsing, the write plan and the page's own failure states are all checked, and
+the serial round trip is not. Until a human clicks that button with the board
+plugged in, `README.md`'s `esptool` command line is the flashing path with a
+receipt behind it.
 
 It DOES now have `docs/decisions/`, a `gate/`, and a README: a real flash is
 what made all three earn their keep.

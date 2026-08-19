@@ -1,27 +1,31 @@
-// site/flasher/flash-ui.ts: DOM glue for the "Flash to the real device"
-// section on a run page. Bundled by site/build.ts into
-// site/dist/flash/flash.js (same pattern the root build.ts uses for
-// src/main.ts -> dist/main.js: one entrypoint, Bun.build, no CDN).
+// site/flasher/flash-ui.ts: the RP2350 run page's flash entrypoint. Bundled
+// by site/build.ts into site/dist/flash/flash.js (same pattern the root
+// build.ts uses for src/main.ts -> dist/main.js: one entrypoint, Bun.build,
+// no CDN).
 //
 // Reads its target .uf2 URL from the section's own `data-uf2` attribute
 // (set per-page by site/build.ts), fetches it same-origin, and drives
-// flash.ts's flashUf2() with a progress callback that paints the section's
-// own progress bar and status line. Failure states are read straight off
-// FlashError.code (see flash.ts): "unsupported-browser" for no
-// navigator.usb, "no-device-selected" for a cancelled/empty device picker,
-// "wrong-chip-family" for an RP2040 board, "no-reset-interface" for a
-// running board whose firmware predates the reset interface,
-// "bootsel-reselect-needed" for a board that DID reboot into BOOTSEL but
-// needs a fresh permission gesture, "usb-error" for everything else the
-// transport can throw. Every one of them is already a full sentence
-// telling the human what to do, so this file renders the message and adds
+// flash.ts's flashUf2(). The DOM work - button, progress bar, status line,
+// completed banner, error line - lives in flash-ui-common.ts, shared with the
+// ESP32 entrypoint next door (esp32-ui.ts); this file is the RP2350 half of
+// that split and nothing else.
+//
+// Failure states are read straight off FlashError.code (see flash.ts):
+// "unsupported-browser" for no navigator.usb, "no-device-selected" for a
+// cancelled/empty device picker, "wrong-chip-family" for an RP2040 board,
+// "no-reset-interface" for a running board whose firmware predates the reset
+// interface, "bootsel-reselect-needed" for a board that DID reboot into
+// BOOTSEL but needs a fresh permission gesture, "usb-error" for everything
+// else the transport can throw. Every one of them is already a full sentence
+// telling the human what to do, so the UI renders the message and adds
 // nothing.
-import { FlashError, flashUf2, isWebUsbSupported, type FlashPhase, type FlashProgress } from "./flash";
+import { flashUf2, isWebUsbSupported } from "./flash";
+import { onSections, wireFlashSection } from "./flash-ui-common";
 
 // The status line reads "<stage>: <detail>", and the raw phase names are
 // identifiers, not English ("entering-bootsel"). This is the one place
 // they become words.
-const PHASE_LABELS: Record<FlashPhase, string> = {
+const PHASE_LABELS: Record<string, string> = {
   connecting: "connecting",
   "entering-bootsel": "rebooting into BOOTSEL",
   erasing: "erasing",
@@ -30,124 +34,20 @@ const PHASE_LABELS: Record<FlashPhase, string> = {
   done: "done",
 };
 
-// The done phase gets a distinct, unmissable beat rather than just another
-// muted log line (see flash-ui.ts's PHASE_LABELS comment above): the bar
-// turns success-green and holds for FLASH_DONE_HOLD_MS so a slow read
-// catches it, then the whole progress block fades over FLASH_DONE_FADE_MS
-// and is replaced by .flash-done - a completed-state banner, styled
-// (site/styles.css) as unambiguously "it worked", not a status string. A
-// real board takes a beat to actually restart after this fires, so the
-// wording says "restarting", not "rebooted" (still in progress, not a
-// promise the board is already back up).
-const FLASH_DONE_HOLD_MS = 900;
-const FLASH_DONE_FADE_MS = 400;
-const FLASH_DONE_MESSAGE = "✓ Flashed. The board is restarting with the new firmware.";
-
-function initSection(section: HTMLElement): void {
+onSections(".flash-section[data-uf2]", (section) => {
   const uf2Url = section.dataset.uf2;
   if (!uf2Url) return;
-
-  const btn = section.querySelector<HTMLButtonElement>(".flash-btn");
-  const progressWrap = section.querySelector<HTMLElement>(".flash-progress");
-  const progressBar = section.querySelector<HTMLElement>(".flash-progress-bar");
-  const statusEl = section.querySelector<HTMLElement>(".flash-status");
-  const doneEl = section.querySelector<HTMLElement>(".flash-done");
-  const errorEl = section.querySelector<HTMLElement>(".flash-error");
-  if (!btn || !progressWrap || !progressBar || !statusEl || !doneEl || !errorEl) return;
-
-  // Bumped on every showProgress/showError call so a done-phase fade
-  // sequence in flight from a PREVIOUS run (setTimeout chain below) can
-  // tell it has been superseded and quietly no-op, instead of clobbering a
-  // fresh run's progress bar or error message a moment later. btn.disabled
-  // already keeps two runs from overlapping while one is in flight, but the
-  // fade sequence deliberately outlives run()'s own try/finally (it is
-  // still ticking after `finally` re-enables the button), so a fast second
-  // click right after a flash completes is the one case that needs this.
-  let doneToken = 0;
-
-  function showError(message: string): void {
-    doneToken++;
-    errorEl!.textContent = message;
-    errorEl!.hidden = false;
-    doneEl!.hidden = true;
-    progressWrap!.hidden = true;
-    progressWrap!.classList.remove("fade-out");
-    progressBar!.classList.remove("done");
-  }
-
-  function showDone(): void {
-    const token = ++doneToken;
-    progressBar!.style.width = "100%";
-    progressBar!.classList.add("done");
-    statusEl!.textContent = "done: Done. The board is rebooting into the new firmware.";
-    window.setTimeout(() => {
-      if (token !== doneToken) return; // superseded by a later run
-      progressWrap!.classList.add("fade-out");
-      window.setTimeout(() => {
-        if (token !== doneToken) return;
-        progressWrap!.hidden = true;
-        progressWrap!.classList.remove("fade-out");
-        progressBar!.classList.remove("done");
-        progressBar!.style.width = "0%";
-        doneEl!.textContent = FLASH_DONE_MESSAGE;
-        doneEl!.hidden = false;
-      }, FLASH_DONE_FADE_MS);
-    }, FLASH_DONE_HOLD_MS);
-  }
-
-  function showProgress(p: FlashProgress): void {
-    doneToken++; // any done-phase fade sequence from an earlier run is now stale
-    errorEl!.hidden = true;
-    doneEl!.hidden = true;
-    progressWrap!.hidden = false;
-    progressWrap!.classList.remove("fade-out");
-    progressBar!.classList.remove("done");
-    progressBar!.style.width = `${p.percent}%`;
-    statusEl!.textContent = `${PHASE_LABELS[p.phase] ?? p.phase}: ${p.message}`;
-    if (p.phase === "done") showDone();
-  }
-
-  async function run(): Promise<void> {
-    errorEl!.hidden = true;
+  wireFlashSection(section, PHASE_LABELS, async (report) => {
     // Checked before anything else, and before any USB prompt, so an
     // unsupported browser gets an immediate, specific message rather than
     // a thrown exception or a picker that can never appear.
     if (!isWebUsbSupported()) {
-      showError("WebUSB isn't available in this browser. Use Chrome or Edge on desktop.");
-      return;
+      throw new Error("WebUSB isn't available in this browser. Use Chrome or Edge on desktop.");
     }
-    btn!.disabled = true;
-    try {
-      showProgress({ phase: "connecting", percent: 0, message: "Fetching firmware image…" });
-      const resp = await fetch(uf2Url!);
-      if (!resp.ok) throw new Error(`could not fetch ${uf2Url}: HTTP ${resp.status}`);
-      const bytes = new Uint8Array(await resp.arrayBuffer());
-      await flashUf2(bytes, showProgress);
-    } catch (err) {
-      if (err instanceof FlashError) {
-        showError(err.message);
-      } else {
-        showError(err instanceof Error ? err.message : String(err));
-      }
-    } finally {
-      btn!.disabled = false;
-    }
-  }
-
-  btn.addEventListener("click", () => {
-    void run();
+    report({ phase: "connecting", percent: 0, message: "Fetching firmware image…" });
+    const resp = await fetch(uf2Url);
+    if (!resp.ok) throw new Error(`could not fetch ${uf2Url}: HTTP ${resp.status}`);
+    const bytes = new Uint8Array(await resp.arrayBuffer());
+    await flashUf2(bytes, report);
   });
-}
-
-function init(): void {
-  const sections = document.querySelectorAll<HTMLElement>(".flash-section[data-uf2]");
-  for (let i = 0; i < sections.length; i++) {
-    initSection(sections[i]!);
-  }
-}
-
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", init);
-} else {
-  init();
-}
+});

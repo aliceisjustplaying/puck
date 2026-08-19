@@ -24,6 +24,7 @@ packs/esp32-s3-touch-amoled-18/firmware/managed_components/
 # .uf2 it produces is copied out to site/dist/flash/ or a GitHub release,
 # never committed from here either.
 packs/rp2350-touch-amoled-18/firmware/build-app/
+packs/esp32-s3-touch-amoled-18/firmware/build-app/
 
 # Hostile-firmware regression suite build output: regenerate with
 # `bun run test:hostile` (or `bun run test/hostile/build.ts` on its own)

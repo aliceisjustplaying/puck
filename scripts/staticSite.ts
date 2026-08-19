@@ -15,6 +15,11 @@ const MIME: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".wasm": "application/wasm",
   ".uf2": "application/octet-stream",
+  // The ESP32-S3 pack's merged flash images (site/flash-artifacts/esp32/).
+  // Explicit rather than left to the fallback below, for the same reason
+  // .uf2 is: a firmware artifact's content type is part of what the flash
+  // page depends on, not an accident of this map's default.
+  ".bin": "application/octet-stream",
   ".png": "image/png",
   ".mp4": "video/mp4",
   ".gif": "image/gif",

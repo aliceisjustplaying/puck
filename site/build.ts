@@ -526,6 +526,16 @@ function buildWebApps(): void {
 // only ever regenerates a copy of them.
 const FLASH_ARTIFACTS_SRC = join(SITE_DIR, "flash-artifacts");
 
+// The ESP32-S3 artifacts sit one level down, in their own directory, because
+// they come with an index: three parts merged into one image per combo plus a
+// manifest.json naming the chip, the flash parameters and each image's MD5
+// (written by packs/esp32-s3-touch-amoled-18/tools/build-native.ts). The
+// RP2350's .uf2 needs none of that - a UF2 file carries its own load
+// addresses - which is why one board's artifacts are bare files and the
+// other's are a directory.
+const ESP32_ARTIFACTS_SRC = join(FLASH_ARTIFACTS_SRC, "esp32");
+const ESP32_MANIFEST_NAME = "manifest.json";
+
 function copyFlashArtifacts(): void {
   const flashDir = join(DIST, "flash");
   mkdirSync(flashDir, { recursive: true });
@@ -534,7 +544,40 @@ function copyFlashArtifacts(): void {
     copyFileSync(join(FLASH_ARTIFACTS_SRC, name), join(flashDir, name));
     console.log(`copied -> site/dist/flash/${name}`);
   }
+  if (!existsSync(ESP32_ARTIFACTS_SRC)) return;
+  const esp32Dir = join(flashDir, "esp32");
+  mkdirSync(esp32Dir, { recursive: true });
+  for (const name of readdirSync(ESP32_ARTIFACTS_SRC)) {
+    if (!name.endsWith(".bin") && name !== ESP32_MANIFEST_NAME) continue;
+    copyFileSync(join(ESP32_ARTIFACTS_SRC, name), join(esp32Dir, name));
+    console.log(`copied -> site/dist/flash/esp32/${name}`);
+  }
 }
+
+// Which ESP32 images exist, read from the artifact index rather than listed
+// here a second time: build-native.ts's --id IS the combo id, so a combo has a
+// browser-flashable image exactly when the manifest has an entry under its
+// own name. Nothing to keep in sync, and a run page can never advertise a
+// button for a file that was never built.
+interface Esp32ManifestEntry {
+  file: string;
+  bytes: number;
+  app: string;
+  builtAt: string;
+}
+interface Esp32ManifestShape {
+  chip: string;
+  flashSize: string;
+  images: Record<string, Esp32ManifestEntry>;
+}
+
+function readEsp32Manifest(): Esp32ManifestShape | null {
+  const path = join(ESP32_ARTIFACTS_SRC, ESP32_MANIFEST_NAME);
+  if (!existsSync(path)) return null;
+  return JSON.parse(readFileSync(path, "utf8")) as Esp32ManifestShape;
+}
+
+const ESP32_MANIFEST = readEsp32Manifest();
 
 // ---- 1.6. landing demo loops: recorded, tracked source, copied out -------
 // Same pattern as flash-artifacts above: site/demo-media/ is the tracked
@@ -568,24 +611,34 @@ function copyDemoMedia(ids: string[]): void {
 // root build.ts bundles src/main.ts, so this page ships one local JS file
 // and never a CDN import.
 // Set by buildFlashUi() below, read by writeRunPage()'s flashScript - one
-// bundle shared by every run page that has a flash section.
+// bundle shared by every run page that has a flash section of that board's
+// kind. TWO bundles, not one: esp32-ui.ts pulls in esptool-js and its deflate
+// dependency, and an RP2350 run page has no reason to download an ESP32
+// serial protocol stack it will never call. The DOM code they share
+// (flash-ui-common.ts) is small and is simply in both.
 let FLASH_JS_VERSION = "";
+let ESP32_FLASH_JS_VERSION = "";
 
-async function buildFlashUi(): Promise<void> {
+async function bundleFlashEntry(entry: string, outName: string): Promise<string> {
   const result = await Bun.build({
-    entrypoints: [join(SITE_DIR, "flasher", "flash-ui.ts")],
+    entrypoints: [join(SITE_DIR, "flasher", entry)],
     outdir: join(DIST, "flash"),
-    naming: "flash.js",
+    naming: outName,
     target: "browser",
     format: "esm",
     minify: false,
   });
   if (!result.success) {
     for (const log of result.logs) console.error(log);
-    throw new Error("site/build.ts: failed to bundle site/flasher/flash-ui.ts");
+    throw new Error(`site/build.ts: failed to bundle site/flasher/${entry}`);
   }
-  FLASH_JS_VERSION = contentHashOf(join(DIST, "flash", "flash.js"));
-  console.log("built -> site/dist/flash/flash.js");
+  console.log(`built -> site/dist/flash/${outName}`);
+  return contentHashOf(join(DIST, "flash", outName));
+}
+
+async function buildFlashUi(): Promise<void> {
+  FLASH_JS_VERSION = await bundleFlashEntry("flash-ui.ts", "flash.js");
+  ESP32_FLASH_JS_VERSION = await bundleFlashEntry("esp32-ui.ts", "esp32-flash.js");
 }
 
 // ---- 2. the shared emulator bundle, built once via the repo's own build.ts ----
@@ -1011,17 +1064,69 @@ const BOOTSEL_RITUAL_INTRO =
 const BOOTSEL_RITUAL =
   "Unplug USB. Hold PWR for at least 12 seconds, until the screen goes black (replugging alone does not reset the board: the PMIC keeps the rails up). Then hold BOOT while plugging the USB cable back in.";
 
-// The ESP-IDF half is no longer unvalidated: it was built, flashed and run on
-// the physical board on 2026-08-19 (packs/esp32-s3-touch-amoled-18/docs/
-// decisions/0001-what-the-first-flash-found.md). What is still missing is a
-// BROWSER flashing path, and that gap is a different one from the old note's:
-// the RP2350 flasher works because a board in BOOTSEL mounts as a drive and
-// takes a single .uf2 file. An ESP32-S3 takes a multi-image esptool write over
-// serial, which this site does not implement. Saying "flashing arrives when
-// the firmware is validated" would now be false, and the point of this note is
-// that a visitor should not wait for something that is not coming from here.
-const ESP32_FLASH_NOTE =
-  "This pack's firmware runs on the real board, but flashing it from a browser does not: an ESP32-S3 takes an esptool write over serial, not a single file dropped on a drive. Build and flash it from the pack's own README.";
+// The ESP32-S3's own ritual fold, mirroring the RP2350's above and true for
+// the same reason it is: it is the RECOVERY path, not the entry path. This
+// board's ESP32-S3 has native USB, and its USB Serial/JTAG peripheral maps the
+// host's DTR and RTS lines onto GPIO0 (BOOT) and EN (reset) - which is exactly
+// the wiring packs/esp32-s3-touch-amoled-18/docs/decisions/0002 warns devlink
+// about, pointed the other way. So the flasher walks the chip into download
+// mode over the wire and nobody touches the board. The fold covers the one
+// case where that fails: firmware that hangs or reconfigures those pins before
+// the host gets a chance, leaving the button as the only way in.
+const ESP32_BOOT_RITUAL_INTRO =
+  "Only needed if the board's own USB port never appears in the browser's list, which means firmware too broken to answer. Otherwise the flasher puts the chip in download mode itself.";
+const ESP32_BOOT_RITUAL =
+  "Unplug USB. Hold BOOT while plugging the cable back in, then release it. The board comes up in the ROM download mode, its port appears, and this button works from there.";
+
+// The three parts and offsets are not a UI detail, but where they went is:
+// the artifact is one merged image written at offset 0 and this sentence is
+// the one place a reader is told so, since the page otherwise looks exactly
+// like the RP2350's single-file flash.
+const ESP32_FLASH_HINT =
+  "No install needed: the download is one merged image (bootloader, partition table and app) written at offset 0, the same bytes this button writes.";
+
+function esp32FlashSection(comboId: string, imageId: string): string {
+  const manifestHref = "../flash/esp32/manifest.json";
+  const image = ESP32_MANIFEST!.images[imageId]!;
+  const binHref = `../flash/esp32/${image.file}`;
+  const note =
+    comboId === "esp32-demo"
+      ? "This artifact is the pack's reference app, built into its one app slot: the same firmware, with the bouncing square as the app it boots."
+      : `This artifact is the full pack firmware for this board with ${comboId.replace(/-esp32$/, "")} in its one app slot, not an app-only build.`;
+  return `  <section class="flash-section" data-esp32-manifest="${manifestHref}" data-esp32-image="${escapeHtml(imageId)}">
+    <h2>Flash to the real device</h2>
+    <p class="flash-note">${escapeHtml(note)}</p>
+    <div class="flash-actions">
+      <button type="button" class="flash-btn btn-flash">Flash over USB</button>
+      <a class="flash-btn-alt" href="${binHref}" download>Download .bin</a>
+    </div>
+    <p class="flash-hint">${escapeHtml(ESP32_FLASH_HINT)}</p>
+    <div class="flash-progress" hidden>
+      <div class="flash-progress-track"><div class="flash-progress-bar"></div></div>
+      <p class="flash-status"></p>
+    </div>
+    <p class="flash-done" hidden></p>
+    <p class="flash-error" hidden></p>
+    <details class="flash-ritual">
+      <summary>ROM download-mode ritual</summary>
+      <p class="flash-ritual-intro">${escapeHtml(ESP32_BOOT_RITUAL_INTRO)}</p>
+      <p>${escapeHtml(ESP32_BOOT_RITUAL)}</p>
+    </details>
+  </section>`;
+}
+
+// An ESP32 combo with no image in the artifact index: the pack's firmware
+// runs on silicon and the browser path exists, this particular port simply
+// has no built artifact yet. Said plainly rather than as a promise about a
+// future build.
+const ESP32_NO_ARTIFACT_NOTE =
+  "No prebuilt image for this port yet. The pack's firmware and this page's flasher both work; build this port's image with the pack's own tools/build-native.ts and it appears here.";
+
+/** True when this combo has a browser-flashable image built for it. */
+function esp32ImageIdFor(comboId: string): string | null {
+  if (!ESP32_MANIFEST) return null;
+  return ESP32_MANIFEST.images[comboId] ? comboId : null;
+}
 
 function renderFlashSection(comboId: string, pack: string): string {
   const artifact = FLASH_ARTIFACTS[comboId];
@@ -1049,9 +1154,11 @@ function renderFlashSection(comboId: string, pack: string): string {
   </section>`;
   }
   if (pack.startsWith("esp32")) {
+    const imageId = esp32ImageIdFor(comboId);
+    if (imageId) return esp32FlashSection(comboId, imageId);
     return `  <section class="flash-section flash-section-note">
     <h2>Flash to the real device</h2>
-    <p class="flash-note">${escapeHtml(ESP32_FLASH_NOTE)}</p>
+    <p class="flash-note">${escapeHtml(ESP32_NO_ARTIFACT_NOTE)}</p>
   </section>`;
   }
   return "";
@@ -1110,7 +1217,11 @@ function buildRunDir(): void {
       .join(" ");
     const links = opts.docLinks.map((l) => `<a href="${l.href}">${escapeHtml(l.label)}</a>`).join("\n      ");
     const flashSection = renderFlashSection(opts.id, opts.pack);
-    const flashScript = FLASH_ARTIFACTS[opts.id] ? `\n<script type="module" src="${withVersion("../flash/flash.js", FLASH_JS_VERSION)}"></script>` : "";
+    const flashScript = FLASH_ARTIFACTS[opts.id]
+      ? `\n<script type="module" src="${withVersion("../flash/flash.js", FLASH_JS_VERSION)}"></script>`
+      : esp32ImageIdFor(opts.id)
+        ? `\n<script type="module" src="${withVersion("../flash/esp32-flash.js", ESP32_FLASH_JS_VERSION)}"></script>`
+        : "";
     const phoneTiltHint = packHasVectorSensor.get(opts.pack) ? " &middot; tilt with your phone" : "";
     const body = `<div class="wrap">
   <div class="run-header">
