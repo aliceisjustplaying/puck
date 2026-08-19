@@ -97,7 +97,6 @@ const CHROME = findChromeOrExit();
 interface Ctx {
   page: Page;
   rect(): Promise<{ x: number; y: number; w: number; h: number }>;
-  bezelRect(): Promise<{ x: number; y: number; w: number; h: number }>;
   tap(fx: number, fy: number, holdMs?: number): Promise<void>;
   stroke(pts: [number, number][], stepMs?: number): Promise<void>;
   clickButton(dataDeg: number): Promise<void>;
@@ -118,19 +117,20 @@ function makeRectReader(page: Page, sel: string) {
 }
 
 function makeCtx(page: Page): Ctx {
+  // #panel, not #bezel: site/build.ts now draws the device's own bezel and
+  // button chrome in CSS/HTML around the card (a détouré device on the
+  // page's own background - see that file's renderCardDevice), and the
+  // recorded clip crops to #panel alone, a plain rectangle with no
+  // background pixels of its own to bake in, unlike a rounded bezel's own
+  // bounding box (which always has small leftover-background corner
+  // triangles once cropped to an axis-aligned rectangle).
   const rect = makeRectReader(page, "#panel");
-  // #bezel, not #panel: this is what the crop step below measures - the
-  // device's own visible silhouette (bezel + buttons), not just the inner
-  // screen - so the recorded clip crops to exactly the device, per this
-  // task's own "just the device" brief.
-  const bezelRect = makeRectReader(page, "#bezel");
   function at(r: { x: number; y: number; w: number; h: number }, fx: number, fy: number): [number, number] {
     return [r.x + fx * r.w, r.y + fy * r.h];
   }
   return {
     page,
     rect,
-    bezelRect,
     async tap(fx, fy, holdMs = 90) {
       const r = await rect();
       const [x, y] = at(r, fx, fy);
@@ -249,15 +249,15 @@ const DEMOS: DemoSpec[] = [
     panelW: 368,
     panelH: 448,
     async play(ctx) {
+      // No mid-clip rotation (dropped per this task's own "détouré cards"
+      // brief): a quarter-turn quick-rotate used to make #bezel's own
+      // bounding box span two different rects across the clip (0deg
+      // portrait -> 90deg landscape), which is exactly what forced the old
+      // union-rect crop, and a union crop is a bigger rectangle than
+      // either single orientation - baking in background on every side.
+      // #panel alone never needs that: settle, stir, shake is enough to
+      // show real dynamic flow without ever moving the device itself.
       await sleep(2200); // watch the drop settle under fixed straight-down gravity
-      await ctx.keyTap("r"); // QUICK_ROT_ORDER's first step from 0 is 90 - the DEVICE itself visibly
-      // reorients (bezel + buttons swing a quarter turn); the fluid stays
-      // level through it - gravityForQuickDeg (src/rotate.ts) recomputes
-      // panel-local gravity to compensate for the rotation, the same way a
-      // real accelerometer would once the physical device turned, so the
-      // liquid keeps reading as "down" is still down, not a bug, not a
-      // missed slosh - see that function's own header for the geometry.
-      await sleep(1500);
       // The stir (fluid.c's handle_touch: a finger drag pushes nearby
       // particles along the drag's own motion) is what actually shows
       // dynamic flow on camera, independent of gravity.
@@ -331,23 +331,6 @@ const DEMOS: DemoSpec[] = [
   },
 ];
 
-// The smallest axis-aligned box containing both rects, same center-anchored
-// reasoning either rect would use on its own: fluidbox's own choreography
-// quick-rotates the device mid-clip (0deg portrait -> 90deg landscape, an
-// instant CSS `rotate()` snap, see src/device.ts's applyRotation - no
-// transition, so there is no in-between diagonal frame to worry about,
-// only these two discrete states), so a crop measured against either
-// endpoint alone would clip the device in the other one. Every other demo
-// below has a single orientation throughout, where "before" and "after"
-// are the same rect and this is a no-op.
-function unionRect(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) {
-  const left = Math.min(a.x, b.x);
-  const top = Math.min(a.y, b.y);
-  const right = Math.max(a.x + a.w, b.x + b.w);
-  const bottom = Math.max(a.y + a.h, b.y + b.h);
-  return { x: left, y: top, w: right - left, h: bottom - top };
-}
-
 const onlyId = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
 
 const server = serveDist(DIST, PORT);
@@ -388,13 +371,12 @@ try {
           await cdp.send("Page.screencastFrameAck", { sessionId: ev.sessionId });
         } catch {}
       });
-      // Measured right before/after the recorded choreography, not once up
-      // front: fluidbox quick-rotates the device mid-clip (0deg -> 90deg,
-      // an instant snap, no CSS transition - see unionRect's own comment),
-      // so #bezel's rect genuinely differs between these two calls for that
-      // one demo. The union of both is what the crop below uses, so the
-      // device never gets clipped in either orientation.
-      const bezelBefore = await ctx.bezelRect();
+      // Measured once, right before the recorded choreography starts: with
+      // the mid-clip device rotation dropped (see fluidbox's own play()
+      // above), #panel's rect is constant for the whole clip on every demo
+      // here, so there is no before/after union to compute any more - one
+      // reading is the whole answer.
+      const panelRect = await ctx.rect();
       await cdp.send("Page.startScreencast", { format: "png", everyNthFrame: 1 });
       const tStart = Date.now();
 
@@ -402,22 +384,20 @@ try {
 
       const tEnd = Date.now();
       await cdp.send("Page.stopScreencast");
-      const bezelAfter = await ctx.bezelRect();
       await sleep(150);
 
-      const bezelUnion = unionRect(bezelBefore, bezelAfter);
       // Round to whole pixels, then to EVEN dimensions (yuv420p subsamples
       // chroma 2x2, so libx264 rejects an odd width/height outright), and
       // clamp inside the actual recorded canvas (side x side) so a
       // fractional getBoundingClientRect reading right at the edge can
       // never ask ffmpeg to crop past the frame it was given.
-      const cropX = Math.max(0, Math.round(bezelUnion.x));
-      const cropY = Math.max(0, Math.round(bezelUnion.y));
+      const cropX = Math.max(0, Math.round(panelRect.x));
+      const cropY = Math.max(0, Math.round(panelRect.y));
       const evenDown = (n: number) => Math.max(2, n % 2 === 0 ? n : n - 1);
-      const cropW = evenDown(Math.min(Math.round(bezelUnion.w), side - cropX));
-      const cropH = evenDown(Math.min(Math.round(bezelUnion.h), side - cropY));
+      const cropW = evenDown(Math.min(Math.round(panelRect.w), side - cropX));
+      const cropH = evenDown(Math.min(Math.round(panelRect.h), side - cropY));
       const cropFilter = `crop=${cropW}:${cropH}:${cropX}:${cropY}`;
-      console.log(`  bezel crop: ${cropW}x${cropH} at (${cropX},${cropY}) of the ${side}x${side} recorded canvas`);
+      console.log(`  panel crop: ${cropW}x${cropH} at (${cropX},${cropY}) of the ${side}x${side} recorded canvas`);
 
       if (frames.length === 0) throw new Error(`${demo.id}: the screencast produced no frames`);
       frames.sort((a, b) => a.t - b.t);

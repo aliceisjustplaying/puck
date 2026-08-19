@@ -33,7 +33,7 @@
 // site:build` first).
 import puppeteer, { type Page } from "puppeteer-core";
 import { join } from "node:path";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { serveDist } from "./staticSite";
 import { closeBrowser } from "./browserClose";
 
@@ -140,13 +140,18 @@ try {
     else if (!(await fetchOk(stylesHref))) fail(`index.html: styles.css?v= 404s: ${stylesHref}`);
     else console.log(`PASS: index.html's styles.css link is cache-busted (${stylesHref})`);
 
-    // Each card's own recorded video must actually match the aspect ratio
-    // site/build.ts declared for it (demoAspect: the poster PNG's own
-    // pixel dimensions, read at build time) - proof the crop this task
-    // introduced (site/record-demos.ts, tight to #bezel) and the CSS box
-    // it is displayed in (the card's own inline aspect-ratio style) agree,
-    // so the video fills its card with no letterbox bars ("the device
-    // itself, nothing else around it").
+    // Each card's own recorded video must actually match its PACK's own
+    // panel aspect (368:448, or whatever a device.json declares) - proof
+    // that site/record-demos.ts's crop (tight to #panel alone, see that
+    // file's own header for why it moved off #bezel: a détouré device has
+    // no rectangle of its own to bake page background into) produces a
+    // clip that is genuinely just the panel, not the panel plus a sliver
+    // of bezel or a scaling artifact. data-panel-w/-h (site/build.ts's own
+    // cardDeviceGeometry) are the pack's DECLARED panel size, independent
+    // of whatever this page's CSS draws around the video - the video's own
+    // fill (.card-panel's object-fit: cover) can absorb a couple of
+    // percent of mismatch invisibly, which is exactly why this needs a
+    // real number, not just "does it look right."
     await page.evaluate(
       () =>
         new Promise<void>((resolve) => {
@@ -163,32 +168,31 @@ try {
       return Array.from(document.querySelectorAll("a.thumb-video")).map((a) => {
         const el = a as HTMLAnchorElement;
         const video = el.querySelector("video") as HTMLVideoElement | null;
-        const m = (el.getAttribute("style") || "").match(/aspect-ratio:\s*([\d.]+)\s*\/\s*([\d.]+)/);
         return {
           href: el.getAttribute("href"),
           videoW: video?.videoWidth ?? 0,
           videoH: video?.videoHeight ?? 0,
-          declaredW: m ? parseFloat(m[1]!) : null,
-          declaredH: m ? parseFloat(m[2]!) : null,
+          panelW: video ? Number(video.getAttribute("data-panel-w")) : null,
+          panelH: video ? Number(video.getAttribute("data-panel-h")) : null,
         };
       });
     });
     for (const c of aspectChecks) {
       if (!c.videoW || !c.videoH) { fail(`${c.href}: card video metadata never loaded (${c.videoW}x${c.videoH})`); continue; }
-      if (!c.declaredW || !c.declaredH) { fail(`${c.href}: card has no parsable aspect-ratio style`); continue; }
+      if (!c.panelW || !c.panelH) { fail(`${c.href}: card video has no data-panel-w/-h`); continue; }
       const videoRatio = c.videoW / c.videoH;
-      const declaredRatio = c.declaredW / c.declaredH;
-      const pctOff = Math.abs(videoRatio - declaredRatio) / declaredRatio;
-      if (pctOff > 0.05) {
+      const panelRatio = c.panelW / c.panelH;
+      const pctOff = Math.abs(videoRatio - panelRatio) / panelRatio;
+      if (pctOff > 0.02) {
         fail(
           `${c.href}: video intrinsic ${c.videoW}x${c.videoH} (ratio ${videoRatio.toFixed(3)}) is ${(pctOff * 100).toFixed(1)}% off ` +
-            `the card's own bezel aspect ${c.declaredW}/${c.declaredH} (ratio ${declaredRatio.toFixed(3)})`
+            `this pack's own panel aspect ${c.panelW}/${c.panelH} (ratio ${panelRatio.toFixed(3)})`
         );
       } else {
-        console.log(`  ${c.href}: video ${c.videoW}x${c.videoH} matches bezel aspect ${c.declaredW}/${c.declaredH} (${(pctOff * 100).toFixed(1)}% off)`);
+        console.log(`  ${c.href}: video ${c.videoW}x${c.videoH} matches panel aspect ${c.panelW}/${c.panelH} (${(pctOff * 100).toFixed(1)}% off)`);
       }
     }
-    if (failures === 0) console.log("PASS: every card video's intrinsic dimensions match its own bezel aspect within 5%");
+    if (failures === 0) console.log("PASS: every card video's intrinsic dimensions match its pack's own panel aspect within 2%");
 
     await page.close();
   }
@@ -303,6 +307,59 @@ try {
     }
     await page.close();
     if (failures === 0) console.log("\nPASS: every run page's own assets, and the embedded emu bundle's internal assets, are cache-busted and resolve");
+  }
+
+  // ---- 4. agent-browsable surfaces (site/build.ts's buildAgentSurfaces):
+  // llms.txt, registry.json, the convention docs, and every app's
+  // descriptor.md all resolve 200 - the whole point of serving them raw
+  // is that an agent with only a URL can read the real files, so a build
+  // that silently 404s one is worse than not having the surface at all. --
+  {
+    const registry = JSON.parse(readFileSync(join(DIST, "registry.json"), "utf8")) as {
+      apps: { name: string }[];
+    };
+    const agentPaths = [
+      "llms.txt",
+      "registry.json",
+      "agents.html",
+      "docs/convention/device-pack.md",
+      "docs/convention/app-bundle.md",
+      ...registry.apps.map((a) => `apps/${a.name}/descriptor.md`),
+    ];
+    for (const p of agentPaths) {
+      if (await fetchOk(p)) console.log(`  /${p}: 200`);
+      else fail(`/${p} does not resolve 200`);
+    }
+    if (failures === 0) console.log("PASS: llms.txt, registry.json, agents.html, the convention docs, and every app's descriptor.md all resolve 200");
+  }
+
+  // ---- 5. markup's key-gated loader (site/build.ts's MARKUP_LOADER,
+  // embedded once in the shared page() template so every page gets it):
+  // present in the raw HTML of every page, and provably INERT on a plain
+  // load - a browser that never carries ?markup/?edit must never issue a
+  // single request toward markup.sylve.org. Request interception (not just
+  // reading the script's own source) is what actually proves "no network
+  // call", the same way this repo's own harness insists on a real proof
+  // over a claim in a comment. --------------------------------------------
+  {
+    const allPages = ["index.html", "agents.html", ...runPages.map((f) => `run/${f}`)];
+    for (const p of allPages) {
+      const html = await (await fetch(`http://127.0.0.1:${PORT}/${p}`)).text();
+      if (!html.includes("markup.sylve.org/markup.js")) fail(`${p}: no markup loader found in the served HTML`);
+    }
+    if (failures === 0) console.log(`PASS: markup's loader is present in all ${allPages.length} page(s)`);
+
+    const page = await browser.newPage();
+    let markupRequested = false;
+    page.on("request", (req) => {
+      if (req.url().includes("markup.sylve.org")) markupRequested = true;
+    });
+    for (const p of allPages) {
+      await page.goto(`http://127.0.0.1:${PORT}/${p}`, { waitUntil: "networkidle0" });
+    }
+    if (markupRequested) fail("a plain page load (no ?markup/?edit, no key) made a request toward markup.sylve.org - the loader is not inert");
+    else console.log(`PASS: no request toward markup.sylve.org across ${allPages.length} plain page load(s) - the loader is inert`);
+    await page.close();
   }
 
   if (failures === 0) {

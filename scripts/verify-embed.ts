@@ -132,6 +132,16 @@ try {
   if (!/rgba\(0, ?0, ?0, ?0\)|transparent/.test(stageBg)) fail(`embed mode: #stage still paints a background (${stageBg}), expected transparent`);
   console.log(`transparent as expected: #stage background (${stageBg})`);
 
+  // FIX 2's desktop-chip-hidden check: this script's own viewport never
+  // sets hasTouch/isMobile (defaults to a plain desktop viewport), so
+  // navigator.maxTouchPoints stays 0 and matchMedia("(pointer: coarse)")
+  // stays false - exactly the context main.ts's motion chip must never
+  // appear in, regardless of which module is loaded or whether it declares
+  // a vector sensor at all.
+  const chipPresent = await page.evaluate(() => document.querySelector("#motionChip") !== null);
+  if (chipPresent) fail("embed mode on a desktop (non-touch) viewport: the tilt-with-your-phone chip is present");
+  console.log("no tilt chip on a desktop viewport, as expected");
+
   // The device itself (bezel/panel) must still be visible.
   const deviceVisible = await page.evaluate(() => {
     const el = document.querySelector("#bezel");

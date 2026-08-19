@@ -1,0 +1,36 @@
+# puck
+
+Apps that travel between tiny computers: portable app bundles (a descriptor
+plus recorded input traces, independent of any one implementation) ported
+onto self-contained device packs (real firmware, a device.json an emulator
+reads at runtime), verified by a shared emulator and differential harness:
+pixel-exact frame diffs for a faithful port, stated behavioral invariants
+for an adaptation.
+
+This site (puck.sylve.org) is the gallery: every proven combination runs
+live in the browser, compiled to WebAssembly, and the reference RP2350
+firmware also flashes onto real hardware over WebUSB.
+
+## Machine-readable surfaces on this domain
+
+- /registry.json: local paths and external URLs for every device pack and app bundle this repo knows about.
+- /docs/convention/device-pack.md: what a device pack must contain.
+- /docs/convention/app-bundle.md: what an app bundle (descriptor + traces) must contain.
+- /apps/<name>/descriptor.md: the portable descriptor for each proven app (chrono, fluidbox).
+- https://github.com/s0lness/puck: the repository itself, MIT licensed.
+
+## Consuming a pack or app as an agent
+
+1. git clone https://github.com/s0lness/puck
+2. Read docs/convention/device-pack.md and docs/convention/app-bundle.md.
+3. Pick a target device pack from registry.json; read its own AGENTS.md and device.json.
+4. Pick an app from registry.json; read its descriptor.md and bundle.json (provenPacks, portMode, verification).
+5. Give a verdict against the target pack's device.json before writing any code: go, degraded, or refuse, stated plainly.
+6. Build: bun install, then bun run <pack>/wasm/build.ts (writes wasm/dist/emu.wasm), then bun run dev for http://127.0.0.1:5340.
+7. Verify: bun run harness:selftest proves the differential harness with no hardware; bun run harness/diff.ts <trace.json> --link <yourBoardLink.ts> replays a trace against real hardware and diffs the resulting frames.
+
+## Further reading
+
+- docs/harness.md: how the differential harness proves a port.
+- docs/abi.md: the ABI every firmware implements.
+- AGENTS.md: conventions and gotchas, repo root.

@@ -1537,6 +1537,10 @@ var SHAKE_COOLDOWN_MS = 800;
 function motionApisAvailable() {
   return window.DeviceMotionEvent !== undefined || window.DeviceOrientationEvent !== undefined;
 }
+function isTouchCapable() {
+  const coarse = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+  return coarse || navigator.maxTouchPoints > 0;
+}
 function permissionRequesters() {
   const out = [];
   const orientation = window.DeviceOrientationEvent;
@@ -1547,8 +1551,11 @@ function permissionRequesters() {
     out.push(() => motion.requestPermission());
   return out;
 }
-function deviceMotionToAbiGravity(x, y, z) {
-  return { x: -x / STANDARD_GRAVITY, y: -y / STANDARD_GRAVITY, z: -z / STANDARD_GRAVITY };
+function isIOSSafariMotion() {
+  return permissionRequesters().length > 0;
+}
+function mapAccelerationToVector(x, y, z, isIOS) {
+  return isIOS ? { x: x / STANDARD_GRAVITY, y: y / STANDARD_GRAVITY, z: z / STANDARD_GRAVITY } : { x: -x / STANDARD_GRAVITY, y: -y / STANDARD_GRAVITY, z: -z / STANDARD_GRAVITY };
 }
 function deviceOrientationToAbiGravity(betaDeg, gammaDeg) {
   const beta = betaDeg * Math.PI / 180;
@@ -1601,7 +1608,7 @@ class PhoneMotion {
   }
   onDeviceChanged(hasVector, hasShake) {
     this.hasShake = hasShake;
-    const eligible = this.opts.embed && hasVector && motionApisAvailable();
+    const eligible = this.opts.embed && hasVector && motionApisAvailable() && isTouchCapable();
     if (!eligible) {
       this.unmount();
       return;
@@ -1747,7 +1754,7 @@ class PhoneMotion {
     const raw = event.accelerationIncludingGravity;
     if (raw && raw.x !== null && raw.y !== null && raw.z !== null) {
       this.motionReadingSeen = true;
-      this.ingestMotion(deviceMotionToAbiGravity(raw.x, raw.y, raw.z), event.timeStamp);
+      this.ingestMotion(mapAccelerationToVector(raw.x, raw.y, raw.z, isIOSSafariMotion()), event.timeStamp);
     } else if (this.lastOrientation) {
       this.ingestGravity(this.lastOrientation, event.timeStamp);
     }
@@ -1800,6 +1807,124 @@ class PhoneMotion {
       const panel = composePhoneVector(this.latest, screenOrientationDeg(), this.opts.getQuickDeg());
       this.opts.sendVector(panel.x, panel.y, panel.z, "phone tilt");
     });
+  }
+}
+var DRAG_MAX_RADIUS_PX = 40;
+var DRAG_MAX_TILT_DEG = 60;
+var DRAG_SPRING_MS = 200;
+function clamp3(v, lo, hi) {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+function easeOutCubic(t) {
+  const u = 1 - t;
+  return 1 - u * u * u;
+}
+
+class DragMotion {
+  opts;
+  capturing = false;
+  activePointerId = null;
+  startX = 0;
+  startY = 0;
+  offsetX = 0;
+  offsetY = 0;
+  lastVector = { x: 0, y: 1, z: 0 };
+  springRaf = 0;
+  constructor(opts) {
+    this.opts = opts;
+    opts.bezel.addEventListener("pointerdown", this.onPointerDown);
+    opts.bezel.addEventListener("pointermove", this.onPointerMove);
+    opts.bezel.addEventListener("pointerup", this.onPointerUp);
+    opts.bezel.addEventListener("pointercancel", this.onPointerUp);
+  }
+  baselineVector() {
+    return composeViewVectorWithQuickDeg({ x: 0, y: 1, z: 0 }, this.opts.getQuickDeg());
+  }
+  onPointerDown = (e) => {
+    if (e.target !== this.opts.bezel)
+      return;
+    if (isTouchCapable())
+      return;
+    if (!this.opts.isEligible() || !(this.opts.hasVector() || this.opts.hasShake()))
+      return;
+    if (this.springRaf) {
+      cancelAnimationFrame(this.springRaf);
+      this.springRaf = 0;
+    }
+    this.capturing = true;
+    this.activePointerId = e.pointerId;
+    this.startX = e.clientX;
+    this.startY = e.clientY;
+    this.opts.bezel.setPointerCapture(e.pointerId);
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    this.updateFromClient(e.clientX, e.clientY, performance.now());
+  };
+  onPointerMove = (e) => {
+    if (!this.capturing || e.pointerId !== this.activePointerId)
+      return;
+    e.stopImmediatePropagation();
+    this.updateFromClient(e.clientX, e.clientY, performance.now());
+  };
+  onPointerUp = (e) => {
+    if (!this.capturing || e.pointerId !== this.activePointerId)
+      return;
+    e.stopImmediatePropagation();
+    this.capturing = false;
+    this.activePointerId = null;
+    this.springBack();
+  };
+  updateFromClient(clientX, clientY, now) {
+    const dx = clientX - this.startX;
+    const dy = clientY - this.startY;
+    const dist = Math.hypot(dx, dy);
+    const clamped = Math.min(dist, DRAG_MAX_RADIUS_PX);
+    const ux = dist > 0 ? dx / dist : 0;
+    const uy = dist > 0 ? dy / dist : 0;
+    this.offsetX = ux * clamped;
+    this.offsetY = uy * clamped;
+    this.opts.onOffsetChanged(this.offsetX, this.offsetY);
+    if (this.opts.hasVector()) {
+      const ratio = clamped / DRAG_MAX_RADIUS_PX;
+      const tilt = ratio * DRAG_MAX_TILT_DEG * Math.PI / 180;
+      const view = { x: Math.sin(tilt) * ux, y: Math.cos(tilt), z: Math.sin(tilt) * uy };
+      this.lastVector = composeViewVectorWithQuickDeg(view, this.opts.getQuickDeg());
+      this.opts.sendVector(this.lastVector.x, this.lastVector.y, this.lastVector.z, "drag tilt");
+    }
+    if (this.opts.hasShake() && this.opts.pollDragShake(clientX, clientY, now, false)) {
+      this.opts.fireShake(now, "drag shake");
+    }
+  }
+  springBack() {
+    const fromX = this.offsetX;
+    const fromY = this.offsetY;
+    const fromVector = this.lastVector;
+    const toVector = this.baselineVector();
+    const start = performance.now();
+    const step = (now) => {
+      const t = clamp3((now - start) / DRAG_SPRING_MS, 0, 1);
+      const eased = easeOutCubic(t);
+      this.offsetX = lerp(fromX, 0, eased);
+      this.offsetY = lerp(fromY, 0, eased);
+      this.opts.onOffsetChanged(this.offsetX, this.offsetY);
+      if (this.opts.hasVector()) {
+        this.lastVector = {
+          x: lerp(fromVector.x, toVector.x, eased),
+          y: lerp(fromVector.y, toVector.y, eased),
+          z: lerp(fromVector.z, toVector.z, eased)
+        };
+        this.opts.sendVector(this.lastVector.x, this.lastVector.y, this.lastVector.z, "drag tilt release");
+      }
+      if (t < 1) {
+        this.springRaf = requestAnimationFrame(step);
+      } else {
+        this.springRaf = 0;
+      }
+    };
+    this.springRaf = requestAnimationFrame(step);
   }
 }
 
@@ -1859,6 +1984,8 @@ var liveTouch = { fingers: 0, x: 0, y: 0 };
 var pointerIdDown = null;
 var quickDeg = 0;
 var tiltDeg = 0;
+var dragOffsetX = 0;
+var dragOffsetY = 0;
 var phoneMotion = new PhoneMotion({
   embed: EMBED,
   stage: stageEl,
@@ -1867,6 +1994,20 @@ var phoneMotion = new PhoneMotion({
   fireShake: (now, source) => fireShakeSensor(now, source),
   onLayoutChanged: () => fitDeviceToStage(),
   onOwnershipReleased: () => sendGravityForRotation()
+});
+var dragMotion = new DragMotion({
+  bezel: bezelEl,
+  getQuickDeg: () => quickDeg,
+  sendVector: (x, y, z, source) => sendVector(x, y, z, source),
+  fireShake: (now, source) => fireShakeSensor(now, source),
+  pollDragShake: (x, y, now, suppressed) => puckDragShake.poll(x, y, now, suppressed),
+  isEligible: () => EMBED && !phoneMotion.isActive(),
+  hasVector: () => vectorSensorIndices.length > 0,
+  hasShake: () => shakeSensorIndex >= 0,
+  onOffsetChanged: (dx, dy) => {
+    dragOffsetX = dx;
+    dragOffsetY = dy;
+  }
 });
 var wiredButtons = [];
 var wiredButtonById = new Map;
@@ -2484,7 +2625,7 @@ function frame() {
   }
   pollWindowShake(now);
   puckMotion.tick(window.screenX, window.screenY, now);
-  applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX, puckMotion.offsetY);
+  applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX + dragOffsetX, puckMotion.offsetY + dragOffsetY);
   updateDiagStrip();
   requestAnimationFrame(frame);
 }
@@ -2508,7 +2649,7 @@ var QUICK_ROT_ORDER = [0, 90, 180, -90];
 function setQuickRotation(deg) {
   quickDeg = deg;
   $("#rotQuick").querySelectorAll("button").forEach((x) => x.classList.toggle("active", Number(x.dataset.deg) === deg));
-  applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX, puckMotion.offsetY);
+  applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX + dragOffsetX, puckMotion.offsetY + dragOffsetY);
   phoneMotion.onQuickRotationChanged();
   sendGravityForRotation();
   fitDeviceToStage();

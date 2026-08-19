@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>puck: for an agent</title>
+<meta name="description" content="What this site is, its machine-readable surfaces (registry.json, convention docs, app descriptors), and how an agent consumes a pack or app." />
+<meta property="og:title" content="puck: for an agent" />
+<meta property="og:description" content="What this site is, its machine-readable surfaces (registry.json, convention docs, app descriptors), and how an agent consumes a pack or app." />
+<meta property="og:type" content="website" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%2214%22%20fill%3D%22%232f6feb%22%2F%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%225%22%20fill%3D%22%23fafafa%22%2F%3E%3C%2Fsvg%3E" />
+<link rel="stylesheet" href="styles.css?v=a5a8f0da18" />
+</head>
+<body>
+<div class="wrap">
+  <div class="run-header">
+    <div class="back"><a href="index.html">&larr; puck</a></div>
+    <h1>puck, for an agent</h1>
+    <p class="meta">the same content as <a href="llms.txt?v=8a2ff4ed27">/llms.txt</a>, in HTML</p>
+  </div>
+  <section>
+    <div class="wrap" style="padding:0">
+      <h2>machine-readable surfaces</h2>
+      <ul class="agent-links">
+        <li><a href="registry.json?v=1f11884c7c">registry.json</a>: local paths and external URLs for every device pack and app bundle.</li>
+        <li><a href="docs/convention/device-pack.md?v=f196164814">docs/convention/device-pack.md</a></li>
+        <li><a href="docs/convention/app-bundle.md?v=2901ba39cf">docs/convention/app-bundle.md</a></li>
+        <li><a href="apps/chrono/descriptor.md?v=7818c482fb">apps/chrono/descriptor.md</a></li>
+        <li><a href="apps/fluidbox/descriptor.md?v=f378793c92">apps/fluidbox/descriptor.md</a></li>
+        <li><a href="https://github.com/s0lness/puck/blob/master/README.md">github.com/s0lness/puck</a>, MIT licensed.</li>
+      </ul>
+      <pre class="agent-doc"># puck
+
+Apps that travel between tiny computers: portable app bundles (a descriptor
+plus recorded input traces, independent of any one implementation) ported
+onto self-contained device packs (real firmware, a device.json an emulator
+reads at runtime), verified by a shared emulator and differential harness:
+pixel-exact frame diffs for a faithful port, stated behavioral invariants
+for an adaptation.
+
+This site (puck.sylve.org) is the gallery: every proven combination runs
+live in the browser, compiled to WebAssembly, and the reference RP2350
+firmware also flashes onto real hardware over WebUSB.
+
+## Machine-readable surfaces on this domain
+
+- /registry.json: local paths and external URLs for every device pack and app bundle this repo knows about.
+- /docs/convention/device-pack.md: what a device pack must contain.
+- /docs/convention/app-bundle.md: what an app bundle (descriptor + traces) must contain.
+- /apps/&lt;name&gt;/descriptor.md: the portable descriptor for each proven app (chrono, fluidbox).
+- https://github.com/s0lness/puck: the repository itself, MIT licensed.
+
+## Consuming a pack or app as an agent
+
+1. git clone https://github.com/s0lness/puck
+2. Read docs/convention/device-pack.md and docs/convention/app-bundle.md.
+3. Pick a target device pack from registry.json; read its own AGENTS.md and device.json.
+4. Pick an app from registry.json; read its descriptor.md and bundle.json (provenPacks, portMode, verification).
+5. Give a verdict against the target pack&#39;s device.json before writing any code: go, degraded, or refuse, stated plainly.
+6. Build: bun install, then bun run &lt;pack&gt;/wasm/build.ts (writes wasm/dist/emu.wasm), then bun run dev for http://127.0.0.1:5340.
+7. Verify: bun run harness:selftest proves the differential harness with no hardware; bun run harness/diff.ts &lt;trace.json&gt; --link &lt;yourBoardLink.ts&gt; replays a trace against real hardware and diffs the resulting frames.
+
+## Further reading
+
+- docs/harness.md: how the differential harness proves a port.
+- docs/abi.md: the ABI every firmware implements.
+- AGENTS.md: conventions and gotchas, repo root.
+</pre>
+    </div>
+  </section>
+  <footer>
+    <div class="wrap" style="padding:0">
+      <a href="https://github.com/s0lness/puck/blob/master/README.md">s0lness/puck</a> on GitHub, MIT licensed.
+      &middot; <a href="agents.html">agents</a>
+    </div>
+  </footer>
+</div>
+<script>/* markup: visual-feedback overlay, only for a browser holding the key */(function(){if(!(/[?&](markup|edit)([=&]|$)/.test(location.search)||sessionStorage.getItem("markup-on")))return;var m=/[#&]k=([A-Za-z0-9_-]+)/.exec(location.hash),k=null;try{if(m)localStorage.setItem("markup-key",m[1]);k=localStorage.getItem("markup-key")}catch(e){}var local=location.hostname==="localhost"||location.hostname==="127.0.0.1";if(!k&&!local)return;document.head.appendChild(Object.assign(document.createElement("script"),{src:"https://markup.sylve.org/markup.js"}))})()</script>
+</body>
+</html>

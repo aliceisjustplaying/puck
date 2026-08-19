@@ -30,6 +30,17 @@ function motionApisAvailable(): boolean {
   return window.DeviceMotionEvent !== undefined || window.DeviceOrientationEvent !== undefined;
 }
 
+// Coarse pointer (a touch digitizer) or a nonzero touch-point count: the
+// chip is a "tilt with your PHONE" control, and a desktop browser that
+// merely exposes DeviceOrientationEvent/DeviceMotionEvent in the global
+// scope (Chrome does, unconditionally, with no sensor behind it) must not
+// be offered a control it cannot honour. Checked alongside
+// motionApisAvailable() in onDeviceChanged below, never instead of it.
+function isTouchCapable(): boolean {
+  const coarse = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+  return coarse || navigator.maxTouchPoints > 0;
+}
+
 function permissionRequesters(): (() => Promise<string>)[] {
   const out: (() => Promise<string>)[] = [];
   const orientation = window.DeviceOrientationEvent as typeof DeviceOrientationEvent & PermissionEventConstructor;
@@ -39,13 +50,59 @@ function permissionRequesters(): (() => Promise<string>)[] {
   return out;
 }
 
+// The only reliable feature signal for "this is iOS Safari" available to a
+// web page: requestPermission() is a permission-gate API iOS Safari alone
+// exposes on these two constructors (see permissionRequesters above, which
+// this reuses rather than re-deriving the same check a second way).
+function isIOSSafariMotion(): boolean {
+  return permissionRequesters().length > 0;
+}
+
+// iOS Safari and the W3C spec (the convention Android/Chrome follow) report
+// accelerationIncludingGravity with OPPOSITE signs for the exact same
+// physical pose:
+//   - spec/Android: the accelerometer reports the SUPPORT FORCE holding the
+//     device up against gravity, i.e. its reading is sign-flipped relative
+//     to gravity's own direction (the harder gravity pulls one way, the
+//     harder the reaction pushes back the other way).
+//   - iOS Safari: reports gravity's direction directly, no flip.
+// So for the same physical pose, iOS's raw reading is always the negative
+// of what spec/Android would report. Two calibration anchors, worked out
+// under both conventions, both required to land on the SAME ABI vector
+// (docs/abi.md's emu_sensor_vector convention: x right, y down the panel,
+// z into the screen):
+//   - flat, face-up on a table (gravity pulls straight down, into the
+//     table -> ABI target (0, 0, -1)): spec/Android raw ~= (0, 0, +g) (the
+//     table pushes back up, out through the glass); iOS raw ~= (0, 0, -g)
+//     (gravity's own direction, into the table).
+//   - upright, screen facing the user (gravity pulls straight down the
+//     phone's Y axis -> ABI target (0, 1, 0)): spec/Android raw ~=
+//     (0, -g, 0) (the reaction pushes back toward the top of the screen);
+//     iOS raw ~= (0, +g, 0) (gravity's own direction, toward the bottom).
+// The spec/Android path already negates once to turn its support-force
+// reading into the target gravity vector (raw (0,0,+g) -> negate -> (0,0,-1),
+// raw (0,-g,0) -> negate -> (0,1,0)). Negating iOS's ALREADY gravity-direct
+// reading a second time flips it back the wrong way (raw (0,0,-g) would
+// negate to (0,0,+1), and raw (0,+g,0) to (0,-1,0)) - exactly "tilting
+// right pours left", Sylve's real-iPhone report. So the iOS branch skips
+// the negation entirely: dividing straight through by g already lands on
+// the same, correct target vector negation was there to produce.
+export function mapAccelerationToVector(x: number, y: number, z: number, isIOS: boolean): Vector3 {
+  return isIOS
+    ? { x: x / STANDARD_GRAVITY, y: y / STANDARD_GRAVITY, z: z / STANDARD_GRAVITY }
+    : { x: -x / STANDARD_GRAVITY, y: -y / STANDARD_GRAVITY, z: -z / STANDARD_GRAVITY };
+}
+
 // DeviceMotion uses x right, y toward the top of the natural portrait
-// screen, and z out through the glass. accelerationIncludingGravity is the
-// accelerometer's support-force reading, opposite the gravity direction we
-// need. Negating all three axes therefore gives the ABI anchors directly:
-// face-up is (0, 0, -1), and upright portrait is (0, 1, 0).
+// screen, and z out through the glass. Convenience wrapper over
+// mapAccelerationToVector, pinned to the spec/Android convention (isIOS =
+// false): kept as its own export because scripts/verify-motion.ts calls it
+// directly, OUTSIDE a browser (there is no `window` there to feature-detect
+// against), to predict the panel gravity its synthetic devicemotion events
+// should produce - see this file's onDeviceMotion handler below for the
+// real, convention-detecting call site a live page actually uses.
 export function deviceMotionToAbiGravity(x: number, y: number, z: number): Vector3 {
-  return { x: -x / STANDARD_GRAVITY, y: -y / STANDARD_GRAVITY, z: -z / STANDARD_GRAVITY };
+  return mapAccelerationToVector(x, y, z, false);
 }
 
 // DeviceOrientation's beta/gamma angles are a lower-fidelity fallback for
@@ -108,7 +165,7 @@ export class PhoneMotion {
 
   onDeviceChanged(hasVector: boolean, hasShake: boolean): void {
     this.hasShake = hasShake;
-    const eligible = this.opts.embed && hasVector && motionApisAvailable();
+    const eligible = this.opts.embed && hasVector && motionApisAvailable() && isTouchCapable();
     if (!eligible) {
       this.unmount();
       return;
@@ -264,7 +321,7 @@ export class PhoneMotion {
     const raw = event.accelerationIncludingGravity;
     if (raw && raw.x !== null && raw.y !== null && raw.z !== null) {
       this.motionReadingSeen = true;
-      this.ingestMotion(deviceMotionToAbiGravity(raw.x, raw.y, raw.z), event.timeStamp);
+      this.ingestMotion(mapAccelerationToVector(raw.x, raw.y, raw.z, isIOSSafariMotion()), event.timeStamp);
     } else if (this.lastOrientation) {
       this.ingestGravity(this.lastOrientation, event.timeStamp);
     }
@@ -315,5 +372,186 @@ export class PhoneMotion {
       const panel = composePhoneVector(this.latest, screenOrientationDeg(), this.opts.getQuickDeg());
       this.opts.sendVector(panel.x, panel.y, panel.z, "phone tilt");
     });
+  }
+}
+
+// ---- desktop drag-as-accelerometer -----------------------------------
+// On a fine (non-touch) pointer, in embed mode, with no real phone
+// streaming its own motion (that always wins - see isEligible below),
+// grabbing the device BEZEL - never the panel, which is the app's own
+// input surface (main.ts's wirePanelInput) and must never be intercepted -
+// and dragging it simulates the phone's accelerometer, like a pendulum:
+// the bounded on-screen displacement becomes a tilt angle, composed
+// through the exact same view-rotation math PhoneMotion already uses
+// (composeViewVectorWithQuickDeg, rotate.ts) and delivered through the
+// exact same sendVector path passed in via opts - never a second, forked
+// vector-sending path.
+//
+// This class owns the bezel's own pointerdown/move/up/cancel listeners and,
+// only for a gesture it decides to claim (see onPointerDown below), calls
+// stopImmediatePropagation() to keep device.ts's makeDraggable listener -
+// registered on the SAME bezel element, afterwards, in main.ts's
+// wireStaticUI - from also reacting to the same gesture as a free,
+// unbounded reposition. The two behaviours must never both apply to one
+// drag. Every gesture this class does not claim (dev UI, touch, real phone
+// motion already streaming, a device with neither a vector nor a shake
+// sensor declared) is left completely untouched: the event is never even
+// looked at, and makeDraggable's own existing behaviour is exactly what
+// runs, byte for byte the same as before this class existed. The one
+// accepted side effect of claiming a gesture: stopImmediatePropagation also
+// keeps it from bubbling to main.ts's document-level audio-unlock listener,
+// which is fine, since that unlock is idempotent and only ever needs ANY
+// one gesture to have happened, not specifically this one.
+const DRAG_MAX_RADIUS_PX = 40;
+const DRAG_MAX_TILT_DEG = 60;
+const DRAG_SPRING_MS = 200;
+
+export interface DragMotionOptions {
+  bezel: HTMLElement;
+  getQuickDeg: () => number;
+  sendVector: (x: number, y: number, z: number, source: string) => void;
+  fireShake: (now: number, source: string) => void;
+  // Shares main.ts's own puckDragShake WindowShakeDetector instance (and,
+  // critically, its cooldown) rather than standing up a second, independent
+  // timer for what is fundamentally the same "fast back-and-forth drag"
+  // gesture the dev UI's own free bezel drag already detects.
+  pollDragShake: (clientX: number, clientY: number, now: number, suppressed: boolean) => boolean;
+  isEligible: () => boolean; // embed mode, and no real phone motion currently streaming
+  hasVector: () => boolean;
+  hasShake: () => boolean;
+  onOffsetChanged: (dx: number, dy: number) => void; // bounded, px - feeds main.ts's applyRotation
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+function easeOutCubic(t: number): number {
+  const u = 1 - t;
+  return 1 - u * u * u;
+}
+
+export class DragMotion {
+  private capturing = false;
+  private activePointerId: number | null = null;
+  private startX = 0;
+  private startY = 0;
+  private offsetX = 0;
+  private offsetY = 0;
+  private lastVector: Vector3 = { x: 0, y: 1, z: 0 };
+  private springRaf = 0;
+
+  constructor(private readonly opts: DragMotionOptions) {
+    opts.bezel.addEventListener("pointerdown", this.onPointerDown);
+    opts.bezel.addEventListener("pointermove", this.onPointerMove);
+    opts.bezel.addEventListener("pointerup", this.onPointerUp);
+    opts.bezel.addEventListener("pointercancel", this.onPointerUp);
+  }
+
+  // The view-space vector the panel rests at when nobody is dragging: the
+  // same (0,1,0) upright anchor PhoneMotion's own calibration uses,
+  // composed through the current rotation - identical to what
+  // main.ts's sendGravityForRotation/gravityForQuickDeg already send, just
+  // expressed through composeViewVectorWithQuickDeg directly since that is
+  // the one math path this whole feature is required to share.
+  private baselineVector(): Vector3 {
+    return composeViewVectorWithQuickDeg({ x: 0, y: 1, z: 0 }, this.opts.getQuickDeg());
+  }
+
+  private readonly onPointerDown = (e: PointerEvent): void => {
+    if (e.target !== this.opts.bezel) return; // bare plastic only, exactly device.ts's own makeDraggable rule
+    if (isTouchCapable()) return; // fine pointer only - a touch drag is the dev UI's plain free-drag, untouched
+    if (!this.opts.isEligible() || !(this.opts.hasVector() || this.opts.hasShake())) return;
+    if (this.springRaf) {
+      cancelAnimationFrame(this.springRaf);
+      this.springRaf = 0;
+    }
+    this.capturing = true;
+    this.activePointerId = e.pointerId;
+    this.startX = e.clientX;
+    this.startY = e.clientY;
+    this.opts.bezel.setPointerCapture(e.pointerId);
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    this.updateFromClient(e.clientX, e.clientY, performance.now());
+  };
+
+  private readonly onPointerMove = (e: PointerEvent): void => {
+    if (!this.capturing || e.pointerId !== this.activePointerId) return;
+    e.stopImmediatePropagation();
+    this.updateFromClient(e.clientX, e.clientY, performance.now());
+  };
+
+  private readonly onPointerUp = (e: PointerEvent): void => {
+    if (!this.capturing || e.pointerId !== this.activePointerId) return;
+    e.stopImmediatePropagation();
+    this.capturing = false;
+    this.activePointerId = null;
+    this.springBack();
+  };
+
+  private updateFromClient(clientX: number, clientY: number, now: number): void {
+    const dx = clientX - this.startX;
+    const dy = clientY - this.startY;
+    const dist = Math.hypot(dx, dy);
+    const clamped = Math.min(dist, DRAG_MAX_RADIUS_PX);
+    const ux = dist > 0 ? dx / dist : 0;
+    const uy = dist > 0 ? dy / dist : 0;
+    this.offsetX = ux * clamped;
+    this.offsetY = uy * clamped;
+    this.opts.onOffsetChanged(this.offsetX, this.offsetY);
+
+    if (this.opts.hasVector()) {
+      const ratio = clamped / DRAG_MAX_RADIUS_PX;
+      const tilt = (ratio * DRAG_MAX_TILT_DEG * Math.PI) / 180;
+      // A pendulum: the baseline "hanging straight down" view vector
+      // (0,1,0) tilted toward the drag direction - sideways drag (ux)
+      // swings gravity into the panel's x axis, up/down drag (uy) swings
+      // it into z (forward/back, the same axis the flat-face-up anchor
+      // uses), and y shrinks as the pendulum swings away from straight
+      // down. Composed through composeViewVectorWithQuickDeg exactly like
+      // every other view-space vector this file produces.
+      const view: Vector3 = { x: Math.sin(tilt) * ux, y: Math.cos(tilt), z: Math.sin(tilt) * uy };
+      this.lastVector = composeViewVectorWithQuickDeg(view, this.opts.getQuickDeg());
+      this.opts.sendVector(this.lastVector.x, this.lastVector.y, this.lastVector.z, "drag tilt");
+    }
+    if (this.opts.hasShake() && this.opts.pollDragShake(clientX, clientY, now, false)) {
+      this.opts.fireShake(now, "drag shake");
+    }
+  }
+
+  // Springs the visual offset back to centre and ramps the sent vector back
+  // to baseline over the SAME ~200ms window, eased - never a snap in either
+  // channel. Cancelled and restarted cleanly if a new drag begins mid-spring
+  // (onPointerDown above).
+  private springBack(): void {
+    const fromX = this.offsetX;
+    const fromY = this.offsetY;
+    const fromVector = this.lastVector;
+    const toVector = this.baselineVector();
+    const start = performance.now();
+    const step = (now: number): void => {
+      const t = clamp((now - start) / DRAG_SPRING_MS, 0, 1);
+      const eased = easeOutCubic(t);
+      this.offsetX = lerp(fromX, 0, eased);
+      this.offsetY = lerp(fromY, 0, eased);
+      this.opts.onOffsetChanged(this.offsetX, this.offsetY);
+      if (this.opts.hasVector()) {
+        this.lastVector = {
+          x: lerp(fromVector.x, toVector.x, eased),
+          y: lerp(fromVector.y, toVector.y, eased),
+          z: lerp(fromVector.z, toVector.z, eased),
+        };
+        this.opts.sendVector(this.lastVector.x, this.lastVector.y, this.lastVector.z, "drag tilt release");
+      }
+      if (t < 1) {
+        this.springRaf = requestAnimationFrame(step);
+      } else {
+        this.springRaf = 0;
+      }
+    };
+    this.springRaf = requestAnimationFrame(step);
   }
 }

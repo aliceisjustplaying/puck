@@ -1,6 +1,48 @@
 # puck
 
-A small touchscreen toy, and the tools that made it.
+Apps that travel between tiny computers.
+
+An app here is not tied to one implementation: it is a descriptor (what
+appears on screen, every interaction, its demands) plus recorded input
+traces, checkable independently of whichever C happens to run it. A device
+pack is a self-contained folder for one hardware target: real firmware,
+real drivers, a `device.json` an emulator can read at runtime, with
+nothing in the shared instrument naming a specific device. Porting an app
+to a pack starts with a verdict against that pack's own descriptor
+(`go`, `degraded`, or `refuse`, stated plainly), then an idiomatic
+implementation, then proof from the shared differential harness: a
+faithful port replays its traces and diffs frames pixel for pixel, an
+adaptation states behavioral invariants instead and gets checked against
+those.
+
+Two ports carry the convention. [`apps/chrono/`](apps/chrono/) is proven in
+both directions: a faithful, pixel-exact stopwatch on its native
+[RP2350 pack](packs/rp2350-touch-amoled-18/) and, unmodified in behavior, on
+an unrelated [ESP32-S3 pack](packs/esp32-s3-touch-amoled-18/).
+[`apps/fluidbox/`](apps/fluidbox/) goes the other way: ported down from a
+900-particle, dual-core donor to 130 particles on a single core, degraded
+by its own port notes, and verified by invariants rather than pixel
+identity.
+
+The gallery at [puck.sylve.org](https://puck.sylve.org) runs every proven
+combination live: the real firmware, compiled to WebAssembly, in the
+browser, no install and no mockup. From the same pages, the reference
+RP2350 firmware also flashes onto a real board over WebUSB, no separate
+tool, no serial driver to install.
+
+This repository has three connected surfaces.
+
+| | |
+|---|---|
+| the instrument | The device-agnostic emulator and differential verifier in `src/`, `harness/` and `wasm/`. |
+| **[`packs/rp2350-touch-amoled-18/`](packs/rp2350-touch-amoled-18/)** | A self-contained device pack. Real C for the Waveshare RP2350-Touch-AMOLED-1.8, plus its drivers, traps, checks and WebAssembly build. |
+| **[`apps/chrono/`](apps/chrono/)** | A portable app bundle. Its descriptor and traces define the stopwatch independently of one implementation. |
+
+The concrete formats are in [`docs/convention/`](docs/convention/), and
+[`registry.json`](registry.json) lists every local or externally hosted
+pack and app; an agent that wants to consume a pack or app straight from
+this repo (clone it, read the convention docs, no browser needed) can
+start at [puck.sylve.org/llms.txt](https://puck.sylve.org/llms.txt).
 
 ![Playing with the puck: picking the sketchpad from the menu, drawing a
 face, opening the colour palette and picking red, drawing again in red,
@@ -19,19 +61,13 @@ finger and its trail are the emulator's own touch-contact overlay; the two
 side buttons are its chrome, filling as a hold approaches its threshold.
 Everything else on the panel was drawn by the firmware.
 
-This repository has three connected surfaces.
-
-| | |
-|---|---|
-| the instrument | The device-agnostic emulator and differential verifier in `src/`, `harness/` and `wasm/`. |
-| **[`packs/rp2350-touch-amoled-18/`](packs/rp2350-touch-amoled-18/)** | A self-contained device pack. Real C for the Waveshare RP2350-Touch-AMOLED-1.8, plus its drivers, traps, checks and WebAssembly build. |
-| **[`apps/chrono/`](apps/chrono/)** | A portable app bundle. Its descriptor and traces define the stopwatch independently of one implementation. |
-
-**Just want it on your board?** Download the `.uf2` from
+**Just want it on your board?** Either open the chrono run page on
+[puck.sylve.org](https://puck.sylve.org) and click "Flash over USB" (Chrome
+or Edge, WebUSB, nothing to install), or download the `.uf2` from
 [Releases](../../releases), hold the upper side button, plug in the USB
 cable, and drag the file onto the drive that appears.
-[`packs/rp2350-touch-amoled-18/README.md`](packs/rp2350-touch-amoled-18/README.md) has the four steps in full, and what
-to do if it ever stops responding.
+[`packs/rp2350-touch-amoled-18/README.md`](packs/rp2350-touch-amoled-18/README.md) has the four manual steps in full,
+and what to do if the board ever stops responding.
 
 **Want to try it without buying anything?** `bun install && bun run
 pack:build && bun run dev` gives you the puck in a browser page. Same

@@ -28,7 +28,7 @@ import { type TouchSimConfig, TOUCHSIM_DEFAULTS, TOUCH_DEFECTS_DEFAULT } from ".
 import { WindowShakeDetector } from "./windowshake";
 import { PuckMotion } from "./puckmotion";
 import { SoundPlayer } from "./audio";
-import { PhoneMotion } from "./motion";
+import { PhoneMotion, DragMotion } from "./motion";
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
@@ -153,6 +153,12 @@ let pointerIdDown: number | null = null;
 // symmetric screen can look right at the wrong rotation and hide the bug.
 let quickDeg = 0;
 let tiltDeg = 0;
+// The bounded, spring-back visual offset DragMotion drives while the bezel
+// is being dragged as a desktop accelerometer (see that class's own header
+// comment in motion.ts) - added to puckMotion's own shake offset in frame()
+// below, the same additive composition applyRotation already expects.
+let dragOffsetX = 0;
+let dragOffsetY = 0;
 
 const phoneMotion = new PhoneMotion({
   embed: EMBED,
@@ -162,6 +168,26 @@ const phoneMotion = new PhoneMotion({
   fireShake: (now, source) => fireShakeSensor(now, source),
   onLayoutChanged: () => fitDeviceToStage(),
   onOwnershipReleased: () => sendGravityForRotation(),
+});
+
+// See motion.ts's DragMotion header comment for the full gating rationale
+// and why this constructs BEFORE wireStaticUI's own makeDraggable(bezelEl,
+// ...) call below (module top-level code runs before boot() calls
+// wireStaticUI, so this listener always registers first, which is what
+// lets its stopImmediatePropagation() actually pre-empt makeDraggable's).
+const dragMotion = new DragMotion({
+  bezel: bezelEl,
+  getQuickDeg: () => quickDeg,
+  sendVector: (x, y, z, source) => sendVector(x, y, z, source),
+  fireShake: (now, source) => fireShakeSensor(now, source),
+  pollDragShake: (x, y, now, suppressed) => puckDragShake.poll(x, y, now, suppressed),
+  isEligible: () => EMBED && !phoneMotion.isActive(),
+  hasVector: () => vectorSensorIndices.length > 0,
+  hasShake: () => shakeSensorIndex >= 0,
+  onOffsetChanged: (dx, dy) => {
+    dragOffsetX = dx;
+    dragOffsetY = dy;
+  },
 });
 
 let wiredButtons: WiredButton[] = [];
@@ -1097,7 +1123,7 @@ function frame(): void {
   }
   pollWindowShake(now);
   puckMotion.tick(window.screenX, window.screenY, now);
-  applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX, puckMotion.offsetY);
+  applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX + dragOffsetX, puckMotion.offsetY + dragOffsetY);
   updateDiagStrip();
   requestAnimationFrame(frame);
 }
@@ -1157,7 +1183,7 @@ function setQuickRotation(deg: number): void {
   $("#rotQuick")
     .querySelectorAll<HTMLButtonElement>("button")
     .forEach((x) => x.classList.toggle("active", Number(x.dataset.deg) === deg));
-  applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX, puckMotion.offsetY);
+  applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX + dragOffsetX, puckMotion.offsetY + dragOffsetY);
   phoneMotion.onQuickRotationChanged();
   sendGravityForRotation();
   fitDeviceToStage();

@@ -18,6 +18,9 @@ const MIME: Record<string, string> = {
   ".png": "image/png",
   ".mp4": "video/mp4",
   ".gif": "image/gif",
+  ".md": "text/markdown; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".json": "application/json",
 };
 
 // Serves `dist` (a directory, e.g. site/dist/) at "/" on 127.0.0.1:port -

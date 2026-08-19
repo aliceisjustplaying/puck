@@ -94,27 +94,138 @@ const packLabel = new Map<string, string>();
 // magic number per pack anyway).
 const packPanel = new Map<string, { w: number; h: number }>();
 const packHasVectorSensor = new Map<string, boolean>();
+// A device's own buttons (edge + fractional position along it), read from
+// the SAME device.json as panel/label above: what site/build.ts's own CSS
+// device frame (renderCardDevice, below) draws around the panel-only demo
+// video, so the détouré card reads as the same device the run page embeds
+// rather than a generic rounded rectangle. Real device geometry (nub
+// length/thickness/protrusion) mirrors src/device.ts's
+// BTN_LENGTH_PX/BTN_THICKNESS_PX/BTN_OFFSET_PX (restated below, same
+// "small enough that a shared constants module is more indirection than
+// the number" reasoning as BEZEL_PAD itself already documents).
+interface PackButton {
+  edge: "left" | "right" | "top" | "bottom";
+  at: number;
+}
+const packButtons = new Map<string, PackButton[]>();
 for (const p of registry.packs) {
   const device = readJson<{
     name?: string;
     panel?: { w: number; h: number };
     sensors?: { id: string; kind: string }[];
+    buttons?: { edge: "left" | "right" | "top" | "bottom"; at: number }[];
   }>(join(REPO_ROOT, p.path, "device.json"));
   packLabel.set(p.name, device.name || p.name);
   if (device.panel) packPanel.set(p.name, device.panel);
   packHasVectorSensor.set(p.name, (device.sensors || []).some((sensor) => sensor.kind === "vector"));
+  packButtons.set(p.name, (device.buttons || []).map((b) => ({ edge: b.edge, at: b.at })));
 }
 
 // src/app.css's --bezel-pad, and site/record-demos.ts's own BEZEL_PAD (same
 // source of truth, restated in each file since neither imports the other -
 // this repo's device geometry values are small enough that a shared
-// constants module would be more indirection than the number itself).
+// constants module would be more indirection than the number itself). Read
+// by cardDeviceGeometry below, which draws the landing cards' own CSS
+// device frame at this same proportion.
 const BEZEL_PAD = 18;
-function bezelSize(pack: string): { w: number; h: number } {
-  const panel = packPanel.get(pack);
-  const pw = panel?.w ?? 368;
-  const ph = panel?.h ?? 448;
-  return { w: pw + 2 * BEZEL_PAD, h: ph + 2 * BEZEL_PAD };
+// src/device.ts's own BTN_LENGTH_PX / BTN_THICKNESS_PX / BTN_OFFSET_PX (a
+// third restatement of the same small geometry constants, for the same
+// reason as BEZEL_PAD above): a button nub is 56px along its edge, 14px
+// thick, and protrudes 8px past the bezel's own edge. cardDeviceGeometry
+// below expresses all three as percentages of the card's own scaled
+// bezel box, so a button drawn at 260px wide still lands in the right
+// place relative to a button drawn at 40px wide.
+const BTN_LENGTH_PX = 56;
+const BTN_THICKNESS_PX = 14;
+const BTN_OFFSET_PX = 8;
+
+// The full on-page geometry for one détouré landing card: a device
+// silhouette (bezel + whatever button nubs protrude past its edges) drawn
+// entirely in CSS, with the recorded video filling only the rectangular
+// panel inside it. Every number here is a PERCENTAGE of some containing
+// box, never a pixel, so the same card renders correctly at any width a
+// responsive grid gives it - the actual recorded clip is cropped to
+// #panel alone (site/record-demos.ts), a plain rectangle with no
+// background pixels, so the only thing that can ever look
+// "not-detoure" is this CSS frame itself now, not a recording artifact.
+interface CardDeviceGeometry {
+  totalW: number; // silhouette bounding box, real px units (for aspect-ratio)
+  totalH: number;
+  bezelStyle: string; // left/top/width/height/border-radius, as inline CSS
+  panelStyle: string; // left/top/width/height/border-radius, as inline CSS, relative to the bezel box
+  buttonsHtml: string; // one <span class="card-btn"> per declared button
+  panelW: number; // real panel px, for the aspect-ratio sanity check a verify script does
+  panelH: number;
+}
+
+// Edge a button visually ends up on after the SAME -90deg (CCW) quarter
+// turn every chrono run page auto-applies (writeRunPage's own autoRotate,
+// site/record-demos.ts's chrono preroll clicking the same button) - a
+// physical rotation swaps which edge each side of the rectangle occupies:
+// picture a clock face turned 90deg counterclockwise, the mark at 3
+// o'clock (right) ends up at 12 (top), 12 ends up at 9 (left), and so on.
+// Exact left/right ORDER along the new edge is not preserved (not derived
+// here), which is fine: a .card-btn nub carries no label, so two
+// unlabelled nubs on the same edge read identically regardless of which
+// is which - only which EDGE they protrude from matters for "reads as the
+// same device."
+const EDGE_AFTER_QUICK_ROTATE: Record<PackButton["edge"], PackButton["edge"]> = {
+  right: "top",
+  top: "left",
+  left: "bottom",
+  bottom: "right",
+};
+
+function cardDeviceGeometry(pack: string, rotated: boolean): CardDeviceGeometry {
+  const rawPanel = packPanel.get(pack) || { w: 368, h: 448 };
+  // rotated: the card's own recorded clip is landscape (site/record-demos.ts's
+  // chrono preroll clicks the same -90deg quick-rotate the run page
+  // auto-applies, BEFORE the screencast starts), so the CSS frame drawn
+  // around it has to be landscape too, panel dimensions and button edges
+  // both swapped, or a landscape video would sit inside a portrait-shaped
+  // panel box.
+  const panel = rotated ? { w: rawPanel.h, h: rawPanel.w } : rawPanel;
+  const rawButtons = packButtons.get(pack) || [];
+  const buttons = rotated ? rawButtons.map((b) => ({ edge: EDGE_AFTER_QUICK_ROTATE[b.edge], at: b.at })) : rawButtons;
+  const bezelW = panel.w + 2 * BEZEL_PAD;
+  const bezelH = panel.h + 2 * BEZEL_PAD;
+  const hasEdge = (edge: PackButton["edge"]) => buttons.some((b) => b.edge === edge);
+  const extraLeft = hasEdge("left") ? BTN_OFFSET_PX : 0;
+  const extraRight = hasEdge("right") ? BTN_OFFSET_PX : 0;
+  const extraTop = hasEdge("top") ? BTN_OFFSET_PX : 0;
+  const extraBottom = hasEdge("bottom") ? BTN_OFFSET_PX : 0;
+  const totalW = bezelW + extraLeft + extraRight;
+  const totalH = bezelH + extraTop + extraBottom;
+
+  const pct = (n: number, denom: number) => `${((n / denom) * 100).toFixed(3)}%`;
+  // 34px / 6px are src/app.css's own .bezel / .panel border-radius at the
+  // reference RP2350 bezel width (404px) and panel width (368px); scaled
+  // by the SAME ratio here so a smaller instrument panel (example: 240px)
+  // still gets a proportionally similar corner, not a fixed pixel radius
+  // that would look sharp-cornered at card scale or blobby at full size.
+  const bezelRadius = pct(34, bezelW);
+  const panelRadius = pct(6, panel.w);
+
+  const bezelStyle = `left:${pct(extraLeft, totalW)};top:${pct(extraTop, totalH)};width:${pct(bezelW, totalW)};height:${pct(bezelH, totalH)};border-radius:${bezelRadius}`;
+  const panelStyle = `left:${pct(BEZEL_PAD, bezelW)};top:${pct(BEZEL_PAD, bezelH)};width:${pct(panel.w, bezelW)};height:${pct(panel.h, bezelH)};border-radius:${panelRadius}`;
+
+  const buttonsHtml = buttons
+    .map((b) => {
+      const alongEdge = b.edge === "left" || b.edge === "right";
+      const bezelAlongAxis = alongEdge ? bezelH : bezelW; // the axis the button's LENGTH runs along
+      const bezelAcrossAxis = alongEdge ? bezelW : bezelH; // the axis its THICKNESS runs along
+      const offset = Math.max(0, b.at) * Math.max(0, bezelAlongAxis - BTN_LENGTH_PX);
+      const along = pct(offset, bezelAlongAxis);
+      const length = pct(BTN_LENGTH_PX, bezelAlongAxis);
+      const thickness = pct(BTN_THICKNESS_PX, bezelAcrossAxis);
+      const protrusion = pct(-BTN_OFFSET_PX, bezelAcrossAxis); // negative: protrudes past the bezel's own edge, same sign src/device.ts's BTN_OFFSET_PX uses
+      return alongEdge
+        ? `<span class="card-btn" style="${b.edge}:${protrusion};top:${along};width:${thickness};height:${length}"></span>`
+        : `<span class="card-btn" style="${b.edge}:${protrusion};left:${along};height:${thickness};width:${length}"></span>`;
+    })
+    .join("");
+
+  return { totalW, totalH, bezelStyle, panelStyle, buttonsHtml, panelW: panel.w, panelH: panel.h };
 }
 
 interface AppEntry {
@@ -181,16 +292,27 @@ const INSTRUMENT_EXAMPLE = {
   args: [] as string[],
   doc: "example/firmware/main.c",
   panel: { w: 240, h: 240 },
+  // example/firmware/main.c's own emu_device() string literal (grepped, not
+  // guessed): button "a" right edge at 0.5 with an 800ms long press, "b"
+  // left edge at 0.5. Hand-restated here for the same reason the panel
+  // size above already is: example/ has no device.json for this file to
+  // read, and AGENTS.md's "nothing names one device" rule exempts example/
+  // by name for exactly this reason.
+  buttons: [
+    { edge: "right", at: 0.5 },
+    { edge: "left", at: 0.5 },
+  ] as PackButton[],
   blurb: "The instrument's own minimal reference firmware: a 240x240 panel, two buttons (one with a long-press verdict), a shake sensor, and a scripted two-button chord. Not a device pack, not a ported app - the smallest complete emu_device() implementation, and where a new firmware author starts.",
 };
-// Registered into the SAME two lookup maps every real pack uses (never into
+// Registered into the SAME lookup maps every real pack uses (never into
 // registry.packs itself, so it never appears in the proof matrix, which
 // iterates registry.packs specifically) - this is what lets writeRunPage/
-// embedFrameSize below treat "example" as just another pack id with no
-// special-casing of its own.
+// embedFrameSize/renderCardDevice below treat "example" as just another
+// pack id with no special-casing of its own.
 packLabel.set(INSTRUMENT_EXAMPLE.id, INSTRUMENT_EXAMPLE.name);
 packPanel.set(INSTRUMENT_EXAMPLE.id, INSTRUMENT_EXAMPLE.panel);
 packHasVectorSensor.set(INSTRUMENT_EXAMPLE.id, false);
+packButtons.set(INSTRUMENT_EXAMPLE.id, INSTRUMENT_EXAMPLE.buttons);
 
 // A fourth card that is not part of the proof matrix at all: the ESP32-S3
 // pack's own shipped reference app, included per this site's brief as a
@@ -423,18 +545,42 @@ const FAVICON_HREF = `data:image/svg+xml,${encodeURIComponent(FAVICON_SVG)}`;
 
 // One footer, everywhere: the index page and every run page end on the
 // same GitHub link + MIT note, rather than the index's own copy being the
-// only place a visitor sees it.
-const SITE_FOOTER = `<footer>
+// only place a visitor sees it. The "agents" link is set once ROOT_DEPTH_*
+// versions exist (see buildAgentSurfaces below) via patchFooterAgentsLink;
+// it starts unversioned so every page() call before that step still has a
+// working (if uncached) href rather than a dangling one.
+let AGENTS_HTML_VERSION = "";
+function siteFooter(depth: "" | "../"): string {
+  const href = `${depth}agents.html${AGENTS_HTML_VERSION ? `?v=${AGENTS_HTML_VERSION}` : ""}`;
+  return `<footer>
     <div class="wrap" style="padding:0">
       <a href="${gh("README.md")}">s0lness/puck</a> on GitHub, MIT licensed.
+      &middot; <a href="${href}">agents</a>
     </div>
   </footer>`;
+}
 
 // Set once styles.css is copied into DIST (see "run everything" below),
 // read by every page() call - index.html and every run page link the SAME
 // physical file, just at a different relative depth ("styles.css" vs
 // "../styles.css"), so one hash covers all of them.
 let STYLES_VERSION = "";
+
+// Markup's own key-gated loader (markup/scripts/install-loader.py's
+// SNIPPET, the same one gazette/public/*.html embeds verbatim): inert on a
+// plain load. It only ever runs past its first "return" when the URL
+// carries ?markup or ?edit (or a tab already opted in via
+// sessionStorage["markup-on"]), and only fetches markup.js past its
+// second "return" when a key is already in localStorage (seeded once from
+// a #k=<key> URL fragment) or the page is being served from localhost. No
+// key lives in this repo; Sylve's own key lives outside it entirely
+// (~/projects/.secrets.env), pasted into the URL once per device via
+// https://<site>/?edit#k=<key>. Deliberately backslash-free (a stray `\b`
+// once got mangled to a control byte through a shell and silently
+// disabled this, per markup's own AGENTS.md), and copied verbatim rather
+// than re-derived, so it never drifts from the version every other
+// s0lness site embeds.
+const MARKUP_LOADER = `<script>/* markup: visual-feedback overlay, only for a browser holding the key */(function(){if(!(/[?&](markup|edit)([=&]|$)/.test(location.search)||sessionStorage.getItem("markup-on")))return;var m=/[#&]k=([A-Za-z0-9_-]+)/.exec(location.hash),k=null;try{if(m)localStorage.setItem("markup-key",m[1]);k=localStorage.getItem("markup-key")}catch(e){}var local=location.hostname==="localhost"||location.hostname==="127.0.0.1";if(!k&&!local)return;document.head.appendChild(Object.assign(document.createElement("script"),{src:"https://markup.sylve.org/markup.js"}))})()</script>`;
 
 function page(title: string, description: string, stylesHref: string, body: string): string {
   return `<!doctype html>
@@ -452,6 +598,7 @@ function page(title: string, description: string, stylesHref: string, body: stri
 </head>
 <body>
 ${body}
+${MARKUP_LOADER}
 </body>
 </html>
 `;
@@ -484,47 +631,28 @@ function demoAssetHref(id: string, ext: string): string {
   return existsSync(filePath) ? withVersion(base, contentHashOf(filePath)) : base;
 }
 
-// The actual, on-disk poster PNG's own pixel dimensions - not a formula
-// computed from device.json's panel size, because that formula alone
-// cannot know a demo's RECORDED aspect: site/record-demos.ts crops to
-// #bezel's bounding box AT THE TIME OF RECORDING, which is landscape for
-// chrono (its run page auto-rotates -90deg, and the recording choreography
-// does the same before filming) and a rotation-spanning square for
-// fluidbox (its clip quick-rotates mid-recording, see record-demos.ts's
-// own unionRect comment) - reading the real file is the only way this
-// stays correct without this function silently drifting out of sync with
-// that script's own choreography. Bytes 16-20/20-24 of any PNG are its
-// IHDR width/height, big-endian, right after the 8-byte signature and the
-// 4-byte length + 4-byte "IHDR" tag - no need for a full chunk parser for
-// two fixed-offset integers.
-function pngDimensions(filePath: string): { w: number; h: number } | null {
-  if (!existsSync(filePath)) return null;
-  const buf = readFileSync(filePath);
-  if (buf.length < 24 || buf.toString("ascii", 12, 16) !== "IHDR") return null;
-  return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
-}
-
-// Falls back to the device.json-derived formula only when no recording
-// exists yet (a fresh clone before `bun run site:record-demos` has ever
-// run - copyDemoMedia's own warning already covers that case without
-// failing the build; this matches it with a plausible box instead of
-// crashing).
-function demoAspect(id: string, fallbackPack: string): { w: number; h: number } {
-  return pngDimensions(join(DIST, "assets", "demos", `${id}.png`)) || bezelSize(fallbackPack);
-}
-
-// bezel: the recorded clip's own aspect ratio (site/record-demos.ts crops
-// tightly to #bezel), set as this card's own inline aspect-ratio so the box
-// hugs the device with no letterboxing - a fixed 4/3 box (this rule's old
-// default, still used as a plain <img>/pre-recording fallback via CSS) is
-// close to nothing this instrument actually ships (every panel is either
-// portrait or square), and letterbox bars are exactly the "something else
-// around the device" this task's own brief says the card should not show.
-function demoThumb(id: string, alt: string, href: string, bezel: { w: number; h: number }): string {
-  return `<a class="thumb thumb-video" style="aspect-ratio:${bezel.w} / ${bezel.h}" href="${href}" aria-label="${escapeHtml(alt)}, open the live run page">
-    <video autoplay muted loop playsinline poster="${demoAssetHref(id, "png")}">
-      <source src="${demoAssetHref(id, "mp4")}" type="video/mp4" />
-    </video>
+// The card itself: a CSS device frame (cardDeviceGeometry above) sized by
+// the pack's own device.json, wrapping a video/poster/gif that were all
+// cropped to #panel alone (site/record-demos.ts) - never a plain video
+// filling the whole box. The outer link's own aspect-ratio is the
+// SILHOUETTE's (bezel + any protruding buttons), not the panel's, so the
+// button nubs have room to render without being clipped by the card's own
+// edge; the video only fills the inner .card-panel box, positioned by
+// cardDeviceGeometry's panelStyle. data-panel-w/-h on the <video> are what
+// scripts/verify-site-embeds.ts reads to confirm the recorded clip's own
+// intrinsic size actually matches this pack's panel aspect, independent of
+// whatever this function draws around it.
+function demoThumb(id: string, alt: string, href: string, pack: string, rotated: boolean): string {
+  const g = cardDeviceGeometry(pack, rotated);
+  return `<a class="thumb thumb-video" style="aspect-ratio:${g.totalW} / ${g.totalH}" href="${href}" aria-label="${escapeHtml(alt)}, open the live run page">
+    <span class="card-bezel" style="${g.bezelStyle}">
+      <span class="card-panel" style="${g.panelStyle}">
+        <video autoplay muted loop playsinline poster="${demoAssetHref(id, "png")}" data-panel-w="${g.panelW}" data-panel-h="${g.panelH}">
+          <source src="${demoAssetHref(id, "mp4")}" type="video/mp4" />
+        </video>
+      </span>
+      ${g.buttonsHtml}
+    </span>
     <noscript><img src="${demoAssetHref(id, "gif")}" alt="${escapeHtml(alt)}" /></noscript>
   </a>`;
 }
@@ -591,7 +719,7 @@ function buildIndexHtml(): void {
         .map((p) => `<span class="badge${p.degraded ? "" : " accent"}">${escapeHtml(modeLabel(p.mode))} · ${escapeHtml(p.verification)}</span>`)
         .join("");
       return `<div class="card">
-  ${demoThumb(primary.id, `${app.name} demo`, `run/${primary.id}.html`, demoAspect(primary.id, primary.pack))}
+  ${demoThumb(primary.id, `${app.name} demo`, `run/${primary.id}.html`, primary.pack, primary.app === "chrono")}
   <div class="body">
     <h3>${escapeHtml(app.name)}</h3>
     <p>${escapeHtml(APP_BLURB[app.name] || "")}</p>
@@ -646,7 +774,7 @@ function buildIndexHtml(): void {
   const refCardsHtml = refTiles
     .map(
       (r) => `<div class="ref-card">
-  ${demoThumb(r.id, `${r.title} demo`, `run/${r.id}.html`, demoAspect(r.id, r.pack))}
+  ${demoThumb(r.id, `${r.title} demo`, `run/${r.id}.html`, r.pack, false)}
   <h3>${escapeHtml(r.title)}</h3>
   <p>${escapeHtml(r.blurb)}</p>
   <div class="links"><a href="run/${r.id}.html">open full page</a> <a href="${r.docHref}">source</a></div>
@@ -719,7 +847,7 @@ ${refCardsHtml}
     </div>
   </section>
 
-  ${SITE_FOOTER}
+  ${siteFooter("")}
 </div>`;
 
   writeFileSync(
@@ -868,7 +996,7 @@ function buildRunDir(): void {
   <div class="run-footer"></div>
 
 ${flashSection}
-${SITE_FOOTER}
+${siteFooter("../")}
 </div>${flashScript}
 <script>
 (function () {
@@ -950,6 +1078,119 @@ ${SITE_FOOTER}
   });
 }
 
+// ---- agent-browsable surfaces: llms.txt, registry.json, convention docs,
+// each app's descriptor.md, and an HTML mirror (agents.html) -----------
+// docs/convention/*.md + registry.json + each app's descriptor.md are
+// already the machine-readable contract this repo asks a porting agent to
+// read BEFORE writing code (docs/convention/*.md's own "Porting flow"):
+// serving them raw under the same domain as the live gallery means an
+// agent with only a URL, not a git checkout, reads the real files, never
+// an LLM's paraphrase of them. Called from "run everything" below, before
+// buildRunDir()/buildIndexHtml() so AGENTS_HTML_VERSION (read by every
+// page's own footer, see siteFooter above) is already set by the time
+// those write anything.
+const AGENT_DOCS = ["docs/convention/device-pack.md", "docs/convention/app-bundle.md"];
+
+function buildAgentSurfaces(): void {
+  copyFileSync(join(REPO_ROOT, "registry.json"), join(DIST, "registry.json"));
+  console.log("copied -> site/dist/registry.json");
+
+  for (const rel of AGENT_DOCS) {
+    const outPath = join(DIST, rel);
+    mkdirSync(join(outPath, ".."), { recursive: true });
+    copyFileSync(join(REPO_ROOT, rel), outPath);
+    console.log(`copied -> site/dist/${rel}`);
+  }
+
+  const descriptorHrefs: { name: string; href: string }[] = [];
+  for (const app of apps) {
+    const outDir = join(DIST, "apps", app.name);
+    mkdirSync(outDir, { recursive: true });
+    const outPath = join(outDir, "descriptor.md");
+    copyFileSync(join(REPO_ROOT, app.path, "descriptor.md"), outPath);
+    descriptorHrefs.push({ name: app.name, href: withVersion(`apps/${app.name}/descriptor.md`, contentHashOf(outPath)) });
+    console.log(`copied -> site/dist/apps/${app.name}/descriptor.md`);
+  }
+  const registryHref = withVersion("registry.json", contentHashOf(join(DIST, "registry.json")));
+  const docHrefs = AGENT_DOCS.map((rel) => ({ rel, href: withVersion(rel, contentHashOf(join(DIST, rel))) }));
+
+  const llms = `# puck
+
+Apps that travel between tiny computers: portable app bundles (a descriptor
+plus recorded input traces, independent of any one implementation) ported
+onto self-contained device packs (real firmware, a device.json an emulator
+reads at runtime), verified by a shared emulator and differential harness:
+pixel-exact frame diffs for a faithful port, stated behavioral invariants
+for an adaptation.
+
+This site (puck.sylve.org) is the gallery: every proven combination runs
+live in the browser, compiled to WebAssembly, and the reference RP2350
+firmware also flashes onto real hardware over WebUSB.
+
+## Machine-readable surfaces on this domain
+
+- /registry.json: local paths and external URLs for every device pack and app bundle this repo knows about.
+- /docs/convention/device-pack.md: what a device pack must contain.
+- /docs/convention/app-bundle.md: what an app bundle (descriptor + traces) must contain.
+- /apps/<name>/descriptor.md: the portable descriptor for each proven app (chrono, fluidbox).
+- https://github.com/s0lness/puck: the repository itself, MIT licensed.
+
+## Consuming a pack or app as an agent
+
+1. git clone https://github.com/s0lness/puck
+2. Read docs/convention/device-pack.md and docs/convention/app-bundle.md.
+3. Pick a target device pack from registry.json; read its own AGENTS.md and device.json.
+4. Pick an app from registry.json; read its descriptor.md and bundle.json (provenPacks, portMode, verification).
+5. Give a verdict against the target pack's device.json before writing any code: go, degraded, or refuse, stated plainly.
+6. Build: bun install, then bun run <pack>/wasm/build.ts (writes wasm/dist/emu.wasm), then bun run dev for http://127.0.0.1:5340.
+7. Verify: bun run harness:selftest proves the differential harness with no hardware; bun run harness/diff.ts <trace.json> --link <yourBoardLink.ts> replays a trace against real hardware and diffs the resulting frames.
+
+## Further reading
+
+- docs/harness.md: how the differential harness proves a port.
+- docs/abi.md: the ABI every firmware implements.
+- AGENTS.md: conventions and gotchas, repo root.
+`;
+  writeFileSync(join(DIST, "llms.txt"), llms);
+  console.log("wrote -> site/dist/llms.txt");
+
+  const surfaceLinks = [
+    `<li><a href="${registryHref}">registry.json</a>: local paths and external URLs for every device pack and app bundle.</li>`,
+    ...docHrefs.map((d) => `<li><a href="${d.href}">${escapeHtml(d.rel)}</a></li>`),
+    ...descriptorHrefs.map((d) => `<li><a href="${d.href}">apps/${escapeHtml(d.name)}/descriptor.md</a></li>`),
+    `<li><a href="${gh("README.md")}">github.com/s0lness/puck</a>, MIT licensed.</li>`,
+  ].join("\n        ");
+
+  const agentsBody = `<div class="wrap">
+  <div class="run-header">
+    <div class="back"><a href="index.html">&larr; puck</a></div>
+    <h1>puck, for an agent</h1>
+    <p class="meta">the same content as <a href="${withVersion("llms.txt", contentHashOf(join(DIST, "llms.txt")))}">/llms.txt</a>, in HTML</p>
+  </div>
+  <section>
+    <div class="wrap" style="padding:0">
+      <h2>machine-readable surfaces</h2>
+      <ul class="agent-links">
+        ${surfaceLinks}
+      </ul>
+      <pre class="agent-doc">${escapeHtml(llms)}</pre>
+    </div>
+  </section>
+  ${siteFooter("")}
+</div>`;
+  writeFileSync(
+    join(DIST, "agents.html"),
+    page(
+      "puck: for an agent",
+      "What this site is, its machine-readable surfaces (registry.json, convention docs, app descriptors), and how an agent consumes a pack or app.",
+      "styles.css",
+      agentsBody
+    )
+  );
+  AGENTS_HTML_VERSION = contentHashOf(join(DIST, "agents.html"));
+  console.log("wrote -> site/dist/agents.html");
+}
+
 // ---- run everything -------------------------------------------------
 if (existsSync(DIST)) rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
@@ -969,6 +1210,7 @@ const DEMO_IDS = [
 ];
 copyDemoMedia(DEMO_IDS);
 await buildFlashUi();
+buildAgentSurfaces();
 buildRunDir();
 buildIndexHtml();
 
