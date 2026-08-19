@@ -28,6 +28,7 @@ import { type TouchSimConfig, TOUCHSIM_DEFAULTS, TOUCH_DEFECTS_DEFAULT } from ".
 import { WindowShakeDetector } from "./windowshake";
 import { PuckMotion } from "./puckmotion";
 import { SoundPlayer } from "./audio";
+import { PhoneMotion } from "./motion";
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
@@ -152,6 +153,16 @@ let pointerIdDown: number | null = null;
 // symmetric screen can look right at the wrong rotation and hide the bug.
 let quickDeg = 0;
 let tiltDeg = 0;
+
+const phoneMotion = new PhoneMotion({
+  embed: EMBED,
+  stage: stageEl,
+  getQuickDeg: () => quickDeg,
+  sendVector: (x, y, z, source) => sendVector(x, y, z, source),
+  fireShake: (now, source) => fireShakeSensor(now, source),
+  onLayoutChanged: () => fitDeviceToStage(),
+  onOwnershipReleased: () => sendGravityForRotation(),
+});
 
 let wiredButtons: WiredButton[] = [];
 // Keyed by the declared button id (DeviceButton.id), not array index: a
@@ -579,11 +590,12 @@ function buildChrome(d: DeviceDescriptor): void {
     appStripControl = buildAppStrip($("#appStrip"), d.apps || [], emu, guardedAbiCall);
   }
 
-  shakeSensorIndex = (d.sensors || []).findIndex((s) => s.id.toLowerCase() === "shake");
+  shakeSensorIndex = (d.sensors || []).findIndex((s) => s.kind === "event" && s.id.toLowerCase() === "shake");
   vectorSensorIndices = (d.sensors || []).reduce<number[]>((acc, s, i) => {
     if (s.kind === "vector") acc.push(i);
     return acc;
   }, []);
+  phoneMotion.onDeviceChanged(vectorSensorIndices.length > 0, shakeSensorIndex >= 0);
 
   touchEnabled = (d.touch?.points ?? 0) > 0;
   panelEl.style.cursor = touchEnabled ? "crosshair" : "default";
@@ -798,7 +810,8 @@ function fitDeviceToStage(): void {
   const boxW = quarterTurned ? bh : bw;
   const boxH = quarterTurned ? bw : bh;
   const margin = 16; // breathing room so the bezel's own drop-shadow never clips
-  const scale = Math.min(1, (stageRect.width - margin) / boxW, (stageRect.height - margin) / boxH);
+  const motionReserve = stageEl.classList.contains("motion-available") ? 44 : 0;
+  const scale = Math.min(1, (stageRect.width - margin) / boxW, (stageRect.height - margin - motionReserve) / boxH);
   deviceWrapEl.style.setProperty("--embed-scale", String(scale > 0 ? scale : 1));
 }
 
@@ -1115,15 +1128,20 @@ function frame(): void {
 // (bringUp below), so a fresh module always starts with a reading that
 // matches whatever rotation was already selected, rather than waiting for
 // the next click to correct it.
-function sendGravityForRotation(): void {
+function sendVector(x: number, y: number, z: number, source: string): void {
   if (!emu || !emu.emu_sensor_vector || vectorSensorIndices.length === 0) return;
-  const g = gravityForQuickDeg(quickDeg);
   for (const i of vectorSensorIndices) {
-    guardedAbiCall(`sensor[${i}] vector (rotation)`, (liveEmu) => {
-      liveEmu.emu_sensor_vector!(i, g.x, g.y, g.z);
-      recorder.record({ t: performance.now(), k: "vector", i, x: g.x, y: g.y, z: g.z });
+    guardedAbiCall(`sensor[${i}] vector (${source})`, (liveEmu) => {
+      liveEmu.emu_sensor_vector!(i, x, y, z);
+      recorder.record({ t: performance.now(), k: "vector", i, x, y, z });
     });
   }
+}
+
+function sendGravityForRotation(): void {
+  if (phoneMotion.isActive()) return;
+  const g = gravityForQuickDeg(quickDeg);
+  sendVector(g.x, g.y, g.z, "rotation");
 }
 
 // ---- quick rotation: the single place that actually applies a rotation
@@ -1140,6 +1158,7 @@ function setQuickRotation(deg: number): void {
     .querySelectorAll<HTMLButtonElement>("button")
     .forEach((x) => x.classList.toggle("active", Number(x.dataset.deg) === deg));
   applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX, puckMotion.offsetY);
+  phoneMotion.onQuickRotationChanged();
   sendGravityForRotation();
   fitDeviceToStage();
 }
@@ -1601,6 +1620,7 @@ async function boot(): Promise<void> {
   // rebuild.
   rebuildGestures: () => device && buildGestures(device),
   getSoundPlayer: () => soundPlayer,
+  getPhoneMotion: () => phoneMotion,
   // Engine-death state (see enterDeadState): exposed so the hostile-firmware
   // regression suite (test/hostile-firmware/) can assert on it directly
   // rather than only scraping banner text.

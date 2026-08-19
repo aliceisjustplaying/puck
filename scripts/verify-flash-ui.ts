@@ -20,6 +20,7 @@ import puppeteer from "puppeteer-core";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { serveDist } from "./staticSite";
+import { closeBrowser } from "./browserClose";
 
 const ROOT = join(import.meta.dir, "..");
 const DIST = join(ROOT, "site", "dist");
@@ -124,7 +125,7 @@ try {
 
     console.log("\nOK: flash UI verified.");
   } finally {
-    await browser.close();
+    await closeBrowser(browser);
   }
 } finally {
   server.stop(true);

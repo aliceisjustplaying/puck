@@ -465,3 +465,32 @@ html.embed .device-wrap {
   transform: translate(-50%, -50%) scale(var(--embed-scale, 1));
   transform-origin: center center;
 }
+
+/* Created only when the loaded descriptor has a vector sensor and this
+   browser exposes a phone-motion API. Space is reserved below the device
+   by main.ts's fitDeviceToStage, so the control never covers the panel or
+   its physical buttons. Nothing here applies to the plain dev UI. */
+html.embed .stage.motion-available .device-wrap { top: calc(50% - 20px); }
+html.embed .motion-chip {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  border: 1px solid var(--border-soft);
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+html.embed .motion-chip.active {
+  color: var(--accent-dark);
+  background: var(--accent-bg);
+}
+html.embed .motion-chip[data-state="blocked"] {
+  color: var(--danger);
+  background: var(--danger-bg);
+}

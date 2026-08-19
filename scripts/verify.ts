@@ -29,6 +29,7 @@
 import puppeteer from "puppeteer-core";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import { closeBrowser } from "./browserClose";
 
 const ROOT = join(import.meta.dir, "..");
 const PORT = 53409;
@@ -186,12 +187,12 @@ try {
     console.log("PASS: the panel rendered fresh pixels in response to real input, through the real ABI, in a real browser");
   }
 } finally {
-  if (browser) await browser.close();
+  if (browser) await closeBrowser(browser);
   // Plain server.kill() (SIGTERM) was observed to leave the Bun dev server
   // (development.hmr spawns a watcher) still listening on Windows even
   // after the parent process object reports killed. Force the whole tree.
-  server.kill();
   try {
     Bun.spawnSync(["taskkill", "/pid", String(server.pid), "/t", "/f"], { stdout: "ignore", stderr: "ignore" });
   } catch {}
+  server.kill();
 }

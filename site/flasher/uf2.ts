@@ -53,6 +53,18 @@ export const UF2_BLOCK_SIZE = 512;
 export const UF2_DATA_AREA_SIZE = 476;
 export const FLASH_SECTOR_SIZE = 4096;
 
+// PICOBOOT command budgets. FLASH_ERASE and WRITE both accept a size well
+// beyond one sector/block (the bootrom happily erases or writes tens of KB
+// per command), so the flash cycle should issue as few of each as
+// practical rather than one FLASH_ERASE per 4096-byte sector or one WRITE
+// per 256-byte UF2 payload: each command costs a full USB round-trip
+// (command packet out, ack in), and for a ~190KB image that was ~24 erase
+// commands plus ~380 write commands before this budgeting existed, most of
+// that time spent waiting on round-trips rather than moving bytes (at
+// full-speed USB's 12Mbit/s, 190KB of raw transfer is only ~1.2s).
+export const PICOBOOT_MAX_WRITE_SIZE = 32768; // 32KB: comfortably below any bulk-transfer/timeout concern, few enough commands to matter.
+export const PICOBOOT_MAX_ERASE_SPAN = 256 * 1024; // 256KB: caps a single erase's device-side duration so it can't risk a USB timeout.
+
 export interface Uf2Block {
   index: number; // this block's position in the file (not blockNo)
   flags: number;
@@ -203,6 +215,83 @@ export function computeFlashPlan(blocks: Uf2Block[], familyId: number): Uf2Flash
     eraseStart: alignDown(rangeStart, FLASH_SECTOR_SIZE),
     eraseEnd: alignUp(rangeEnd, FLASH_SECTOR_SIZE),
   };
+}
+
+export interface Uf2WriteRun {
+  addr: number;
+  data: Uint8Array;
+}
+
+/**
+ * Coalesce a flash plan's per-block write chunks (in practice one per
+ * 256-byte UF2 payload) into large contiguous runs, so the flash cycle can
+ * issue one PICOBOOT WRITE command per run instead of one per chunk.
+ * `chunks` must already be ordered by ascending, non-overlapping address
+ * (computeFlashPlan's output is). A run keeps absorbing the next chunk as
+ * long as that chunk starts exactly where the run currently ends (no gap:
+ * a producer is allowed to pad, per computeFlashPlan's own comment, and a
+ * gap must start a new run rather than silently skip the hole) and the
+ * merge wouldn't exceed `maxRunSize`; either condition failing starts a
+ * new run.
+ */
+export function coalesceWriteRuns(chunks: Uf2WriteChunk[], maxRunSize = PICOBOOT_MAX_WRITE_SIZE): Uf2WriteRun[] {
+  if (chunks.length === 0) return [];
+  const runs: Uf2WriteRun[] = [];
+
+  let runAddr = chunks[0]!.addr;
+  let parts: Uint8Array[] = [chunks[0]!.data];
+  let runLen = chunks[0]!.data.length;
+  let nextExpectedAddr = runAddr + runLen;
+
+  const flush = () => {
+    const combined = new Uint8Array(runLen);
+    let offset = 0;
+    for (const part of parts) {
+      combined.set(part, offset);
+      offset += part.length;
+    }
+    runs.push({ addr: runAddr, data: combined });
+  };
+
+  for (let i = 1; i < chunks.length; i++) {
+    const chunk = chunks[i]!;
+    const contiguous = chunk.addr === nextExpectedAddr;
+    const fitsCap = runLen + chunk.data.length <= maxRunSize;
+    if (contiguous && fitsCap) {
+      parts.push(chunk.data);
+      runLen += chunk.data.length;
+      nextExpectedAddr = chunk.addr + chunk.data.length;
+    } else {
+      flush();
+      runAddr = chunk.addr;
+      parts = [chunk.data];
+      runLen = chunk.data.length;
+      nextExpectedAddr = runAddr + runLen;
+    }
+  }
+  flush();
+
+  return runs;
+}
+
+export interface EraseSpan {
+  addr: number;
+  size: number;
+}
+
+/**
+ * Split a flash plan's [eraseStart, eraseEnd) range into as few
+ * FLASH_ERASE commands as possible, capping each span at `maxSpanSize`
+ * bytes. Both bounds are already 4096-aligned (computeFlashPlan
+ * guarantees it), and every span this produces stays aligned too, since
+ * maxSpanSize is itself a multiple of FLASH_SECTOR_SIZE.
+ */
+export function planEraseSpans(eraseStart: number, eraseEnd: number, maxSpanSize = PICOBOOT_MAX_ERASE_SPAN): EraseSpan[] {
+  const spans: EraseSpan[] = [];
+  for (let addr = eraseStart; addr < eraseEnd; addr += maxSpanSize) {
+    spans.push({ addr, size: Math.min(maxSpanSize, eraseEnd - addr) });
+  }
+  return spans;
 }
 
 export interface ParsedUf2 {

@@ -7,6 +7,8 @@ var FAMILY_RP2350_ARM_S = 3834380121;
 var UF2_BLOCK_SIZE = 512;
 var UF2_DATA_AREA_SIZE = 476;
 var FLASH_SECTOR_SIZE = 4096;
+var PICOBOOT_MAX_WRITE_SIZE = 32768;
+var PICOBOOT_MAX_ERASE_SPAN = 256 * 1024;
 
 class Uf2ParseError extends Error {
 }
@@ -110,6 +112,49 @@ function computeFlashPlan(blocks, familyId) {
     eraseStart: alignDown(rangeStart, FLASH_SECTOR_SIZE),
     eraseEnd: alignUp(rangeEnd, FLASH_SECTOR_SIZE)
   };
+}
+function coalesceWriteRuns(chunks, maxRunSize = PICOBOOT_MAX_WRITE_SIZE) {
+  if (chunks.length === 0)
+    return [];
+  const runs = [];
+  let runAddr = chunks[0].addr;
+  let parts = [chunks[0].data];
+  let runLen = chunks[0].data.length;
+  let nextExpectedAddr = runAddr + runLen;
+  const flush = () => {
+    const combined = new Uint8Array(runLen);
+    let offset = 0;
+    for (const part of parts) {
+      combined.set(part, offset);
+      offset += part.length;
+    }
+    runs.push({ addr: runAddr, data: combined });
+  };
+  for (let i = 1;i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const contiguous = chunk.addr === nextExpectedAddr;
+    const fitsCap = runLen + chunk.data.length <= maxRunSize;
+    if (contiguous && fitsCap) {
+      parts.push(chunk.data);
+      runLen += chunk.data.length;
+      nextExpectedAddr = chunk.addr + chunk.data.length;
+    } else {
+      flush();
+      runAddr = chunk.addr;
+      parts = [chunk.data];
+      runLen = chunk.data.length;
+      nextExpectedAddr = runAddr + runLen;
+    }
+  }
+  flush();
+  return runs;
+}
+function planEraseSpans(eraseStart, eraseEnd, maxSpanSize = PICOBOOT_MAX_ERASE_SPAN) {
+  const spans = [];
+  for (let addr = eraseStart;addr < eraseEnd; addr += maxSpanSize) {
+    spans.push({ addr, size: Math.min(maxSpanSize, eraseEnd - addr) });
+  }
+  return spans;
 }
 function parseUf2(bytes) {
   const blocks = parseUf2Blocks(bytes);
@@ -325,19 +370,19 @@ async function flashUf2(uf2Bytes, onProgress) {
     onProgress({ phase: "connecting", percent: 6, message: "Claiming exclusive flash access…" });
     await pb.exclusiveAccess(1);
     await pb.exitXip();
-    const sectorAddrs = [];
-    for (let addr = plan.eraseStart;addr < plan.eraseEnd; addr += FLASH_SECTOR_SIZE)
-      sectorAddrs.push(addr);
-    for (let i = 0;i < sectorAddrs.length; i++) {
-      await pb.flashErase(sectorAddrs[i], FLASH_SECTOR_SIZE);
-      const pct = 10 + Math.round((i + 1) / sectorAddrs.length * 30);
-      onProgress({ phase: "erasing", percent: pct, message: `Erasing sector ${i + 1}/${sectorAddrs.length}` });
+    const eraseSpans = planEraseSpans(plan.eraseStart, plan.eraseEnd);
+    for (let i = 0;i < eraseSpans.length; i++) {
+      const span = eraseSpans[i];
+      await pb.flashErase(span.addr, span.size);
+      const pct = 10 + Math.round((i + 1) / eraseSpans.length * 30);
+      onProgress({ phase: "erasing", percent: pct, message: `Erasing ${i + 1}/${eraseSpans.length}` });
     }
-    for (let i = 0;i < plan.chunks.length; i++) {
-      const chunk = plan.chunks[i];
-      await pb.write(chunk.addr, chunk.data);
-      const donePct = Math.round((i + 1) / plan.chunks.length * 100);
-      const pct = 40 + Math.round((i + 1) / plan.chunks.length * 55);
+    const writeRuns = coalesceWriteRuns(plan.chunks);
+    for (let i = 0;i < writeRuns.length; i++) {
+      const run = writeRuns[i];
+      await pb.write(run.addr, run.data);
+      const donePct = Math.round((i + 1) / writeRuns.length * 100);
+      const pct = 40 + Math.round((i + 1) / writeRuns.length * 55);
       onProgress({ phase: "writing", percent: pct, message: `Writing ${donePct}%` });
     }
     onProgress({ phase: "rebooting", percent: 97, message: "Rebooting into the new firmware…" });

@@ -272,6 +272,11 @@ const args = [
   "cc",
   "-target", "wasm32-freestanding",
   "-O2",
+  // The --app roster lives in a unique temp directory so concurrent builds
+  // cannot collide, but zig records that source path in wasm debug metadata.
+  // Map only that random prefix to a stable virtual path so byte-identical
+  // source emits byte-identical wasm across consecutive site builds.
+  ...(generatedRosterDir ? [`-ffile-prefix-map=${generatedRosterDir}=puck-port-roster`] : []),
   "-nostdlib",
   "-Wl,--no-entry",
   "-Wl,--import-symbols", // undefined externs (js_log, the math imports)

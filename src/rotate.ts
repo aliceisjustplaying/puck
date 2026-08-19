@@ -132,3 +132,22 @@ export function gravityForQuickDeg(quickDeg: number): { x: number; y: number; z:
   const theta = (quickDeg * Math.PI) / 180;
   return { x: Math.sin(theta), y: Math.cos(theta), z: 0 };
 }
+
+// Expresses a view-space vector in the panel's own unrotated coordinates.
+// This is the same inverse rotation derived above for screen-down gravity,
+// generalized from the fixed view vector (0, 1, 0) to any vector. A quick
+// rotation only turns the panel about its screen-normal axis, so z is
+// invariant.
+export function composeViewVectorWithQuickDeg(
+  view: { x: number; y: number; z: number },
+  quickDeg: number
+): { x: number; y: number; z: number } {
+  const theta = (quickDeg * Math.PI) / 180;
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+  return {
+    x: view.x * cos + view.y * sin,
+    y: -view.x * sin + view.y * cos,
+    z: view.z,
+  };
+}

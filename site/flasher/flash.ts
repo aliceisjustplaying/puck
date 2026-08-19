@@ -7,11 +7,14 @@
 // Sequence: request a device -> refuse it up front if it's the wrong chip
 // family -> open + claim the PICOBOOT interface -> take exclusive access
 // -> exit XIP (flash isn't erasable/writable while memory-mapped for
-// execute-in-place reads) -> erase every 4096-byte sector the image's
-// flash range touches -> write every UF2 block's payload -> reboot
-// (REBOOT2, RP2350's own command, falling back to the RP2040-era REBOOT if
-// REBOOT2 doesn't get acknowledged) -> close.
-import { FAMILY_RP2350_ARM_S, FLASH_SECTOR_SIZE, computeFlashPlan, parseUf2 } from "./uf2";
+// execute-in-place reads) -> erase the image's flash range, in as few
+// FLASH_ERASE commands as PICOBOOT_MAX_ERASE_SPAN allows -> write every
+// UF2 block's payload, coalesced into as few WRITE commands as
+// PICOBOOT_MAX_WRITE_SIZE allows (each UF2 block is only 256 bytes; one
+// WRITE per block was the dominant cost here, all round-trip latency and
+// no bandwidth) -> reboot (REBOOT2, RP2350's own command, falling back to
+// the RP2040-era REBOOT if REBOOT2 doesn't get acknowledged) -> close.
+import { FAMILY_RP2350_ARM_S, coalesceWriteRuns, computeFlashPlan, parseUf2, planEraseSpans } from "./uf2";
 import { PicobootDevice, PicobootProtocolError, REBOOT2_FLAG_REBOOT_TYPE_NORMAL } from "./picoboot";
 
 // Raspberry Pi's USB vendor ID, and the two BOOTSEL product IDs that
@@ -110,20 +113,26 @@ export async function flashUf2(uf2Bytes: Uint8Array, onProgress: ProgressCallbac
     await pb.exclusiveAccess(1);
     await pb.exitXip();
 
-    const sectorAddrs: number[] = [];
-    for (let addr = plan.eraseStart; addr < plan.eraseEnd; addr += FLASH_SECTOR_SIZE) sectorAddrs.push(addr);
-
-    for (let i = 0; i < sectorAddrs.length; i++) {
-      await pb.flashErase(sectorAddrs[i]!, FLASH_SECTOR_SIZE);
-      const pct = 10 + Math.round(((i + 1) / sectorAddrs.length) * 30);
-      onProgress({ phase: "erasing", percent: pct, message: `Erasing sector ${i + 1}/${sectorAddrs.length}` });
+    // One FLASH_ERASE per span (normally just one span: a real image's
+    // erase range is well under PICOBOOT_MAX_ERASE_SPAN) instead of one
+    // per 4096-byte sector.
+    const eraseSpans = planEraseSpans(plan.eraseStart, plan.eraseEnd);
+    for (let i = 0; i < eraseSpans.length; i++) {
+      const span = eraseSpans[i]!;
+      await pb.flashErase(span.addr, span.size);
+      const pct = 10 + Math.round(((i + 1) / eraseSpans.length) * 30);
+      onProgress({ phase: "erasing", percent: pct, message: `Erasing ${i + 1}/${eraseSpans.length}` });
     }
 
-    for (let i = 0; i < plan.chunks.length; i++) {
-      const chunk = plan.chunks[i]!;
-      await pb.write(chunk.addr, chunk.data);
-      const donePct = Math.round(((i + 1) / plan.chunks.length) * 100);
-      const pct = 40 + Math.round(((i + 1) / plan.chunks.length) * 55);
+    // One WRITE per coalesced run (contiguous UF2 chunks merged up to
+    // PICOBOOT_MAX_WRITE_SIZE) instead of one per 256-byte UF2 block: a
+    // ~190KB image drops from ~380 WRITE round-trips to a handful.
+    const writeRuns = coalesceWriteRuns(plan.chunks);
+    for (let i = 0; i < writeRuns.length; i++) {
+      const run = writeRuns[i]!;
+      await pb.write(run.addr, run.data);
+      const donePct = Math.round(((i + 1) / writeRuns.length) * 100);
+      const pct = 40 + Math.round(((i + 1) / writeRuns.length) * 55);
       onProgress({ phase: "writing", percent: pct, message: `Writing ${donePct}%` });
     }
 

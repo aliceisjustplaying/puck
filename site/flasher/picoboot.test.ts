@@ -65,6 +65,16 @@ describe("golden packet bytes", () => {
     expect(packet[8]).toBe(PICOBOOT_CMD.WRITE);
   });
 
+  // Coalesced writes (see uf2.ts's coalesceWriteRuns) send up to
+  // PICOBOOT_MAX_WRITE_SIZE (32768) bytes per WRITE instead of one UF2
+  // block (256 bytes) at a time; this is the header for a run at that cap.
+  test("WRITE(token=7, addr=0x10000000, size=32768): cmd 0x05/size 8, transferLen=32768, args = addr,size", () => {
+    const packet = buildWrite(7, 0x10000000, 32768);
+    expect(packet.length).toBe(32);
+    expect(hex(packet)).toBe("0bd11f4307000000050800000080000000000010008000000000000000000000");
+    expect(packet[8]).toBe(PICOBOOT_CMD.WRITE);
+  });
+
   test("REBOOT2(token=5, flags=NORMAL, delay=500ms): cmd 0x0A/size 16, args = flags,delay,0,0", () => {
     expect(REBOOT2_FLAG_REBOOT_TYPE_NORMAL).toBe(0x0002);
     const packet = buildReboot2(5, REBOOT2_FLAG_REBOOT_TYPE_NORMAL, 500);

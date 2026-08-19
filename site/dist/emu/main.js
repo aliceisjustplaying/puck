@@ -500,6 +500,16 @@ function gravityForQuickDeg(quickDeg) {
   const theta = quickDeg * Math.PI / 180;
   return { x: Math.sin(theta), y: Math.cos(theta), z: 0 };
 }
+function composeViewVectorWithQuickDeg(view, quickDeg) {
+  const theta = quickDeg * Math.PI / 180;
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+  return {
+    x: view.x * cos + view.y * sin,
+    y: -view.x * sin + view.y * cos,
+    z: view.z
+  };
+}
 
 // src/device.ts
 function makeDraggable(bezel, wrapper, onDrag) {
@@ -1518,6 +1528,281 @@ class SoundPlayer {
   }
 }
 
+// src/motion.ts
+var STANDARD_GRAVITY = 9.80665;
+var FILTER_TAU_MS = 200;
+var SHAKE_THRESHOLD_G = 2.5;
+var SHAKE_SAMPLES = 3;
+var SHAKE_COOLDOWN_MS = 800;
+function motionApisAvailable() {
+  return window.DeviceMotionEvent !== undefined || window.DeviceOrientationEvent !== undefined;
+}
+function permissionRequesters() {
+  const out = [];
+  const orientation = window.DeviceOrientationEvent;
+  const motion = window.DeviceMotionEvent;
+  if (typeof orientation?.requestPermission === "function")
+    out.push(() => orientation.requestPermission());
+  if (typeof motion?.requestPermission === "function")
+    out.push(() => motion.requestPermission());
+  return out;
+}
+function deviceMotionToAbiGravity(x, y, z) {
+  return { x: -x / STANDARD_GRAVITY, y: -y / STANDARD_GRAVITY, z: -z / STANDARD_GRAVITY };
+}
+function deviceOrientationToAbiGravity(betaDeg, gammaDeg) {
+  const beta = betaDeg * Math.PI / 180;
+  const gamma = gammaDeg * Math.PI / 180;
+  return {
+    x: Math.sin(gamma) * Math.cos(beta),
+    y: Math.sin(beta),
+    z: -Math.cos(beta) * Math.cos(gamma)
+  };
+}
+function composePhoneVector(deviceVector, screenDeg, quickDeg) {
+  const theta = screenDeg * Math.PI / 180;
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+  const view = {
+    x: deviceVector.x * cos - deviceVector.y * sin,
+    y: deviceVector.x * sin + deviceVector.y * cos,
+    z: deviceVector.z
+  };
+  return composeViewVectorWithQuickDeg(view, quickDeg);
+}
+function screenOrientationDeg() {
+  const modern = screen.orientation?.angle;
+  if (typeof modern === "number")
+    return modern;
+  const legacy = window.orientation;
+  return typeof legacy === "number" ? legacy : 0;
+}
+
+class PhoneMotion {
+  opts;
+  chip = null;
+  hasShake = false;
+  active = false;
+  blocked = false;
+  listening = false;
+  filtered = null;
+  latest = null;
+  lastMotionTimestamp = null;
+  motionReadingSeen = false;
+  lastOrientation = null;
+  raf = 0;
+  shakeSamples = 0;
+  shakeCooldownUntil = 0;
+  constructor(opts) {
+    this.opts = opts;
+  }
+  isActive() {
+    return this.active;
+  }
+  onDeviceChanged(hasVector, hasShake) {
+    this.hasShake = hasShake;
+    const eligible = this.opts.embed && hasVector && motionApisAvailable();
+    if (!eligible) {
+      this.unmount();
+      return;
+    }
+    if (!this.chip)
+      this.mount();
+    if (this.active) {
+      this.resumeIfVisible();
+      this.scheduleFlush();
+    }
+  }
+  onQuickRotationChanged() {
+    if (this.active)
+      this.scheduleFlush();
+  }
+  mount() {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.id = "motionChip";
+    chip.className = "motion-chip chrome-btn";
+    chip.dataset.state = this.blocked ? "blocked" : "idle";
+    chip.textContent = this.blocked ? "tilt blocked in Safari settings" : "tilt with your phone";
+    chip.disabled = this.blocked;
+    chip.addEventListener("click", this.onChipClick);
+    this.opts.stage.appendChild(chip);
+    this.opts.stage.classList.add("motion-available");
+    this.chip = chip;
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
+    window.addEventListener("pagehide", this.onPageHide);
+    window.addEventListener("pageshow", this.onPageShow);
+    this.opts.onLayoutChanged();
+  }
+  unmount() {
+    const wasActive = this.active;
+    this.active = false;
+    this.suspend();
+    if (this.chip) {
+      this.chip.removeEventListener("click", this.onChipClick);
+      this.chip.remove();
+      this.chip = null;
+    }
+    this.opts.stage.classList.remove("motion-available");
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
+    window.removeEventListener("pagehide", this.onPageHide);
+    window.removeEventListener("pageshow", this.onPageShow);
+    if (wasActive)
+      this.opts.onOwnershipReleased();
+    this.opts.onLayoutChanged();
+  }
+  onChipClick = () => {
+    if (this.blocked)
+      return;
+    if (this.active) {
+      this.stop();
+      return;
+    }
+    const requesters = permissionRequesters();
+    if (requesters.length === 0) {
+      this.start();
+      return;
+    }
+    let requests;
+    try {
+      requests = requesters.map((request) => request());
+    } catch {
+      this.block();
+      return;
+    }
+    if (this.chip) {
+      this.chip.textContent = "requesting phone tilt...";
+      this.chip.disabled = true;
+    }
+    Promise.all(requests).then((results) => {
+      if (results.every((result) => result === "granted"))
+        this.start();
+      else
+        this.block();
+    }, () => this.block());
+  };
+  start() {
+    this.active = true;
+    if (this.chip) {
+      this.chip.dataset.state = "active";
+      this.chip.textContent = "phone tilt on";
+      this.chip.disabled = false;
+      this.chip.classList.add("active");
+    }
+    this.resumeIfVisible();
+  }
+  stop() {
+    this.active = false;
+    this.suspend();
+    if (this.chip) {
+      this.chip.dataset.state = "idle";
+      this.chip.textContent = "tilt with your phone";
+      this.chip.classList.remove("active");
+    }
+    this.opts.onOwnershipReleased();
+  }
+  block() {
+    this.active = false;
+    this.blocked = true;
+    this.suspend();
+    if (this.chip) {
+      this.chip.dataset.state = "blocked";
+      this.chip.textContent = "tilt blocked in Safari settings";
+      this.chip.classList.remove("active");
+      this.chip.disabled = true;
+    }
+  }
+  resumeIfVisible() {
+    if (!this.active || document.visibilityState === "hidden" || this.listening)
+      return;
+    window.addEventListener("devicemotion", this.onDeviceMotion);
+    window.addEventListener("deviceorientation", this.onDeviceOrientation);
+    this.listening = true;
+  }
+  suspend() {
+    if (this.listening) {
+      window.removeEventListener("devicemotion", this.onDeviceMotion);
+      window.removeEventListener("deviceorientation", this.onDeviceOrientation);
+      this.listening = false;
+    }
+    if (this.raf)
+      cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    this.filtered = null;
+    this.latest = null;
+    this.lastMotionTimestamp = null;
+    this.motionReadingSeen = false;
+    this.lastOrientation = null;
+    this.shakeSamples = 0;
+  }
+  onVisibilityChange = () => {
+    if (document.visibilityState === "hidden")
+      this.suspend();
+    else
+      this.resumeIfVisible();
+  };
+  onPageHide = () => this.suspend();
+  onPageShow = () => this.resumeIfVisible();
+  onDeviceMotion = (event) => {
+    const raw = event.accelerationIncludingGravity;
+    if (raw && raw.x !== null && raw.y !== null && raw.z !== null) {
+      this.motionReadingSeen = true;
+      this.ingestMotion(deviceMotionToAbiGravity(raw.x, raw.y, raw.z), event.timeStamp);
+    } else if (this.lastOrientation) {
+      this.ingestGravity(this.lastOrientation, event.timeStamp);
+    }
+  };
+  onDeviceOrientation = (event) => {
+    if (event.beta === null || event.gamma === null)
+      return;
+    this.lastOrientation = deviceOrientationToAbiGravity(event.beta, event.gamma);
+    if (!this.motionReadingSeen)
+      this.ingestGravity(this.lastOrientation, event.timeStamp);
+  };
+  ingestMotion(raw, timestamp) {
+    this.ingestGravity(raw, timestamp);
+    if (!this.filtered)
+      return;
+    const highPass = Math.hypot(raw.x - this.filtered.x, raw.y - this.filtered.y, raw.z - this.filtered.z);
+    if (highPass >= SHAKE_THRESHOLD_G)
+      this.shakeSamples++;
+    else
+      this.shakeSamples = 0;
+    const now = performance.now();
+    if (this.hasShake && this.shakeSamples >= SHAKE_SAMPLES && now >= this.shakeCooldownUntil) {
+      this.shakeCooldownUntil = now + SHAKE_COOLDOWN_MS;
+      this.shakeSamples = 0;
+      this.opts.fireShake(now, "phone shake");
+    }
+  }
+  ingestGravity(raw, timestamp) {
+    if (!this.filtered) {
+      this.filtered = { ...raw };
+    } else {
+      const elapsed = this.lastMotionTimestamp === null ? 16.7 : timestamp - this.lastMotionTimestamp;
+      const dt = Math.max(1, Math.min(250, Number.isFinite(elapsed) && elapsed > 0 ? elapsed : 16.7));
+      const alpha = dt / (FILTER_TAU_MS + dt);
+      this.filtered.x += alpha * (raw.x - this.filtered.x);
+      this.filtered.y += alpha * (raw.y - this.filtered.y);
+      this.filtered.z += alpha * (raw.z - this.filtered.z);
+    }
+    this.lastMotionTimestamp = timestamp;
+    this.latest = { ...this.filtered };
+    this.scheduleFlush();
+  }
+  scheduleFlush() {
+    if (!this.active || !this.latest || this.raf)
+      return;
+    this.raf = requestAnimationFrame(() => {
+      this.raf = 0;
+      if (!this.active || !this.latest || document.visibilityState === "hidden")
+        return;
+      const panel = composePhoneVector(this.latest, screenOrientationDeg(), this.opts.getQuickDeg());
+      this.opts.sendVector(panel.x, panel.y, panel.z, "phone tilt");
+    });
+  }
+}
+
 // src/main.ts
 var $ = (sel) => document.querySelector(sel);
 function errMsg(err) {
@@ -1574,6 +1859,15 @@ var liveTouch = { fingers: 0, x: 0, y: 0 };
 var pointerIdDown = null;
 var quickDeg = 0;
 var tiltDeg = 0;
+var phoneMotion = new PhoneMotion({
+  embed: EMBED,
+  stage: stageEl,
+  getQuickDeg: () => quickDeg,
+  sendVector: (x, y, z, source) => sendVector(x, y, z, source),
+  fireShake: (now, source) => fireShakeSensor(now, source),
+  onLayoutChanged: () => fitDeviceToStage(),
+  onOwnershipReleased: () => sendGravityForRotation()
+});
 var wiredButtons = [];
 var wiredButtonById = new Map;
 var buttonKeyById = new Map;
@@ -1822,12 +2116,13 @@ function buildChrome(d) {
     }, guardedAbiCall);
     appStripControl = buildAppStrip($("#appStrip"), d.apps || [], emu, guardedAbiCall);
   }
-  shakeSensorIndex = (d.sensors || []).findIndex((s) => s.id.toLowerCase() === "shake");
+  shakeSensorIndex = (d.sensors || []).findIndex((s) => s.kind === "event" && s.id.toLowerCase() === "shake");
   vectorSensorIndices = (d.sensors || []).reduce((acc, s, i) => {
     if (s.kind === "vector")
       acc.push(i);
     return acc;
   }, []);
+  phoneMotion.onDeviceChanged(vectorSensorIndices.length > 0, shakeSensorIndex >= 0);
   touchEnabled = (d.touch?.points ?? 0) > 0;
   panelEl.style.cursor = touchEnabled ? "crosshair" : "default";
   touchOverlay.pxPerMm = derivePxPerMm(d);
@@ -1966,7 +2261,8 @@ function fitDeviceToStage() {
   const boxW = quarterTurned ? bh : bw;
   const boxH = quarterTurned ? bw : bh;
   const margin = 16;
-  const scale = Math.min(1, (stageRect.width - margin) / boxW, (stageRect.height - margin) / boxH);
+  const motionReserve = stageEl.classList.contains("motion-available") ? 44 : 0;
+  const scale = Math.min(1, (stageRect.width - margin) / boxW, (stageRect.height - margin - motionReserve) / boxH);
   deviceWrapEl.style.setProperty("--embed-scale", String(scale > 0 ? scale : 1));
 }
 var reloadInFlight = false;
@@ -2192,22 +2488,28 @@ function frame() {
   updateDiagStrip();
   requestAnimationFrame(frame);
 }
-function sendGravityForRotation() {
+function sendVector(x, y, z, source) {
   if (!emu || !emu.emu_sensor_vector || vectorSensorIndices.length === 0)
     return;
-  const g = gravityForQuickDeg(quickDeg);
   for (const i of vectorSensorIndices) {
-    guardedAbiCall(`sensor[${i}] vector (rotation)`, (liveEmu) => {
-      liveEmu.emu_sensor_vector(i, g.x, g.y, g.z);
-      recorder.record({ t: performance.now(), k: "vector", i, x: g.x, y: g.y, z: g.z });
+    guardedAbiCall(`sensor[${i}] vector (${source})`, (liveEmu) => {
+      liveEmu.emu_sensor_vector(i, x, y, z);
+      recorder.record({ t: performance.now(), k: "vector", i, x, y, z });
     });
   }
+}
+function sendGravityForRotation() {
+  if (phoneMotion.isActive())
+    return;
+  const g = gravityForQuickDeg(quickDeg);
+  sendVector(g.x, g.y, g.z, "rotation");
 }
 var QUICK_ROT_ORDER = [0, 90, 180, -90];
 function setQuickRotation(deg) {
   quickDeg = deg;
   $("#rotQuick").querySelectorAll("button").forEach((x) => x.classList.toggle("active", Number(x.dataset.deg) === deg));
   applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX, puckMotion.offsetY);
+  phoneMotion.onQuickRotationChanged();
   sendGravityForRotation();
   fitDeviceToStage();
 }
@@ -2579,6 +2881,7 @@ window.__debug = {
   getRecorder: () => recorder,
   rebuildGestures: () => device && buildGestures(device),
   getSoundPlayer: () => soundPlayer,
+  getPhoneMotion: () => phoneMotion,
   getDeadState: () => deadState,
   getTickCount: () => tickCount
 };

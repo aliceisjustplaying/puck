@@ -35,6 +35,7 @@ import puppeteer, { type Page } from "puppeteer-core";
 import { join } from "node:path";
 import { existsSync, readdirSync } from "node:fs";
 import { serveDist } from "./staticSite";
+import { closeBrowser } from "./browserClose";
 
 const ROOT = join(import.meta.dir, "..");
 const DIST = join(ROOT, "site", "dist");
@@ -312,5 +313,5 @@ try {
   }
 } finally {
   server.stop(true);
-  if (browser) await browser.close();
+  if (browser) await closeBrowser(browser);
 }

@@ -31,6 +31,7 @@ import puppeteer from "puppeteer-core";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { gravityForQuickDeg } from "../src/rotate";
+import { closeBrowser } from "./browserClose";
 
 const ROOT = join(import.meta.dir, "..");
 const PORT = 53412;
@@ -182,9 +183,9 @@ try {
 
   console.log("\nPASS: rotating the view steered the tilt sensor, and the fluid's pixel mass migrated to the correct screen edge");
 } finally {
-  if (browser) await browser.close();
-  server.kill();
+  if (browser) await closeBrowser(browser);
   try {
     Bun.spawnSync(["taskkill", "/pid", String(server.pid), "/t", "/f"], { stdout: "ignore", stderr: "ignore" });
   } catch {}
+  server.kill();
 }

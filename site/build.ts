@@ -93,10 +93,16 @@ const packLabel = new Map<string, string>();
 // site generator, but staying data-driven here costs nothing and avoids a
 // magic number per pack anyway).
 const packPanel = new Map<string, { w: number; h: number }>();
+const packHasVectorSensor = new Map<string, boolean>();
 for (const p of registry.packs) {
-  const device = readJson<{ name?: string; panel?: { w: number; h: number } }>(join(REPO_ROOT, p.path, "device.json"));
+  const device = readJson<{
+    name?: string;
+    panel?: { w: number; h: number };
+    sensors?: { id: string; kind: string }[];
+  }>(join(REPO_ROOT, p.path, "device.json"));
   packLabel.set(p.name, device.name || p.name);
   if (device.panel) packPanel.set(p.name, device.panel);
+  packHasVectorSensor.set(p.name, (device.sensors || []).some((sensor) => sensor.kind === "vector"));
 }
 
 // src/app.css's --bezel-pad, and site/record-demos.ts's own BEZEL_PAD (same
@@ -184,6 +190,7 @@ const INSTRUMENT_EXAMPLE = {
 // special-casing of its own.
 packLabel.set(INSTRUMENT_EXAMPLE.id, INSTRUMENT_EXAMPLE.name);
 packPanel.set(INSTRUMENT_EXAMPLE.id, INSTRUMENT_EXAMPLE.panel);
+packHasVectorSensor.set(INSTRUMENT_EXAMPLE.id, false);
 
 // A fourth card that is not part of the proof matrix at all: the ESP32-S3
 // pack's own shipped reference app, included per this site's brief as a
@@ -838,6 +845,7 @@ function buildRunDir(): void {
     const links = opts.docLinks.map((l) => `<a href="${l.href}">${escapeHtml(l.label)}</a>`).join("\n      ");
     const flashSection = renderFlashSection(opts.id, opts.pack);
     const flashScript = FLASH_ARTIFACTS[opts.id] ? `\n<script type="module" src="${withVersion("../flash/flash.js", FLASH_JS_VERSION)}"></script>` : "";
+    const phoneTiltHint = packHasVectorSensor.get(opts.pack) ? " &middot; on a phone: tilt" : "";
     const body = `<div class="wrap">
   <div class="run-header">
     <div class="back"><a href="../index.html">&larr; puck</a></div>
@@ -855,7 +863,7 @@ function buildRunDir(): void {
       <iframe id="emu" allowtransparency="true" src="${iframeSrc}" width="${nativeW}" height="${nativeH}" title="${escapeHtml(opts.title)} running live" allow="autoplay"></iframe>
     </div>
   </div>
-  <p class="embed-hint">touch the screen &middot; R rotates &middot; S shakes</p>
+  <p class="embed-hint">touch the screen &middot; R rotates &middot; S shakes${phoneTiltHint}</p>
 
   <div class="run-footer"></div>
 
