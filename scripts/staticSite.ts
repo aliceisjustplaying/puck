@@ -16,6 +16,8 @@ const MIME: Record<string, string> = {
   ".wasm": "application/wasm",
   ".uf2": "application/octet-stream",
   ".png": "image/png",
+  ".mp4": "video/mp4",
+  ".gif": "image/gif",
 };
 
 // Serves `dist` (a directory, e.g. site/dist/) at "/" on 127.0.0.1:port -

@@ -30,6 +30,7 @@
 // TypeScript only, no shell script, per this repo's own AGENTS.md.
 import { existsSync, mkdirSync, rmSync, copyFileSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createHash } from "node:crypto";
 
 const SITE_DIR = import.meta.dir;
 const REPO_ROOT = resolve(SITE_DIR, "..");
@@ -38,6 +39,24 @@ const GITHUB_BASE = "https://github.com/s0lness/puck/blob/master";
 
 function gh(path: string): string {
   return `${GITHUB_BASE}/${path}`;
+}
+
+// ---- content-hash cache busting ------------------------------------------
+// Every asset URL this generator emits is otherwise stable across a deploy
+// (same filename every build), which is exactly what let Safari go on
+// serving a PREVIOUS deploy's emu/main.js, emu/app.css and styles.css after
+// a new one shipped (Sylve's own iPhone report: a new hint line rendering
+// next to an old, already-fixed layout bug - two different deploys'
+// output, stitched together by a cache that had no reason to refetch
+// anything). First 10 hex chars of the CONTENT's own sha256, not a build
+// timestamp: deterministic given the same bytes, so two consecutive builds
+// with no source changes emit byte-identical query strings (this file's own
+// idempotency contract) - a clock-based cache-buster would fail that.
+function contentHashOf(filePath: string): string {
+  return createHash("sha256").update(readFileSync(filePath)).digest("hex").slice(0, 10);
+}
+function withVersion(url: string, hash: string): string {
+  return `${url}${url.includes("?") ? "&" : "?"}v=${hash}`;
 }
 
 // ---- read the data that decides what gets built -------------------------
@@ -78,6 +97,18 @@ for (const p of registry.packs) {
   const device = readJson<{ name?: string; panel?: { w: number; h: number } }>(join(REPO_ROOT, p.path, "device.json"));
   packLabel.set(p.name, device.name || p.name);
   if (device.panel) packPanel.set(p.name, device.panel);
+}
+
+// src/app.css's --bezel-pad, and site/record-demos.ts's own BEZEL_PAD (same
+// source of truth, restated in each file since neither imports the other -
+// this repo's device geometry values are small enough that a shared
+// constants module would be more indirection than the number itself).
+const BEZEL_PAD = 18;
+function bezelSize(pack: string): { w: number; h: number } {
+  const panel = packPanel.get(pack);
+  const pw = panel?.w ?? 368;
+  const ph = panel?.h ?? 448;
+  return { w: pw + 2 * BEZEL_PAD, h: ph + 2 * BEZEL_PAD };
 }
 
 interface AppEntry {
@@ -312,6 +343,10 @@ function copyDemoMedia(ids: string[]): void {
 // over USB" button to site/flasher/flash.ts); bundled the same way the
 // root build.ts bundles src/main.ts, so this page ships one local JS file
 // and never a CDN import.
+// Set by buildFlashUi() below, read by writeRunPage()'s flashScript - one
+// bundle shared by every run page that has a flash section.
+let FLASH_JS_VERSION = "";
+
 async function buildFlashUi(): Promise<void> {
   const result = await Bun.build({
     entrypoints: [join(SITE_DIR, "flasher", "flash-ui.ts")],
@@ -325,18 +360,41 @@ async function buildFlashUi(): Promise<void> {
     for (const log of result.logs) console.error(log);
     throw new Error("site/build.ts: failed to bundle site/flasher/flash-ui.ts");
   }
+  FLASH_JS_VERSION = contentHashOf(join(DIST, "flash", "flash.js"));
   console.log("built -> site/dist/flash/flash.js");
 }
 
 // ---- 2. the shared emulator bundle, built once via the repo's own build.ts ----
+// Set by buildEmulatorBundle() below, read by writeRunPage(): the SAME
+// emu/index.html is embedded by every run page, so its content hash is
+// computed once here rather than re-hashing the same file per run page.
+let EMU_INDEX_VERSION = "";
+
 function buildEmulatorBundle(): void {
   runBuild("build.ts", []);
   const repoDist = join(REPO_ROOT, "dist");
   const emuDir = join(DIST, "emu");
   mkdirSync(emuDir, { recursive: true });
-  for (const f of ["index.html", "main.js", "family-budget.css", "app.css"]) {
+  for (const f of ["main.js", "family-budget.css", "app.css"]) {
     copyFileSync(join(repoDist, f), join(emuDir, f));
   }
+  // index.html itself is not a byte-for-byte copy: its own internal
+  // references to main.js/family-budget.css/app.css need the SAME
+  // cache-busting query string every other emitted asset URL gets (this is
+  // the "copied emu/index.html" half of this task's cache-busting fix -
+  // the outer run page versioning its iframe src is not enough on its own,
+  // because the browser caches main.js/app.css by THEIR OWN url, resolved
+  // against this document, not against whatever versioned url embedded it).
+  const mainJsV = contentHashOf(join(emuDir, "main.js"));
+  const fbCssV = contentHashOf(join(emuDir, "family-budget.css"));
+  const appCssV = contentHashOf(join(emuDir, "app.css"));
+  let html = readFileSync(join(repoDist, "index.html"), "utf8");
+  html = html
+    .replace('href="./family-budget.css"', `href="${withVersion("./family-budget.css", fbCssV)}"`)
+    .replace('href="./app.css"', `href="${withVersion("./app.css", appCssV)}"`)
+    .replace('src="./main.js"', `src="${withVersion("./main.js", mainJsV)}"`);
+  writeFileSync(join(emuDir, "index.html"), html);
+  EMU_INDEX_VERSION = contentHashOf(join(emuDir, "index.html"));
   console.log("copied -> site/dist/emu/ (shared emulator bundle)");
 }
 
@@ -365,6 +423,12 @@ const SITE_FOOTER = `<footer>
     </div>
   </footer>`;
 
+// Set once styles.css is copied into DIST (see "run everything" below),
+// read by every page() call - index.html and every run page link the SAME
+// physical file, just at a different relative depth ("styles.css" vs
+// "../styles.css"), so one hash covers all of them.
+let STYLES_VERSION = "";
+
 function page(title: string, description: string, stylesHref: string, body: string): string {
   return `<!doctype html>
 <html lang="en">
@@ -377,7 +441,7 @@ function page(title: string, description: string, stylesHref: string, body: stri
 <meta property="og:description" content="${escapeHtml(description)}" />
 <meta property="og:type" content="website" />
 <link rel="icon" href="${FAVICON_HREF}" />
-<link rel="stylesheet" href="${stylesHref}" />
+<link rel="stylesheet" href="${withVersion(stylesHref, STYLES_VERSION)}" />
 </head>
 <body>
 ${body}
@@ -400,14 +464,61 @@ ${body}
 // links to its real run page, per site/build.ts's own COMBO ids so this
 // never points at a made-up id.
 const DEMO_MEDIA_DIR = join(SITE_DIR, "demo-media");
-const DEMO_ASSET_HREF = (id: string, ext: string) => `assets/demos/${id}.${ext}`;
+// Hashed on demand, not from a precomputed table: called from
+// buildIndexHtml(), which always runs after copyDemoMedia() has already
+// populated DIST/assets/demos/ (see "run everything" below), so the file
+// this hashes is the one actually shipped. Falls back to an unversioned
+// href when the file is missing (a fresh clone that has not run
+// site:record-demos yet - copyDemoMedia's own warning already covers that
+// case without failing the build, this matches it rather than throwing).
+function demoAssetHref(id: string, ext: string): string {
+  const base = `assets/demos/${id}.${ext}`;
+  const filePath = join(DIST, "assets", "demos", `${id}.${ext}`);
+  return existsSync(filePath) ? withVersion(base, contentHashOf(filePath)) : base;
+}
 
-function demoThumb(id: string, alt: string, href: string): string {
-  return `<a class="thumb thumb-video" href="${href}" aria-label="${escapeHtml(alt)}, open the live run page">
-    <video autoplay muted loop playsinline poster="${DEMO_ASSET_HREF(id, "png")}">
-      <source src="${DEMO_ASSET_HREF(id, "mp4")}" type="video/mp4" />
+// The actual, on-disk poster PNG's own pixel dimensions - not a formula
+// computed from device.json's panel size, because that formula alone
+// cannot know a demo's RECORDED aspect: site/record-demos.ts crops to
+// #bezel's bounding box AT THE TIME OF RECORDING, which is landscape for
+// chrono (its run page auto-rotates -90deg, and the recording choreography
+// does the same before filming) and a rotation-spanning square for
+// fluidbox (its clip quick-rotates mid-recording, see record-demos.ts's
+// own unionRect comment) - reading the real file is the only way this
+// stays correct without this function silently drifting out of sync with
+// that script's own choreography. Bytes 16-20/20-24 of any PNG are its
+// IHDR width/height, big-endian, right after the 8-byte signature and the
+// 4-byte length + 4-byte "IHDR" tag - no need for a full chunk parser for
+// two fixed-offset integers.
+function pngDimensions(filePath: string): { w: number; h: number } | null {
+  if (!existsSync(filePath)) return null;
+  const buf = readFileSync(filePath);
+  if (buf.length < 24 || buf.toString("ascii", 12, 16) !== "IHDR") return null;
+  return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+}
+
+// Falls back to the device.json-derived formula only when no recording
+// exists yet (a fresh clone before `bun run site:record-demos` has ever
+// run - copyDemoMedia's own warning already covers that case without
+// failing the build; this matches it with a plausible box instead of
+// crashing).
+function demoAspect(id: string, fallbackPack: string): { w: number; h: number } {
+  return pngDimensions(join(DIST, "assets", "demos", `${id}.png`)) || bezelSize(fallbackPack);
+}
+
+// bezel: the recorded clip's own aspect ratio (site/record-demos.ts crops
+// tightly to #bezel), set as this card's own inline aspect-ratio so the box
+// hugs the device with no letterboxing - a fixed 4/3 box (this rule's old
+// default, still used as a plain <img>/pre-recording fallback via CSS) is
+// close to nothing this instrument actually ships (every panel is either
+// portrait or square), and letterbox bars are exactly the "something else
+// around the device" this task's own brief says the card should not show.
+function demoThumb(id: string, alt: string, href: string, bezel: { w: number; h: number }): string {
+  return `<a class="thumb thumb-video" style="aspect-ratio:${bezel.w} / ${bezel.h}" href="${href}" aria-label="${escapeHtml(alt)}, open the live run page">
+    <video autoplay muted loop playsinline poster="${demoAssetHref(id, "png")}">
+      <source src="${demoAssetHref(id, "mp4")}" type="video/mp4" />
     </video>
-    <noscript><img src="${DEMO_ASSET_HREF(id, "gif")}" alt="${escapeHtml(alt)}" /></noscript>
+    <noscript><img src="${demoAssetHref(id, "gif")}" alt="${escapeHtml(alt)}" /></noscript>
   </a>`;
 }
 
@@ -473,7 +584,7 @@ function buildIndexHtml(): void {
         .map((p) => `<span class="badge${p.degraded ? "" : " accent"}">${escapeHtml(modeLabel(p.mode))} · ${escapeHtml(p.verification)}</span>`)
         .join("");
       return `<div class="card">
-  ${demoThumb(primary.id, `${app.name} demo`, `run/${primary.id}.html`)}
+  ${demoThumb(primary.id, `${app.name} demo`, `run/${primary.id}.html`, demoAspect(primary.id, primary.pack))}
   <div class="body">
     <h3>${escapeHtml(app.name)}</h3>
     <p>${escapeHtml(APP_BLURB[app.name] || "")}</p>
@@ -512,12 +623,14 @@ function buildIndexHtml(): void {
   const refTiles = [
     ...REFERENCE_APPS.map((r) => ({
       id: r.id,
+      pack: r.pack,
       title: `${packLabel.get(r.pack) || r.pack}: ${r.name}`,
       blurb: r.blurb,
       docHref: gh(r.doc),
     })),
     {
       id: INSTRUMENT_EXAMPLE.id,
+      pack: INSTRUMENT_EXAMPLE.id, // pseudo-pack, registered into packPanel above
       title: INSTRUMENT_EXAMPLE.name,
       blurb: INSTRUMENT_EXAMPLE.blurb,
       docHref: gh(INSTRUMENT_EXAMPLE.doc),
@@ -526,7 +639,7 @@ function buildIndexHtml(): void {
   const refCardsHtml = refTiles
     .map(
       (r) => `<div class="ref-card">
-  ${demoThumb(r.id, `${r.title} demo`, `run/${r.id}.html`)}
+  ${demoThumb(r.id, `${r.title} demo`, `run/${r.id}.html`, demoAspect(r.id, r.pack))}
   <h3>${escapeHtml(r.title)}</h3>
   <p>${escapeHtml(r.blurb)}</p>
   <div class="links"><a href="run/${r.id}.html">open full page</a> <a href="${r.docHref}">source</a></div>
@@ -716,7 +829,7 @@ function buildRunDir(): void {
     // index page's live card embeds (moduleUrlAbs's own header comment);
     // the run page's iframe `src` itself stays relative ("../emu/..."),
     // resolved normally by the browser against this page's own location.
-    const iframeSrc = `../emu/index.html?embed=1&module=${encodeURIComponent(moduleUrlAbs(opts.id))}`;
+    const iframeSrc = withVersion(`../emu/index.html?embed=1&module=${encodeURIComponent(moduleUrlAbs(opts.id))}`, EMU_INDEX_VERSION);
     const { w: nativeW, h: nativeH } = embedFrameSize(opts.pack);
     const badges = [opts.modeStr, opts.verifStr]
       .filter((x): x is string => !!x)
@@ -724,7 +837,7 @@ function buildRunDir(): void {
       .join(" ");
     const links = opts.docLinks.map((l) => `<a href="${l.href}">${escapeHtml(l.label)}</a>`).join("\n      ");
     const flashSection = renderFlashSection(opts.id, opts.pack);
-    const flashScript = FLASH_ARTIFACTS[opts.id] ? `\n<script type="module" src="../flash/flash.js"></script>` : "";
+    const flashScript = FLASH_ARTIFACTS[opts.id] ? `\n<script type="module" src="${withVersion("../flash/flash.js", FLASH_JS_VERSION)}"></script>` : "";
     const body = `<div class="wrap">
   <div class="run-header">
     <div class="back"><a href="../index.html">&larr; puck</a></div>
@@ -836,6 +949,7 @@ mkdirSync(DIST, { recursive: true });
 buildAllModules();
 buildEmulatorBundle();
 copyFileSync(join(SITE_DIR, "styles.css"), join(DIST, "styles.css"));
+STYLES_VERSION = contentHashOf(join(DIST, "styles.css"));
 copyFlashArtifacts();
 // Every id the landing page's own demoThumb() calls link to: the primary
 // (first-proven-pack) combo per app, plus every reference tile - the same

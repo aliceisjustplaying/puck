@@ -83,7 +83,16 @@ section > .wrap > p.lede { color: var(--text-soft); margin: -8px 0 22px; max-wid
    own thumb below) already sizes via aspect-ratio. The whole thumbnail is
    a link to the real, live run page - a focus ring makes that reachable
    by keyboard, not just discoverable by hover. */
-.thumb-video { display: block; width: 100%; height: 100%; }
+/* Rounded to roughly match the bezel's own 34px corner radius at its
+   native ~404px width (app.css's .bezel), expressed as a percentage so it
+   scales with however large a card renders the thumbnail. Paired with
+   overflow:hidden (needed on Safari, which does not always clip a <video>
+   to its own border-radius without an ancestor that does) - together these
+   mask the small leftover-background corner triangles a rectangular crop
+   of a rounded bezel always has (site/record-demos.ts crops tightly to
+   #bezel's own bounding box, a rectangle, around a shape with rounded
+   corners), on both light and dark cards. */
+.thumb-video { display: block; width: 100%; height: 100%; border-radius: 8.5%; overflow: hidden; }
 .thumb-video:hover { text-decoration: none; }
 .thumb-video:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .thumb-video video, .thumb-video img { display: block; width: 100%; height: 100%; object-fit: contain; }

@@ -31,7 +31,7 @@
 // whichever step "r" happens to land on next).
 import puppeteer, { type Page, type KeyInput } from "puppeteer-core";
 import { join } from "node:path";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync, rmSync, statSync, copyFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { serveDist } from "../scripts/staticSite";
 
@@ -97,6 +97,7 @@ const CHROME = findChromeOrExit();
 interface Ctx {
   page: Page;
   rect(): Promise<{ x: number; y: number; w: number; h: number }>;
+  bezelRect(): Promise<{ x: number; y: number; w: number; h: number }>;
   tap(fx: number, fy: number, holdMs?: number): Promise<void>;
   stroke(pts: [number, number][], stepMs?: number): Promise<void>;
   clickButton(dataDeg: number): Promise<void>;
@@ -104,19 +105,32 @@ interface Ctx {
   keyHold(key: KeyInput, ms: number): Promise<void>;
 }
 
-function makeCtx(page: Page): Ctx {
-  async function rect() {
-    return page.$eval("#panel", (el) => {
+// Bounding-box rect of a selector's element, in the SAME viewport (client)
+// coordinate space Page.screencastFrame's own pixels are captured in
+// (deviceScaleFactor is forced to 1, see puppeteer.launch args below, so CSS
+// px === recorded px, no DPR conversion needed here).
+function makeRectReader(page: Page, sel: string) {
+  return () =>
+    page.$eval(sel, (el) => {
       const r = el.getBoundingClientRect();
       return { x: r.x, y: r.y, w: r.width, h: r.height };
     });
-  }
+}
+
+function makeCtx(page: Page): Ctx {
+  const rect = makeRectReader(page, "#panel");
+  // #bezel, not #panel: this is what the crop step below measures - the
+  // device's own visible silhouette (bezel + buttons), not just the inner
+  // screen - so the recorded clip crops to exactly the device, per this
+  // task's own "just the device" brief.
+  const bezelRect = makeRectReader(page, "#bezel");
   function at(r: { x: number; y: number; w: number; h: number }, fx: number, fy: number): [number, number] {
     return [r.x + fx * r.w, r.y + fy * r.h];
   }
   return {
     page,
     rect,
+    bezelRect,
     async tap(fx, fy, holdMs = 90) {
       const r = await rect();
       const [x, y] = at(r, fx, fy);
@@ -317,6 +331,23 @@ const DEMOS: DemoSpec[] = [
   },
 ];
 
+// The smallest axis-aligned box containing both rects, same center-anchored
+// reasoning either rect would use on its own: fluidbox's own choreography
+// quick-rotates the device mid-clip (0deg portrait -> 90deg landscape, an
+// instant CSS `rotate()` snap, see src/device.ts's applyRotation - no
+// transition, so there is no in-between diagonal frame to worry about,
+// only these two discrete states), so a crop measured against either
+// endpoint alone would clip the device in the other one. Every other demo
+// below has a single orientation throughout, where "before" and "after"
+// are the same rect and this is a no-op.
+function unionRect(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) {
+  const left = Math.min(a.x, b.x);
+  const top = Math.min(a.y, b.y);
+  const right = Math.max(a.x + a.w, b.x + b.w);
+  const bottom = Math.max(a.y + a.h, b.y + b.h);
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
 const onlyId = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
 
 const server = serveDist(DIST, PORT);
@@ -357,6 +388,13 @@ try {
           await cdp.send("Page.screencastFrameAck", { sessionId: ev.sessionId });
         } catch {}
       });
+      // Measured right before/after the recorded choreography, not once up
+      // front: fluidbox quick-rotates the device mid-clip (0deg -> 90deg,
+      // an instant snap, no CSS transition - see unionRect's own comment),
+      // so #bezel's rect genuinely differs between these two calls for that
+      // one demo. The union of both is what the crop below uses, so the
+      // device never gets clipped in either orientation.
+      const bezelBefore = await ctx.bezelRect();
       await cdp.send("Page.startScreencast", { format: "png", everyNthFrame: 1 });
       const tStart = Date.now();
 
@@ -364,7 +402,22 @@ try {
 
       const tEnd = Date.now();
       await cdp.send("Page.stopScreencast");
+      const bezelAfter = await ctx.bezelRect();
       await sleep(150);
+
+      const bezelUnion = unionRect(bezelBefore, bezelAfter);
+      // Round to whole pixels, then to EVEN dimensions (yuv420p subsamples
+      // chroma 2x2, so libx264 rejects an odd width/height outright), and
+      // clamp inside the actual recorded canvas (side x side) so a
+      // fractional getBoundingClientRect reading right at the edge can
+      // never ask ffmpeg to crop past the frame it was given.
+      const cropX = Math.max(0, Math.round(bezelUnion.x));
+      const cropY = Math.max(0, Math.round(bezelUnion.y));
+      const evenDown = (n: number) => Math.max(2, n % 2 === 0 ? n : n - 1);
+      const cropW = evenDown(Math.min(Math.round(bezelUnion.w), side - cropX));
+      const cropH = evenDown(Math.min(Math.round(bezelUnion.h), side - cropY));
+      const cropFilter = `crop=${cropW}:${cropH}:${cropX}:${cropY}`;
+      console.log(`  bezel crop: ${cropW}x${cropH} at (${cropX},${cropY}) of the ${side}x${side} recorded canvas`);
 
       if (frames.length === 0) throw new Error(`${demo.id}: the screencast produced no frames`);
       frames.sort((a, b) => a.t - b.t);
@@ -378,17 +431,25 @@ try {
       }
       console.log(`  captured ${frames.length} frames over ${((tEnd - tStart) / 1000).toFixed(1)}s, resampled to ${count} at ${FPS}fps`);
 
-      // Poster: the loop's own first frame, so a browser that has not yet
-      // started (or cannot autoplay) the video shows exactly what the
-      // video itself opens on, not a mismatched still.
-      copyFileSync(join(framesDir, "f0000.png"), join(OUT_DIR, `${demo.id}.png`));
+      // Poster: the loop's own first frame, cropped identically to the mp4/gif
+      // below (this used to be a plain copyFileSync of the raw, uncropped
+      // frame - a browser that has not yet started/cannot autoplay the video
+      // showed the OLD full-canvas still, poster and video mismatched).
+      const posterPath = join(OUT_DIR, `${demo.id}.png`);
+      const encPoster = Bun.spawnSync([
+        ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+        "-i", join(framesDir, "f0000.png"),
+        "-vf", cropFilter,
+        posterPath,
+      ]);
+      if (encPoster.exitCode !== 0) throw new Error(`ffmpeg (poster) failed (${encPoster.exitCode}): ${new TextDecoder().decode(encPoster.stderr)}`);
 
       const mp4Path = join(OUT_DIR, `${demo.id}.mp4`);
       const encMp4 = Bun.spawnSync([
         ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
         "-framerate", String(FPS),
         "-i", join(framesDir, "f%04d.png"),
-        "-vf", "format=yuv420p",
+        "-vf", `${cropFilter},format=yuv420p`,
         "-c:v", "libx264",
         "-preset", "veryslow",
         "-crf", "30",
@@ -400,7 +461,7 @@ try {
       const mp4Kb = Math.round(statSync(mp4Path).size / 1024);
 
       const gifPath = join(OUT_DIR, `${demo.id}.gif`);
-      const gifFilter = `split [a][b];[a] palettegen=max_colors=${MAX_COLORS}:stats_mode=diff [p];[b][p] paletteuse=dither=none:diff_mode=rectangle`;
+      const gifFilter = `${cropFilter},split [a][b];[a] palettegen=max_colors=${MAX_COLORS}:stats_mode=diff [p];[b][p] paletteuse=dither=none:diff_mode=rectangle`;
       const encGif = Bun.spawnSync([
         ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
         "-framerate", String(FPS),
@@ -412,7 +473,7 @@ try {
       if (encGif.exitCode !== 0) throw new Error(`ffmpeg (gif) failed (${encGif.exitCode}): ${new TextDecoder().decode(encGif.stderr)}`);
       const gifKb = Math.round(statSync(gifPath).size / 1024);
 
-      console.log(`  wrote ${demo.id}.mp4 (${side}x${side}, ${count} frames, ${(count / FPS).toFixed(1)}s, ${mp4Kb} KB) + ${demo.id}.gif (${gifKb} KB) + ${demo.id}.png poster`);
+      console.log(`  wrote ${demo.id}.mp4 (${cropW}x${cropH}, ${count} frames, ${(count / FPS).toFixed(1)}s, ${mp4Kb} KB) + ${demo.id}.gif (${gifKb} KB) + ${demo.id}.png poster`);
       if (mp4Kb > 1536) console.warn(`  WARNING: ${demo.id}.mp4 is ${mp4Kb} KB, over the ~1.5MB target`);
     } finally {
       await page.close();

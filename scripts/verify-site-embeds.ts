@@ -65,6 +65,24 @@ function failFatal(msg: string): never {
 
 if (!existsSync(DIST)) failFatal(`site/dist/ does not exist. Run \`bun run site:build\` first.`);
 
+async function fetchOk(path: string): Promise<boolean> {
+  try {
+    const r = await fetch(`http://127.0.0.1:${PORT}/${path.replace(/^\/+/, "")}`);
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+// site/build.ts's own contentHashOf: first 10 hex chars of a sha256 - this
+// only checks the QUERY STRING SHAPE ("?v=" or "&v=" followed by hex), not
+// that any specific hash is correct (fetchOk below is what proves the URL
+// actually resolves against the built output, which is the real proof a
+// stale cached copy would fail).
+function hasVersion(url: string): boolean {
+  return /[?&]v=[0-9a-f]{6,}(?:&|$)/i.test(url);
+}
+
 const server = serveDist(DIST, PORT);
 
 let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
@@ -99,28 +117,78 @@ try {
     console.log(`found ${thumbs.length} demo thumbnail(s) on the landing page`);
     if (thumbs.length < 4) fail(`expected at least 4 demo thumbnails on the landing page (site/build.ts's cardsHtml + refTiles), found ${thumbs.length}`);
 
-    async function urlOk(path: string): Promise<boolean> {
-      try {
-        const r = await fetch(`http://127.0.0.1:${PORT}/${path.replace(/^\/+/, "")}`);
-        return r.ok;
-      } catch {
-        return false;
-      }
-    }
-
     for (const t of thumbs) {
       const label = t.mp4 || t.href || "(unknown thumbnail)";
       if (!t.href) { fail(`thumbnail has no href to a run page: ${label}`); continue; }
-      if (!(await urlOk(t.href))) fail(`thumbnail's run-page link 404s: ${t.href}`);
+      if (!(await fetchOk(t.href))) fail(`thumbnail's run-page link 404s: ${t.href}`);
       if (!t.mp4) fail(`thumbnail has no <source> mp4: ${label}`);
-      else if (!(await urlOk(t.mp4))) fail(`thumbnail's mp4 404s: ${t.mp4}`);
+      else if (!(await fetchOk(t.mp4))) fail(`thumbnail's mp4 404s: ${t.mp4}`);
+      else if (!hasVersion(t.mp4)) fail(`thumbnail's mp4 has no ?v= cache-buster: ${t.mp4}`);
       if (!t.poster) fail(`thumbnail has no poster image: ${label}`);
-      else if (!(await urlOk(t.poster))) fail(`thumbnail's poster 404s: ${t.poster}`);
+      else if (!(await fetchOk(t.poster))) fail(`thumbnail's poster 404s: ${t.poster}`);
+      else if (!hasVersion(t.poster)) fail(`thumbnail's poster has no ?v= cache-buster: ${t.poster}`);
       const gifSrcMatch = t.gifHtml?.match(/src="([^"]+)"/);
       if (!gifSrcMatch) fail(`thumbnail has no <noscript> gif fallback: ${label}`);
-      else if (!(await urlOk(gifSrcMatch[1]!))) fail(`thumbnail's gif fallback 404s: ${gifSrcMatch[1]}`);
+      else if (!(await fetchOk(gifSrcMatch[1]!))) fail(`thumbnail's gif fallback 404s: ${gifSrcMatch[1]}`);
+      else if (!hasVersion(gifSrcMatch[1]!)) fail(`thumbnail's gif fallback has no ?v= cache-buster: ${gifSrcMatch[1]}`);
     }
-    if (failures === 0) console.log("PASS: every landing-page thumbnail has a working video, poster, gif fallback, and run-page link");
+    if (failures === 0) console.log("PASS: every landing-page thumbnail has a working, cache-busted video, poster, gif fallback, and run-page link");
+
+    const stylesHref = await page.$eval('link[rel="stylesheet"]', (el) => el.getAttribute("href"));
+    if (!stylesHref || !hasVersion(stylesHref)) fail(`index.html: styles.css link has no ?v= cache-buster (${stylesHref})`);
+    else if (!(await fetchOk(stylesHref))) fail(`index.html: styles.css?v= 404s: ${stylesHref}`);
+    else console.log(`PASS: index.html's styles.css link is cache-busted (${stylesHref})`);
+
+    // Each card's own recorded video must actually match the aspect ratio
+    // site/build.ts declared for it (demoAspect: the poster PNG's own
+    // pixel dimensions, read at build time) - proof the crop this task
+    // introduced (site/record-demos.ts, tight to #bezel) and the CSS box
+    // it is displayed in (the card's own inline aspect-ratio style) agree,
+    // so the video fills its card with no letterbox bars ("the device
+    // itself, nothing else around it").
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          const vids = Array.from(document.querySelectorAll("video"));
+          let pending = vids.length;
+          if (pending === 0) { resolve(); return; }
+          for (const v of vids) {
+            if (v.readyState >= 1) { pending--; if (pending === 0) resolve(); continue; }
+            v.addEventListener("loadedmetadata", () => { pending--; if (pending === 0) resolve(); }, { once: true });
+          }
+        })
+    );
+    const aspectChecks = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll("a.thumb-video")).map((a) => {
+        const el = a as HTMLAnchorElement;
+        const video = el.querySelector("video") as HTMLVideoElement | null;
+        const m = (el.getAttribute("style") || "").match(/aspect-ratio:\s*([\d.]+)\s*\/\s*([\d.]+)/);
+        return {
+          href: el.getAttribute("href"),
+          videoW: video?.videoWidth ?? 0,
+          videoH: video?.videoHeight ?? 0,
+          declaredW: m ? parseFloat(m[1]!) : null,
+          declaredH: m ? parseFloat(m[2]!) : null,
+        };
+      });
+    });
+    for (const c of aspectChecks) {
+      if (!c.videoW || !c.videoH) { fail(`${c.href}: card video metadata never loaded (${c.videoW}x${c.videoH})`); continue; }
+      if (!c.declaredW || !c.declaredH) { fail(`${c.href}: card has no parsable aspect-ratio style`); continue; }
+      const videoRatio = c.videoW / c.videoH;
+      const declaredRatio = c.declaredW / c.declaredH;
+      const pctOff = Math.abs(videoRatio - declaredRatio) / declaredRatio;
+      if (pctOff > 0.05) {
+        fail(
+          `${c.href}: video intrinsic ${c.videoW}x${c.videoH} (ratio ${videoRatio.toFixed(3)}) is ${(pctOff * 100).toFixed(1)}% off ` +
+            `the card's own bezel aspect ${c.declaredW}/${c.declaredH} (ratio ${declaredRatio.toFixed(3)})`
+        );
+      } else {
+        console.log(`  ${c.href}: video ${c.videoW}x${c.videoH} matches bezel aspect ${c.declaredW}/${c.declaredH} (${(pctOff * 100).toFixed(1)}% off)`);
+      }
+    }
+    if (failures === 0) console.log("PASS: every card video's intrinsic dimensions match its own bezel aspect within 5%");
+
     await page.close();
   }
 
@@ -182,6 +250,59 @@ try {
     }
   }
   await page.close();
+
+  // ---- 3. cache-busting: every asset URL a run page emits carries ?v= and
+  // resolves 200 - both the OUTER page's own refs (styles.css, flash.js,
+  // the emu iframe's src) and, separately, the EMBEDDED emu/index.html
+  // document's own internal refs to main.js/app.css/family-budget.css
+  // (site/build.ts rewrites those during the copy step; a browser caches
+  // them by their own url, resolved against that document, so the outer
+  // page's iframe src carrying ?v= alone would not be enough - this is the
+  // actual regression the cache-busting fix targets). --------------------
+  {
+    const page = await browser.newPage();
+    for (const file of runPages) {
+      await page.setViewport({ width: 700, height: 1200 });
+      await page.goto(`http://127.0.0.1:${PORT}/run/${file}`, { waitUntil: "domcontentloaded" });
+      await new Promise((r) => setTimeout(r, 1200));
+
+      const stylesHref = await page.$eval('link[rel="stylesheet"]', (el) => el.getAttribute("href"));
+      if (!stylesHref || !hasVersion(stylesHref)) fail(`${file}: styles.css link has no ?v= (${stylesHref})`);
+      else if (!(await fetchOk(stylesHref))) fail(`${file}: styles.css?v= 404s: ${stylesHref}`);
+
+      const flashSrc = await page
+        .$eval('script[type="module"][src*="flash"]', (el) => el.getAttribute("src"))
+        .catch(() => null);
+      if (flashSrc) {
+        if (!hasVersion(flashSrc)) fail(`${file}: flash.js script has no ?v= (${flashSrc})`);
+        else if (!(await fetchOk(flashSrc))) fail(`${file}: flash.js?v= 404s: ${flashSrc}`);
+      }
+
+      const iframeSrc = await page.$eval("#emu", (el) => el.getAttribute("src"));
+      if (!iframeSrc || !hasVersion(iframeSrc)) fail(`${file}: emu iframe src has no ?v= (${iframeSrc})`);
+      else if (!(await fetchOk(iframeSrc.split("?")[0]!))) fail(`${file}: emu iframe src path 404s: ${iframeSrc}`);
+
+      const frame = page.frames().find((f) => f !== page.mainFrame() && /[?&]module=/.test(f.url()));
+      if (!frame) {
+        fail(`${file}: no embedded emulator iframe found for the asset-versioning check`);
+        continue;
+      }
+      const inner = await frame.evaluate(() => {
+        const css = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map((l) => (l as HTMLLinkElement).href);
+        const js = Array.from(document.querySelectorAll('script[type="module"]')).map((s) => (s as HTMLScriptElement).src);
+        return [...css, ...js];
+      });
+      if (inner.length < 3) fail(`${file}: emu/index.html has only ${inner.length} internal asset ref(s), expected main.js + app.css + family-budget.css`);
+      for (const u of inner) {
+        const parsed = new URL(u);
+        if (!hasVersion(parsed.search)) fail(`${file}: emu/index.html's own asset ref has no ?v=: ${u}`);
+        else if (!(await fetchOk(parsed.pathname))) fail(`${file}: emu/index.html's own asset ref 404s: ${u}`);
+      }
+      console.log(`  ${file}: styles.css, flash.js (if any), the emu iframe, and its own main.js/app.css/family-budget.css all carry ?v= and resolve`);
+    }
+    await page.close();
+    if (failures === 0) console.log("\nPASS: every run page's own assets, and the embedded emu bundle's internal assets, are cache-busted and resolve");
+  }
 
   if (failures === 0) {
     console.log(`\nPASS: every run page is contained and free of horizontal overflow at ${WIDTHS.join("px, ")}px`);
