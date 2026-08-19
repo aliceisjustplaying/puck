@@ -933,7 +933,17 @@ const BOOTSEL_RITUAL_INTRO =
 const BOOTSEL_RITUAL =
   "Unplug USB. Hold PWR for at least 12 seconds, until the screen goes black (replugging alone does not reset the board: the PMIC keeps the rails up). Then hold BOOT while plugging the USB cable back in.";
 
-const ESP32_FLASH_NOTE = "Flashing arrives when this pack's ESP-IDF half has been validated on real silicon (it has not).";
+// The ESP-IDF half is no longer unvalidated: it was built, flashed and run on
+// the physical board on 2026-08-19 (packs/esp32-s3-touch-amoled-18/docs/
+// decisions/0001-what-the-first-flash-found.md). What is still missing is a
+// BROWSER flashing path, and that gap is a different one from the old note's:
+// the RP2350 flasher works because a board in BOOTSEL mounts as a drive and
+// takes a single .uf2 file. An ESP32-S3 takes a multi-image esptool write over
+// serial, which this site does not implement. Saying "flashing arrives when
+// the firmware is validated" would now be false, and the point of this note is
+// that a visitor should not wait for something that is not coming from here.
+const ESP32_FLASH_NOTE =
+  "This pack's firmware runs on the real board, but flashing it from a browser does not: an ESP32-S3 takes an esptool write over serial, not a single file dropped on a drive. Build and flash it from the pack's own README.";
 
 function renderFlashSection(comboId: string, pack: string): string {
   const artifact = FLASH_ARTIFACTS[comboId];
