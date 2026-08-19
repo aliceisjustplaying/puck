@@ -190,6 +190,55 @@ target_link_libraries(main PRIVATE
 pico_enable_stdio_usb(main 1)
 pico_enable_stdio_uart(main 1)
 
+# BOOTSEL WITHOUT THE BUTTON RITUAL, which is what the web flasher at
+# puck.sylve.org reboots the board with (site/flasher/flash.ts's
+# rebootToBootsel()).
+#
+# pico-sdk's pico_usb_reset puts a third USB interface next to the CDC pair
+# this firmware already exposes: a VENDOR interface (class 0xFF, subclass
+# RESET_INTERFACE_SUBCLASS 0x00, protocol RESET_INTERFACE_PROTOCOL 0x01, no
+# endpoints, interface number 2 since CDC takes 0 and 1) whose
+# RESET_REQUEST_BOOTSEL (0x01) control request calls
+# rom_reset_usb_boot_extra() and never returns, so the board re-enumerates
+# as 2E8A:000F, an RP2350 BOOTSEL device, with PICOBOOT and the mass
+# storage volume both live. It is the same interface `picotool load -f`
+# uses; the browser reaches it with a claimInterface + controlTransferOut
+# instead of libusb.
+#
+# SDK 2.3.0 already turns every one of these on by default for an
+# application that does not drive TinyUSB itself (see
+# pico_usb_reset/include/pico/usb_reset_config.h: each default is 1 when
+# neither LIB_TINYUSB_HOST nor LIB_TINYUSB_DEVICE is set), so this block
+# changes no byte of today's image. It pins the behaviour rather than
+# adding it. A default is not a contract: this firmware declaring its own
+# TinyUSB descriptors one day would silently flip all of them to 0, and the
+# damage would show up as a web page that can no longer flash, on somebody
+# else's machine, not as a build error here. Both spellings are set because
+# the config names changed in SDK 2.3.0 and the older ones are what an
+# SDK <= 2.2.0 checkout reads (each new name is consulted first, so the old
+# one is simply ignored on 2.3.0).
+target_compile_definitions(main PRIVATE
+    PICO_ENABLE_USB_RESET_VIA_VENDOR_INTERFACE=1
+    PICO_STDIO_USB_ENABLE_RESET_VIA_VENDOR_INTERFACE=1
+    PICO_USB_RESET_SUPPORT_RESET_TO_BOOTSEL=1
+    PICO_STDIO_USB_RESET_INTERFACE_SUPPORT_RESET_TO_BOOTSEL=1
+    # bit 0 disables the mass storage volume, bit 1 disables PICOBOOT.
+    # Neither may be disabled: PICOBOOT is what the flasher writes flash
+    # with the moment the board comes back, and the mass storage volume is
+    # the drag-and-drop fallback a human uses when the flasher is not an
+    # option. The bootrom ORs this mask with the low two bits of the
+    # control request's wValue, so a host sending wValue 0 (which the
+    # flasher does) gets both interfaces.
+    PICO_USB_RESET_BOOTSEL_INTERFACE_DISABLE_MASK=0
+    # Windows hands a driverless interface to WinUSB (and therefore to
+    # WebUSB) only when the device carries a Microsoft OS 2.0 descriptor
+    # naming that interface, which also forces bcdUSB to 0x0210. Without
+    # it the reset interface is reachable from Linux and macOS and simply
+    # invisible to a browser on Windows.
+    PICO_USB_RESET_SUPPORT_MS_OS_20_DESCRIPTOR=1
+    PICO_USB_RESET_MS_OS_20_DESCRIPTOR_ITF=2
+)
+
 # The board must never look dead just because a host opened the USB serial
 # port and is not reading it: pico-sdk's stdio_usb driver (stdio_usb.c,
 # stdio_usb_out_chars()) already bounds any ONE blocked write to

@@ -8,11 +8,27 @@
 // flash.ts's flashUf2() with a progress callback that paints the section's
 // own progress bar and status line. Failure states are read straight off
 // FlashError.code (see flash.ts): "unsupported-browser" for no
-// navigator.usb, "no-device-selected" for a cancelled/empty device picker
-// (indistinguishable from "board isn't in BOOTSEL mode" from here, so we
-// say that), "wrong-chip-family" for an RP2040 board, "usb-error" for
-// everything else the transport can throw.
-import { FlashError, flashUf2, isWebUsbSupported, type FlashProgress } from "./flash";
+// navigator.usb, "no-device-selected" for a cancelled/empty device picker,
+// "wrong-chip-family" for an RP2040 board, "no-reset-interface" for a
+// running board whose firmware predates the reset interface,
+// "bootsel-reselect-needed" for a board that DID reboot into BOOTSEL but
+// needs a fresh permission gesture, "usb-error" for everything else the
+// transport can throw. Every one of them is already a full sentence
+// telling the human what to do, so this file renders the message and adds
+// nothing.
+import { FlashError, flashUf2, isWebUsbSupported, type FlashPhase, type FlashProgress } from "./flash";
+
+// The status line reads "<stage>: <detail>", and the raw phase names are
+// identifiers, not English ("entering-bootsel"). This is the one place
+// they become words.
+const PHASE_LABELS: Record<FlashPhase, string> = {
+  connecting: "connecting",
+  "entering-bootsel": "rebooting into BOOTSEL",
+  erasing: "erasing",
+  writing: "writing",
+  rebooting: "rebooting",
+  done: "done",
+};
 
 function initSection(section: HTMLElement): void {
   const uf2Url = section.dataset.uf2;
@@ -35,7 +51,7 @@ function initSection(section: HTMLElement): void {
     errorEl!.hidden = true;
     progressWrap!.hidden = false;
     progressBar!.style.width = `${p.percent}%`;
-    statusEl!.textContent = `${p.phase}: ${p.message}`;
+    statusEl!.textContent = `${PHASE_LABELS[p.phase] ?? p.phase}: ${p.message}`;
   }
 
   async function run(): Promise<void> {

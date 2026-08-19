@@ -32,25 +32,44 @@ describe("mapAccelerationToVector: spec/Android convention (isIOS = false)", () 
 });
 
 describe("mapAccelerationToVector: iOS Safari convention (isIOS = true)", () => {
-  test("flat, face-up on a table: raw gravity-direct (0,0,-g) -> ABI (0,0,-1)", () => {
+  // Validated on a physical iPhone on 2026-08-19: x (left/right) confirmed
+  // correct BEFORE the y fix; y (up/down, pitch) was found inverted and is
+  // now negated, matching the spec/Android convention for that axis only.
+  test("flat, face-up on a table: raw gravity-direct z (0,0,-g), z untouched by the y fix -> ABI (0,0,-1)", () => {
     expectVectorClose(mapAccelerationToVector(0, 0, -G, true), { x: 0, y: 0, z: -1 });
   });
 
-  test("upright, screen facing the user: raw gravity-direct (0,+g,0) -> ABI (0,1,0)", () => {
-    expectVectorClose(mapAccelerationToVector(0, G, 0, true), { x: 0, y: 1, z: 0 });
+  test("upright, screen facing the user: raw (0,-g,0), y negated like spec/Android -> ABI (0,1,0)", () => {
+    expectVectorClose(mapAccelerationToVector(0, -G, 0, true), { x: 0, y: 1, z: 0 });
+  });
+
+  test("y sign flip matters: a moderate top-away tilt pours the correct edge only once y is negated", () => {
+    // Real-hardware pose: phone tilted so the top edge leans away from the
+    // user. Under the corrected mapping (y negated) this must pour toward
+    // the target edge (positive y, matching the (0,1,0) upright anchor's
+    // sign); the OLD un-negated-y mapping (what isIOS=false-for-y would
+    // have produced, i.e. leaving raw y unflipped) pours the opposite way -
+    // exactly "tilting the phone's top away pours the wrong way".
+    const raw = { x: 0, y: -0.87 * G, z: -0.5 * G };
+    const correct = mapAccelerationToVector(raw.x, raw.y, raw.z, true);
+    const oldUnNegatedY = { x: raw.x / G, y: raw.y / G, z: raw.z / G }; // pre-fix iOS branch, y left un-negated
+    expect(correct.y).toBeGreaterThan(0); // correct, post-fix
+    expect(oldUnNegatedY.y).toBeLessThan(0); // the bug this follow-up fixes
+    expect(correct.y).toBeCloseTo(-oldUnNegatedY.y, 6);
   });
 });
 
-describe("mapAccelerationToVector: negating the WRONG convention reproduces the reported bug", () => {
-  test("applying the spec's negation to iOS's already gravity-direct reading flips it backwards (the double-flip bug)", () => {
+describe("mapAccelerationToVector: negating the WRONG convention reproduces the reported left/right bug", () => {
+  test("applying the spec's negation to iOS's gravity-direct x reading flips it backwards (the double-flip bug)", () => {
     // iOS raw for "tilted right" (gravity now has a positive x component
-    // pouring toward the right edge of the panel) is gravity-direct, e.g.
-    // (+g*0.5, 0, -g*0.87) for a moderate rightward tilt off flat. Mapping
-    // it with isIOS=false (the old, always-negate code path this fix
-    // replaces) pours the OTHER way - this is the exact regression Sylve
-    // reported on his real iPhone ("tilt doesn't work in the right
-    // direction... tilting right pours left").
-    const iosRawTiltedRight = { x: 0.5 * G, y: 0, z: -0.87 * G };
+    // pouring toward the right edge of the panel) is gravity-direct on x,
+    // e.g. (+g*0.5, -g*small, -g*0.87) for a moderate rightward tilt off
+    // flat. Mapping it with isIOS=false (the old, always-negate-everything
+    // code path this fix replaces) pours x the OTHER way - this is the
+    // left/right regression Sylve originally reported on his real iPhone
+    // ("tilt doesn't work in the right direction... tilting right pours
+    // left"), fixed before this y-only follow-up and unaffected by it.
+    const iosRawTiltedRight = { x: 0.5 * G, y: -0.1 * G, z: -0.87 * G };
     const correct = mapAccelerationToVector(iosRawTiltedRight.x, iosRawTiltedRight.y, iosRawTiltedRight.z, true);
     const doubleFlipped = mapAccelerationToVector(iosRawTiltedRight.x, iosRawTiltedRight.y, iosRawTiltedRight.z, false);
     expect(correct.x).toBeGreaterThan(0); // correct: pours right, matching the tilt

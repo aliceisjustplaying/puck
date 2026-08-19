@@ -168,12 +168,15 @@ try {
       return Array.from(document.querySelectorAll("a.thumb-video")).map((a) => {
         const el = a as HTMLAnchorElement;
         const video = el.querySelector("video") as HTMLVideoElement | null;
+        const r = video?.getBoundingClientRect();
         return {
           href: el.getAttribute("href"),
           videoW: video?.videoWidth ?? 0,
           videoH: video?.videoHeight ?? 0,
           panelW: video ? Number(video.getAttribute("data-panel-w")) : null,
           panelH: video ? Number(video.getAttribute("data-panel-h")) : null,
+          renderedW: r ? r.width : 0,
+          renderedH: r ? r.height : 0,
         };
       });
     });
@@ -193,6 +196,38 @@ try {
       }
     }
     if (failures === 0) console.log("PASS: every card video's intrinsic dimensions match its pack's own panel aspect within 2%");
+
+    // The check above only proves the video's own INTRINSIC pixels are the
+    // right shape - it says nothing about the BOX that video is actually
+    // laid out into, which is exactly what a cover-crop or a wrong-orientation
+    // frame gets wrong while intrinsic dimensions stay perfectly correct
+    // (a landscape clip is still 448x368 whether or not the box around it
+    // is portrait). This is the regression check for that real bug: a
+    // stray height:100% on .thumb-video once let an ancestor's definite
+    // height override the inline aspect-ratio, stretching the video's own
+    // RENDERED box away from its intrinsic shape, at which point
+    // object-fit had to crop or letterbox to compensate - the crop is
+    // what Sylve actually saw on screen. Comparing the video's own
+    // getBoundingClientRect() aspect against its intrinsic aspect is what
+    // would have caught it: an intrinsic-only check (above) cannot,
+    // because the video file itself was never wrong.
+    for (const c of aspectChecks) {
+      if (!c.renderedW || !c.renderedH) { fail(`${c.href}: card video has no rendered box (${c.renderedW}x${c.renderedH})`); continue; }
+      if (!c.videoW || !c.videoH) continue; // already failed above
+      const renderedRatio = c.renderedW / c.renderedH;
+      const intrinsicRatio = c.videoW / c.videoH;
+      const pctOff = Math.abs(renderedRatio - intrinsicRatio) / intrinsicRatio;
+      if (pctOff > 0.02) {
+        fail(
+          `${c.href}: video's RENDERED box ${c.renderedW.toFixed(1)}x${c.renderedH.toFixed(1)} (ratio ${renderedRatio.toFixed(3)}) is ` +
+            `${(pctOff * 100).toFixed(1)}% off its own intrinsic aspect ${c.videoW}x${c.videoH} (ratio ${intrinsicRatio.toFixed(3)}) - ` +
+            `object-fit is cropping or letterboxing this card, not just displaying it`
+        );
+      } else {
+        console.log(`  ${c.href}: rendered box ${c.renderedW.toFixed(1)}x${c.renderedH.toFixed(1)} matches intrinsic aspect (${(pctOff * 100).toFixed(1)}% off)`);
+      }
+    }
+    if (failures === 0) console.log("PASS: every card video's RENDERED box matches its own intrinsic aspect within 2% (no cover-crop, no wrong-orientation frame)");
 
     await page.close();
   }

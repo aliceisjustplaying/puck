@@ -326,6 +326,13 @@ class PicobootDevice {
 var RPI_VENDOR_ID = 11914;
 var RP2350_BOOTSEL_PRODUCT_ID = 15;
 var RP2040_BOOTSEL_PRODUCT_ID = 3;
+var PUCK_RUNNING_PRODUCT_ID = 9;
+var RESET_INTERFACE_CLASS = 255;
+var RESET_INTERFACE_SUBCLASS = 0;
+var RESET_INTERFACE_PROTOCOL = 1;
+var RESET_REQUEST_BOOTSEL = 1;
+var BOOTSEL_REENUMERATE_TIMEOUT_MS = 1e4;
+var BOOTSEL_POLL_INTERVAL_MS = 250;
 var REBOOT_DELAY_MS = 500;
 
 class FlashError extends Error {
@@ -338,29 +345,135 @@ class FlashError extends Error {
 function isWebUsbSupported() {
   return typeof navigator !== "undefined" && !!navigator.usb;
 }
+function classifyDevice(device) {
+  if (device.vendorId !== RPI_VENDOR_ID)
+    return "unknown";
+  if (device.productId === RP2350_BOOTSEL_PRODUCT_ID)
+    return "bootsel-rp2350";
+  if (device.productId === RP2040_BOOTSEL_PRODUCT_ID)
+    return "bootsel-rp2040";
+  if (device.productId === PUCK_RUNNING_PRODUCT_ID)
+    return "running-puck";
+  return "unknown";
+}
+function deviceFilters() {
+  return [
+    { vendorId: RPI_VENDOR_ID, productId: RP2350_BOOTSEL_PRODUCT_ID },
+    { vendorId: RPI_VENDOR_ID, productId: RP2040_BOOTSEL_PRODUCT_ID },
+    { vendorId: RPI_VENDOR_ID, productId: PUCK_RUNNING_PRODUCT_ID }
+  ];
+}
+function buildBootselResetSetup(interfaceNumber) {
+  return {
+    requestType: "class",
+    recipient: "interface",
+    request: RESET_REQUEST_BOOTSEL,
+    value: 0,
+    index: interfaceNumber
+  };
+}
+function findResetInterface(device) {
+  const config = device.configuration;
+  if (!config)
+    return null;
+  for (const iface of config.interfaces) {
+    for (const alt of iface.alternates) {
+      if (alt.interfaceClass !== RESET_INTERFACE_CLASS)
+        continue;
+      if (alt.interfaceSubclass !== RESET_INTERFACE_SUBCLASS)
+        continue;
+      if (alt.interfaceProtocol !== RESET_INTERFACE_PROTOCOL)
+        continue;
+      if (alt.endpoints.length !== 0)
+        continue;
+      return iface.interfaceNumber;
+    }
+  }
+  return null;
+}
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function rebootRunningDeviceToBootsel(device) {
+  if (!device.opened)
+    await device.open();
+  if (!device.configuration)
+    await device.selectConfiguration(1);
+  const interfaceNumber = findResetInterface(device);
+  if (interfaceNumber === null) {
+    try {
+      await device.close();
+    } catch {}
+    throw new FlashError("This board is running firmware with no USB reset interface, so it can't be rebooted into BOOTSEL from here. " + "That's firmware built before 2026-08-19: use the BOOTSEL entry ritual below once, and every flash after that is a click.", "no-reset-interface");
+  }
+  await device.claimInterface(interfaceNumber);
+  try {
+    await device.controlTransferOut(buildBootselResetSetup(interfaceNumber));
+  } catch {}
+  try {
+    await device.releaseInterface(interfaceNumber);
+  } catch {}
+  try {
+    await device.close();
+  } catch {}
+}
+async function waitForBootselDevice(timeoutMs = BOOTSEL_REENUMERATE_TIMEOUT_MS, pollMs = BOOTSEL_POLL_INTERVAL_MS) {
+  if (!isWebUsbSupported())
+    return null;
+  const deadline = Date.now() + timeoutMs;
+  for (;; ) {
+    let devices = [];
+    try {
+      devices = await navigator.usb.getDevices();
+    } catch {
+      devices = [];
+    }
+    const found = devices.find((d) => classifyDevice(d) === "bootsel-rp2350");
+    if (found)
+      return found;
+    if (Date.now() >= deadline)
+      return null;
+    await delay(pollMs);
+  }
+}
 async function requestPicobootDevice() {
   if (!isWebUsbSupported()) {
     throw new FlashError("This browser doesn't support WebUSB. Use Chrome or Edge on desktop.", "unsupported-browser");
   }
   let device;
   try {
-    device = await navigator.usb.requestDevice({
-      filters: [
-        { vendorId: RPI_VENDOR_ID, productId: RP2350_BOOTSEL_PRODUCT_ID },
-        { vendorId: RPI_VENDOR_ID, productId: RP2040_BOOTSEL_PRODUCT_ID }
-      ]
-    });
+    device = await navigator.usb.requestDevice({ filters: deviceFilters() });
   } catch {
-    throw new FlashError("No device was selected. The board isn't in BOOTSEL mode yet: see the entry ritual below.", "no-device-selected");
+    throw new FlashError("No device was selected. Plug the board in over USB and pick it in the browser's device list; if it doesn't appear at all, see the BOOTSEL entry ritual below.", "no-device-selected");
   }
-  if (device.productId === RP2040_BOOTSEL_PRODUCT_ID) {
+  if (classifyDevice(device) === "bootsel-rp2040") {
     throw new FlashError("That's an RP2040 BOOTSEL device. This .uf2 is built for RP2350 (a different chip family) and won't run on it.", "wrong-chip-family");
   }
   return device;
 }
+async function acquirePicobootDevice(onProgress) {
+  const picked = await requestPicobootDevice();
+  if (classifyDevice(picked) !== "running-puck")
+    return picked;
+  onProgress({ phase: "entering-bootsel", percent: 1, message: "Rebooting the device into BOOTSEL…" });
+  await rebootRunningDeviceToBootsel(picked);
+  onProgress({ phase: "entering-bootsel", percent: 2, message: "Waiting for the board to come back…" });
+  const reenumerated = await waitForBootselDevice();
+  if (reenumerated)
+    return reenumerated;
+  onProgress({ phase: "entering-bootsel", percent: 2, message: "Device rebooted to BOOTSEL, select it again…" });
+  try {
+    const again = await navigator.usb.requestDevice({
+      filters: [{ vendorId: RPI_VENDOR_ID, productId: RP2350_BOOTSEL_PRODUCT_ID }]
+    });
+    if (classifyDevice(again) === "bootsel-rp2350")
+      return again;
+  } catch {}
+  throw new FlashError("The board rebooted into BOOTSEL, but this page needs permission for it as a new USB device. Click Flash over USB again and pick the RP2 Boot device.", "bootsel-reselect-needed");
+}
 async function flashUf2(uf2Bytes, onProgress) {
   onProgress({ phase: "connecting", percent: 0, message: "Requesting device…" });
-  const device = await requestPicobootDevice();
+  const device = await acquirePicobootDevice(onProgress);
   const { blocks } = parseUf2(uf2Bytes);
   const plan = computeFlashPlan(blocks, FAMILY_RP2350_ARM_S);
   const pb = new PicobootDevice(device);
@@ -405,6 +518,14 @@ async function flashUf2(uf2Bytes, onProgress) {
 }
 
 // site/flasher/flash-ui.ts
+var PHASE_LABELS = {
+  connecting: "connecting",
+  "entering-bootsel": "rebooting into BOOTSEL",
+  erasing: "erasing",
+  writing: "writing",
+  rebooting: "rebooting",
+  done: "done"
+};
 function initSection(section) {
   const uf2Url = section.dataset.uf2;
   if (!uf2Url)
@@ -425,7 +546,7 @@ function initSection(section) {
     errorEl.hidden = true;
     progressWrap.hidden = false;
     progressBar.style.width = `${p.percent}%`;
-    statusEl.textContent = `${p.phase}: ${p.message}`;
+    statusEl.textContent = `${PHASE_LABELS[p.phase] ?? p.phase}: ${p.message}`;
   }
   async function run() {
     errorEl.hidden = true;

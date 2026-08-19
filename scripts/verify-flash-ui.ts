@@ -16,6 +16,20 @@
 // runs (page.evaluateOnNewDocument), which is exactly the condition
 // flash-ui.ts's isWebUsbSupported() check exists to handle, and then
 // clicks the real button and reads the real DOM.
+//
+// The same trick, pointed the other way, is what lets the RUNNING-DEVICE
+// path be checked at all. A board running puck firmware enumerates as
+// 2E8A:0009 and has to be rebooted into BOOTSEL over its reset interface
+// before anything can be written (site/flasher/flash.ts). No headless
+// browser has one plugged in, so navigator.usb is replaced with a fake
+// that answers with descriptors shaped like the real device's, records
+// every call, and lets the REAL bundled flash.js drive it. What that
+// proves is the framing and the state machine: which interface gets
+// claimed, the exact control-transfer setup fields, that the
+// re-enumerated BOOTSEL device is picked up from getDevices(), and that
+// each failure renders as a sentence instead of an exception. What it
+// cannot prove is that a real RP2350 obeys the request - only the bench
+// can, and packs/rp2350-touch-amoled-18/AGENTS.md says so.
 import puppeteer from "puppeteer-core";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
@@ -91,12 +105,22 @@ try {
     if (!hasDownloadLink) fail("no working .flash-btn-alt download link pointing at ../flash/fluidbox-rp2350.uf2");
     console.log("download .uf2 fallback link present and correct");
 
-    const hasRitual = await page.evaluate(() => {
+    const ritual = await page.evaluate(() => {
       const details = document.querySelector("details.flash-ritual");
-      return !!details && (details.textContent || "").includes("BOOT");
+      return {
+        text: details ? details.textContent || "" : null,
+        intro: details ? details.querySelector(".flash-ritual-intro")?.textContent || null : null,
+      };
     });
-    if (!hasRitual) fail("no BOOTSEL entry ritual <details> found");
+    if (ritual.text === null || !ritual.text.includes("BOOT")) fail("no BOOTSEL entry ritual <details> found");
     console.log("BOOTSEL entry ritual present");
+    // The ritual is the recovery path now, not the entry path: the fold
+    // has to say so, or a reader still believes holding two buttons is
+    // step one (site/build.ts's BOOTSEL_RITUAL_INTRO).
+    if (!ritual.intro || !/only needed/i.test(ritual.intro) || !/bricked/i.test(ritual.intro)) {
+      fail(`the ritual fold does not open with its "only needed for a bricked board..." caveat, got: ${JSON.stringify(ritual.intro)}`);
+    }
+    console.log(`ritual fold framed as recovery only: "${ritual.intro}"`);
 
     const clicked = await page.evaluate(() => {
       const btn = document.querySelector<HTMLButtonElement>(".flash-btn");
@@ -122,6 +146,219 @@ try {
       fail(`clicking Flash over USB with no navigator.usb threw/logged an error instead of a clean message: ${pageErrors.join(" | ")}`);
     }
     console.log("no exceptions thrown");
+
+    // ---- the running-device path, against a fake WebUSB stack ----------
+    type Scenario = "no-device" | "no-reset-interface" | "reboots-and-flashes";
+
+    interface ScenarioResult {
+      errorHidden: boolean | null;
+      errorText: string | null;
+      statusLog: string[];
+      usbLog: Array<Record<string, unknown>>;
+      pageErrors: string[];
+    }
+
+    async function runScenario(scenario: Scenario, settleMs: number): Promise<ScenarioResult> {
+      const scenarioPage = await browser.newPage();
+      const errors: string[] = [];
+      scenarioPage.on("pageerror", (e) => errors.push(String(e)));
+
+      // The whole fake USB stack, installed before any page script runs.
+      // Descriptor shapes are the real ones: a running puck is CDC control
+      // + CDC data + (unless this scenario is testing old firmware) the
+      // vendor reset interface at number 2; the device that "comes back"
+      // is a BOOTSEL device with a mass-storage interface and PICOBOOT's
+      // class 0xFF bulk pair.
+      await scenarioPage.evaluateOnNewDocument((mode: string) => {
+        const log: unknown[] = [];
+        Object.defineProperty(window, "__usbLog", { value: log, configurable: true });
+
+        const bulk = (n: number, dir: string) => ({ endpointNumber: n, direction: dir, type: "bulk", packetSize: 64 });
+        const alt = (cls: number, sub: number, proto: number, endpoints: unknown[]) => ({
+          alternateSetting: 0,
+          interfaceClass: cls,
+          interfaceSubclass: sub,
+          interfaceProtocol: proto,
+          interfaceName: null,
+          endpoints,
+        });
+
+        const cdc = [
+          { interfaceNumber: 0, alternates: [alt(0x02, 0x02, 0x00, [{ endpointNumber: 1, direction: "in", type: "interrupt", packetSize: 8 }])] },
+          { interfaceNumber: 1, alternates: [alt(0x0a, 0x00, 0x00, [bulk(2, "out"), bulk(2, "in")])] },
+        ];
+        const resetItf = { interfaceNumber: 2, alternates: [alt(0xff, 0x00, 0x01, [])] };
+
+        function fakeDevice(productId: number, interfaces: unknown[]) {
+          let opened = false;
+          let configuration: unknown = null;
+          return {
+            vendorId: 0x2e8a,
+            productId,
+            productName: productId === 0x0009 ? "Pico" : "RP2 Boot",
+            get opened() {
+              return opened;
+            },
+            get configuration() {
+              return configuration;
+            },
+            configurations: [{ configurationValue: 1, configurationName: null, interfaces }],
+            async open() {
+              opened = true;
+              log.push({ op: "open", productId });
+            },
+            async close() {
+              opened = false;
+              log.push({ op: "close", productId });
+            },
+            async selectConfiguration(value: number) {
+              configuration = { configurationValue: value, configurationName: null, interfaces };
+            },
+            async claimInterface(interfaceNumber: number) {
+              log.push({ op: "claim", productId, interfaceNumber });
+            },
+            async releaseInterface(interfaceNumber: number) {
+              log.push({ op: "release", productId, interfaceNumber });
+            },
+            async controlTransferOut(setup: unknown) {
+              log.push({ op: "controlTransferOut", productId, setup });
+              return { status: "ok", bytesWritten: 0 };
+            },
+            async transferOut(endpointNumber: number, data: Uint8Array) {
+              return { status: "ok", bytesWritten: data.byteLength };
+            },
+            async transferIn() {
+              return { status: "ok", data: new DataView(new ArrayBuffer(16)) };
+            },
+            async clearHalt() {},
+            async reset() {},
+          };
+        }
+
+        const running = fakeDevice(0x0009, mode === "no-reset-interface" ? cdc : cdc.concat([resetItf]));
+        const bootsel = fakeDevice(0x000f, [
+          { interfaceNumber: 0, alternates: [alt(0x08, 0x06, 0x50, [bulk(1, "in"), bulk(1, "out")])] },
+          { interfaceNumber: 1, alternates: [alt(0xff, 0x00, 0x00, [bulk(3, "in"), bulk(4, "out")])] },
+        ]);
+
+        let getDevicesCalls = 0;
+        const usb = {
+          async getDevices() {
+            getDevicesCalls++;
+            // The board is not back on the first look, which is also what
+            // exercises flash.ts's polling rather than a single check.
+            if (mode === "reboots-and-flashes" && getDevicesCalls >= 2) return [bootsel];
+            return [];
+          },
+          async requestDevice(options: { filters: unknown[] }) {
+            log.push({ op: "requestDevice", filters: options.filters });
+            if (mode === "no-device") throw new DOMException("No device selected.", "NotFoundError");
+            return running;
+          },
+          addEventListener() {},
+          removeEventListener() {},
+          dispatchEvent() {
+            return true;
+          },
+        };
+        Object.defineProperty(window.navigator, "usb", { value: usb, configurable: true });
+      }, scenario);
+
+      await scenarioPage.goto(`http://127.0.0.1:${PORT}/run/fluidbox-rp2350.html`, { waitUntil: "domcontentloaded" });
+      await new Promise((r) => setTimeout(r, 400));
+
+      await scenarioPage.evaluate(() => {
+        const w = window as unknown as { __statusLog: string[] };
+        w.__statusLog = [];
+        const status = document.querySelector(".flash-status");
+        if (status) {
+          const record = () => {
+            const text = status.textContent || "";
+            if (text && w.__statusLog[w.__statusLog.length - 1] !== text) w.__statusLog.push(text);
+          };
+          new MutationObserver(record).observe(status, { childList: true, characterData: true, subtree: true });
+        }
+        document.querySelector<HTMLButtonElement>(".flash-btn")?.click();
+      });
+      await new Promise((r) => setTimeout(r, settleMs));
+
+      const observed = await scenarioPage.evaluate(() => {
+        const w = window as unknown as { __statusLog: string[]; __usbLog: Array<Record<string, unknown>> };
+        const el = document.querySelector<HTMLElement>(".flash-error");
+        return {
+          errorHidden: el ? el.hidden : null,
+          errorText: el ? el.textContent : null,
+          statusLog: w.__statusLog || [],
+          usbLog: w.__usbLog || [],
+        };
+      });
+      await scenarioPage.close();
+      return { ...observed, pageErrors: errors };
+    }
+
+    // 1. Nothing plugged in (or the picker cancelled): the message has to
+    //    name the fallback, and must not be a stack trace.
+    const noDevice = await runScenario("no-device", 400);
+    if (noDevice.errorHidden !== false) fail(`no-device path did not surface a visible .flash-error: ${JSON.stringify(noDevice)}`);
+    if (!noDevice.errorText || !/no device was selected/i.test(noDevice.errorText) || !/BOOTSEL/i.test(noDevice.errorText)) {
+      fail(`expected a no-device message pointing at the BOOTSEL fallback, got: ${JSON.stringify(noDevice.errorText)}`);
+    }
+    if (noDevice.pageErrors.length > 0) fail(`no-device path threw: ${noDevice.pageErrors.join(" | ")}`);
+    const askedFilters = noDevice.usbLog.find((e) => e.op === "requestDevice")?.filters as
+      | Array<{ vendorId: number; productId: number }>
+      | undefined;
+    if (!askedFilters || !askedFilters.some((f) => f.vendorId === 0x2e8a && f.productId === 0x0009)) {
+      fail(`the device picker does not offer a RUNNING puck (2E8A:0009), so a running board can never be selected: ${JSON.stringify(askedFilters)}`);
+    }
+    console.log(`no-device message shown: "${noDevice.errorText}"`);
+    console.log(`picker filters include the running puck: ${JSON.stringify(askedFilters)}`);
+
+    // 2. A running board whose firmware predates the reset interface: the
+    //    one case where the button ritual is still the answer, and it has
+    //    to say which case it is rather than failing as a USB error.
+    const noReset = await runScenario("no-reset-interface", 500);
+    if (noReset.errorHidden !== false) fail(`old-firmware path did not surface a visible .flash-error: ${JSON.stringify(noReset)}`);
+    if (!noReset.errorText || !/reset interface/i.test(noReset.errorText) || !/2026-08-19/.test(noReset.errorText)) {
+      fail(`expected an old-firmware message naming the reset interface and the cutoff date, got: ${JSON.stringify(noReset.errorText)}`);
+    }
+    if (noReset.pageErrors.length > 0) fail(`old-firmware path threw: ${noReset.pageErrors.join(" | ")}`);
+    console.log(`old-firmware message shown: "${noReset.errorText}"`);
+
+    // 3. The whole buttonless path, end to end against the fake: claim the
+    //    reset interface, send the BOOTSEL control request, notice the
+    //    re-enumerated device, flash it.
+    const reboot = await runScenario("reboots-and-flashes", 3000);
+    if (reboot.pageErrors.length > 0) fail(`running-device path threw: ${reboot.pageErrors.join(" | ")}`);
+    if (reboot.errorHidden !== true) fail(`running-device path surfaced an error: ${JSON.stringify(reboot.errorText)}`);
+
+    const control = reboot.usbLog.find((e) => e.op === "controlTransferOut");
+    if (!control) fail("the running device was never sent a control transfer: nothing asked it to reboot into BOOTSEL");
+    const setup = control!.setup as { requestType: string; recipient: string; request: number; value: number; index: number };
+    // The same golden setup site/flasher/flash.test.ts pins as bytes,
+    // checked here as it leaves the REAL bundled flash.js.
+    if (
+      setup.requestType !== "class" ||
+      setup.recipient !== "interface" ||
+      setup.request !== 0x01 ||
+      setup.value !== 0x0000 ||
+      setup.index !== 2
+    ) {
+      fail(`wrong reboot-to-BOOTSEL control setup: ${JSON.stringify(setup)}`);
+    }
+    const claimedReset = reboot.usbLog.some((e) => e.op === "claim" && e.productId === 0x0009 && e.interfaceNumber === 2);
+    if (!claimedReset) fail("the reset interface (number 2) was never claimed before the control transfer");
+    const releasedReset = reboot.usbLog.some((e) => e.op === "release" && e.productId === 0x0009 && e.interfaceNumber === 2);
+    if (!releasedReset) fail("the reset interface was never released after the control transfer");
+    console.log(`reset interface claimed, control setup ${JSON.stringify(setup)}, released`);
+
+    if (!reboot.statusLog.some((s) => /rebooting into BOOTSEL/i.test(s))) {
+      fail(`the status line never said the device was being rebooted into BOOTSEL: ${JSON.stringify(reboot.statusLog)}`);
+    }
+    const finalStatus = reboot.statusLog[reboot.statusLog.length - 1] ?? "";
+    if (!/^done:/.test(finalStatus)) {
+      fail(`the running-device path did not run through to a finished flash, last status: ${JSON.stringify(reboot.statusLog)}`);
+    }
+    console.log(`status line walked: ${JSON.stringify(reboot.statusLog)}`);
 
     console.log("\nOK: flash UI verified.");
   } finally {

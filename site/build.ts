@@ -150,30 +150,33 @@ for (const p of registry.packs) {
 // by cardDeviceGeometry below, which draws the landing cards' own CSS
 // device frame at this same proportion.
 const BEZEL_PAD = 18;
-// src/device.ts's own BTN_LENGTH_PX / BTN_THICKNESS_PX / BTN_OFFSET_PX (a
-// third restatement of the same small geometry constants, for the same
-// reason as BEZEL_PAD above): a button nub is 56px along its edge, 14px
-// thick, and protrudes 8px past the bezel's own edge. cardDeviceGeometry
-// below expresses all three as percentages of the card's own scaled
-// bezel box, so a button drawn at 260px wide still lands in the right
-// place relative to a button drawn at 40px wide.
+// src/device.ts's own BTN_LENGTH_PX / BTN_THICKNESS_PX (a third
+// restatement of the same small geometry constants, for the same reason
+// as BEZEL_PAD above): a button nub is 56px along its edge, 14px thick.
+// Real hardware protrudes past the bezel's own edge (BTN_OFFSET_PX in
+// src/device.ts) - the card frame does NOT reproduce that protrusion
+// (see cardDeviceGeometry's own header): a nub is drawn flush, INSET
+// inside the bezel's own edge instead, so the bezel itself can span the
+// card's full width with nothing left over for a protruding button to
+// clip against.
 const BTN_LENGTH_PX = 56;
 const BTN_THICKNESS_PX = 14;
-const BTN_OFFSET_PX = 8;
 
-// The full on-page geometry for one détouré landing card: a device
-// silhouette (bezel + whatever button nubs protrude past its edges) drawn
-// entirely in CSS, with the recorded video filling only the rectangular
-// panel inside it. Every number here is a PERCENTAGE of some containing
-// box, never a pixel, so the same card renders correctly at any width a
-// responsive grid gives it - the actual recorded clip is cropped to
-// #panel alone (site/record-demos.ts), a plain rectangle with no
-// background pixels, so the only thing that can ever look
-// "not-detoure" is this CSS frame itself now, not a recording artifact.
+// The full on-page geometry for one détouré landing card: a device bezel
+// drawn entirely in CSS, filling the card's own full width (Sylve's own
+// read: the device should be as big as the text block below it, not
+// sitting in a smaller box with margin around it), with the recorded
+// video filling only the rectangular panel inside it. Every number here
+// is a PERCENTAGE of some containing box, never a pixel, so the same card
+// renders correctly at any width a responsive grid gives it - the actual
+// recorded clip is cropped to #panel alone (site/record-demos.ts), a
+// plain rectangle with no background pixels, so the only thing that can
+// ever look "not-detoure" is this CSS frame itself now, not a recording
+// artifact.
 interface CardDeviceGeometry {
-  totalW: number; // silhouette bounding box, real px units (for aspect-ratio)
-  totalH: number;
-  bezelStyle: string; // left/top/width/height/border-radius, as inline CSS
+  bezelW: number; // bezel's own real px size (== the card's own aspect-ratio)
+  bezelH: number;
+  bezelRadius: string; // border-radius, as an inline CSS value (the bezel itself is a fixed 100%/100% via styles.css's .card-bezel rule)
   panelStyle: string; // left/top/width/height/border-radius, as inline CSS, relative to the bezel box
   buttonsHtml: string; // one <span class="card-btn"> per declared button
   panelW: number; // real panel px, for the aspect-ratio sanity check a verify script does
@@ -211,13 +214,6 @@ function cardDeviceGeometry(pack: string, rotated: boolean): CardDeviceGeometry 
   const buttons = rotated ? rawButtons.map((b) => ({ edge: EDGE_AFTER_QUICK_ROTATE[b.edge], at: b.at })) : rawButtons;
   const bezelW = panel.w + 2 * BEZEL_PAD;
   const bezelH = panel.h + 2 * BEZEL_PAD;
-  const hasEdge = (edge: PackButton["edge"]) => buttons.some((b) => b.edge === edge);
-  const extraLeft = hasEdge("left") ? BTN_OFFSET_PX : 0;
-  const extraRight = hasEdge("right") ? BTN_OFFSET_PX : 0;
-  const extraTop = hasEdge("top") ? BTN_OFFSET_PX : 0;
-  const extraBottom = hasEdge("bottom") ? BTN_OFFSET_PX : 0;
-  const totalW = bezelW + extraLeft + extraRight;
-  const totalH = bezelH + extraTop + extraBottom;
 
   const pct = (n: number, denom: number) => `${((n / denom) * 100).toFixed(3)}%`;
   // 34px / 6px are src/app.css's own .bezel / .panel border-radius at the
@@ -227,8 +223,6 @@ function cardDeviceGeometry(pack: string, rotated: boolean): CardDeviceGeometry 
   // that would look sharp-cornered at card scale or blobby at full size.
   const bezelRadius = pct(34, bezelW);
   const panelRadius = pct(6, panel.w);
-
-  const bezelStyle = `left:${pct(extraLeft, totalW)};top:${pct(extraTop, totalH)};width:${pct(bezelW, totalW)};height:${pct(bezelH, totalH)};border-radius:${bezelRadius}`;
   const panelStyle = `left:${pct(BEZEL_PAD, bezelW)};top:${pct(BEZEL_PAD, bezelH)};width:${pct(panel.w, bezelW)};height:${pct(panel.h, bezelH)};border-radius:${panelRadius}`;
 
   const buttonsHtml = buttons
@@ -240,14 +234,20 @@ function cardDeviceGeometry(pack: string, rotated: boolean): CardDeviceGeometry 
       const along = pct(offset, bezelAlongAxis);
       const length = pct(BTN_LENGTH_PX, bezelAlongAxis);
       const thickness = pct(BTN_THICKNESS_PX, bezelAcrossAxis);
-      const protrusion = pct(-BTN_OFFSET_PX, bezelAcrossAxis); // negative: protrudes past the bezel's own edge, same sign src/device.ts's BTN_OFFSET_PX uses
+      // 0, not a negative protrusion: the bezel fills the card's own full
+      // width now (styles.css's .card-bezel, 100%/100% of .thumb), so
+      // there is no silhouette margin left for a button to protrude INTO
+      // without .card's own overflow:hidden clipping it. Drawn flush
+      // against the bezel's own edge instead - a "simplified but
+      // faithful" nub, per this task's own original brief, still reads
+      // as a button in the right place on the right edge.
       return alongEdge
-        ? `<span class="card-btn" style="${b.edge}:${protrusion};top:${along};width:${thickness};height:${length}"></span>`
-        : `<span class="card-btn" style="${b.edge}:${protrusion};left:${along};height:${thickness};width:${length}"></span>`;
+        ? `<span class="card-btn" style="${b.edge}:0;top:${along};width:${thickness};height:${length}"></span>`
+        : `<span class="card-btn" style="${b.edge}:0;left:${along};height:${thickness};width:${length}"></span>`;
     })
     .join("");
 
-  return { totalW, totalH, bezelStyle, panelStyle, buttonsHtml, panelW: panel.w, panelH: panel.h };
+  return { bezelW, bezelH, bezelRadius, panelStyle, buttonsHtml, panelW: panel.w, panelH: panel.h };
 }
 
 interface AppEntry {
@@ -659,17 +659,18 @@ function demoAssetHref(id: string, ext: string): string {
 // the pack's own device.json, wrapping a video/poster/gif that were all
 // cropped to #panel alone (site/record-demos.ts) - never a plain video
 // filling the whole box. The outer link's own aspect-ratio is the
-// SILHOUETTE's (bezel + any protruding buttons), not the panel's, so the
-// button nubs have room to render without being clipped by the card's own
-// edge; the video only fills the inner .card-panel box, positioned by
+// BEZEL's own (not a wider silhouette that reserves margin for a
+// protruding button - cardDeviceGeometry no longer adds one), so the
+// device fills the card's full width, the same width as the text block
+// below it. The video only fills the inner .card-panel box, positioned by
 // cardDeviceGeometry's panelStyle. data-panel-w/-h on the <video> are what
 // scripts/verify-site-embeds.ts reads to confirm the recorded clip's own
 // intrinsic size actually matches this pack's panel aspect, independent of
 // whatever this function draws around it.
 function demoThumb(id: string, alt: string, href: string, pack: string, rotated: boolean): string {
   const g = cardDeviceGeometry(pack, rotated);
-  return `<a class="thumb thumb-video" style="aspect-ratio:${g.totalW} / ${g.totalH}" href="${href}" aria-label="${escapeHtml(alt)}, open the live run page">
-    <span class="card-bezel" style="${g.bezelStyle}">
+  return `<a class="thumb thumb-video" style="aspect-ratio:${g.bezelW} / ${g.bezelH}" href="${href}" aria-label="${escapeHtml(alt)}, open the live run page">
+    <span class="card-bezel" style="border-radius:${g.bezelRadius}">
       <span class="card-panel" style="${g.panelStyle}">
         <video autoplay muted loop playsinline poster="${demoAssetHref(id, "png")}" data-panel-w="${g.panelW}" data-panel-h="${g.panelH}">
           <source src="${demoAssetHref(id, "mp4")}" type="video/mp4" />
@@ -919,6 +920,16 @@ const FLASH_ARTIFACTS: Record<string, FlashArtifact> = {
 // Quoted compactly from packs/rp2350-touch-amoled-18/gotchas.md's own
 // recovery ritual: replugging alone does not reset this board, because its
 // PMIC keeps the rails powered through a simple unplug/replug.
+//
+// This is the RECOVERY path now, not the entry path. A board running
+// firmware built on or after 2026-08-19 carries pico-sdk's USB reset
+// interface, so the flasher reboots it into BOOTSEL itself over USB
+// (site/flasher/flash.ts) and nobody has to hold anything. The fold stays
+// because the two cases it still covers are the two where a button is the
+// only thing left: firmware too old to have the interface, and firmware so
+// broken that its USB stack never comes up.
+const BOOTSEL_RITUAL_INTRO =
+  "Only needed for a bricked board, or for firmware older than the USB reset interface. Otherwise the flasher reboots the board into BOOTSEL itself.";
 const BOOTSEL_RITUAL =
   "Unplug USB. Hold PWR for at least 12 seconds, until the screen goes black (replugging alone does not reset the board: the PMIC keeps the rails up). Then hold BOOT while plugging the USB cable back in.";
 
@@ -943,6 +954,7 @@ function renderFlashSection(comboId: string, pack: string): string {
     <p class="flash-error" hidden></p>
     <details class="flash-ritual">
       <summary>BOOTSEL entry ritual</summary>
+      <p class="flash-ritual-intro">${escapeHtml(BOOTSEL_RITUAL_INTRO)}</p>
       <p>${escapeHtml(BOOTSEL_RITUAL)}</p>
     </details>
   </section>`;

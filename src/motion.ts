@@ -59,37 +59,45 @@ function isIOSSafariMotion(): boolean {
 }
 
 // iOS Safari and the W3C spec (the convention Android/Chrome follow) report
-// accelerationIncludingGravity with OPPOSITE signs for the exact same
-// physical pose:
-//   - spec/Android: the accelerometer reports the SUPPORT FORCE holding the
-//     device up against gravity, i.e. its reading is sign-flipped relative
-//     to gravity's own direction (the harder gravity pulls one way, the
-//     harder the reaction pushes back the other way).
-//   - iOS Safari: reports gravity's direction directly, no flip.
-// So for the same physical pose, iOS's raw reading is always the negative
-// of what spec/Android would report. Two calibration anchors, worked out
-// under both conventions, both required to land on the SAME ABI vector
-// (docs/abi.md's emu_sensor_vector convention: x right, y down the panel,
-// z into the screen):
+// accelerationIncludingGravity with DIFFERENT sign conventions for the same
+// physical pose, but NOT uniformly across all three axes. Validated on a
+// physical iPhone on 2026-08-19:
+//   - x (left/right, roll): iOS reports gravity's direction directly, no
+//     flip needed. Confirmed correct BEFORE the y fix below: tilting the
+//     phone left/right already poured the right way.
+//   - y (up/down, pitch): iOS was found INVERTED on real hardware, tilting
+//     the phone's top away poured the wrong way. y must be negated for iOS,
+//     the same as the spec/Android path negates it.
+//   - z (flat/face-up axis): unchanged, still gravity-direct, not exercised
+//     by the left/right or up/down hardware test (only the face-up anchor
+//     depends on it, and that anchor was never reported wrong).
+// So per axis: spec/Android negates all three (its accelerometer reports
+// the SUPPORT FORCE holding the device up against gravity, sign-flipped
+// relative to gravity's own direction on every axis); iOS negates ONLY y,
+// leaving x and z as gravity's direction directly. Two calibration anchors,
+// re-derived under both conventions, both required to land on the SAME ABI
+// vector (docs/abi.md's emu_sensor_vector convention: x right, y down the
+// panel, z into the screen):
 //   - flat, face-up on a table (gravity pulls straight down, into the
 //     table -> ABI target (0, 0, -1)): spec/Android raw ~= (0, 0, +g) (the
-//     table pushes back up, out through the glass); iOS raw ~= (0, 0, -g)
-//     (gravity's own direction, into the table).
+//     table pushes back up, out through the glass) -> negate -> (0, 0, -1).
+//     iOS raw ~= (0, 0, -g) (gravity's own direction, into the table) ->
+//     NOT negated (z is gravity-direct on iOS) -> (0, 0, -1). Both match,
+//     z is untouched by the y-only fix.
 //   - upright, screen facing the user (gravity pulls straight down the
 //     phone's Y axis -> ABI target (0, 1, 0)): spec/Android raw ~=
-//     (0, -g, 0) (the reaction pushes back toward the top of the screen);
-//     iOS raw ~= (0, +g, 0) (gravity's own direction, toward the bottom).
-// The spec/Android path already negates once to turn its support-force
-// reading into the target gravity vector (raw (0,0,+g) -> negate -> (0,0,-1),
-// raw (0,-g,0) -> negate -> (0,1,0)). Negating iOS's ALREADY gravity-direct
-// reading a second time flips it back the wrong way (raw (0,0,-g) would
-// negate to (0,0,+1), and raw (0,+g,0) to (0,-1,0)) - exactly "tilting
-// right pours left", Sylve's real-iPhone report. So the iOS branch skips
-// the negation entirely: dividing straight through by g already lands on
-// the same, correct target vector negation was there to produce.
+//     (0, -g, 0) (the reaction pushes back toward the top of the screen) ->
+//     negate -> (0, 1, 0). iOS raw ~= (0, -g, 0) as well (empirically, the
+//     y axis behaves like the spec/support-force convention on iOS too,
+//     unlike x and z) -> negate y -> (0, 1, 0). Before this fix, the y
+//     branch was left un-negated on the assumption iOS's raw y was
+//     (0, +g, 0) (gravity-direct like x/z); that assumption was wrong,
+//     which is exactly the "tilting the top away pours the wrong way"
+//     report: un-negated (0, -g, 0) / g mapped to (0, -1, 0), the inverse
+//     of the (0, 1, 0) target.
 export function mapAccelerationToVector(x: number, y: number, z: number, isIOS: boolean): Vector3 {
   return isIOS
-    ? { x: x / STANDARD_GRAVITY, y: y / STANDARD_GRAVITY, z: z / STANDARD_GRAVITY }
+    ? { x: x / STANDARD_GRAVITY, y: -y / STANDARD_GRAVITY, z: z / STANDARD_GRAVITY }
     : { x: -x / STANDARD_GRAVITY, y: -y / STANDARD_GRAVITY, z: -z / STANDARD_GRAVITY };
 }
 

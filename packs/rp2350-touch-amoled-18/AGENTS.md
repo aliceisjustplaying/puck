@@ -228,6 +228,55 @@ wiring step in between. `zig` comes off `PATH` unless `ZIG_EXE` says
 otherwise; `wasm/build.ts`'s header explains why zig rather than emscripten or
 wasi-sdk, and which of its linker flags are load-bearing.
 
+## Reflashing without touching a button
+
+A board running this firmware is **not** a BOOTSEL device and speaks no
+PICOBOOT. It enumerates as `2E8A:0009` (`USBD_VID`/`USBD_PID` in pico-sdk's
+`pico_stdio_usb/stdio_usb_descriptors.c`: `0x0009` for a non-RP2040 part,
+which this firmware does not override), with three USB interfaces:
+
+| # | Class / subclass / protocol | What it is |
+|---|---|---|
+| 0 | `0x02` / `0x02` / `0x00` | CDC control: the serial port `devlink` and the runtime's prints ride |
+| 1 | `0x0A` / `0x00` / `0x00` | CDC data, one bulk pair |
+| 2 | `0xFF` / `0x00` / `0x01` | **the USB reset interface**, no endpoints, control transfers only |
+
+Interface 2 is pico-sdk's standard reset interface
+(`pico/usb_reset_interface.h`: `RESET_INTERFACE_SUBCLASS 0x00`,
+`RESET_INTERFACE_PROTOCOL 0x01`). A `RESET_REQUEST_BOOTSEL` (`0x01`)
+control request to it calls `rom_reset_usb_boot_extra()` and never returns,
+so the board comes back as `2E8A:000F`, an RP2350 BOOTSEL device, with both
+the mass storage volume and PICOBOOT live. `wValue` is read as the bootrom's
+`disable_interface_mask` in its low two bits plus an optional activity-LED
+GPIO above; **zero is a valid, supported argument** and is what a host that
+just wants a plain BOOTSEL sends. That is the request `picotool load -f`
+makes over libusb, and since **2026-08-19** it is also what the web flasher
+at puck.sylve.org makes from the browser (`site/flasher/flash.ts`, which
+claims the interface, sends the setup packet `21 01 00 00 02 00 00 00`, then
+waits for the BOOTSEL device to appear).
+
+`firmware/CMakeLists.txt` **pins** this on rather than adding it: SDK 2.3.0
+already defaults every relevant `PICO_ENABLE_USB_RESET_*` /
+`PICO_USB_RESET_*` knob to on for an application that does not drive TinyUSB
+itself, so setting them changed literally one byte of the built image (the
+build date). A default is not a contract, and the way this would break is
+not a build failure but a web page that silently stops being able to flash,
+on somebody else's machine. Both the SDK 2.3.0 spellings and the pre-2.3.0
+`PICO_STDIO_USB_*` ones are set, since which pair a checkout reads depends
+on its SDK version.
+
+**The web flasher depends on this, so firmware older than 2026-08-19 needs
+the button ritual once.** An image without interface 2 cannot be rebooted
+from a browser at all, and the flasher says exactly that rather than
+failing as a generic USB error. The ritual below is the recovery path now,
+not the entry path.
+
+The Microsoft OS 2.0 descriptor (`PICO_USB_RESET_SUPPORT_MS_OS_20_DESCRIPTOR`,
+naming interface 2, and the `bcdUSB 0x0210` it forces) is load-bearing on
+Windows and only on Windows: without it the interface is driverless and
+therefore invisible to WebUSB there, while Linux and macOS would not
+notice. Do not drop it as "descriptor bloat".
+
 ## Gotchas that bite
 
 - **The wasm link segfaults intermittently.** `zig cc` for
@@ -281,7 +330,10 @@ wasi-sdk, and which of its linker flags are load-bearing.
   `picotool` cannot reboot it into the bootloader either, since that request is
   serviced by the running app's USB interface. Loads appear to succeed and
   silently do nothing. Read flash back and check which build is actually there
-  before concluding a fix did not work.
+  before concluding a fix did not work. **The web flasher's reboot-to-BOOTSEL
+  is the same request through the same interface** (see "Reflashing without
+  touching a button"), so it has the same blind spot: a hung board ignores it
+  too, and this ritual is what is left.
 - **`picotool partition create <json> <out.uf2> <bootloader.elf>` does not
   write a UF2.** Given a bootloader argument it writes a raw ELF, whatever you
   called the output file and regardless of `-t uf2`, silently. The resulting

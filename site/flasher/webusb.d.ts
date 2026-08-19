@@ -4,10 +4,12 @@
 // dependency on @types/w3c-web-usb (or any npm package) for a handful of
 // interfaces used by one feature. Hand-declared against the WebUSB spec
 // (https://wicg.github.io/webusb/), scoped to exactly what picoboot.ts and
-// flash.ts call: requestDevice, open/close, selectConfiguration,
-// claim/releaseInterface, transferIn/Out, clearHalt, and enough of the
+// flash.ts call: requestDevice, getDevices, open/close,
+// selectConfiguration, claim/releaseInterface, transferIn/Out,
+// controlTransferOut, clearHalt, and enough of the
 // USBConfiguration/USBInterface/USBEndpoint shape to find the PICOBOOT
-// vendor interface's bulk endpoints.
+// vendor interface's bulk endpoints and the reset interface's
+// class/subclass/protocol triple.
 
 interface USBEndpoint {
   readonly endpointNumber: number;
@@ -48,6 +50,18 @@ interface USBOutTransferResult {
   readonly status: "ok" | "stall";
 }
 
+// The control-transfer setup, minus the direction bit and wLength, which
+// WebUSB derives from which of controlTransferIn/Out is called and from
+// the data it is given. flash.ts only ever issues an OUT with no data
+// stage (the reboot-to-BOOTSEL request), so wLength is always 0 there.
+interface USBControlTransferParameters {
+  requestType: "standard" | "class" | "vendor";
+  recipient: "device" | "interface" | "endpoint" | "other";
+  request: number;
+  value: number;
+  index: number;
+}
+
 interface USBDeviceFilter {
   vendorId?: number;
   productId?: number;
@@ -75,6 +89,7 @@ interface USBDevice {
   releaseInterface(interfaceNumber: number): Promise<void>;
   transferIn(endpointNumber: number, length: number): Promise<USBInTransferResult>;
   transferOut(endpointNumber: number, data: Uint8Array): Promise<USBOutTransferResult>;
+  controlTransferOut(setup: USBControlTransferParameters, data?: BufferSource): Promise<USBOutTransferResult>;
   clearHalt(direction: "in" | "out", endpointNumber: number): Promise<void>;
   reset(): Promise<void>;
 }

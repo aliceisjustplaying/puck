@@ -1555,7 +1555,7 @@ function isIOSSafariMotion() {
   return permissionRequesters().length > 0;
 }
 function mapAccelerationToVector(x, y, z, isIOS) {
-  return isIOS ? { x: x / STANDARD_GRAVITY, y: y / STANDARD_GRAVITY, z: z / STANDARD_GRAVITY } : { x: -x / STANDARD_GRAVITY, y: -y / STANDARD_GRAVITY, z: -z / STANDARD_GRAVITY };
+  return isIOS ? { x: x / STANDARD_GRAVITY, y: -y / STANDARD_GRAVITY, z: z / STANDARD_GRAVITY } : { x: -x / STANDARD_GRAVITY, y: -y / STANDARD_GRAVITY, z: -z / STANDARD_GRAVITY };
 }
 function deviceOrientationToAbiGravity(betaDeg, gammaDeg) {
   const beta = betaDeg * Math.PI / 180;
