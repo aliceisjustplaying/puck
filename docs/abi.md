@@ -229,9 +229,37 @@ Freestanding wasm has no libc. The host provides exactly:
   already exists (your board's FPU is single precision, the host's
   `Math` is double).
 
-Nothing else is imported. If your build asks for an import that isn't in
-this list, `WebAssembly.instantiate` throws naming exactly what it wanted
-and didn't get - that error is shown verbatim on the page.
+Nothing else is imported from `env`. If your build asks for an `env`
+import that isn't in this list, `WebAssembly.instantiate` throws naming
+exactly what it wanted and didn't get - that error is shown verbatim on
+the page.
+
+### WASI-lite: four imports, only if you ask for them
+
+Some toolchains cannot emit a module without a few
+`wasi_snapshot_preview1` imports even when your program never calls them
+(a C++ front end linking its own startup, a language whose standard
+library assumes a hosted target). Four of those are shimmed:
+
+- **`fd_write`** - writes to fd 1 or 2 land in the same console pane
+  `env.js_log` writes to, one entry per line. Any other file descriptor
+  gets `EBADF`.
+- **`clock_time_get`** - returns the last `nowMs` handed to `emu_tick`,
+  converted to nanoseconds, for every clock id. Before the first tick it
+  reads 0: this host has exactly one clock, and it has not started yet.
+- **`random_get`** - fills the buffer from a small PRNG seeded from the
+  replayed trace's optional `seed` field (a fixed default when there is
+  none). Two replays of the same trace therefore see the same bytes.
+- **`proc_exit`** - traps with a message naming the exit code. A module
+  here never exits; it returns from `emu_tick` and is called again.
+
+Any other `wasi_snapshot_preview1` import is a hard error naming every
+symbol it asked for, and the shims are never handed to a module that
+imports none of them. This is WASI-lite, not WASI: the boundary, and why
+full WASI stays out, is
+[`docs/decisions/0004-wasi-lite-not-wasi.md`](decisions/0004-wasi-lite-not-wasi.md).
+Your firmware is better off with none of this: `example/firmware/main.c`
+imports only `env.js_log`.
 
 ## No malloc, no libc
 

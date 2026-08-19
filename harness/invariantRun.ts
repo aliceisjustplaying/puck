@@ -180,7 +180,7 @@ export interface RunInvariantsResult {
 export async function runInvariants(opts: RunInvariantsOptions): Promise<RunInvariantsResult> {
   const log = opts.quiet ? (_s: string) => {} : (s: string) => console.log(s);
 
-  const result = await replayEmulator(opts.wasmPath, opts.trace.events, opts.capturePoints);
+  const result = await replayEmulator(opts.wasmPath, opts.trace.events, opts.capturePoints, { seed: opts.trace.seed });
   log(`${opts.wasmPath}: ${result.device.name ?? "device"} ${result.device.panel.w}x${result.device.panel.h}, ${result.frames.length} frame(s) captured`);
 
   const checkerUrl = pathToFileURL(resolve(opts.checkerPath)).href;

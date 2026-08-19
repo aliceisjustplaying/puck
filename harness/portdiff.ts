@@ -205,11 +205,11 @@ export async function runPortdiff(opts: RunPortdiffOptions): Promise<PortdiffRes
   const log = opts.quiet ? (_s: string) => {} : (s: string) => console.log(s);
 
   log(`\n-- module A: ${opts.moduleAPath} --`);
-  const resultA = await replayEmulator(opts.moduleAPath, opts.trace.events, opts.capturePoints);
+  const resultA = await replayEmulator(opts.moduleAPath, opts.trace.events, opts.capturePoints, { seed: opts.trace.seed });
   log(`${resultA.device.name ?? "device"} ${resultA.device.panel.w}x${resultA.device.panel.h}, ${resultA.frames.length} frame(s) captured`);
 
   log(`\n-- module B: ${opts.moduleBPath} --`);
-  const resultB = await replayEmulator(opts.moduleBPath, opts.trace.events, opts.capturePoints);
+  const resultB = await replayEmulator(opts.moduleBPath, opts.trace.events, opts.capturePoints, { seed: opts.trace.seed });
   log(`${resultB.device.name ?? "device"} ${resultB.device.panel.w}x${resultB.device.panel.h}, ${resultB.frames.length} frame(s) captured`);
 
   if (resultA.frames.length !== resultB.frames.length) {
@@ -353,7 +353,7 @@ export async function verifyPortFrames(opts: VerifyPortFramesOptions): Promise<V
       continue;
     }
 
-    const replay = await replayEmulator(opts.modulePath, trace.events, capturePoints);
+    const replay = await replayEmulator(opts.modulePath, trace.events, capturePoints, { seed: trace.seed });
     for (const captured of replay.frames) {
       const file = fileForPoint.get(captured.atMs)!;
       const expectedPath = join(framesDir, file);

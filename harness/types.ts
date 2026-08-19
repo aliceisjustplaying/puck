@@ -14,6 +14,10 @@ export interface Trace {
   recordedAt: string;
   device: DeviceDescriptor;
   events: TraceEvent[];
+  // Optional, and only meaningful for a module that imports WASI-lite's
+  // random_get: see src/recorder.ts's Trace, whose shape this mirrors, for
+  // what it does and why a trace without one still replays identically.
+  seed?: number;
 }
 
 // A captured frame, in a common representation both sides of a comparison

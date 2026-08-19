@@ -10,6 +10,14 @@
 // parameter costs nothing and avoids closing that door later.
 
 import { validateFbPtr } from "./abiGuard";
+import {
+  WASI_MODULE,
+  DEFAULT_TRACE_SEED,
+  buildWasiLite,
+  unsupportedWasiImports,
+  unsupportedWasiMessage,
+  wasiImportNames,
+} from "./wasiLite";
 
 export interface EmuExports {
   memory: WebAssembly.Memory;
@@ -121,7 +129,9 @@ export const DEFAULT_WASM_URL = "wasm/emu.wasm";
 // here, WebAssembly.instantiate throws naming exactly what it asked for and
 // didn't get; that error is rethrown verbatim by loadEmuModule rather than
 // swallowed, which is the mechanism emu_abi.h itself names for reconciling
-// the two sides.
+// the two sides. The ONE other namespace this host will ever populate is
+// wasi_snapshot_preview1, and only when the module itself imports from it,
+// and only for four deterministic shims: see src/wasiLite.ts.
 function buildImportObject(onLog: (text: string) => void, getMemory: () => WebAssembly.Memory | undefined): WebAssembly.Imports {
   const readString = (ptr: number, len: number): string => {
     const memory = getMemory();
@@ -180,17 +190,41 @@ function hasWasmMagic(bytes: ArrayBuffer): boolean {
   return b[0] === 0x00 && b[1] === 0x61 && b[2] === 0x73 && b[3] === 0x6d;
 }
 
+// Options every instantiation shares, all optional so the common call
+// (main.ts's hot reload, a replay of a trace that carries no seed of its
+// own) keeps working unchanged.
+export interface InstantiateOptions {
+  // Seeds the deterministic PRNG behind WASI-lite's random_get, and
+  // nothing else. Comes from the replayed trace (Trace.seed,
+  // src/recorder.ts) so that replaying a trace reproduces the same random
+  // bytes it was recorded with. Ignored entirely by a module that does not
+  // import random_get, which is every module in this repository today.
+  seed?: number;
+}
+
 // Instantiates a fresh instance from already-fetched bytes. onLog receives
-// every env.js_log() call, decoded to a string.
+// every env.js_log() call (and, for a module that imports it, every
+// wasi_snapshot_preview1.fd_write to stdout/stderr) decoded to a string.
 //
 // Validates before touching anything the caller already has running:
-// magic bytes, then WebAssembly.instantiate (compile + link against the
-// real import object), then (in main.ts's bringUp) emu_init() and the
-// device descriptor. Every one of those can fail on a half-written or
-// incompatible module, and the whole point of checking all of them BEFORE
-// main.ts swaps its `emu` reference is that a failure here must never tear
-// down a module that was working.
-export async function instantiate(bytes: ArrayBuffer, onLog: (text: string) => void): Promise<EmuExports> {
+// magic bytes, then compile, then the import inspection below, then
+// WebAssembly.instantiate (link against the real import object), then (in
+// main.ts's bringUp) emu_init() and the device descriptor. Every one of
+// those can fail on a half-written or incompatible module, and the whole
+// point of checking all of them BEFORE main.ts swaps its `emu` reference
+// is that a failure here must never tear down a module that was working.
+//
+// The imports are inspected between compile and instantiate rather than
+// letting the link step fail on its own, for one reason: a module that
+// imports wasi_snapshot_preview1 needs either four deterministic shims or
+// a precise refusal naming exactly which symbols it asked for that this
+// emulator will never provide (src/wasiLite.ts, and
+// docs/decisions/0004-wasi-lite-not-wasi.md for why the line is drawn
+// there). The shims are built ONLY when the module actually asks: a
+// module that imports nothing from that namespace is instantiated against
+// the exact same import object it always was, with no WASI namespace
+// present at all.
+export async function instantiate(bytes: ArrayBuffer, onLog: (text: string) => void, options: InstantiateOptions = {}): Promise<EmuExports> {
   if (!hasWasmMagic(bytes)) {
     throw new Error(
       `not a valid wasm module: bad magic bytes (${bytes.byteLength} bytes read). ` +
@@ -198,26 +232,65 @@ export async function instantiate(bytes: ArrayBuffer, onLog: (text: string) => v
     );
   }
 
+  let module: WebAssembly.Module;
+  try {
+    module = await WebAssembly.compile(bytes);
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+
   let memory: WebAssembly.Memory | undefined;
+  // The last nowMs handed to emu_tick, which is the only clock this
+  // emulator has (wasm/emu_abi.h). Read by WASI-lite's clock_time_get, set
+  // by the emu_tick wrapper below, and left at 0 until the first tick.
+  let lastNowMs = 0;
   const importObject = buildImportObject(onLog, () => memory);
 
-  let result: WebAssembly.WebAssemblyInstantiatedSource;
+  const wasiNames = wasiImportNames(WebAssembly.Module.imports(module));
+  const wantsWasi = wasiNames.length > 0;
+  if (wantsWasi) {
+    const unsupported = unsupportedWasiImports(wasiNames);
+    if (unsupported.length > 0) throw new Error(unsupportedWasiMessage(unsupported));
+    importObject[WASI_MODULE] = buildWasiLite({
+      onLog,
+      getMemory: () => memory,
+      nowMs: () => lastNowMs,
+      seed: options.seed ?? DEFAULT_TRACE_SEED,
+    });
+  }
+
+  let instance: WebAssembly.Instance;
   try {
-    result = await WebAssembly.instantiate(bytes, importObject);
+    instance = await WebAssembly.instantiate(module, importObject);
   } catch (err) {
     // Rethrown as-is: the message names the missing import (module.field),
     // which is exactly what needs to reach the page (see file header).
     throw err instanceof Error ? err : new Error(String(err));
   }
 
-  const exports = result.instance.exports as unknown as EmuExports;
+  const exports = instance.exports as unknown as EmuExports;
   memory = exports.memory;
   if (!memory) {
     throw new Error(
       "wasm module has no exported 'memory'; the emulator reads the framebuffer and emu_device() through it."
     );
   }
-  return exports;
+  if (!wantsWasi) return exports;
+
+  // A module that reads the clock has to be handed one, and the only
+  // moment this host learns what time the guest thinks it is, is the
+  // emu_tick call itself. Wrapping the export (in a copy: an instance's
+  // own exports object is frozen) keeps every caller unchanged and costs
+  // nothing at all for the modules that do not import a clock, since this
+  // branch never runs for them.
+  const rawTick = exports.emu_tick.bind(exports);
+  return {
+    ...exports,
+    emu_tick(nowMs: number): void {
+      lastNowMs = nowMs;
+      rawTick(nowMs);
+    },
+  };
 }
 
 export function readCString(memory: WebAssembly.Memory, ptr: number): string {

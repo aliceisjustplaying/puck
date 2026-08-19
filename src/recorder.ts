@@ -29,6 +29,17 @@ export interface Trace {
   recordedAt: string;
   device: DeviceDescriptor;
   events: TraceEvent[];
+  // OPTIONAL, and absent from every trace this repository has recorded so
+  // far. Seeds the deterministic PRNG behind WASI-lite's random_get
+  // (src/wasiLite.ts), which is the only source of randomness a module can
+  // reach at all: emu_abi.h itself offers none. A trace that omits it
+  // replays with wasiLite.ts's DEFAULT_TRACE_SEED, the same value a live
+  // page uses when there is no trace, so a pre-existing trace replays
+  // bit-identically and no schemaVersion bump is needed (this is a
+  // backwards-compatible optional field, exactly like the "vector" event
+  // kind above). Set it by hand to replay one session's randomness under a
+  // different draw.
+  seed?: number;
 }
 
 export class Recorder {

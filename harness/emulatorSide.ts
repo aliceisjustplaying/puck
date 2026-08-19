@@ -9,12 +9,17 @@
 // this is one implementation, not two.
 
 import { readFileSync } from "node:fs";
-import { replayFromBytes, type ReplayResult } from "../src/replayCore";
+import { replayFromBytes, type ReplayResult, type ReplayOptions } from "../src/replayCore";
 import type { TraceEvent } from "./types";
 
 export type EmulatorReplayResult = ReplayResult;
 
-export async function replayEmulator(wasmPath: string, events: TraceEvent[], capturePoints: number[]): Promise<ReplayResult> {
+// `options` is the replayed trace's own instantiation state (today: its
+// seed, see src/replayCore.ts's ReplayOptions). Every caller that has a
+// whole Trace in hand passes `{ seed: trace.seed }` rather than dropping
+// it, so a trace recorded from a module that uses randomness replays the
+// same way here as it did in the page.
+export async function replayEmulator(wasmPath: string, events: TraceEvent[], capturePoints: number[], options: ReplayOptions = {}): Promise<ReplayResult> {
   const bytes = readFileSync(wasmPath).buffer as ArrayBuffer;
-  return replayFromBytes(bytes, events, capturePoints);
+  return replayFromBytes(bytes, events, capturePoints, options);
 }

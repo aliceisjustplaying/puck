@@ -171,7 +171,7 @@ async function main(): Promise<void> {
   console.log(`replaying ${trace.events.length} events, capturing at ${capturePoints.length} point(s): ${capturePoints.join(", ")}`);
 
   console.log(`\n-- emulator side --`);
-  const emuResult = await replayEmulator(args.wasmPath, trace.events, capturePoints);
+  const emuResult = await replayEmulator(args.wasmPath, trace.events, capturePoints, { seed: trace.seed });
   console.log(`${args.wasmPath}: ${emuResult.device.name ?? "device"} ${emuResult.device.panel.w}x${emuResult.device.panel.h}, ${emuResult.frames.length} frame(s) captured`);
 
   console.log(`\n-- hardware side (${args.linkPath}) --`);

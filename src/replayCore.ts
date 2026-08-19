@@ -39,14 +39,27 @@ export interface ReplayResult {
   log: string[];
 }
 
+// Options carried from the replayed trace into the instantiation itself.
+// Today the only one is the seed behind WASI-lite's random_get
+// (src/wasiLite.ts): a trace records the seed its session ran with
+// (Trace.seed, src/recorder.ts), and a replay that used a different seed
+// would produce different pixels for the same input, which is exactly the
+// determinism this whole file exists to guarantee. A trace with no seed
+// replays with DEFAULT_TRACE_SEED, the same value the page uses when it
+// has no trace at all, so every trace recorded before this field existed
+// still replays bit-identically.
+export interface ReplayOptions {
+  seed?: number;
+}
+
 // capturePoints: nowMs values (matching TraceEvent's "t" field / the tick
 // event's own timestamp) at which to read the framebuffer. A capture
 // happens right after the emu_tick() whose timestamp is >= the requested
 // point - the same "capture at whatever the state is after this tick"
 // semantics the live page's push overlay uses.
-export async function replayFromBytes(bytes: ArrayBuffer, events: TraceEvent[], capturePoints: number[]): Promise<ReplayResult> {
+export async function replayFromBytes(bytes: ArrayBuffer, events: TraceEvent[], capturePoints: number[], options: ReplayOptions = {}): Promise<ReplayResult> {
   const log: string[] = [];
-  const emu: EmuExports = await instantiate(bytes, (text) => log.push(text));
+  const emu: EmuExports = await instantiate(bytes, (text) => log.push(text), { seed: options.seed });
   if (emu.emu_init() === 0) throw new Error("emu_init() returned 0");
 
   const device = readDeviceDescriptor(emu);
