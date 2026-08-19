@@ -48,7 +48,48 @@ export const PICOBOOT_CMD = {
   REBOOT2: 0x0a,
 } as const;
 
-export const REBOOT2_FLAG_REBOOT_TYPE_NORMAL = 0x0002;
+// SILICON BUG FIX (2026-08-19): this was 0x0002, which is the BOOTSEL type,
+// not NORMAL - a board that had just been flashed successfully (image
+// verified intact on flash) rebooted straight back into BOOTSEL instead of
+// into the new firmware, because REBOOT2 was told to do exactly that.
+// Verified against pico-sdk on this machine, three independent sources, all
+// agreeing NORMAL is 0x0 and 0x2 is BOOTSEL:
+//   - C:\Users\sylve\pico\pico-sdk\src\common\boot_picoboot_headers\include\boot\picoboot_constants.h:14-15
+//       #define REBOOT2_FLAG_REBOOT_TYPE_NORMAL       0x0 // param0 = diagnostic partition
+//       #define REBOOT2_FLAG_REBOOT_TYPE_BOOTSEL      0x2 // param0 = flags, param1 = gpio_pin_number
+//   - C:\Users\sylve\pico\pico-sdk\src\rp2_common\boot_bootrom_headers\include\boot\bootrom_constants.h:76-77
+//       #define BOOT_TYPE_NORMAL     0
+//       #define BOOT_TYPE_BOOTSEL    2
+//   - C:\Users\sylve\pico\pico-sdk\src\rp2_common\pico_bootrom\include\pico\bootrom.h:492,494 (rom_reboot doc comment)
+//       "REBOOT2_FLAG_REBOOT_TYPE_NORMAL - reboot into the normal boot path."
+//       "REBOOT2_FLAG_REBOOT_TYPE_BOOTSEL - reboot into BOOTSEL mode."
+// That same bootrom.h also documents REBOOT2_FLAG_REBOOT_TYPE_FLASH_UPDATE
+// (0x4, param0 = the address of the flash region that was just updated) as
+// "the type of reboot used after dragging a flash UF2 onto the BOOTSEL USB
+// drive" - a partition-preference-aware variant of NORMAL that would be a
+// closer match for "we just wrote firmware over PICOBOOT" than plain
+// NORMAL. Left as NORMAL here deliberately: adopting FLASH_UPDATE means
+// threading the written flash address into this call (flash.ts does not
+// pass one today) and this fix's job is closing the confirmed defect
+// (wrong constant value) on the evidence available, not changing which
+// reboot semantics the flasher asks for - a real candidate follow-up, not
+// bundled into a bug fix.
+//
+// No picotool source was available on this machine to cross-check its own
+// post-flash reboot call (only picotool.exe binaries under
+// C:\Users\sylve\pico\tools), so this relies on the sdk headers above,
+// exactly as directed when no source is present.
+//
+// REBOOT2_FLAG_NO_RETURN_ON_SUCCESS (0x100, bootrom.h:520) was considered
+// and deliberately NOT added: it only changes whether the bootrom's
+// in-ROM `rom_reboot()` C call returns to an ON-CHIP caller before
+// rebooting (relevant to firmware calling it directly, e.g.
+// pico_usb_reset/usb_reset.c's RESET_REQUEST_BOOTSEL handler). Driven over
+// PICOBOOT/USB with a non-zero delayMs (as this flasher always does - see
+// REBOOT_DELAY_MS in flash.ts), the watchdog reboot is scheduled for later
+// and this command's own USB acknowledge already completes normally either
+// way; there is no host-observable difference to gate on.
+export const REBOOT2_FLAG_REBOOT_TYPE_NORMAL = 0x0000;
 
 export const PICOBOOT_PACKET_SIZE = 32;
 const ARGS_OFFSET = 16;
@@ -106,6 +147,17 @@ export function buildReboot2(token: number, flags: number, delayMs: number, p0 =
   });
 }
 
+// FIX 4 (2026-08-19, alongside the REBOOT2 flag fix above): confirmed
+// consistent, not touched. (pc=0, sp=0) already means "normal boot" here,
+// per pico-sdk's hardware_watchdog.h:50 doc comment on the underlying
+// watchdog_reboot() this bootrom command wraps: "pc If Zero, a standard
+// boot will be performed" - the same mechanism
+// pico_usb_reset/usb_reset.c:123 uses for its own RESET_REQUEST_FLASH
+// handler (watchdog_reboot(0, 0, delay_ms)). flash.ts's fallback call
+// (pb.reboot(0, 0, REBOOT_DELAY_MS)) already passes pc=0, sp=0, so this
+// path was never affected by the REBOOT2 bug above - it only exists as
+// the fallback when REBOOT2 itself fails to send/ack, and it was already
+// asking for a normal boot correctly.
 /** REBOOT (RP2040 and fallback): reboot to (pc, sp), or (0, 0) for the normal boot path. */
 export function buildReboot(token: number, pc: number, sp: number, delayMs: number): Uint8Array {
   return buildPacket(PICOBOOT_CMD.REBOOT, 12, 0, token, (v) => {

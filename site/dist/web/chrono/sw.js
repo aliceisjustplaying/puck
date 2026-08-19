@@ -1,6 +1,6 @@
 // packs/web/host/sw.ts
-var CACHE = `puck-web-${"3edbf764fe"}`;
-var PRECACHE = ["./", "index.html", "emu.a7c826c267.wasm", "host.a43b8d2f96.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png"];
+var CACHE = `puck-web-${"cea2dfd8e9"}`;
+var PRECACHE = ["./", "index.html", "emu.a9f7343fe3.wasm", "host.a43b8d2f96.js", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png"];
 var sw = self;
 sw.addEventListener("install", (e) => {
   e.waitUntil((async () => {

@@ -75,11 +75,22 @@ describe("golden packet bytes", () => {
     expect(packet[8]).toBe(PICOBOOT_CMD.WRITE);
   });
 
+  // SILICON BUG FIX (2026-08-19): this golden byte used to lock in
+  // flags=0x0002, which is REBOOT2_FLAG_REBOOT_TYPE_BOOTSEL per pico-sdk
+  // (picoboot_constants.h:14-15, bootrom_constants.h:76-77, bootrom.h:492/
+  // 494 - see picoboot.ts's own comment on REBOOT2_FLAG_REBOOT_TYPE_NORMAL
+  // for the full evidence trail), mislabeled here as NORMAL - so this test
+  // was itself certifying the exact bug that left a freshly, successfully
+  // flashed real board (image verified intact on flash) stuck enumerated
+  // as a BOOTSEL device (2E8A:000F) instead of booting the new firmware.
+  // `picotool reboot` against the stuck board then booted it into app mode
+  // fine, confirming the image itself was never the problem - only the
+  // reboot type asked for. NORMAL is correctly 0x0.
   test("REBOOT2(token=5, flags=NORMAL, delay=500ms): cmd 0x0A/size 16, args = flags,delay,0,0", () => {
-    expect(REBOOT2_FLAG_REBOOT_TYPE_NORMAL).toBe(0x0002);
+    expect(REBOOT2_FLAG_REBOOT_TYPE_NORMAL).toBe(0x0000);
     const packet = buildReboot2(5, REBOOT2_FLAG_REBOOT_TYPE_NORMAL, 500);
     expect(packet.length).toBe(32);
-    expect(hex(packet)).toBe("0bd11f43050000000a1000000000000002000000f40100000000000000000000");
+    expect(hex(packet)).toBe("0bd11f43050000000a1000000000000000000000f40100000000000000000000");
     expect(packet[8]).toBe(PICOBOOT_CMD.REBOOT2);
   });
 
