@@ -24,7 +24,8 @@ Not the RP2350 board of the same name, in the same case, sold on the same page.
 |---|---|
 | The band pipeline, on real silicon | **Yes.** 50 full-panel frames per second, paced entirely by the DMA semaphore. |
 | The panel bring-up, on real silicon | **Yes**, once the TCA9554 power sequence the inherited code was missing was added (`docs/decisions/0001`). |
-| The apps' pixels, against the emulator | **Emulator-only so far.** The differential run against the board (below) has not been completed: the board left the bench mid-session. `apps/chrono/bundle.json` carries no `silicon` attestation for this pack for exactly that reason. |
+| The apps' pixels, against the emulator | **Yes, both apps, at tolerance zero.** The reference app under a held finger and the chrono port at rest each matched the emulator pixel-for-pixel over devlink, all 164,864 of them (`apps/chrono/bundle.json`'s `silicon` attestation cites the commit). |
+| devlink, on real silicon | **Yes.** `PING`, `APP`, `SWITCH`, touch injection and `SHOT` all answered; a full screenshot round trip costs 0.08s and RLE-compresses a black-on-white screen to 1482 bytes. |
 | Touch, from a real finger | **No.** devlink injection drives the runtime's touch path; nobody has put a finger on this board through this pack. |
 | The shake threshold | **No, and it needs a human.** See `gotchas.md`. |
 

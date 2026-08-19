@@ -30,7 +30,11 @@
         ],
         "frames": "apps/chrono/frames"
       },
-      "source": "apps/chrono/ports/esp32-s3-touch-amoled-18/chrono.c"
+      "source": "apps/chrono/ports/esp32-s3-touch-amoled-18/chrono.c",
+      "silicon": {
+        "attestedAt": "2026-08-19",
+        "how": "differential harness (harness/links/devlinkLink.ts) run against the physical ESP32-S3-Touch-AMOLED-1.8 over its native USB Serial/JTAG port, commit 45e89dd: the idle stopwatch trace matched pixel-for-pixel at tolerance zero, 164,864 identical pixels. The board's half of that comparison is a screenshot with no framebuffer behind it, captured band by band as the panel was painted (packs/esp32-s3-touch-amoled-18/docs/decisions/0002)."
+      }
     },
     {
       "pack": "web",

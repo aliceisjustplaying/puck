@@ -40,6 +40,14 @@ The ESP32-S3's USB Serial/JTAG peripheral wires the host's DTR and RTS lines to 
 With ESP-IDF v6.0.2 and no `usb_serial_jtag` driver installed, `read()` on `stdin` sizes every fetch from `usb_serial_jtag_get_read_bytes_available()`, which returns 0 flat unless the driver is installed (`components/esp_driver_usb_serial_jtag/src/usb_serial_jtag.c`). A non-blocking read therefore computes a fetch size of zero and returns without ever touching the RX FIFO.
 **Measured here:** the board never drains its USB OUT endpoint, so the HOST blocks - a plain `pyserial` write timed out while the board went on logging happily. `main.c` installs the driver for RX and deliberately does not call `usb_serial_jtag_vfs_use_driver()`: that would move console writes onto the driver's TX ring, which blocks when full, and a board with nothing plugged into it would freeze instead of dropping its log.
 
+**The console DROPS the tail of whatever line is in flight the moment a client opens the port, so every devlink reply opens with a line terminator.**
+`usb_serial_jtag_tx_char_no_driver` stops retrying and starts discarding characters once 50ms have passed since the last one the host accepted, which is exactly the state a board sitting unattached is in. **Measured here:** the first exchange after opening the port arrived as
+`I (434687) imu: accel peak residual 0.02 m/s2 over the last secoOK devlink 1 368 448`
+- the log line cut mid-word and the reply welded onto the remnant. A client matching the reply's shape correctly refuses that line, so the command times out and the board looks dead while answering perfectly. Three consecutive `dev.ts ping` runs failed exactly that way. `devlink.c`'s `dl_reply_begin()` emits `\r\n` before every reply, so a reply always begins a line of its own; the same three pings then passed. It cannot protect a reply whose own characters are dropped, which stays a timeout, and the next command works.
+
+**The serial bridge must not read the port from one thread and write it from another.**
+`packs/rp2350-touch-amoled-18/tools/dev.ts`'s PowerShell bridge used to do exactly that. Against this board every `WriteLine()` returned cleanly, `BytesToWrite` went to 0, and nothing ever reached the chip; the same open/write/read done single-threaded answered immediately. All `SerialPort` access is now on one thread, with stdin moved to the background runspace instead.
+
 **The console turns `\n` into `\r\n`, and devlink's replies already end in `\r\n`.**
 Left alone, every devlink reply goes out as `\r\r\n` and arrives at the host with a stray carriage return attached, so every reply match fails for a reason that looks nothing like its cause. `main.c` calls `usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF)` before anything else.
 

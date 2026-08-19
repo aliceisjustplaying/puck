@@ -73,12 +73,14 @@ unflashed firmware half is worth than any summary here can.
 
 What is proven on silicon: the panel comes up, the band DMA pipeline runs at
 50 full-panel frames per second paced by its own semaphore, the IMU reports
-sane numbers, and devlink answers on the board's USB Serial/JTAG port. What is
-**not** proven: a differential pixel diff against the emulator (the board left
-the bench before that run completed), a real finger on the glass, and the shake
-threshold. `README.md`'s first table is the honest version of that list, and
-`apps/chrono/bundle.json` carries no `silicon` attestation for this pack until
-a hardware diff is green.
+sane numbers, devlink answers on the board's USB Serial/JTAG port, and both
+this pack's reference app and the chrono port match the emulator
+pixel-for-pixel at tolerance zero through the differential harness. What is
+**not** proven: a real finger on the glass (devlink injection enters the
+runtime where `touch_poll()`'s result would, so it exercises everything
+downstream of the controller and nothing upstream of it), a real PWR or BOOT
+press, and the shake threshold. `README.md`'s first table is the honest version
+of that list.
 
 File by file, and what changed on first contact:
 
