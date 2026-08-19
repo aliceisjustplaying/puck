@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-08-20T00:00:00.000Z",
+  "device": {
+    "name": "external-fixture",
+    "panel": { "w": 32, "h": 32, "format": "rgb565be" },
+    "buttons": [{ "id": "a", "label": "A", "edge": "right", "at": 0.5 }]
+  },
+  "events": [
+    { "t": 0, "k": "tick" },
+    { "t": 100, "k": "tick" },
+    { "t": 200, "k": "tick" },
+    { "t": 250, "k": "touch", "down": 1, "x": 16, "y": 24 },
+    { "t": 260, "k": "touch", "down": 0, "x": 16, "y": 24 },
+    { "t": 300, "k": "tick" },
+    { "t": 400, "k": "tick" },
+    { "t": 500, "k": "tick" },
+    { "t": 600, "k": "tick" },
+    { "t": 700, "k": "tick" },
+    { "t": 800, "k": "tick" },
+    { "t": 900, "k": "tick" }
+  ]
+}

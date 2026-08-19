@@ -74,6 +74,21 @@ check (`src/regression.ts`, the "baseline"/"check" buttons - see
 tiny fixture firmwares that differ by one draw call, and confirms a check
 fails and names the exact capture point that changed.
 
+`bun run test:wasi` proves the WASI-lite shims (`src/wasiLite.ts`): a
+module may import four `wasi_snapshot_preview1` symbols and no more, they
+are answered deterministically from the trace, and anything else is
+refused by name. See
+`docs/decisions/0004-wasi-lite-not-wasi.md`.
+
+`bun run test:external` proves `tools/externalBuild.ts`, the one
+clone-pin-run implementation behind a bundle port that is built by
+someone else's repository, against the in-repo fixture (no network). The
+end-to-end version of the same thing is `bun run verify-bundle
+test/fixtures/external-bundle`. Read
+`docs/decisions/0005-external-ports-are-reproduced.md` first, including
+its trust model: verifying such a bundle means running that repository's
+build command on this machine.
+
 ## Conventions
 
 - **TypeScript only, for everything this repo owns.** The page, the wasm
@@ -144,6 +159,21 @@ test/regression/ builds two tiny fixture firmwares (one draw call
                 different between them) and proves the hardware-free
                 regression check actually catches the difference - see
                 docs/harness.md and run.ts's own header comment.
+test/wasi/      two fixture firmwares that import wasi_snapshot_preview1
+                deliberately (one supported, one not), and the proof that
+                the WASI-lite shims are deterministic and that anything
+                outside the supported four is refused by name.
+test/fixtures/  material that stands in for something outside this
+                repository: external-app/ is a whole app in one C file
+                (an external repo), external-bundle/ is the bundle that
+                points at it by local path. Never listed in
+                registry.json: a fixture is test material, not something
+                a gallery advertises. test/external/run.ts drives them.
+tools/          verify-bundle.ts (the listing verifier),
+                externalBuild.ts (clone a repo at a pinned commit, run
+                its own build command, take the artifact - used by the
+                verifier and by anything else that later needs an
+                external module) and ci-verify-registry.ts.
 docs/           abi.md (the ABI as a page), requirements.md, agent-loop.md
                 (the optional freeze/annotate layer, plus the failed-
                 regression-check export), harness.md (also covers the

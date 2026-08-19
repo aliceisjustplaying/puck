@@ -23,6 +23,16 @@
 //     "apps/chrono" resolves to "apps/chrono/bundle.json")
 //   - an http(s):// or git@ URL, shallow-cloned into a temp directory first
 //
+// A port may also be EXTERNAL: instead of naming a source file for a local
+// pack to compile, it declares a "build" object (repo, commit, command,
+// artifact) and the module comes from that repository's own build, cloned
+// at that pinned commit and run here (tools/externalBuild.ts, which is the
+// one implementation of that step). Everything after the module exists is
+// identical, deliberately: same traces, same recorded frames, same
+// tolerance. See docs/decisions/0005-external-ports-are-reproduced.md,
+// including its trust model: listing such a bundle means choosing to run
+// that repository's build command on this machine.
+//
 // --pack <name>   only build and verify the port for this pack
 // --json          machine-readable JSON result on stdout instead of a table
 //
@@ -47,6 +57,7 @@ import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { verifyPortFrames } from "../harness/portdiff";
 import { runInvariants, InvariantInfraError } from "../harness/invariantRun";
+import { buildExternalPortTo, describeExternalBuild, validateExternalBuild, ExternalBuildError, type ExternalBuild } from "./externalBuild";
 import type { Trace } from "../harness/types";
 
 const EXIT_OK = 0;
@@ -74,10 +85,20 @@ interface PortEntry {
   pack: string;
   mode: "faithful" | "adaptation" | "native";
   verification: PortVerification;
-  source: string;
+  // Required for a port built by a local pack (the module is built FROM
+  // this file). Optional for an external port, whose source lives in the
+  // repository "build" names and is identified by repo + commit instead.
+  source?: string;
   silicon?: { attestedAt: string; how: string };
   buildArgs?: string[];
   verdict?: "go" | "degraded";
+  // When present, this port's module is not built by a local pack's
+  // wasm/build.ts: it is produced by another repository's own build,
+  // cloned at a pinned commit and run here (tools/externalBuild.ts,
+  // docs/decisions/0005-external-ports-are-reproduced.md). Everything
+  // after the module exists is identical: same traces, same recorded
+  // frames, same tolerance.
+  build?: ExternalBuild;
 }
 
 interface BundleV02 {
@@ -119,7 +140,13 @@ function validateBundleShape(raw: unknown): { errors: string[]; bundle: BundleV0
       if (p.mode !== "faithful" && p.mode !== "adaptation" && p.mode !== "native") {
         errors.push(`${label}.mode must be one of "faithful", "adaptation", "native", got ${JSON.stringify(p.mode)}`);
       }
-      if (!isNonEmptyString(p.source)) errors.push(`${label}.source must be a non-empty string (path to the port's source file)`);
+      // "source" names the file a LOCAL pack build is pointed at, so an
+      // external port (whose source lives in another repository entirely,
+      // identified by build.repo + build.commit) does not carry one.
+      if (p.build === undefined && !isNonEmptyString(p.source)) {
+        errors.push(`${label}.source must be a non-empty string (path to the port's source file)`);
+      }
+      if (p.build !== undefined) errors.push(...validateExternalBuild(p.build, `${label}.build`));
 
       const v = p.verification;
       if (typeof v !== "object" || v === null) {
@@ -340,60 +367,95 @@ interface PortVerifyResult {
   status: "pass" | "fail" | "error";
   reason: string;
   details?: string[];
+  // Only for an external port: what was built, from where, at what commit
+  // (tools/externalBuild.ts's describeExternalBuild). Reported rather than
+  // implied, so a passing external port never reads as if this repository
+  // built it.
+  provenance?: string;
 }
 
 async function verifyPort(bundleRoot: string, port: PortEntry, index: number, registry: Registry, buildDir: string): Promise<PortVerifyResult> {
   const resolvePath = (p: string) => resolve(bundleRoot, p);
   const base = { pack: port.pack, mode: port.mode, kind: port.verification.kind };
-
-  const packEntry = registry.packs.find((pk) => pk.name === port.pack);
-  if (!packEntry) {
-    return { ...base, status: "error", reason: `unknown pack "${port.pack}": not found in ${join(REPO_ROOT, "registry.json")}` };
-  }
-  if (!packEntry.path) {
-    return { ...base, status: "error", reason: `external pack verification not yet supported: ${port.pack}` };
-  }
-
-  const buildScript = join(REPO_ROOT, packEntry.path, "wasm", "build.ts");
-  if (!existsSync(buildScript)) {
-    return { ...base, status: "error", reason: `pack build script not found: ${buildScript}` };
-  }
-
-  const buildArgs = port.mode === "native" ? [] : ["--app", resolvePath(port.source), ...(port.buildArgs ?? [])];
-  const build = runBunScript(buildScript, buildArgs);
-  if (!build.success) {
-    const tail = build.stderr.trim().split("\n").slice(-5).join(" | ");
-    return {
-      ...base,
-      status: "error",
-      reason: `build failed (exit ${build.exitCode}) after ${BUILD_MAX_ATTEMPTS} attempt(s): bun run ${buildScript} ${buildArgs.join(" ")}`,
-      details: tail ? [tail] : undefined,
-    };
-  }
-  const repoWasmOut = join(REPO_ROOT, "wasm", "dist", "emu.wasm");
-  if (!existsSync(repoWasmOut)) {
-    return { ...base, status: "error", reason: `${buildScript} did not write ${repoWasmOut}` };
-  }
   const modulePath = join(buildDir, `port-${index}-${port.pack}.wasm`);
-  copyFileSync(repoWasmOut, modulePath);
+  let provenance: string | undefined;
+
+  if (port.build) {
+    // An external port: another repository's own build, at a pinned
+    // commit, run here. NOTHING about verification changes below this
+    // block, which is the whole design (docs/decisions/
+    // 0005-external-ports-are-reproduced.md). The pack is not looked up in
+    // registry.json at all, because no local pack is being built: the pack
+    // name still says which device the recorded frames belong to.
+    provenance = describeExternalBuild(port.build);
+    try {
+      await buildExternalPortTo(
+        port.build,
+        { baseDir: bundleRoot, env: { ZIG_EXE }, onLog: (line) => console.error(`  [${port.pack}] ${line}`) },
+        modulePath
+      );
+    } catch (err) {
+      if (err instanceof ExternalBuildError) return { ...base, provenance, status: "error", reason: err.message };
+      throw err;
+    }
+  } else {
+    const packEntry = registry.packs.find((pk) => pk.name === port.pack);
+    if (!packEntry) {
+      return { ...base, status: "error", reason: `unknown pack "${port.pack}": not found in ${join(REPO_ROOT, "registry.json")}` };
+    }
+    if (!packEntry.path) {
+      return {
+        ...base,
+        status: "error",
+        reason: `pack "${port.pack}" is registered by url, and this port names no "build" of its own: an app whose pack is not local must build its own module (docs/convention/app-bundle.md)`,
+      };
+    }
+
+    const buildScript = join(REPO_ROOT, packEntry.path, "wasm", "build.ts");
+    if (!existsSync(buildScript)) {
+      return { ...base, status: "error", reason: `pack build script not found: ${buildScript}` };
+    }
+
+    const buildArgs = port.mode === "native" ? [] : ["--app", resolvePath(port.source!), ...(port.buildArgs ?? [])];
+    const build = runBunScript(buildScript, buildArgs);
+    if (!build.success) {
+      const tail = build.stderr.trim().split("\n").slice(-5).join(" | ");
+      return {
+        ...base,
+        status: "error",
+        reason: `build failed (exit ${build.exitCode}) after ${BUILD_MAX_ATTEMPTS} attempt(s): bun run ${buildScript} ${buildArgs.join(" ")}`,
+        details: tail ? [tail] : undefined,
+      };
+    }
+    const repoWasmOut = join(REPO_ROOT, "wasm", "dist", "emu.wasm");
+    if (!existsSync(repoWasmOut)) {
+      return { ...base, status: "error", reason: `${buildScript} did not write ${repoWasmOut}` };
+    }
+    copyFileSync(repoWasmOut, modulePath);
+  }
+
+  // Provenance is carried as its own field rather than glued into the
+  // reason string: the table prints it in place of an empty reason on a
+  // pass (printTable, below), and --json consumers get it structured.
+  const withProvenance = (r: PortVerifyResult): PortVerifyResult => (provenance ? { ...r, provenance } : r);
 
   if (port.verification.kind === "pixel-exact") {
     const traces = port.verification.traces.map((t) => ({ tracePath: resolvePath(t), framesDir: resolvePath(port.verification.frames as string) }));
     const result = await verifyPortFrames({ modulePath, traces, tolerance: 0 });
     if (result.errors.length > 0) {
-      return { ...base, status: "error", reason: result.errors[0]!, details: result.errors };
+      return withProvenance({ ...base, status: "error", reason: result.errors[0]!, details: result.errors });
     }
     const mismatches = result.frames.filter((f) => !f.match);
     if (mismatches.length > 0) {
       const first = mismatches[0]!;
-      return {
+      return withProvenance({
         ...base,
         status: "fail",
         reason: `${mismatches.length}/${result.frames.length} frame(s) diverged (first: ${first.trace} t=${first.atMs}ms, ${first.diffPixels}/${first.totalPixels}px)`,
         details: mismatches.map((m) => `${m.trace} t=${m.atMs}ms: ${m.diffPixels}/${m.totalPixels}px vs ${m.expectedFile}`),
-      };
+      });
     }
-    return { ...base, status: "pass", reason: `${result.frames.length}/${result.frames.length} frame(s) matched` };
+    return withProvenance({ ...base, status: "pass", reason: `${result.frames.length}/${result.frames.length} frame(s) matched` });
   }
 
   // kind === "invariants"
@@ -402,22 +464,22 @@ async function verifyPort(bundleRoot: string, port: PortEntry, index: number, re
   try {
     trace = JSON.parse(readFileSync(tracePath, "utf8")) as Trace;
   } catch (err) {
-    return { ...base, status: "error", reason: `could not read trace ${tracePath}: ${err instanceof Error ? err.message : String(err)}` };
+    return withProvenance({ ...base, status: "error", reason: `could not read trace ${tracePath}: ${err instanceof Error ? err.message : String(err)}` });
   }
   const checkerPath = resolvePath(port.verification.checker);
   try {
     const result = await runInvariants({ wasmPath: modulePath, trace, capturePoints: port.verification.captureAt, checkerPath, quiet: true });
     if (!result.pass) {
-      return {
+      return withProvenance({
         ...base,
         status: "fail",
         reason: `${result.failures.length} invariant(s) failed: ${result.failures[0] ?? ""}`,
         details: result.failures,
-      };
+      });
     }
-    return { ...base, status: "pass", reason: `all invariants held over ${result.frameCount} frame(s)` };
+    return withProvenance({ ...base, status: "pass", reason: `all invariants held over ${result.frameCount} frame(s)` });
   } catch (err) {
-    if (err instanceof InvariantInfraError) return { ...base, status: "error", reason: err.message };
+    if (err instanceof InvariantInfraError) return withProvenance({ ...base, status: "error", reason: err.message });
     throw err;
   }
 }
@@ -426,7 +488,16 @@ async function verifyPort(bundleRoot: string, port: PortEntry, index: number, re
 
 function printTable(results: PortVerifyResult[]): void {
   const header = ["PACK", "MODE", "KIND", "RESULT", "REASON"];
-  const rows = results.map((r) => [r.pack, r.mode, r.kind, r.status.toUpperCase(), r.status === "pass" ? "" : r.reason]);
+  // A passing port normally has nothing to say. An externally built one
+  // does: where its module came from, which is the one thing a reader
+  // cannot infer from the fact that it passed.
+  const rows = results.map((r) => [
+    r.pack,
+    r.mode,
+    r.kind,
+    r.status.toUpperCase(),
+    r.status === "pass" ? (r.provenance ? `built from ${r.provenance}` : "") : r.reason,
+  ]);
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map((row) => row[i]!.length)));
   const fmt = (cols: string[]) => cols.map((c, i) => c.padEnd(widths[i]!)).join("  ");
   console.log(fmt(header));

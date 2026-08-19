@@ -1,0 +1,21 @@
+{
+  "convention": "0.2",
+  "name": "external-fixture",
+  "ports": [
+    {
+      "pack": "external-fixture",
+      "mode": "faithful",
+      "build": {
+        "repo": "test/fixtures/external-app",
+        "commit": "working-tree",
+        "command": "mkdir -p dist && \"${ZIG_EXE:-zig}\" cc -target wasm32-freestanding -O2 -nostdlib -Wl,--no-entry -Wl,--import-symbols firmware/app.c -o dist/app.wasm",
+        "artifact": "dist/app.wasm"
+      },
+      "verification": {
+        "kind": "pixel-exact",
+        "traces": ["test/fixtures/external-bundle/traces/box.trace.json"],
+        "frames": "test/fixtures/external-bundle/frames"
+      }
+    }
+  ]
+}
