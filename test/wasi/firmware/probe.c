@@ -29,6 +29,13 @@
 
 #define WASI_IMPORT(name) __attribute__((import_module("wasi_snapshot_preview1"), import_name(name)))
 
+/* Exported to the host by name from the source itself, so the build command
+ * carries no -Wl,--export= flags: zig cc's wasm linker crashes on a pile of
+ * those, deterministically when it is invoked from a nested bun process (the
+ * shape `bun run test:wasi` produces). See
+ * test/fixtures/external-app/README.md for the measurement. */
+#define EXPORT(name) __attribute__((export_name(name)))
+
 typedef struct {
     const void *buf;
     uint32_t buf_len;
@@ -125,18 +132,18 @@ static bool g_exitRequested = false;
  * target, exactly like an external app's own source would.
  * ---------------------------------------------------------------------- */
 
-const char *emu_device(void) {
+EXPORT("emu_device") const char *emu_device(void) {
     return "{\"name\":\"wasi-probe\",\"panel\":{\"w\":64,\"h\":64,\"format\":\"rgb565be\"},"
            "\"buttons\":[{\"id\":\"exit\",\"label\":\"EXIT\",\"edge\":\"right\",\"at\":0.5}]}";
 }
 
-int emu_init(void) {
+EXPORT("emu_init") int emu_init(void) {
     fill_rect(0, 0, PANEL_W, PANEL_H, rgb565be(0xff, 0xff, 0xff));
     write_out("wasi probe: init\n", str_len("wasi probe: init\n"));
     return 1;
 }
 
-void emu_tick(uint32_t nowMs) {
+EXPORT("emu_tick") void emu_tick(uint32_t nowMs) {
     (void)nowMs; /* read back through clock_time_get instead, on purpose */
     g_pushCount = 0;
 
@@ -160,19 +167,19 @@ void emu_tick(uint32_t nowMs) {
     record_push(0, 0, 8, 8);
 }
 
-uint16_t *emu_fb(void) { return g_fb; }
+EXPORT("emu_fb") uint16_t *emu_fb(void) { return g_fb; }
 
-int emu_push_count(void) { return g_pushCount; }
-int emu_push_x(int i) { return (i >= 0 && i < g_pushCount) ? g_pushX[i] : 0; }
-int emu_push_y(int i) { return (i >= 0 && i < g_pushCount) ? g_pushY[i] : 0; }
-int emu_push_w(int i) { return (i >= 0 && i < g_pushCount) ? g_pushW[i] : 0; }
-int emu_push_h(int i) { return (i >= 0 && i < g_pushCount) ? g_pushH[i] : 0; }
+EXPORT("emu_push_count") int emu_push_count(void) { return g_pushCount; }
+EXPORT("emu_push_x") int emu_push_x(int i) { return (i >= 0 && i < g_pushCount) ? g_pushX[i] : 0; }
+EXPORT("emu_push_y") int emu_push_y(int i) { return (i >= 0 && i < g_pushCount) ? g_pushY[i] : 0; }
+EXPORT("emu_push_w") int emu_push_w(int i) { return (i >= 0 && i < g_pushCount) ? g_pushW[i] : 0; }
+EXPORT("emu_push_h") int emu_push_h(int i) { return (i >= 0 && i < g_pushCount) ? g_pushH[i] : 0; }
 
-void emu_touch(int down, int x, int y) { (void)down; (void)x; (void)y; }
+EXPORT("emu_touch") void emu_touch(int down, int x, int y) { (void)down; (void)x; (void)y; }
 
-void emu_button(int index, int down) {
+EXPORT("emu_button") void emu_button(int index, int down) {
     if (index == 0 && down) g_exitRequested = true;
 }
 
-void emu_button_verdict(int index, int isLong) { (void)index; (void)isLong; }
-void emu_sensor_event(int index) { (void)index; }
+EXPORT("emu_button_verdict") void emu_button_verdict(int index, int isLong) { (void)index; (void)isLong; }
+EXPORT("emu_sensor_event") void emu_sensor_event(int index) { (void)index; }

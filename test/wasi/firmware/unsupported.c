@@ -15,6 +15,13 @@
 
 #define WASI_IMPORT(name) __attribute__((import_module("wasi_snapshot_preview1"), import_name(name)))
 
+/* Exported to the host by name from the source itself, so the build command
+ * carries no -Wl,--export= flags: zig cc's wasm linker crashes on a pile of
+ * those, deterministically when it is invoked from a nested bun process (the
+ * shape `bun run test:wasi` produces). See
+ * test/fixtures/external-app/README.md for the measurement. */
+#define EXPORT(name) __attribute__((export_name(name)))
+
 typedef struct {
     void *buf;
     uint32_t buf_len;
@@ -26,11 +33,11 @@ WASI_IMPORT("args_get") extern int32_t args_get(uint8_t **argv, uint8_t *argv_bu
 static uint16_t g_fb[8 * 8];
 static uint8_t g_scratch[8];
 
-const char *emu_device(void) {
+EXPORT("emu_device") const char *emu_device(void) {
     return "{\"name\":\"wasi-unsupported\",\"panel\":{\"w\":8,\"h\":8,\"format\":\"rgb565be\"}}";
 }
 
-int emu_init(void) {
+EXPORT("emu_init") int emu_init(void) {
     wasi_iovec_t iov;
     uint32_t n = 0;
     iov.buf = (void *)g_scratch;
@@ -40,14 +47,14 @@ int emu_init(void) {
     return 1;
 }
 
-void emu_tick(uint32_t nowMs) { (void)nowMs; }
-uint16_t *emu_fb(void) { return g_fb; }
-int emu_push_count(void) { return 0; }
-int emu_push_x(int i) { (void)i; return 0; }
-int emu_push_y(int i) { (void)i; return 0; }
-int emu_push_w(int i) { (void)i; return 0; }
-int emu_push_h(int i) { (void)i; return 0; }
-void emu_touch(int down, int x, int y) { (void)down; (void)x; (void)y; }
-void emu_button(int index, int down) { (void)index; (void)down; }
-void emu_button_verdict(int index, int isLong) { (void)index; (void)isLong; }
-void emu_sensor_event(int index) { (void)index; }
+EXPORT("emu_tick") void emu_tick(uint32_t nowMs) { (void)nowMs; }
+EXPORT("emu_fb") uint16_t *emu_fb(void) { return g_fb; }
+EXPORT("emu_push_count") int emu_push_count(void) { return 0; }
+EXPORT("emu_push_x") int emu_push_x(int i) { (void)i; return 0; }
+EXPORT("emu_push_y") int emu_push_y(int i) { (void)i; return 0; }
+EXPORT("emu_push_w") int emu_push_w(int i) { (void)i; return 0; }
+EXPORT("emu_push_h") int emu_push_h(int i) { (void)i; return 0; }
+EXPORT("emu_touch") void emu_touch(int down, int x, int y) { (void)down; (void)x; (void)y; }
+EXPORT("emu_button") void emu_button(int index, int down) { (void)index; (void)down; }
+EXPORT("emu_button_verdict") void emu_button_verdict(int index, int isLong) { (void)index; (void)isLong; }
+EXPORT("emu_sensor_event") void emu_sensor_event(int index) { (void)index; }

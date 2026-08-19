@@ -6,7 +6,11 @@
 //
 // No -I for wasm/: these two fixtures deliberately do not include
 // emu_abi.h, so that what they compile against is only "a C compiler and a
-// target", the same position an external app's own repository is in.
+// target", the same position an external app's own repository is in. No
+// -Wl,--export= flags either: both fixtures export the ABI from their own
+// source with __attribute__((export_name(...))), which keeps zig cc off the
+// linker path that crashes deterministically under a nested bun process
+// (see test/fixtures/external-app/README.md for the measurement).
 //
 // Run directly (`bun run test/wasi/build.ts`) or via test/wasi/run.ts,
 // which calls buildWasiFixture() per module.
@@ -18,24 +22,6 @@ const DIST = join(import.meta.dir, "dist");
 
 const ZIG = process.env.ZIG_EXE ?? "zig";
 
-// Both fixtures implement the same (small) export set: no apps, no sound,
-// no vector sensor. Exporting a symbol a fixture does not implement is a
-// link error, which is why this list is shared rather than per-fixture.
-const EXPORTS = [
-  "emu_device",
-  "emu_init",
-  "emu_tick",
-  "emu_fb",
-  "emu_push_count",
-  "emu_push_x",
-  "emu_push_y",
-  "emu_push_w",
-  "emu_push_h",
-  "emu_touch",
-  "emu_button",
-  "emu_button_verdict",
-  "emu_sensor_event",
-];
 
 const MAX_ATTEMPTS = 5;
 const RETRY_PAUSE_MS = 300;
@@ -59,7 +45,6 @@ export function buildWasiFixture(name: string): string {
     "-nostdlib",
     "-Wl,--no-entry",
     "-Wl,--import-symbols",
-    ...EXPORTS.map((n) => `-Wl,--export=${n}`),
     src,
     "-o",
     out,
