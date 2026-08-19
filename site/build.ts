@@ -298,6 +298,12 @@ const COMBO_BUILD: Record<string, ComboBuild> = {
     portDoc: "apps/fluidbox/ports/rp2350-touch-amoled-18/README.md",
     blurb: "Ported down from a 900-particle, dual-core donor to 130 particles, single core: the interaction surface changed (fixed gravity, a touch stir), so this is verified by invariants, not pixel identity.",
   },
+  "fluidbox:esp32-s3-touch-amoled-18": {
+    script: "packs/esp32-s3-touch-amoled-18/wasm/build.ts",
+    args: ["--app", "apps/fluidbox/ports/esp32-s3-touch-amoled-18/fluid.c"],
+    portDoc: "apps/fluidbox/ports/esp32-s3-touch-amoled-18/README.md",
+    blurb: "The app coming home: the donor firmware was written for this exact board, and this is it returning through the convention, repainted 28 rows at a time on a device with no framebuffer.",
+  },
   "chrono:web": {
     script: "packs/web/wasm/build.ts",
     args: ["--app", "apps/chrono/ports/web/chrono.c", "--landscape"],
