@@ -22,6 +22,19 @@ import path from "node:path";
 const PORT = process.env.DEVLINK_PORT ?? "COM4";
 const BAUD = process.env.DEVLINK_BAUD ?? "115200";
 
+// Whether to assert DTR when opening the port. Default 1, which is what
+// this board needs: pico-sdk's USB CDC stack looks dead without it (see
+// BRIDGE_PS1 below), and that has never been optional here.
+//
+// It is a knob rather than a constant because the transport in this file is
+// now shared with a second board. On an ESP32-S3 the same line is not a
+// courtesy at all: its USB Serial/JTAG peripheral wires the host's DTR and
+// RTS straight to the chip's own boot-strap and reset signals, so asserting
+// DTR there presses a button nobody touched. `DEVLINK_DTR=0` is how that
+// board's runs open the port. See
+// packs/esp32-s3-touch-amoled-18/gotchas.md.
+const DTR = process.env.DEVLINK_DTR ?? "1";
+
 // ---------------------------------------------------------------------
 // PowerShell serial bridge
 // ---------------------------------------------------------------------
@@ -38,13 +51,18 @@ const BAUD = process.env.DEVLINK_BAUD ?? "115200";
 const BRIDGE_PS1 = `
 param(
     [Parameter(Mandatory=$true)][string]$Port,
-    [Parameter(Mandatory=$true)][int]$Baud
+    [Parameter(Mandatory=$true)][int]$Baud,
+    [int]$Dtr = 1
 )
 
 $ErrorActionPreference = "Stop"
 
 $p = New-Object System.IO.Ports.SerialPort $Port, $Baud, ([System.IO.Ports.Parity]::None), 8, ([System.IO.Ports.StopBits]::One)
-$p.DtrEnable = $true   # MUST be set before Open(), or the device reads as dead.
+# MUST be set before Open() when it is set at all, or a pico-sdk device
+# reads as dead. See DTR (above, in dev.ts) for why this is a parameter and
+# not a constant.
+$p.DtrEnable = ($Dtr -ne 0)
+$p.RtsEnable = $false
 $p.ReadTimeout = 500
 $p.WriteTimeout = 2000
 $p.NewLine = "\`n"
@@ -396,7 +414,11 @@ let activeBridge: Bridge | null = null;
 // board's serial port" logic - including the DTR-before-Open() ordering,
 // the single most likely way a first real run silently fails - for the
 // bridge IT holds, rather than a second, drift-prone copy of this script.
-export async function openDirectBridge(port: string = PORT, baud: string = BAUD): Promise<Bridge> {
+export async function openDirectBridge(
+  port: string = PORT,
+  baud: string = BAUD,
+  dtr: string = DTR
+): Promise<Bridge> {
   const scriptPath = await writeBridgeScript();
   const proc = Bun.spawn(
     [
@@ -410,6 +432,8 @@ export async function openDirectBridge(port: string = PORT, baud: string = BAUD)
       port,
       "-Baud",
       baud,
+      "-Dtr",
+      dtr,
     ],
     { stdin: "pipe", stdout: "pipe", stderr: "pipe" }
   );

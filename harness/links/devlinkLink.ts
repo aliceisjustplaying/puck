@@ -49,8 +49,23 @@
 // Usage (see package.json's harness:hardware):
 //   bun run harness/diff.ts <trace.json> --link harness/links/devlinkLink.ts
 //
+// TWO BOARDS, ONE ADAPTER. This was written for the RP2350 pack and now
+// also drives packs/esp32-s3-touch-amoled-18, which implements the same
+// devlink wire protocol over its native USB Serial/JTAG port (see that
+// pack's docs/decisions/0002-devlink-over-usb-serial-jtag.md). Nothing here
+// is per-board except what the environment variables below select: the
+// port, and whether opening it asserts DTR. Everything device-specific
+// stayed in the firmware, which is the arrangement that makes a second
+// board cost one env var rather than a second link.
+//
 // Environment:
-//   DEVLINK_PORT        serial port (default COM4, read by dev.ts)
+//   DEVLINK_PORT        serial port (default COM4, read by dev.ts). The
+//                       ESP32-S3 board is on its own port; name it here.
+//   DEVLINK_DTR         "0" to open the port WITHOUT asserting DTR. Required
+//                       for the ESP32-S3 board, whose USB Serial/JTAG
+//                       peripheral wires DTR to the chip's own boot strap;
+//                       leave it alone (default "1") for the RP2350, whose
+//                       USB CDC stack needs DTR to answer at all.
 //   DEVLINK_SERVER_URL  emulator dev server (default http://127.0.0.1:5330)
 //   PUCK_HW_APP         app index to reset into before replay (default 0,
 //                       the index rtcore_init() itself boots into)
@@ -197,7 +212,44 @@ export function greyToRGB(grey: Uint8Array, width: number, height: number): Capt
   return { width, height, rgb };
 }
 
-const PROF_RE = /^prof app=(\S+) .*\bcore1restarts=(\d+)\b.*\bshot drops=(\d+)\b/;
+// The shared port's profiler line, from whichever board is on the other end.
+//
+// THIS USED TO REQUIRE THE RP2350'S EXACT FIELD LIST and therefore silently
+// stopped detecting resets the moment a second board spoke devlink. The
+// ESP32-S3 pack (packs/esp32-s3-touch-amoled-18) has no second core to
+// restart, so it prints `uptime=` instead of `core1restarts=`; under the old
+// regex its profiler line matched nothing at all, which is not "no evidence"
+// but "the evidence was thrown away". So the app name is the only required
+// field now, and every cumulative counter is optional and checked only when
+// BOTH readings carry it. The RP2350's own lines still match every field
+// they always did, so nothing about that board's detection changed.
+const PROF_APP_RE = /^prof app=(\S+)\b/;
+
+// Counters that only ever climb while a board stays up, so any of them
+// going backwards is a reboot seen for free. `uptime` is the strongest of
+// the three (it moves on every reset, not only on a core dying) and is what
+// the ESP32-S3 pack reports.
+const PROF_CUMULATIVE: Record<string, RegExp> = {
+  core1restarts: /\bcore1restarts=(\d+)\b/,
+  "shot drops": /\bshot drops=(\d+)\b/,
+  uptime: /\buptime=(\d+)\b/,
+};
+
+interface ProfReading {
+  app: string;
+  counters: Record<string, number>;
+}
+
+function parseProf(line: string): ProfReading | null {
+  const m = PROF_APP_RE.exec(line);
+  if (!m) return null;
+  const counters: Record<string, number> = {};
+  for (const [name, re] of Object.entries(PROF_CUMULATIVE)) {
+    const f = re.exec(line);
+    if (f) counters[name] = Number(f[1]);
+  }
+  return { app: m[1]!, counters };
+}
 
 export class DevlinkLink implements HardwareLink {
   readonly opts: DevlinkLinkOptions;
@@ -210,7 +262,7 @@ export class DevlinkLink implements HardwareLink {
   private expectedApp: { index: number; name: string } | null = null;
   private fingerDown = false;
   private lastShotEndedAt = 0;
-  private lastProf: { app: string; core1restarts: number; shotDrops: number } | null = null;
+  private lastProf: ProfReading | null = null;
 
   // Everything this link noticed that says the board is not the same device
   // it was a moment ago. Non-empty means the run is void, not divergent.
@@ -314,6 +366,15 @@ export class DevlinkLink implements HardwareLink {
     // behaving as if a button were welded down).
     await this.tryCommand("KEY RELEASE");
     await this.tryCommand("BOOT UP");
+    // Same class of safety as the two above, and missing until a trace that
+    // deliberately ENDS with the finger still down went through this link:
+    // an injected touch is as sticky as an injected button, so a run that
+    // never sends UP (or that dies partway through a stroke) left the
+    // owner's board behaving as if a finger were glued to the glass.
+    if (this.fingerDown) {
+      await this.tryCommand("UP");
+      this.fingerDown = false;
+    }
     if (this.opts.restoreApp && this.appOnConnect && this.expectedApp && this.appOnConnect.index !== this.expectedApp.index) {
       if (this.appOnConnect.index >= 0) await this.tryCommand(`SWITCH ${this.appOnConnect.index}`);
     }
@@ -494,22 +555,24 @@ export class DevlinkLink implements HardwareLink {
   //      reboot, seen for free: these lines share the port and this link
   //      already reads past them on its way to every reply.
   private observeNoise(line: string): void {
-    const m = PROF_RE.exec(line);
-    if (!m) return;
-    const prof = { app: m[1]!, core1restarts: Number(m[2]), shotDrops: Number(m[3]) };
+    const prof = parseProf(line);
+    if (!prof) return;
     const prev = this.lastProf;
     if (prev) {
-      if (prof.core1restarts < prev.core1restarts || prof.shotDrops < prev.shotDrops) {
-        this.resetEvidence.push(
-          `the profiler's cumulative counters went backwards (core1restarts ${prev.core1restarts} -> ${prof.core1restarts}, ` +
-            `shot drops ${prev.shotDrops} -> ${prof.shotDrops}): the board rebooted`
-        );
-      }
-      if (prof.shotDrops > prev.shotDrops) {
-        this.resetEvidence.push(
-          `the firmware dropped a SHOT body (shot drops ${prev.shotDrops} -> ${prof.shotDrops}): a screenshot ran past ` +
-            `DEVLINK_SHOT_BUDGET_US, so screenshots are being asked for faster or on a busier screen than this board can serve`
-        );
+      for (const [name, value] of Object.entries(prof.counters)) {
+        const before = prev.counters[name];
+        if (before === undefined) continue;
+        if (value < before) {
+          this.resetEvidence.push(
+            `the profiler's cumulative "${name}" went backwards (${before} -> ${value}): the board rebooted`
+          );
+        }
+        if (name === "shot drops" && value > before) {
+          this.resetEvidence.push(
+            `the firmware dropped a SHOT body (shot drops ${before} -> ${value}): a screenshot ran past the firmware's ` +
+              `own reply budget, so screenshots are being asked for faster or on a busier screen than this board can serve`
+          );
+        }
       }
     }
     if (this.opts.appTracking === "strict" && this.expectedApp && prof.app !== this.expectedApp.name) {
