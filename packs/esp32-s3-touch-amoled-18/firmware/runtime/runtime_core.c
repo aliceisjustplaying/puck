@@ -129,6 +129,33 @@ void rtcore_init(void) {
     if (g_app->enter != NULL) g_app->enter();
 }
 
+const char *rtcore_app_name(void) {
+    return g_app->name;
+}
+
+// See runtime_core.h for what this does and does not restore. The arena
+// rewind is the whole point: without it, re-entering would bump-allocate a
+// second copy of the app's state and the next re-entry a third, so the one
+// thing a reset is for (a board that starts the same way twice) would run
+// out of arena instead.
+void rtcore_reset(void) {
+    if (g_app->leave != NULL) g_app->leave();
+
+    g_arenaUsed = 0;
+
+    g_touchDown = false;
+    g_touchWasDown = false;
+    g_touchX = 0;
+    g_touchY = 0;
+    g_keyEvent = 0;
+    g_bootLevel = false;
+    g_bootClickedPending = false;
+    g_shakeSeqSeen = g_shakeSeq;
+    g_started = false;
+
+    if (g_app->enter != NULL) g_app->enter();
+}
+
 void rtcore_tick(uint32_t nowMs) {
     if (!g_started) {
         g_lastNowMs = nowMs;

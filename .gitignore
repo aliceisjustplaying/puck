@@ -10,6 +10,15 @@ wasm/dist/
 # never committed.
 packs/rp2350-touch-amoled-18/firmware/build/
 
+# The ESP-IDF build tree, its generated sdkconfig, and the components the
+# IDF component manager downloads into the project. Regenerate all three
+# with the `idf.py` invocation in packs/esp32-s3-touch-amoled-18/README.md;
+# sdkconfig.defaults (which IS committed) is the only configuration input.
+packs/esp32-s3-touch-amoled-18/firmware/build/
+packs/esp32-s3-touch-amoled-18/firmware/sdkconfig
+packs/esp32-s3-touch-amoled-18/firmware/sdkconfig.old
+packs/esp32-s3-touch-amoled-18/firmware/managed_components/
+
 # Same reasoning, for the single-app native build dirs tools/build-native.ts
 # creates out of tree (one per --app, e.g. firmware/build-app/fluid/): the
 # .uf2 it produces is copied out to site/dist/flash/ or a GitHub release,

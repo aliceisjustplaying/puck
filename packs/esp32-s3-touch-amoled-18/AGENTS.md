@@ -62,53 +62,59 @@ pack's does (`zig cc`'s own linker bug under many `-Wl,--export=` flags,
 verified by actually building rather than assumed from docs) - `build.ts`
 retries automatically; this is not your change.
 
-## `main/` is written but not yet flashed
+## `main/` has been built, flashed and run
 
-Everything under `firmware/main/` - `main.c`, `display.c`, `touch.c`,
-`button.c`, `imu.c`, and their CMake/component files - targets ESP-IDF
-v5.5.5 and has **not been built or run against real hardware**. There is no
-ESP-IDF installation on the machine this pack was written on, so this half
-has none of the sibling pack's "confirmed working" weight behind it yet.
-Treat it as a careful port, not a proven one, until someone flashes it and
-updates this note.
+Everything under `firmware/main/` targets ESP-IDF **v6.0.2** and was first
+built, flashed and run on the physical board on 2026-08-19. Read
+[`docs/decisions/0001-what-the-first-flash-found.md`](docs/decisions/0001-what-the-first-flash-found.md)
+before touching any of it: the careful inheritance this half shipped with did
+not link, and the three defects that first flash found say more about what an
+unflashed firmware half is worth than any summary here can.
 
-What that means concretely, file by file:
+What is proven on silicon: the panel comes up, the band DMA pipeline runs at
+50 full-panel frames per second paced by its own semaphore, the IMU reports
+sane numbers, and devlink answers on the board's USB Serial/JTAG port. What is
+**not** proven: a differential pixel diff against the emulator (the board left
+the bench before that run completed), a real finger on the glass, and the shake
+threshold. `README.md`'s first table is the honest version of that list, and
+`apps/chrono/bundle.json` carries no `silicon` attestation for this pack until
+a hardware diff is green.
 
-- `display.c` is adapted **nearly verbatim** from
+File by file, and what changed on first contact:
+
+- `display.c` was adapted nearly verbatim from
   `esp32-fluidbox/fluidbox/main/display.c` (separate repository,
-  `s0lness/esp32-fluidbox`) -
-  same board, same panel link, same `espressif/esp_lcd_co5300` driver, same
-  80MHz QSPI clock, same board-revision probe. Only the two public entry
-  points changed shape, to match `runtime_core.h`'s
-  `plat_acquire_band()`/`plat_flush_band()` platform seam instead of
-  fluidbox's own `display_acquire_band()`/`display_flush_band()`. This file
-  inherits fluidbox's own proven claim about the display pipeline; it has
-  not been independently reproven by this pack.
+  `s0lness/esp32-fluidbox`, same board): the init command sequence, the QSPI
+  pin map, the counting-semaphore band pipeline and the board-revision probe
+  are all fluidbox's. Bringing it up added the TCA9554 panel power-cycle it
+  was missing, dropped the requested QSPI clock from 80MHz to the ~40MHz the
+  wire actually carries, re-issued TEON after `disp_on`, and added devlink's
+  greyscale capture at flush time. See its header comment and `gotchas.md`.
 - `button.c` is adapted from `esp32-fluidbox/fluidbox/main/button.c` -
   same TCA9554 IO expander, same EXIO4 pin, same "leave every other pin's
   config alone" caution. Extended with the long-press verdict timing
   fluidbox's plain short-press reset never needed, since `device.json`
-  declares `longPressMs` for `pwr` (mirroring the sibling pack's PWR
-  semantics) and fluidbox's button never had to report one.
+  declares `longPressMs` for `pwr`. Unchanged by the first flash.
 - `imu.c`'s bring-up (address probe, reset, range/ODR configuration) is
-  adapted from `esp32-fluidbox/fluidbox/main/imu.c` -
-  same QMI8658, same board. The shake DETECTOR built on top of that
-  bring-up is new to this pack (fluidbox uses the IMU continuously for its
-  fluid solver and has no discrete "shake" event) and has not been tuned
-  against real hardware - see `gotchas.md`.
-- `touch.c` has **no fluidbox counterpart at all**: that project probes for
-  the CST820 only to tell the two board revisions apart, and never reads a
-  touch coordinate. The FT3168 branch's register map is carried over from
-  this repository's own RP2350 sibling pack
-  (`packs/rp2350-touch-amoled-18/firmware/lib/Touch/FT3168.h`/`.c`),
-  hardware-confirmed there on the same touch controller and panel family.
-  The CST820 branch is the commonly published register map for that part,
-  not confirmed anywhere in this repository or in fluidbox. See `touch.c`'s
-  own header comment for the full provenance split.
-- `main.c` is a new, single-task main loop (this pack has no fluid solver
-  needing a second core the way fluidbox does): poll touch, PWR, BOOT and
-  the IMU, then call `rtcore_tick()`, which itself paces the loop through
-  `display.c`'s DMA semaphore.
+  adapted from `esp32-fluidbox/fluidbox/main/imu.c` - same QMI8658, same
+  board, and it came up first time. The shake DETECTOR on top of it is new to
+  this pack and **cannot be tuned by anything automated**: `imu_poll()` now
+  reports the peak gravity-removed magnitude of each second to the console so
+  a human holding the board can read the number the threshold should be set
+  against. See `gotchas.md`.
+- `touch.c`'s CST820 branch was **replaced**, not fixed: it now drives the
+  controller through Espressif's `esp_lcd_touch_cst816s` component, the way
+  tinydraw's `esp32/main/physical_touch.cpp` does on this exact enclosure,
+  rather than through the commonly-published register map this pack shipped
+  with and nothing had ever confirmed. The FT3168 branch (original-revision
+  boards) is untouched and still inherited from the RP2350 sibling pack.
+- `main.c` is a single-task main loop: resolve touch (injected or physical),
+  poll PWR, BOOT and the IMU, `rtcore_tick()`, then `devlink_poll()`. That
+  order is part of devlink's contract, not a style choice - see `devlink.h`.
+  It also owns `runtime_core.h`'s `rt_log`/`rt_halt`, which nothing
+  implemented for the board until the first link failed.
+- `devlink.c`/`devlink.h` (one level up, in `firmware/`) are new: the
+  agent-facing command protocol, the same one the RP2350 sibling speaks.
 
 ## Layout
 
@@ -116,16 +122,19 @@ What that means concretely, file by file:
 device.json          the emu_device() descriptor plus convention/memory metadata
 firmware/
   runtime/            app.h (the band contract), runtime_core.h/.c (portable
-                       frame loop: arena, the one reference app, input
-                       latching, the per-band dispatch - compiles for both
-                       the board and wasm32-freestanding), gfx_band.h/.c
-                       (fill/fill-rect helpers that clip full-screen
-                       coordinates into one band)
-  apps/demo.c         the one reference app: a bouncing square, proving
+                       frame loop: arena, the one app slot, input
+                       latching, the per-band dispatch, rtcore_reset() -
+                       compiles for both the board and wasm32-freestanding),
+                       gfx_band.h/.c (fill/fill-rect helpers that clip
+                       full-screen coordinates into one band)
+  apps/demo.c         the reference app: a bouncing square, proving
                        tick()/draw_band(), PWR short press, BOOT click and
                        touch drag
-  main/               the ESP-IDF half - see "not yet flashed" above
-docs/                 none yet; see "What this pack does not have yet" below
+  devlink.c/.h        the agent-facing command protocol over USB Serial/JTAG
+  main/               the ESP-IDF half - see "built, flashed and run" above
+  sdkconfig.defaults  the only configuration input the board build takes
+gate/run.ts          fast, hardware-free, device-specific checks
+docs/decisions/      why (0001: what the first flash found; 0002: devlink)
 wasm/
   build.ts            compiles the portable firmware + emu_shim.c to
                        wasm/dist/emu.wasm
@@ -139,14 +148,14 @@ gotchas.md            hardware traps, most inherited from fluidbox
 
 ## What this pack does not have yet
 
-Unlike the RP2350 sibling, this pack has no `docs/decisions/`, no `gate/`
-invariant checker, and no README with screenshots/GIFs. It ships one
-reference app and `device.json` declares no `"apps"` array, so there is
-nothing yet worth a menu, a decision record, or a static-invariant checker
-of its own - the repository root's `bun run typecheck` / `bun run verify`
-already cover what this pack's own gate would check today (that the wasm
-module builds, exports the right symbols, and the emulator can drive it).
-Add these the day a second app or a real flash makes them earn their keep.
+No screenshots or animated GIF in the README (the sibling's come from
+`tools/screens.ts`/`tools/demo.ts`, which this pack has no equivalent of), no
+`"apps"` array in `device.json` and therefore no menu, and no browser flashing
+the way the RP2350's `.uf2` drag-and-drop allows. Flashing here is `esptool`,
+documented in `README.md`.
+
+It DOES now have `docs/decisions/`, a `gate/`, and a README: a real flash is
+what made all three earn their keep.
 
 ## Conventions
 

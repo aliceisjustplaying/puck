@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -60,6 +61,9 @@ static bool s_ready;
 static float s_lp[3]; // low-passed accelerometer, i.e. the gravity part
 static bool s_lp_primed;
 static int64_t s_last_sample_us;
+
+static float s_peak_mag;
+static uint32_t s_peak_reported_ms;
 
 static int s_jolt_count;
 static uint32_t s_jolt_window_start_ms;
@@ -177,6 +181,27 @@ void imu_poll(void)
     const float mag = sqrtf(rx * rx + ry * ry + rz * rz);
 
     uint32_t nowMs = (uint32_t)(now_us / 1000);
+
+    // THE THRESHOLD ABOVE IS STILL A GUESS, AND THIS IS HOW IT STOPS BEING
+    // ONE. Nothing in this repository can shake a board; devlink's ERASE
+    // injects the resulting event and never touches this code path (see
+    // firmware/devlink.h), so SHAKE_THRESHOLD_MPS2 cannot be calibrated by
+    // any automated run. What can be done is to make the missing
+    // measurement one line of console output away: this reports the largest
+    // gravity-removed magnitude seen in each one-second window, on the same
+    // port devlink uses, so a human who picks the board up and shakes it
+    // reads the number the threshold should be set against instead of
+    // guessing a second time. See gotchas.md, "the shake threshold needs a
+    // human".
+    if (mag > s_peak_mag) s_peak_mag = mag;
+    if (nowMs - s_peak_reported_ms >= 1000u) {
+        s_peak_reported_ms = nowMs;
+        ESP_LOGI(TAG, "accel peak residual %d.%02d m/s2 over the last second (shake threshold %d.%02d)",
+                 (int)s_peak_mag, (int)((s_peak_mag - (float)(int)s_peak_mag) * 100.0f),
+                 (int)SHAKE_THRESHOLD_MPS2,
+                 (int)((SHAKE_THRESHOLD_MPS2 - (float)(int)SHAKE_THRESHOLD_MPS2) * 100.0f));
+        s_peak_mag = 0.0f;
+    }
 
     if (mag < SHAKE_THRESHOLD_MPS2) {
         return;

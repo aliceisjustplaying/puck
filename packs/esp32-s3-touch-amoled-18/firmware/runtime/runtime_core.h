@@ -116,4 +116,27 @@ void rtcore_sensor_event(int index);
 void rtcore_init(void);
 void rtcore_tick(uint32_t nowMs);
 
+/* ---- re-entering the one app from a known state --------------------------
+ *
+ * Rewinds the arena, drops every latched input, and calls enter() again, so
+ * the app is in exactly the state rtcore_init() leaves it in at boot. This
+ * is what makes a differential run against real silicon mean anything: the
+ * emulator side always starts from emu_init(), and the board starts from
+ * wherever it was left, so the harness needs one lever that puts the board
+ * back (see harness/links/devlinkLink.ts's reset(), which reaches this
+ * through devlink's SWITCH 0).
+ *
+ * It is NOT a reboot, and the difference is worth stating rather than
+ * discovering as a mystery diff: this does not re-run display_init(), does
+ * not reset the board's uptime clock (so nowMs keeps climbing), and does
+ * not undo anything a peripheral was left holding. It resets exactly what
+ * this file owns.
+ *
+ * rtcore_app_name() is the same app's declared name (app.h's app_t.name),
+ * exposed so a platform can report which app is running without reaching
+ * into runtime_core.c's own statics.
+ */
+void rtcore_reset(void);
+const char *rtcore_app_name(void);
+
 #endif // RUNTIME_CORE_H
