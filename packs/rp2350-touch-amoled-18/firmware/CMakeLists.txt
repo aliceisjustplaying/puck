@@ -66,6 +66,23 @@ target_sources(main PRIVATE
     runtime/runtime.c
     runtime/gfx.c
     runtime/sensors.c
+    # tilt.c is the orientation signal, and it is portable for the same reason
+    # sound_synth.c below is: it also compiles into emu.wasm unmodified, so
+    # the emulator runs the board's own filter, axis mapping and hysteresis
+    # rather than a browser-side second copy of them. sensors.c (core1) is the
+    # only thing that ever feeds it a real reading; nothing in here touches
+    # i2c1.
+    runtime/tilt.c
+    # tune_registry.c aggregates the live-tunable knobs that
+    # firmware/apps/app_tunables.inc lists, behind one flat name/index
+    # space for devlink's TUNE command and the emulator's panel.
+    # Portable like runtime_core.c, so it compiles for wasm too.
+    runtime/tune_registry.c
+    # storage.c is the last-flash-sector key/value store. Board-only: the
+    # emulator's stand-in lives in wasm/emu_shim.c instead, so nothing here
+    # pretends to exercise flash_safe_execute(), a sector erase or core1's
+    # lockout.
+    runtime/storage.c
     # sound_synth.c is the portable half (no PIO/DMA/i2c/pico-sdk
     # dependency): it also compiles into emu.wasm unmodified (packs/rp2350-touch-amoled-18/wasm/
     # build.ts), so the emulator's WebAudio preview is genuinely this
@@ -96,22 +113,32 @@ target_sources(main PRIVATE
 # their shared helpers (digits, shapes) - see AGENTS.md. A single-app NATIVE
 # build (packs/rp2350-touch-amoled-18/tools/build-native.ts's --app flag, the
 # native equivalent of wasm/build.ts's own --app) instead links exactly one
-# ported app plus a GENERATED roster.c that aliases every app-table slot onto
-# it: runtime_core.c hardcodes g_chronoApp/g_sketchApp/g_timerApp/g_menuApp by
-# exact symbol name and is a pack firmware source a port may never edit (see
-# AGENTS.md), so the roster is what lets one app satisfy all four names
-# without touching it. PUCK_SINGLE_APP_ROSTER/PUCK_SINGLE_APP_SOURCE are never
-# set by hand: build-native.ts writes the roster into its own out-of-tree
-# build dir and passes both on the cmake command line, so the DEFAULT build
-# below is unchanged unless that flag is given.
+# ported app plus a GENERATED app_roster.inc.
+#
+# The app layer is declared by firmware/apps/app_roster.inc, which
+# runtime_core.c includes; runtime_core.c is a pack firmware source a port may
+# never edit (see AGENTS.md). So the generated roster is not a source at all -
+# it is a file of the same name in the port's own build directory, put FIRST on
+# the include path so it wins over the hand-written reference roster. That is
+# the whole mechanism: no extra translation unit, no link-order question, and
+# runtime_core.c untouched.
+#
+# PUCK_SINGLE_APP_ROSTER is the DIRECTORY holding that generated
+# app_roster.inc. Neither variable is ever set by hand: build-native.ts writes
+# the roster into its own out-of-tree build dir and passes both on the cmake
+# command line, so the DEFAULT build below is unchanged unless that flag is
+# given.
 if(DEFINED PUCK_SINGLE_APP_ROSTER)
     if(NOT DEFINED PUCK_SINGLE_APP_SOURCE)
         message(FATAL_ERROR "PUCK_SINGLE_APP_ROSTER also needs PUCK_SINGLE_APP_SOURCE (the port's own .c file)")
     endif()
     target_sources(main PRIVATE
         ${PUCK_SINGLE_APP_SOURCE}
-        ${PUCK_SINGLE_APP_ROSTER}
     )
+    # BEFORE apps/, so runtime_core.c's #include "app_roster.inc" resolves to
+    # the generated one. target_include_directories appends, and firmware/apps
+    # is added further down this file, so this call lands first.
+    target_include_directories(main BEFORE PRIVATE ${PUCK_SINGLE_APP_ROSTER})
     # So a port file outside firmware/apps/ can #include a private helper
     # header of its own - the same allowance wasm/build.ts's --app gives it.
     get_filename_component(PUCK_SINGLE_APP_DIR ${PUCK_SINGLE_APP_SOURCE} DIRECTORY)

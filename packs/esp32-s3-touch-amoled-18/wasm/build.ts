@@ -149,21 +149,33 @@ console.log(`${ZIG} ${args.join(" ")}`);
 // is far worse under concurrent contention, and the person most likely to
 // hit this is running the command for the first time with no reason yet to
 // believe the repository works.
+//
+// THE TIMEOUT IS NOT DECORATION: the same bug also HANGS, not just crashes
+// (observed twice on 2026-08-19, a zig process sitting at 0.02 seconds of
+// CPU for thirteen minutes on arguments that then succeeded immediately on
+// a manual retry - see packs/web/wasm/build.ts's compileModule for the
+// original writeup). A retry loop that only catches a non-zero exit waits
+// forever for that one, which is a far worse failure than a crash: a build
+// that never returns looks like a build that is working. Two minutes is
+// many times what a real compile of these four files takes, even under a
+// saturated machine.
 const MAX_ATTEMPTS = 8;
 const RETRY_PAUSE_MS = 400;
+const ATTEMPT_TIMEOUT_MS = 120_000;
 
 let result: ReturnType<typeof Bun.spawnSync>;
 try {
-  result = Bun.spawnSync([ZIG, ...args], { stdout: "inherit", stderr: "inherit" });
+  result = Bun.spawnSync([ZIG, ...args], { stdout: "inherit", stderr: "inherit", timeout: ATTEMPT_TIMEOUT_MS });
 } catch (err) {
   console.error(`could not run "${ZIG}": ${err instanceof Error ? err.message : String(err)}`);
   console.error(`(zig not found? set ZIG_EXE to its path, or install it: https://ziglang.org/download/)`);
   process.exit(1);
 }
 for (let attempt = 2; !result.success && attempt <= MAX_ATTEMPTS; attempt++) {
-  console.error(`zig cc exited ${result.exitCode}, retrying (${attempt}/${MAX_ATTEMPTS}) - see this file's header comment`);
+  const how = result.signalCode ? `was killed (${result.signalCode}, most likely this build's own ${ATTEMPT_TIMEOUT_MS}ms timeout)` : `exited ${result.exitCode}`;
+  console.error(`zig cc ${how}, retrying (${attempt}/${MAX_ATTEMPTS}) - see this file's header comment`);
   Bun.sleepSync(RETRY_PAUSE_MS);
-  result = Bun.spawnSync([ZIG, ...args], { stdout: "inherit", stderr: "inherit" });
+  result = Bun.spawnSync([ZIG, ...args], { stdout: "inherit", stderr: "inherit", timeout: ATTEMPT_TIMEOUT_MS });
 }
 
 if (!result.success) {

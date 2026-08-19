@@ -2,7 +2,7 @@
  * sound_synth: the actual chime, as pure math. No PIO, no DMA, no i2c, no
  * pico-sdk - just <math.h> - so this compiles for both the board
  * (firmware/runtime/sound.c calls it from its DMA refill) and the emulator
- * (packs/rp2350-touch-amoled-18/wasm/emu_shim.c calls the SAME function to fill the buffer it
+ * (emulator/wasm/emu_shim.c calls the SAME function to fill the buffer it
  * hands the browser for WebAudio playback, per emu_abi.h's sound section).
  * That split is what makes emu_abi.h able to say the emulator's audio is
  * genuinely produced by the firmware's own synthesiser rather than a
@@ -32,5 +32,11 @@
 // (emulator, mono WebAudio) get this same value; see sound.c/emu_shim.c for
 // how each target turns one mono int16 into what its own output path wants.
 int16_t sound_synth_alarm_sample(float tSec);
+
+// One mono sample of the tilt-a-ball's capture sound (firmware/apps/
+// tiltball.c), tSec seconds into playback. A single falling-pitch note, not
+// a repeating phrase - see sound_synth.c's own comment for the reasoning.
+// Same stateless-function-of-tSec shape as the alarm, for the same reason.
+int16_t sound_synth_capture_sample(float tSec);
 
 #endif // SOUND_SYNTH_H

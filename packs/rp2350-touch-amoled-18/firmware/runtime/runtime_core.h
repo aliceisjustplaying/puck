@@ -32,6 +32,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// For app_tilt_t (rtcore_last_tilt below). Included here rather than left
+// to the caller's include order, for the reason gfx.h's own first include
+// spells out: a header that only compiles when something else was included
+// first is a trap for the next file that includes it first.
+#include "app.h"
+
 /* ---- host-provided (see this file's header comment for why) ------------ */
 
 // Diagnostic text, no trailing newline. On the board this wraps printf
@@ -97,6 +103,42 @@ void rtcore_tick(uint32_t nowMs);
  */
 const char *rtcore_last_switch_name(void);
 uint32_t rtcore_last_switch_us(void);
+
+/* ---- the orientation an app was last handed ------------------------------
+ *
+ * The gravity vector AS THE CURRENT APP SEES IT: filtered, and already
+ * rotated into that app's own drawing space (see runtime_core.c's
+ * tilt_for_app, and firmware/runtime/tilt.h for the signal itself). Read by
+ * exactly two instruments, both of which need to read at the app boundary
+ * rather than at the sensor, because everything interesting that can go
+ * wrong with an orientation signal - a swapped axis, an inverted sign, a
+ * landscape rotation applied the wrong way - happens between the part and
+ * this struct:
+ *
+ *   - devlink's TILT command (board), which is how tilt.h's axis ritual is
+ *     actually run against real hardware;
+ *   - the emulator's headless orientation test, through emu_tilt().
+ *
+ * No app calls this and no runtime logic depends on it. Requires app.h for
+ * app_tilt_t, which every consumer of this header already includes.
+ */
+void rtcore_last_tilt(app_tilt_t *out);
+
+/* ---- what the current app's enter() cost in arena bytes -------------------
+ *
+ * The bump pointer's current value: how much of APP_ARENA_BYTES the app that
+ * is running right now has allocated. Apps allocate only inside enter()
+ * (app.h), so after a switch has settled this is that app's whole footprint,
+ * and it does not move again until the next switch.
+ *
+ * This exists for one consumer: the gate's arena-headroom rule
+ * (tools/gate/run.ts), which reads it through emu_arena_used() and fails
+ * before a flash when an app creeps toward the 64KB trap. app.h says an app
+ * that does not fit is a build-time bug; this is what makes that sentence
+ * checkable at build time instead of discovered as a red screen. No runtime
+ * logic reads it, same posture as rtcore_last_tilt() above.
+ */
+size_t rtcore_arena_used(void);
 
 /* ---- the menu's private slot ---------------------------------------------
  *

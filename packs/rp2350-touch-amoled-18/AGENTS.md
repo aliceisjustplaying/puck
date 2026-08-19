@@ -156,14 +156,21 @@ firmware/runtime/    runtime.c (board entry point, startup, watchdog, devlink
                      board and wasm32-freestanding, see decision 0003), gfx.c
                      (framebuffer + panel push, the one place the 8-pixel row
                      rule lives), sensors.c (core1 owns i2c1: touch, IMU,
-                     PMIC), sound.c (ES8311 + I2S over PIO/DMA, brought up on
-                     core0 before core1 launches), sound_synth.c (the chime
-                     itself, pure math, compiles into both main.uf2 and
-                     emu.wasm unmodified)
+                     PMIC), tilt.c (the one orientation signal, filtered and
+                     mapped once for every app - portable, compiles into
+                     emu.wasm too), sound.c (ES8311 + I2S over PIO/DMA,
+                     brought up on core0 before core1 launches),
+                     sound_synth.c (the sounds themselves, pure math,
+                     compiles into both main.uf2 and emu.wasm unmodified),
+                     storage.c (the last flash sector as a key/value store,
+                     board-only: the emulator stands it in from RAM)
 firmware/apps/       one file per app plus shared helpers: chrono.c, sketch.c,
                      timer.c, menu.c (the picker), digits.c (seven-segment
                      numerals), shapes.c (round silhouettes built from
                      rectangles, used by menu.c's icons). None owns hardware.
+firmware/apps/app_roster.inc
+                     THE ONE FILE A CONSUMER OF THIS PACK REPLACES. See
+                     "The app roster is the consumer's" below.
 firmware/lib/        Waveshare's drivers, patched. See lib/NOTICE.md and
                      "Gotchas that bite" before re-copying any of them.
 firmware/bootbtn.c   reads BOOT by borrowing the flash chip select
@@ -185,6 +192,40 @@ docs/decisions/      why things are the way they are
 preview/             the README's images, and the palette test's screenshots
 third_party/lucide/  five icons, ISC. See NOTICE.md.
 ```
+
+## The app roster is the consumer's, and it is the only thing that is
+
+`firmware/runtime/runtime_core.c` used to hardcode this pack's three apps by
+exact symbol name, and `runtime_core.c` used to compare the running app
+against `&g_sketchApp` to decide who drains raw touch. Both meant that a
+firmware built on this board with a different set of apps could not take the
+runtime as it stands: it had to fork it. One did, and the fork drifted for
+weeks in both directions before anyone diffed them.
+
+So the app layer is now declared in exactly one file, which every consumer
+writes for itself:
+
+```
+firmware/apps/app_roster.inc
+```
+
+`runtime_core.c` includes it, and it supplies `g_apps[]`/`g_appCount`, the
+picker's own `g_menuAppIndex[]`/`g_menuAppCount` roster, `g_menuApp`,
+`menu_set_return_app()` and one extern per app object. Nothing else in
+`firmware/runtime/` names an app.
+
+Included rather than compiled on purpose: a single-app build (`wasm/build.ts
+--app`, `tools/build-native.ts --app`) generates one into its own build
+directory and puts that directory first on the include path. No extra
+translation unit, no link-order question, and `runtime_core.c` is never
+touched.
+
+**A "which app is this" test in the runtime is a bug, not a shortcut.** The
+`&g_sketchApp` comparison is gone, replaced by `app_t.wantsRawTouch`
+(`app.h`) alongside the `wantsShake` flag that already existed for the same
+reason. If a future runtime behaviour needs to apply to some apps and not
+others, it gets a flag in `app_t`. The symptom that the old shape was wrong
+was not aesthetic: the runtime failed to COMPILE against a valid roster.
 
 ## Building it
 

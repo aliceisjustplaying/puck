@@ -15,6 +15,7 @@
 
 #include "pico/time.h"
 #include "pico/multicore.h"
+#include "pico/flash.h"
 #include "hardware/sync.h"
 #include "hardware/exception.h"
 
@@ -339,7 +340,7 @@ void sensors_request_poweroff(void) {
  * file noticing; every wait this core takes is now owned, and auditable, in
  * one place.
  */
-static bool i2c1_write_bytes_bounded(uint8_t addr, const uint8_t *src, size_t len, bool nostop, uint32_t timeout_us) {
+static bool __not_in_flash_func(i2c1_write_bytes_bounded)(uint8_t addr, const uint8_t *src, size_t len, bool nostop, uint32_t timeout_us) {
     i2c_inst_t *i2c = I2C_PORT;
     absolute_time_t deadline = make_timeout_time_us(timeout_us);
 
@@ -389,11 +390,11 @@ static bool i2c1_write_bytes_bounded(uint8_t addr, const uint8_t *src, size_t le
     return !abort && byte_ctr == len;
 }
 
-static inline bool i2c1_write_to(uint8_t addr, const uint8_t *data, size_t len) {
+static inline bool __not_in_flash_func(i2c1_write_to)(uint8_t addr, const uint8_t *data, size_t len) {
     return i2c1_write_bytes_bounded(addr, data, len, false, I2C_TIMEOUT_US);
 }
 
-static inline bool i2c1_write_reg_to(uint8_t addr, uint8_t reg, uint8_t val) {
+static inline bool __not_in_flash_func(i2c1_write_reg_to)(uint8_t addr, uint8_t reg, uint8_t val) {
     uint8_t b[2] = { reg, val };
     return i2c1_write_to(addr, b, 2);
 }
@@ -439,7 +440,7 @@ static inline bool i2c1_write_reg_to(uint8_t addr, uint8_t reg, uint8_t val) {
  * that is the only shape implemented here; there is no reason to carry a
  * nostop parameter this codebase never uses.
  */
-static bool i2c1_read_bytes_bounded(uint8_t addr, uint8_t *dst, size_t len, uint32_t timeout_us) {
+static bool __not_in_flash_func(i2c1_read_bytes_bounded)(uint8_t addr, uint8_t *dst, size_t len, uint32_t timeout_us) {
     i2c_inst_t *i2c = I2C_PORT;
     absolute_time_t deadline = make_timeout_time_us(timeout_us);
 
@@ -492,14 +493,14 @@ static bool i2c1_read_bytes_bounded(uint8_t addr, uint8_t *dst, size_t len, uint
 // bounded() above, not the SDK's i2c_write_timeout_us()/i2c_read_timeout_us(),
 // so every wait core1 can hit on this bus is locally owned, not just the one
 // gap the read side had - see those two functions' comments for why.
-static inline bool i2c1_read_reg_n_to(uint8_t addr, uint8_t reg, uint8_t *out, size_t len) {
+static inline bool __not_in_flash_func(i2c1_read_reg_n_to)(uint8_t addr, uint8_t reg, uint8_t *out, size_t len) {
     if (!i2c1_write_bytes_bounded(addr, &reg, 1, true, I2C_TIMEOUT_US)) return false;
     return i2c1_read_bytes_bounded(addr, out, len, I2C_TIMEOUT_US);
 }
 
 /* ---- touch: read helpers, gated on Touch_INT_PIN ---------------------- */
 
-static inline bool touch_read_fingers_to(uint8_t *out) {
+static inline bool __not_in_flash_func(touch_read_fingers_to)(uint8_t *out) {
     uint8_t v = 0;
     if (!i2c1_read_reg_n_to(FT3168_I2C_ADDR, REG_FINGER_NUM, &v, 1)) return false;
     *out = v;
@@ -513,7 +514,7 @@ static inline bool touch_read_fingers_to(uint8_t *out) {
 // line at right angles. Auto-increment across these four registers is
 // already relied on by the vendor's own 2-byte reads, so this is the same
 // access widened, not a new assumption.
-static inline bool touch_read_xy_to(uint16_t *x, uint16_t *y) {
+static inline bool __not_in_flash_func(touch_read_xy_to)(uint16_t *x, uint16_t *y) {
     uint8_t b[4];
     if (!i2c1_read_reg_n_to(FT3168_I2C_ADDR, REG_X1_H, b, 4)) return false;
     *x = ((uint16_t)(b[0] & 0x0F) << 8) | b[1];
@@ -531,7 +532,7 @@ static inline bool touch_read_xy_to(uint16_t *x, uint16_t *y) {
 // hardware, that register rejects the write (see FT3168_REG_THGROUP's
 // comment), so re-asserting it after every bus recovery was spending an
 // i2c1 transaction on something that never took effect either time.
-static bool touch_set_active_to(void) {
+static bool __not_in_flash_func(touch_set_active_to)(void) {
     bool ok = true;
     ok = i2c1_write_reg_to(FT3168_I2C_ADDR, 0x00, 0x00) && ok;
     ok = i2c1_write_reg_to(FT3168_I2C_ADDR, REG_POWER_MODE, (uint8_t)FT3168_POWER_ACTIVE) && ok;
@@ -613,7 +614,7 @@ static volatile touch_sample_t g_touchQ[TOUCH_Q_CAP];
 static volatile uint32_t g_touchHead = 0; // core0-owned (consumer index)
 static volatile uint32_t g_touchTail = 0; // core1-owned (producer index)
 
-static inline bool touch_q_push(const touch_sample_t *s) {
+static inline bool __not_in_flash_func(touch_q_push)(const touch_sample_t *s) {
     uint32_t tail = g_touchTail;
     uint32_t next = (tail + 1) & (TOUCH_Q_CAP - 1);
     if (next == g_touchHead) return false; // full: core0 is behind, drop and count it
@@ -748,6 +749,9 @@ static volatile uint32_t g_touchQueueDrops;
 static volatile uint32_t g_touchRecoveries;
 static volatile uint32_t g_imuTimeouts;
 static volatile uint32_t g_pmicTimeouts;
+// RTC writes that did not land - see rtc_set_poll_core1() for why this is
+// its own counter and not another pmicTimeout.
+static volatile uint32_t g_rtcWriteFails;
 static volatile uint32_t g_poweroffCmds;
 // Diagnostic readback around the shutdown write - see
 // pmic_poweroff_poll_core1()'s comment on why this exists. 0xFF for
@@ -808,7 +812,7 @@ static volatile uint32_t g_core1FaultCFSR;  // SCB->CFSR (0xE000ED28): which sub
 // the first build of this file: "undefined reference to
 // core1_fault_handler_c"). External linkage plus these two attributes keep
 // the symbol present under its exact name.
-void __attribute__((used, noinline)) core1_fault_handler_c(uint32_t *sp) {
+void __attribute__((used, noinline)) __not_in_flash_func(core1_fault_handler_c)(uint32_t *sp) {
     uint32_t ipsr;
     __asm volatile ("mrs %0, ipsr" : "=r" (ipsr));
     g_core1FaultPC = sp[6];
@@ -818,7 +822,7 @@ void __attribute__((used, noinline)) core1_fault_handler_c(uint32_t *sp) {
     while (true) { tight_loop_contents(); } // never return into whatever was faulting
 }
 
-static void __attribute__((naked)) core1_fault_handler(void) {
+static void __attribute__((naked)) __not_in_flash_func(core1_fault_handler)(void) {
     __asm volatile (
         "mrs r0, msp    \n" // this firmware never switches to PSP (no RTOS on either core)
         "b core1_fault_handler_c \n"
@@ -837,7 +841,7 @@ static void __attribute__((naked)) core1_fault_handler(void) {
 // stack region from the linked layout instead of a runtime counter that can
 // lie. Both checks are removed here, not just their output.
 
-static void core1_install_fault_handlers(void) {
+static void __not_in_flash_func(core1_install_fault_handlers)(void) {
     // MemManage/BusFault/UsageFault/SecureFault are routed to HardFault
     // unless individually enabled in SHCSR (0xE000ED24, bits 16/17/18/19).
     // pico-sdk's own crt0 already enables them for the boot core; core1 gets
@@ -855,7 +859,7 @@ static void core1_install_fault_handlers(void) {
 
 /* ---- touch stall recovery, core1 side ---------------------------------- */
 
-static void touch_recover_core1(void) {
+static void __not_in_flash_func(touch_recover_core1)(void) {
     FT3168_Reset();          // RST pin toggle + sleep_ms only, no I2C: safe as-is.
     if (!touch_set_active_to()) g_touchTimeouts++;
     g_touchRecoveries++;
@@ -910,7 +914,7 @@ static volatile uint32_t g_diagThGroupReg; // 0x80 readback - confirms FT3168_TO
                                             // untouched power-on default (see touch_set_active()'s
                                             // one-time boot printf for that).
 
-static void touch_diag_poll_core1(uint32_t nowMs) {
+static void __not_in_flash_func(touch_diag_poll_core1)(uint32_t nowMs) {
     static uint32_t lastPollMs = 0;
     static uint32_t lastRegMs = 0;
 
@@ -962,7 +966,17 @@ static void touch_diag_poll_core1(uint32_t nowMs) {
 }
 #endif // TOUCH_POLL_SELFTEST
 
-/* ---- IMU: shake-to-erase, core1 side ------------------------------------
+/* ---- IMU: shake-to-erase AND orientation, core1 side ---------------------
+ *
+ * ONE READ, TWO CONSUMERS. This poll existed for the shake detector alone;
+ * it now also feeds tilt_submit_device_g() (tilt.h), which is where the
+ * gravity vector every orientation-aware app reads comes from. The i2c
+ * transaction, its cadence and its timeout handling are unchanged: the
+ * orientation signal costs this core one call and this bus nothing. See
+ * sensors.h's "the IMU serves two consumers" section, and tilt.h for what
+ * happens to the numbers after they leave here (the filter, the axis
+ * mapping, and the fact that this part has no magnetometer, so none of this
+ * will ever yield a heading).
  *
  * QMI8658_init() (called once on core0, before sensors_start()) leaves the
  * part at QMI8658AccRange_8g, which is what fixes the raw-to-mg scale factor
@@ -987,7 +1001,7 @@ static void touch_diag_poll_core1(uint32_t nowMs) {
 #define ERASE_COOLDOWN_MS 1200
 #define JOLT_MAX 16
 
-static void imu_poll_core1(uint32_t nowMs) {
+static void __not_in_flash_func(imu_poll_core1)(uint32_t nowMs) {
     static uint32_t lastMs = 0;
     static uint32_t joltTimes[JOLT_MAX];
     static int joltCount = 0;
@@ -1007,6 +1021,15 @@ static void imu_poll_core1(uint32_t nowMs) {
     float ax = ((float)rawX * 1000.0f) / QMI8658_ACC_LSB_DIV;
     float ay = ((float)rawY * 1000.0f) / QMI8658_ACC_LSB_DIV;
     float az = ((float)rawZ * 1000.0f) / QMI8658_ACC_LSB_DIV;
+
+    // Orientation, published for every app. Handed over in g (the shake
+    // detector below works in mg, which is why the divide is here rather
+    // than above): tilt.h's whole contract is stated in g, and doing the
+    // conversion at this one call site keeps mg from leaking into the
+    // published signal where it would have to be undone by every consumer.
+    // Nothing about this call can block, printf or touch i2c1 - see tilt.c,
+    // which is the same object code the emulator runs.
+    tilt_submit_device_g(ax * 0.001f, ay * 0.001f, az * 0.001f, nowMs);
 
     float mag = sqrtf(ax * ax + ay * ay + az * az);
     float dev = fabsf(mag - 1000.0f);
@@ -1040,7 +1063,8 @@ static void imu_poll_core1(uint32_t nowMs) {
  * reaching g_keyEvent - see sensors.h's PWR key section, "KEY_RELEASE WAS
  * DELETED FROM THIS FILE EARLIER, AND IS BACK", for the full story of why
  * that was correct then and is not correct now. Widened to `0x0F` because
- * runtime_core.c's power-off gesture (hold PWR alone for 5s) has to know
+ * runtime_core.c's power-off gesture (hold PWR alone, for
+ * PWR_HOLD_POWEROFF_MS) has to know
  * when a hold ENDS, and the release edge is the only signal that says so;
  * KEY_LONG is a one-shot verdict at 1.5s, not a level, and cannot stand in
  * for it.
@@ -1050,7 +1074,7 @@ static void imu_poll_core1(uint32_t nowMs) {
  * pattern is not something the existing, hardware-proven code already does
  * for this chip.
  */
-static void pmic_poll_core1(uint32_t nowMs) {
+static void __not_in_flash_func(pmic_poll_core1)(uint32_t nowMs) {
     static uint32_t lastMs = 0;
     if (nowMs - lastMs < 40) return;
     lastMs = nowMs;
@@ -1139,7 +1163,7 @@ static volatile uint32_t g_selftestWrites;
 static volatile uint32_t g_selftestFails;
 
 #if PMIC_WRITE_SELFTEST
-static void pmic_write_selftest_core1(uint32_t nowMs) {
+static void __not_in_flash_func(pmic_write_selftest_core1)(uint32_t nowMs) {
     static uint32_t lastMs = 0;
     if (nowMs - lastMs < 2000) return;
     lastMs = nowMs;
@@ -1160,7 +1184,7 @@ static void pmic_write_selftest_core1(uint32_t nowMs) {
  * argument; this function is the core1 half of it, the only half allowed to
  * actually touch i2c1.
  */
-static void pmic_poweroff_poll_core1(void) {
+static void __not_in_flash_func(pmic_poweroff_poll_core1)(void) {
     if (!g_poweroffRequested) return;
     g_poweroffRequested = false;
     g_poweroffCmds++;
@@ -1193,6 +1217,204 @@ static void pmic_poweroff_poll_core1(void) {
 #endif
 }
 
+/* ---- RTC: the wall clock, PCF85063ATL at 0x51 ---------------------------
+ *
+ * See sensors.h's "the wall clock" section for what this chip is, why it
+ * survives a power-off, and why one bit of it (OS) decides whether a clock
+ * app is a clock or a picture that admits it does not know. The register map
+ * below is NXP's PCF85063A data sheet, section 8.2 "Register overview":
+ *
+ *   00h Control_1   bit5 STOP (1 = clock stopped), bit1 12_24 (0 = 24 hour)
+ *   04h Seconds     bit7 OS (oscillator stopped), bits 6:0 BCD seconds
+ *   05h Minutes     bits 6:0 BCD
+ *   06h Hours       bits 5:0 BCD in 24 hour mode
+ *
+ * READ ONCE ON CORE0, WRITTEN ONLY BY CORE1. sensors_init() takes the one
+ * read, before core1 exists; after that the only traffic this chip ever sees
+ * is a write, and only when somebody actually sets the time. There is no
+ * per-frame poll here and there must never be one (decision 0011): the
+ * RP2350's own timer counts the seconds since that read perfectly well, and
+ * a second read hours later would only correct that timer's drift, which is
+ * a refinement nobody has asked for.
+ */
+#define PCF85063_ADDR        0x51
+#define PCF85063_REG_CTRL1   0x00
+#define PCF85063_REG_SECONDS 0x04
+#define PCF85063_CTRL1_STOP  0x20
+#define PCF85063_CTRL1_1224  0x02 // 1 = 12 hour mode; this firmware wants 0
+#define PCF85063_SECONDS_OS  0x80
+
+static inline uint8_t __not_in_flash_func(bcd_to_bin)(uint8_t v) { return (uint8_t)((v >> 4) * 10u + (v & 0x0Fu)); }
+static inline uint8_t __not_in_flash_func(bin_to_bcd)(uint8_t v) { return (uint8_t)(((v / 10u) << 4) | (v % 10u)); }
+
+/* The published clock, and why it is a seqlock rather than three plain
+ * volatiles like g_fingerDownShared.
+ *
+ * Every other cross-core value in this file is ONE word, and a single
+ * aligned word load/store is atomic on this part, so a reader either sees
+ * the old value or the new one and both are meaningful. This one is three
+ * words that only mean anything together: `secOfDay` and `sampledAtMs` are a
+ * pair, and a reader that caught the new secOfDay with the old sampledAtMs
+ * would compute a time hours out for one frame. The window is a couple of
+ * instructions wide and would therefore show up approximately never, and be
+ * unreproducible when it did, which is the worst kind of bug this codebase
+ * has already paid for once (docs/decisions/0004).
+ *
+ * So: writer bumps the sequence to odd, writes, bumps it to even; reader
+ * takes the sequence, copies, takes it again, and retries if it moved or was
+ * odd. Barriers on both sides for the same reason the touch ring has them.
+ */
+static volatile uint32_t g_clockSeq = 0;
+static volatile bool     g_clockKnown = false;
+static volatile uint32_t g_clockSecOfDay = 0;
+static volatile uint32_t g_clockSampledMs = 0;
+
+static void __not_in_flash_func(clock_publish)(bool known, uint32_t secOfDay, uint32_t sampledAtMs) {
+    g_clockSeq++;          // odd: a write is in progress
+    __dmb();
+    g_clockKnown = known;
+    g_clockSecOfDay = secOfDay;
+    g_clockSampledMs = sampledAtMs;
+    __dmb();
+    g_clockSeq++;          // even again: the three fields agree
+}
+
+// core0-owned request, core1-owned execution - the same pattern
+// g_poweroffRequested uses, and for the same reason: the DECISION belongs to
+// whoever set the time, the i2c1 WRITE belongs to core1 and to nothing else.
+// The value is written before the flag, and the flag is the only thing core1
+// tests, so core1 cannot observe a request without also observing its value.
+static volatile uint32_t g_setClockSecOfDay = 0;
+static volatile bool     g_setClockRequested = false;
+
+void sensors_set_clock(uint32_t secOfDay) {
+    g_setClockSecOfDay = secOfDay % 86400u;
+    __dmb();
+    g_setClockRequested = true;
+}
+
+void sensors_clock(sensors_clock_t *out) {
+    for (;;) {
+        uint32_t s0 = g_clockSeq;
+        __dmb();
+        out->known = g_clockKnown;
+        out->secOfDay = g_clockSecOfDay;
+        out->sampledAtMs = g_clockSampledMs;
+        __dmb();
+        if ((s0 & 1u) == 0u && s0 == g_clockSeq) return;
+    }
+}
+
+// CORE0 ONLY, and only from sensors_init(), before core1 is launched. Reads
+// Control_1 through Hours in one transaction, so the seconds and the flag
+// that says whether to believe them come from the same instant.
+static void rtc_read_publish_core0(void) {
+    uint8_t b[7] = { 0 };
+    if (!i2c1_read_reg_n_to(PCF85063_ADDR, PCF85063_REG_CTRL1, b, sizeof(b))) {
+        // No answer from 0x51. Decision 0011 lists "does 0x51 answer at all"
+        // as one of the facts still owed to hardware, so this is a case that
+        // can really happen, and the honest published answer is the same one
+        // a stopped oscillator gets: the time is not known.
+        clock_publish(false, 0, 0);
+        printf("rtc: no answer at 0x51 - the time is not known\r\n");
+        return;
+    }
+
+    uint8_t ctrl1 = b[PCF85063_REG_CTRL1];
+    uint8_t rawSec = b[PCF85063_REG_SECONDS];
+    bool stopped = (rawSec & PCF85063_SECONDS_OS) != 0;
+
+    // The part powers up in 24 hour mode and running, but a chip that has
+    // been through a brownout, or that some other firmware once configured,
+    // may not be: fix both here, on core0, where touching i2c1 is still
+    // legal. Read-modify-write, only when something actually needs changing,
+    // so a healthy chip sees no write at all.
+    if (ctrl1 & (PCF85063_CTRL1_STOP | PCF85063_CTRL1_1224)) {
+        uint8_t fixed = (uint8_t)(ctrl1 & (uint8_t)~(PCF85063_CTRL1_STOP | PCF85063_CTRL1_1224));
+        i2c1_write_reg_to(PCF85063_ADDR, PCF85063_REG_CTRL1, fixed);
+        printf("rtc: control_1 was 0x%02x, corrected to 0x%02x (24h, running)\r\n", ctrl1, fixed);
+    }
+
+    if (stopped) {
+        // THE OS FLAG. The RTC domain lost power at some point since the last
+        // time anyone set it, so whatever the counters hold is arithmetic on
+        // top of a lie. Publish "not known" and let the app draw that.
+        clock_publish(false, 0, 0);
+        printf("rtc: OS flag set - the oscillator stopped, the time is NOT known\r\n");
+        return;
+    }
+
+    uint32_t sec = bcd_to_bin((uint8_t)(rawSec & 0x7Fu));
+    uint32_t min = bcd_to_bin((uint8_t)(b[5] & 0x7Fu));
+    uint32_t hour = bcd_to_bin((uint8_t)(b[6] & 0x3Fu));
+    if (sec > 59 || min > 59 || hour > 23) {
+        // Not a plausible time. A running oscillator with nonsense in the
+        // counters is a chip that answered but is not to be trusted, which
+        // is the same practical situation as a stopped one.
+        clock_publish(false, 0, 0);
+        printf("rtc: implausible reading %02lu:%02lu:%02lu - the time is not known\r\n",
+               (unsigned long)hour, (unsigned long)min, (unsigned long)sec);
+        return;
+    }
+
+    uint32_t secOfDay = hour * 3600u + min * 60u + sec;
+    clock_publish(true, secOfDay, to_ms_since_boot(get_absolute_time()));
+    printf("rtc: %02lu:%02lu:%02lu, oscillator running\r\n",
+           (unsigned long)hour, (unsigned long)min, (unsigned long)sec);
+}
+
+/* Core1's half of setting the time. Checked every pass through the loop like
+ * pmic_poweroff_poll_core1(), and just as free: a volatile bool read.
+ *
+ * STOP is raised around the write, per the data sheet's own note that the
+ * counters should not be written while the oscillator can carry a rollover
+ * through them mid-transaction. Three bounded transactions, on the one event
+ * that a human set the time; nothing here runs on a timer.
+ *
+ * Writing the Seconds register is also what clears the OS flag (bit 7 of the
+ * byte this necessarily overwrites), which is exactly right: the device
+ * stops saying "I do not know" at the instant it is told.
+ */
+static void __not_in_flash_func(rtc_set_poll_core1)(void) {
+    if (!g_setClockRequested) return;
+    g_setClockRequested = false;
+    uint32_t secOfDay = g_setClockSecOfDay;
+
+    uint8_t hour = (uint8_t)(secOfDay / 3600u);
+    uint8_t min = (uint8_t)((secOfDay / 60u) % 60u);
+    uint8_t sec = (uint8_t)(secOfDay % 60u);
+
+    bool ok = i2c1_write_reg_to(PCF85063_ADDR, PCF85063_REG_CTRL1, PCF85063_CTRL1_STOP);
+    if (ok) {
+        uint8_t buf[4] = {
+            PCF85063_REG_SECONDS,
+            bin_to_bcd(sec),   // bit 7 clear: this is the OS flag going away
+            bin_to_bcd(min),
+            bin_to_bcd(hour),
+        };
+        ok = i2c1_write_bytes_bounded(PCF85063_ADDR, buf, sizeof(buf), false, I2C_TIMEOUT_US);
+    }
+    // Restart the oscillator whether or not the burst above landed: leaving
+    // the chip stopped would turn a failed write into a clock that never
+    // ticks again until the next reboot, which is strictly worse than a
+    // clock showing the old time.
+    if (!i2c1_write_reg_to(PCF85063_ADDR, PCF85063_REG_CTRL1, 0x00)) ok = false;
+
+    // Published either way. If the write failed, the chip still holds the old
+    // time and will hand it back on the next boot, but the value on screen
+    // for THIS session is the one the owner just dialled in, which is what he
+    // meant and what he is looking at. A silent revert to the old time on the
+    // very gesture that was supposed to fix it is the confusing outcome.
+    clock_publish(true, secOfDay, to_ms_since_boot(get_absolute_time()));
+    // Its own counter, not folded into pmicTimeouts: core1 may not printf
+    // (see this file's banner), so a counter is the ONLY way a failed write
+    // can ever be visible, and one that says "the RTC write failed" is worth
+    // a name of its own next to one that says "the PMIC did not answer".
+    // The symptom it explains is specific and otherwise baffling: the time
+    // is right until the next power cycle and wrong after it.
+    if (!ok) g_rtcWriteFails++;
+}
+
 /* ---- core1 entry point --------------------------------------------------
  *
  * Touch is gated on Touch_INT_PIN (active low, already configured as an
@@ -1207,11 +1429,24 @@ static void pmic_poweroff_poll_core1(void) {
  * repeats continuously, same as the old single-core hot loop did, and it
  * only stops once the line is actually back high.
  */
-static void core1_entry(void) {
+static void __not_in_flash_func(core1_entry)(void) {
     // Installs the fault handlers (see their section comment above): a
     // genuine safety net, and required by the invariant checker's
     // reachability root set - not something this loop can skip.
     core1_install_fault_handlers();
+
+    // Registers this core as flash_safe_execute()'s lockout victim - see
+    // docs/decisions/0011's storage section and firmware/runtime/storage.c's
+    // header comment. Without this, storage_save_u32() (core0) cannot ever
+    // legally park this core for an erase or a program: flash_safe_execute()
+    // returns PICO_ERROR_NOT_PERMITTED (or asserts - PICO_FLASH_ASSERT_ON_
+    // UNSAFE defaults to 1) unless the OTHER core has called
+    // flash_safe_execute_core_init() first. This runs on every (re)entry to
+    // core1_entry(), so a core restarted by sensors_restart_core1() below
+    // re-registers automatically - there is no second call site to remember.
+    // Costs nothing while no save is in flight: it only installs the lockout
+    // IRQ handler pico_multicore already ships, it does not poll or block.
+    flash_safe_execute_core_init();
 
     uint32_t lastFingerMs = to_ms_since_boot(get_absolute_time());
     uint32_t lastIdleHeartbeatMs = 0;
@@ -1270,6 +1505,11 @@ static void core1_entry(void) {
 
         imu_poll_core1(nowMs);
         pmic_poll_core1(nowMs);
+        // The RTC is on this bus too, so setting the time is core1's write to
+        // make - see sensors.h's wall clock section. Costs a volatile bool
+        // read per loop and three i2c transactions on the rare pass where
+        // somebody actually set the time; it never polls the chip.
+        rtc_set_poll_core1();
 #if PMIC_WRITE_SELFTEST
         pmic_write_selftest_core1(nowMs);
 #endif
@@ -1391,6 +1631,7 @@ void sensors_stats(sensors_stats_t *out) {
     out->touchRecoveries = g_touchRecoveries;
     out->imuTimeouts = g_imuTimeouts;
     out->pmicTimeouts = g_pmicTimeouts;
+    out->rtcWriteFails = g_rtcWriteFails;
     out->poweroffCmds = g_poweroffCmds;
     out->poweroffRegBefore = g_poweroffRegBefore;
     out->poweroffRegAfter = g_poweroffRegAfter;
@@ -1421,6 +1662,11 @@ void sensors_init(void) {
     touch_set_active();
     buttons_init();
     pmic_raise_poweroff_threshold();
+    // The RTC's ONE read, here and nowhere else - see sensors.h's wall clock
+    // section and rtc_read_publish_core0(). It has to happen before core1
+    // launches, because after that this bus is core1's alone; and it only
+    // has to happen once, because the RP2350's own timer counts from here.
+    rtc_read_publish_core0();
     // Everything above touches i2c1 (QMI8658_init, FT3168_Init,
     // touch_set_active, buttons_init, pmic_raise_poweroff_threshold) and runs
     // single-threaded on core0, so there is no ownership question yet. That

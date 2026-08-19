@@ -18,6 +18,41 @@
 #include "pico/time.h"
 
 #define DEVLINK_VERSION   1
+
+/*
+ * THE BUILD IDENTITY, and why a device needs one.
+ *
+ * A differential harness once diffed three apps on the board against four
+ * in the tree and reported a 28 percent divergence that read, convincingly,
+ * as a rendering bug. It was not one. The board was simply older than the
+ * checkout, and nothing it could say would have revealed that, because
+ * nothing it said was about which code it was running.
+ *
+ * BUILD_FINGERPRINT is a hash of every firmware source that went into this
+ * image, computed by tools/gate/fingerprint.ts and handed to the compiler
+ * by firmware/CMakeLists.txt. The host computes the same hash from its own
+ * tree and refuses to compare anything until the two agree
+ * (assertDeviceMatchesTree, same file). ONE definition of the fingerprint,
+ * in one language, used by both sides - a second implementation of it here
+ * in C would be the exact drift decision 0003 spent an emulator rewrite
+ * removing.
+ *
+ * The fallback matters as much as the value. A build that did not go
+ * through CMake (or one whose fingerprint step failed) reports "unknown",
+ * and the host treats that as "this cannot be compared" rather than as a
+ * mismatch - because an unnamed build is not a different build, it is a
+ * build nobody can say anything about, and those two deserve different
+ * words.
+ */
+#if defined(__has_include)
+#  if __has_include("build_fingerprint.h")
+#    include "build_fingerprint.h"
+#  endif
+#endif
+#ifndef BUILD_FINGERPRINT
+#define BUILD_FINGERPRINT "unknown"
+#endif
+
 #define DEVLINK_LINE_MAX  96   // "MOVE -32768 -32768" style commands are
                                  // well under this; anything longer is
                                  // dropped and resynced on the next line.
@@ -266,14 +301,19 @@ static bool devlink_word_is(const char *s, const char *word) {
 }
 
 /* ---------------------------------------------------------------------
- * TUNE: get/set/reset/list/freeze the firmware's live-tunable constants
- * (today: sketch.c's dropout-tolerance knobs, gated behind SKETCH_LIVE_TUNE
- * - see sensors.h's "DEVELOPMENT: sketchpad live tuning" section). This
- * file never names "sketch", "lift" or any other specific tunable: it only
- * knows the generic name/value shape devlink_hooks_t's tune_* function
- * pointers declare, the same indirection app_current/app_name/app_switch
- * already use so devlink.c stays hardware- and app-blind. See
- * tools/README-devlink.md for the wire grammar this implements.
+ * TUNE: get/set/reset/list/freeze the firmware's live-tunable constants -
+ * today, sketch.c's dropout-tolerance knobs, clock.c's separator-pulse
+ * shape and tables.c's numpad thumb bias, each gated behind its own
+ * SKETCH_LIVE_TUNE / CLOCK_LIVE_TUNE / TABLES_LIVE_TUNE and merged behind
+ * ONE registry (firmware/runtime/tune_registry.h - see sensors.h's
+ * "DEVELOPMENT: live tuning" section for the full history). This file
+ * never names "sketch", "lift", any other specific tunable, or even how
+ * many apps declare any: it only knows the generic name/value shape
+ * devlink_hooks_t's tune_* function pointers declare (wired to
+ * tune_registry_* in runtime.c), the same indirection
+ * app_current/app_name/app_switch already use so devlink.c stays hardware-
+ * and app-blind. See tools/README-devlink.md for the wire grammar this
+ * implements.
  * ------------------------------------------------------------------- */
 
 // Prints a tunable value as a plain decimal with up to one fractional digit
@@ -293,6 +333,52 @@ static void devlink_print_tune_value(float v) {
     } else {
         printf("%ld.%ld", whole, frac);
     }
+}
+
+/* ---- TILT: the orientation readback, for the axis ritual -----------------
+ *
+ * One line, nine fields:
+ *
+ *   TILT <rawX> <rawY> <rawZ> <gx> <gy> <gz> <deg> <up> <valid>
+ *
+ * raw* is the accelerometer's own three axes, straight off the part; g* is
+ * the same reading after the runtime has mapped and filtered it into the
+ * space an app actually sees; up is 0 top, 1 right, 2 bottom, 3 left of
+ * that same space; valid is 0 or 1. Everything is in g except deg, which is
+ * the angle from flat. This file does not know what any of that means (see
+ * devlink.h's tilt_read hook); the host prints it in words.
+ *
+ * WHY THE RAW AXES ARE ON THIS LINE AT ALL. They are the whole point of the
+ * command. firmware/runtime/tilt.h's device-to-panel mapping is a
+ * HYPOTHESIS that no test can check, because nothing in software knows
+ * which way is up, and the only way to settle it is to hold the board in
+ * five known poses and compare what the part reported against what the
+ * runtime published. Without raw, a wrong pose says "something is wrong"
+ * and cannot say what.
+ */
+static void devlink_print_signed(float v) {
+    // Three decimals, signed, because these values live in [-1, 1] and the
+    // sign IS the measurement. Same reasoning as devlink_print_tune_value
+    // above for not using %f: nothing else in this firmware asks its libc
+    // to format a float, and this is not the place to find out whether it
+    // can.
+    if (v < 0.0f) { printf("-"); v = -v; }
+    long thousandths = (long)(v * 1000.0f + 0.5f);
+    printf("%ld.%03ld", thousandths / 1000, thousandths % 1000);
+}
+
+static void devlink_tilt(void) {
+    float raw[3], g[3], deg = 0.0f;
+    int up = 0, valid = 0;
+    if (!g_hooks.tilt_read || !g_hooks.tilt_read(raw, g, &deg, &up, &valid)) {
+        printf("ERR no tilt\r\n");
+        return;
+    }
+    printf("TILT ");
+    for (int i = 0; i < 3; i++) { devlink_print_signed(raw[i]); printf(" "); }
+    for (int i = 0; i < 3; i++) { devlink_print_signed(g[i]); printf(" "); }
+    devlink_print_signed(deg);
+    printf(" %d %d\r\n", up, valid);
 }
 
 // Takes one whitespace-separated word from *s into out (truncated to
@@ -491,6 +577,13 @@ static void devlink_dispatch(char *line) {
 
     if (strcmp(cmd, "PING") == 0) {
         printf("OK devlink %d %d %d\r\n", DEVLINK_VERSION, g_hooks.w, g_hooks.h);
+    } else if (strcmp(cmd, "FP") == 0) {
+        // Deliberately its own command rather than another field on PING:
+        // a host talking to a board that predates this gets "ERR unknown
+        // FP", which is an unambiguous answer ("older than fingerprinting,
+        // do not compare"), where a widened PING would just be a line with
+        // fewer fields that an older parser happily accepts.
+        printf("FP %s\r\n", BUILD_FINGERPRINT);
     } else if (strcmp(cmd, "SHOT") == 0) {
         devlink_send_shot();
     } else if (strcmp(cmd, "DOWN") == 0) {
@@ -560,6 +653,8 @@ static void devlink_dispatch(char *line) {
         if (!devlink_parse_one_int(args, &idx)) { printf("ERR args\r\n"); return; }
         bool ok = g_hooks.app_switch ? g_hooks.app_switch(idx) : false;
         printf(ok ? "OK\r\n" : "ERR range\r\n");
+    } else if (strcmp(cmd, "TILT") == 0) {
+        devlink_tilt();
     } else if (strcmp(cmd, "TUNE") == 0) {
         devlink_dispatch_tune(args);
     } else {

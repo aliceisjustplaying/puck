@@ -20,11 +20,12 @@
  *    None of these are wasm imports; they are ordinary C compiled into this
  *    module, same as any other function here.
  *
- * 4. Implements sound.h (sound_play/sound_stop, called by apps/timer.c) by
- *    synthesising into a fixed buffer with sound_synth_alarm_sample() - the
- *    SAME function firmware/runtime/sound.c calls for the real board - and
- *    exposing it through emu_abi.h's sound section for the host to play via
- *    WebAudio. See that section for why this is genuine synthesis, not a
+ * 4. Implements sound.h (sound_play/sound_stop, called by apps/timer.c's
+ *    alarm and apps/tiltball.c's capture) by synthesising into a fixed
+ *    buffer with sound_synth_alarm_sample()/sound_synth_capture_sample() -
+ *    the SAME functions firmware/runtime/sound.c calls for the real board -
+ *    and exposing it through emu_abi.h's sound section for the host to play
+ *    via WebAudio. See that section for why this is genuine synthesis, not a
  *    JavaScript reimplementation, and what does not carry over (the timbre).
  *
  * Depends on emu_abi.h, runtime_core.h, app.h, gfx.h, sensors.h, sound.h,
@@ -44,6 +45,8 @@
 #include "sensors.h"
 #include "sound.h"
 #include "sound_synth.h"
+#include "storage.h"
+#include "tune_registry.h"
 
 /* ===========================================================================
  * What the module imports from the host (env.*). Exactly emu_abi.h's list:
@@ -329,7 +332,7 @@ void sensors_set_finger_down(bool down) {
  * emu_abi.h's "keeping the emulator honest" rule (the worked example in
  * that file's header comment is literally this bit). The board's mask
  * widened once a real consumer needed the release edge - runtime_core.c's
- * PWR-held-5s power-off gesture has to know when a hold ENDS - so this file
+ * PWR-held-alone power-off gesture has to know when a hold ENDS - so this file
  * changes to match, same rule, opposite direction: the emulator must not be
  * MORE generous than hardware, and now hardware itself delivers this, so
  * withholding it here would make the emulator LESS capable than the board
@@ -388,59 +391,6 @@ void sensors_boot_consume_click(void) {
     g_bootSwallowNextClick = true;
 }
 
-/* ---- tilt: a continuous gravity-direction reading, fed by emu_sensor_vector()
- * (wasm/emu_abi.h, OPTIONAL export) for the "tilt" sensor declared in
- * emu_device() below. Convention: x right, y down the panel, z into the
- * screen, units of g - see emu_abi.h's emu_sensor_vector doc for the
- * authoritative text this must match exactly.
- *
- * NOT plumbed through app_frame_t / sensors.h. Those belong to
- * firmware/runtime/ - pack firmware this task does not touch, real code
- * that ships to real silicon - so this deliberately stops short of adding a
- * tiltX/Y/Z field there. What this DOES provide is emu_shim_tilt_get() just
- * below: a private, non-ABI accessor, local to this one wasm build, that an
- * --app port compiled alongside this shim (wasm/build.ts's --app flag) may
- * call directly via its own `extern` declaration - see
- * apps/fluidbox/ports/rp2350-touch-amoled-18/fluid.c for the one consumer
- * today. This is emulator-only until a future change (out of this task's
- * scope, since it requires editing firmware/runtime/app.h and sensors.c)
- * adds the same reading to app_frame_t for every app and wires a real
- * QMI8658 read on real hardware - see that fluid.c port's own README for
- * the honesty note this implies.
- *
- * Default (0, 0, 0) until the host sends a first vector: deliberately a
- * zero vector, not a unit one, so a build that never receives one (every
- * trace recorded before this ABI addition, and the headless harness/
- * invariant runner, which never drives a DOM and so never calls
- * emu_sensor_vector at all) reads back a magnitude the fluidbox port's own
- * "tilt is ~zero" fallback recognises and falls back on - see that port's
- * fluid.c for the consuming side of this exact default.
- * ======================================================================= */
-static float g_tiltX = 0.0f, g_tiltY = 0.0f, g_tiltZ = 0.0f;
-
-// index into emu_device()'s "sensors" array - see that function below for
-// the declaration this must stay in sync with. Any other index is a host
-// bug (the device only ever declares one vector sensor today); ignored
-// rather than trapped, same policy emu_button() already uses for a bad
-// button index.
-#define SENSOR_IDX_TILT 1
-
-void emu_sensor_vector(int index, float x, float y, float z) {
-    if (index != SENSOR_IDX_TILT) return;
-    g_tiltX = x;
-    g_tiltY = y;
-    g_tiltZ = z;
-}
-
-// Private, non-ABI: not declared in wasm/emu_abi.h, not part of the
-// contract a firmware author reads there. See this section's header
-// comment for exactly what this is and is not.
-void emu_shim_tilt_get(float *x, float *y, float *z) {
-    *x = g_tiltX;
-    *y = g_tiltY;
-    *z = g_tiltZ;
-}
-
 /* ---- shake: one monotonic counter, bumped by emu_sensor_event() for the
  * declared "shake" sensor, suppressed while a finger is down - the same
  * rule sensors.h documents for the real IMU path, so a resting hand while
@@ -461,6 +411,162 @@ void sensors_inject_erase(void) {
     if (!g_fingerDown) g_eraseSeq++;
 }
 
+/* ---- orientation: the host's gravity vector, fed through the board's own
+ * filter -------------------------------------------------------------------
+ *
+ * emu_sensor_vector() (emu_abi.h) sets the pose; emu_tick() submits it to
+ * tilt_submit_device_g() (firmware/runtime/tilt.h) every frame, and
+ * runtime_core.c reads the published result exactly as it does on the
+ * board. Nothing here filters, maps axes or decides which edge is up: all
+ * three live in tilt.c, which is compiled into this module unmodified, so
+ * the emulator's orientation is the board's orientation. That is the same
+ * "same object code, not a reimplementation" argument decision 0003 makes
+ * for graphics and app logic and emu_abi.h extends to sound.
+ *
+ * SUBMITTED EVERY TICK, not once per emu_sensor_vector() call, and this is
+ * not busywork: the filter is a function of elapsed time (tilt.h), so a
+ * pose set once and held has to keep arriving for the filtered value to
+ * converge on it, exactly the way the real part keeps reporting the same
+ * gravity while the puck lies still on a table. A host that sets a pose and
+ * then ticks sees it settle over tilt.h's 150ms time constant, same as a
+ * hand holding the board still.
+ *
+ * The default is chosen to PUBLISH (0, 0, 1): lying flat on a table, screen
+ * up. Chosen as the NEUTRAL pose - no in-plane gravity, so a ball does not
+ * roll and a bubble sits centred until the host actually tilts something -
+ * and it is a real pose a real device is in most of the time, not an
+ * invented one.
+ *
+ * THESE ARE DEVICE AXES, THE SAME AS A REAL IMU SAMPLE - not panel ones,
+ * whatever an earlier version of this comment said. emu_sensor_vector()
+ * hands its argument straight to tilt_submit_device_g(), exactly like
+ * sensors.c's imu_poll_core1() hands it a raw QMI8658 reading, so
+ * firmware/runtime/tilt.c's device_to_panel() runs on it for real here too
+ * - that mapping was the identity when this comment was first written,
+ * which made "device axes" and "panel axes" the same numbers by accident,
+ * not by any contract this file promised. Now that device_to_panel() is a
+ * real, measured mapping (tilt.c's own header comment has the arithmetic),
+ * this default has to be device_to_panel()'s own inverse of (0,0,1), which
+ * is why it reads (0, 0, -1) below rather than (0, 0, 1): device_to_panel()
+ * is currently a 180-degree turn (swap X/Y, negate Z) and therefore its own
+ * inverse, so this repeats that formula rather than a separate one - the
+ * same reasoning every emulator test file's own gravity()/tilt() helper
+ * now carries (feature-tilt.ts's gravity() has the fuller version of this
+ * comment). A host that wants a PANEL pose still calls through one of
+ * those helpers, never emu_sensor_vector() directly; only
+ * repro-tilt-axis-mapping.ts (emulator/wasm/tests) calls this raw, on
+ * purpose, to pin device_to_panel() itself.
+ *
+ * QUANTISED AND CLAMPED ON THE WAY IN, which is emu_abi.h's honesty rule
+ * doing real work rather than being cited. The board's QMI8658 is left at
+ * +-8 g by QMI8658_init(), giving acc_lsb_div = 4096 counts per g, i.e.
+ * 0.244 mg (0.000244 g) per count (firmware/runtime/sensors.c's own
+ * QMI8658_ACC_LSB_DIV comment derives exactly this). A host handing over
+ * 1.00037 g is handing over a reading no register on this part can hold,
+ * and an app tuned against it would be tuned against fiction. So the value
+ * goes through the same round trip the hardware imposes: clamp to the
+ * range, quantise to the LSB, convert back - before it ever reaches
+ * tilt.c's filter, the same way a real out-of-range or off-grid sample
+ * never reaches it on the board either.
+ */
+#define QMI8658_RANGE_G   8.0f
+#define QMI8658_G_PER_LSB (1.0f / 4096.0f)
+
+static float accel_as_hardware_would(float g) {
+    if (g > QMI8658_RANGE_G) g = QMI8658_RANGE_G;
+    if (g < -QMI8658_RANGE_G) g = -QMI8658_RANGE_G;
+    float counts = g / QMI8658_G_PER_LSB;
+    counts = (float)(int)(counts >= 0.0f ? counts + 0.5f : counts - 0.5f);
+    return counts * QMI8658_G_PER_LSB;
+}
+
+static float g_gravX = 0.0f, g_gravY = 0.0f, g_gravZ = -1.0f;
+
+void emu_sensor_vector(int index, float x, float y, float z) {
+    (void)index; // emu_device() declares exactly one vector sensor
+                 // ("gravity"); a host passing another index is a host bug,
+                 // ignored rather than trapped, same policy emu_button()
+                 // uses for a bad button index.
+    g_gravX = accel_as_hardware_would(x);
+    g_gravY = accel_as_hardware_would(y);
+    g_gravZ = accel_as_hardware_would(z);
+}
+
+// Private, non-ABI: not declared in emu_abi.h, not part of the contract a
+// firmware author reads there. It exists for a single-app port compiled
+// alongside this shim (wasm/build.ts's --app flag) that wants the raw
+// submitted vector without going through app_frame_t - the fluidbox port is
+// the one caller. Everything else, every real app included, reads
+// app_frame_t.tilt, which is the filtered, axis-mapped, app-space signal
+// firmware/runtime/tilt.c publishes; this is the unfiltered device-axes
+// reading and is deliberately NOT a shortcut to that.
+//
+// Its default moved with the rest of this section: it used to read (0,0,0)
+// until the host sent something, and now reads the same "lying flat, screen
+// up" pose the filter is seeded with. A caller whose fallback tested for a
+// near-zero magnitude therefore sees a valid flat pose instead of "no data" -
+// which is the better answer either way, since a flat pose has no in-plane
+// gravity and drives nothing.
+void emu_shim_tilt_get(float *x, float *y, float *z) {
+    *x = g_gravX;
+    *y = g_gravY;
+    *z = g_gravZ;
+}
+
+float emu_tilt(int field) {
+    app_tilt_t t;
+    rtcore_last_tilt(&t);
+    switch (field) {
+        case 0: return t.gx;
+        case 1: return t.gy;
+        case 2: return t.gz;
+        case 3: return t.tiltDeg;
+        case 4: return (float)t.up;
+        case 5: return t.valid ? 1.0f : 0.0f;
+        case 6: return t.coasting ? 1.0f : 0.0f;
+        default: return 0.0f;
+    }
+}
+
+/* ---- the wall clock: a stand-in RTC that STARTS OUT NOT KNOWING ---------
+ *
+ * The board's version reads a PCF85063ATL on i2c1 once at boot and reports
+ * whether its OS flag says the oscillator ever stopped (sensors.h's wall
+ * clock section). There is no such part behind a browser tab.
+ *
+ * So this starts `known = false`, which is emu_abi.h's honesty rule applied
+ * to a chip instead of to a button: the alternative - quietly seeding this
+ * from the host's own Date.now(), which the JS side could trivially pass in -
+ * would hand the firmware a working, correct, battery-backed clock that this
+ * "device" does not have, and an app could then be built and shipped having
+ * never once been seen in the state a real puck comes up in after a flat
+ * battery. That state is the whole reason `known` exists. Here it is the
+ * DEFAULT, so it cannot be forgotten.
+ *
+ * Everything after that is real: sensors_set_clock() is the same call the
+ * board's, reached the same way (an app deciding the owner just set the
+ * time), and the time then runs off emu_tick()'s clock exactly as the board
+ * runs it off time_us_64() from its own single RTC read.
+ */
+static bool     g_clockKnown = false;
+static uint32_t g_clockSecOfDay = 0;
+static uint32_t g_clockSampledMs = 0;
+
+void sensors_clock(sensors_clock_t *out) {
+    // No seqlock here, and none needed: the board's exists because core1
+    // publishes what core0 reads (see sensors.c), and there is exactly one
+    // thread in a wasm module.
+    out->known = g_clockKnown;
+    out->secOfDay = g_clockSecOfDay;
+    out->sampledAtMs = g_clockSampledMs;
+}
+
+void sensors_set_clock(uint32_t secOfDay) {
+    g_clockKnown = true;
+    g_clockSecOfDay = secOfDay % 86400u;
+    g_clockSampledMs = g_nowMs;
+}
+
 /* ---- diagnostics: always zero. Nothing in wasm has i2c timeouts or queue
  * drops to count; see emu_abi.h's "What is not real" section. */
 void sensors_stats(sensors_stats_t *out) {
@@ -470,6 +576,7 @@ void sensors_stats(sensors_stats_t *out) {
     out->touchRecoveries = 0;
     out->imuTimeouts = 0;
     out->pmicTimeouts = 0;
+    out->rtcWriteFails = 0; // no i2c1 write to fail; see sensors_set_clock() above
     out->poweroffCmds = 0; // no PMIC to send a real command to; see
                             // sensors_request_poweroff() above
     out->poweroffRegBefore = 0xFFFFFFFFu; // no register 0x10 to read back either
@@ -480,6 +587,70 @@ void sensors_stats(sensors_stats_t *out) {
 // nothing in the wasm build calls them (they are main()'s, board-only, and
 // main() is not compiled for this target - see build.ts's source list), and
 // there is no i2c1 to bring up in a browser regardless.
+
+/* ===========================================================================
+ * storage.h, as an in-RAM stand-in. See that header's own "HONESTY
+ * REQUIREMENT" comment before trusting anything about this. It exists so
+ * that firmware/apps/dino.c (the only caller today) compiles and behaves
+ * sensibly here - a fresh high score every time the page (re)loads, an
+ * instant "save" - without pretending to exercise flash_safe_execute(), a
+ * sector erase, or core1's lockout. Only the board answers those
+ * questions; see docs/decisions/0011 and firmware/runtime/storage.c.
+ * ======================================================================= */
+// 10, not 4 or 6: DINO_HISCORE (1), the retired TABLES_CALIB (2), the
+// retired TABLES_CALIB_LO/_HI (3, 4) and the live TABLES_CALIB10_LO/_MID/_HI
+// (5, 6, 7) - same bump storage.c's own real-flash implementation took, for
+// the same reason (storage.h).
+#define EMU_STORAGE_MAX_KINDS 10
+static uint8_t  s_storageKind[EMU_STORAGE_MAX_KINDS];
+static uint32_t s_storageValue[EMU_STORAGE_MAX_KINDS];
+static uint8_t  s_storageTag[EMU_STORAGE_MAX_KINDS];
+static bool     s_storageHave[EMU_STORAGE_MAX_KINDS];
+static int      s_storageCount = 0;
+
+// Called from emu_init() (below), the emulator's one "boot" moment - see
+// that function's own call to this.
+void storage_init(void) {
+    s_storageCount = 0;
+}
+
+bool storage_get_u32(uint8_t kind, uint32_t *outValue) {
+    uint8_t tag;
+    return storage_get_u32_tagged(kind, outValue, &tag);
+}
+
+bool storage_get_u32_tagged(uint8_t kind, uint32_t *outValue, uint8_t *outTag) {
+    for (int i = 0; i < s_storageCount; i++) {
+        if (s_storageKind[i] == kind) {
+            if (!s_storageHave[i]) return false;
+            *outValue = s_storageValue[i];
+            *outTag = s_storageTag[i];
+            return true;
+        }
+    }
+    return false;
+}
+
+void storage_save_u32(uint8_t kind, uint32_t value) {
+    storage_save_u32_tagged(kind, value, 0);
+}
+
+void storage_save_u32_tagged(uint8_t kind, uint32_t value, uint8_t tag) {
+    for (int i = 0; i < s_storageCount; i++) {
+        if (s_storageKind[i] == kind) {
+            s_storageValue[i] = value;
+            s_storageTag[i] = tag;
+            s_storageHave[i] = true;
+            return;
+        }
+    }
+    if (s_storageCount >= EMU_STORAGE_MAX_KINDS) return;
+    int i = s_storageCount++;
+    s_storageKind[i] = kind;
+    s_storageValue[i] = value;
+    s_storageTag[i] = tag;
+    s_storageHave[i] = true;
+}
 
 /* ===========================================================================
  * sound.h, in full. See this file's header comment, job (4), and
@@ -512,10 +683,15 @@ static uint32_t s_soundPlaySeq = 0;
 static uint32_t s_soundStopSeq = 0;
 
 void sound_play(sound_id_t id) {
-    (void)id; // one sound exists today; see sound.h's comment on why the enum stays
+    // Two sounds now (sound.h): the timer's repeating alarm phrase and the
+    // tilt-a-ball's one-shot capture plunk. Dispatched the same way sound.c
+    // (the board) does, from the SAME sound_synth_* functions - see this
+    // file's header comment, job (4).
     for (int i = 0; i < SOUND_PREVIEW_FRAMES; i++) {
         float tSec = (float)i / (float)SOUND_SYNTH_SAMPLE_RATE_HZ;
-        s_soundBuf[i] = sound_synth_alarm_sample(tSec);
+        s_soundBuf[i] = (id == SOUND_ID_BALL_CAPTURE)
+            ? sound_synth_capture_sample(tSec)
+            : sound_synth_alarm_sample(tSec);
     }
     s_soundPlaySeq++;
 }
@@ -539,6 +715,10 @@ int emu_init(void) {
         rt_log("FATAL: emu_init: gfx_init() failed");
         return 0;
     }
+    storage_init(); // the emulator's one "boot" moment - see storage.h's
+                     // stand-in above; board order is storage_init() before
+                     // sensors_start(), which has no equivalent here, so this
+                     // just resets the in-RAM stand-in fresh every load.
     rtcore_init();
     return 1;
 }
@@ -546,6 +726,11 @@ int emu_init(void) {
 void emu_tick(uint32_t nowMs) {
     g_nowMs = nowMs;
     g_pushCount = 0;
+    // Before rtcore_tick(), so this frame's app sees this frame's pose
+    // rather than the previous one's: on the board core1 is publishing
+    // continuously and asynchronously, so "the sample is already there when
+    // core0 looks" is what the app actually experiences.
+    tilt_submit_device_g(g_gravX, g_gravY, g_gravZ, nowMs);
     rtcore_tick(nowMs);
 }
 
@@ -593,9 +778,16 @@ void emu_button_verdict(int index, int isLong) {
     }
 }
 
+/* ---- the declared sensors, by index into emu_device()'s "sensors" array.
+ * There are two now ("shake" at 0, "gravity" at 1 - emu_shim's emu_device()
+ * below), so emu_sensor_event() can no longer ignore its argument: a host
+ * that fires sensor 1 must not bump the shake counter. emu_sensor_vector()
+ * above does not need to switch on the index at all, since it declares only
+ * one continuous sensor. */
+#define SENSOR_SHAKE 0
+
 void emu_sensor_event(int index) {
-    (void)index; // emu_device() declares exactly one sensor ("shake"), so
-                 // there is nothing to switch on yet; see sensors_inject_erase().
+    if (index != SENSOR_SHAKE) return; // "gravity" is continuous, not an event
     if (!g_fingerDown) g_eraseSeq++;
 }
 
@@ -607,41 +799,72 @@ void emu_app_switch(int index) {
     app_switch_to(index);
 }
 
+// The menu's own roster (app.h's g_menuAppCount/g_menuAppIndex), read back
+// rather than assumed - see emu_abi.h's comment on why this is a separate
+// oracle from emu_device()'s "apps" list. app.h is already in this file's
+// declared include set, so no new dependency is added to reach it.
+int emu_menu_app_count(void) {
+    return g_menuAppCount;
+}
+
+int emu_menu_app_index(int slot) {
+    return g_menuAppIndex[slot];
+}
+
+// The arena oracle, per emu_abi.h: reads runtime_core.c's bump pointer at
+// the app boundary. int, not size_t, because a wasm export hands back an
+// i32 either way and APP_ARENA_BYTES (64KB) is nowhere near the sign bit.
+int emu_arena_used(void) {
+    return (int)rtcore_arena_used();
+}
+
+int emu_arena_capacity(void) {
+    return (int)APP_ARENA_BYTES;
+}
+
 /* ===========================================================================
- * Live tunables. Thin index -> name adapters over sketch.c's sketch_tune_*
- * (sensors.h), which this file already includes. Compiled with
- * SKETCH_LIVE_TUNE=1 for this target specifically (build.ts), unlike the
- * board's default build: the emulator IS a development tool end to end, so
- * there is no "shipped, must not carry a knob" state to protect here the way
- * there is on real firmware - see emu_abi.h's tunables section for the
- * bigger caveat (this panel is for iteration speed, not for finding the
- * right value; TouchSim is kinder than the real controller).
+ * Live tunables. Thin index -> name adapters over tune_registry.h's
+ * tune_registry_* (firmware/runtime/tune_registry.c), which this file
+ * already includes. Used to call sketch.c's sketch_tune_* directly, back
+ * when the sketchpad was the only app with tunables; the registry now
+ * merges sketch.c's, clock.c's and tables.c's own sets behind one flat
+ * index space, so this file does not need to know how many apps declare
+ * tunables or grow a case for each one - see tune_registry.h's own header
+ * comment and sensors.h's "DEVELOPMENT: live tuning" section.
+ *
+ * Compiled with SKETCH_LIVE_TUNE=1, CLOCK_LIVE_TUNE=1 and TABLES_LIVE_TUNE=1
+ * for this target specifically (build.ts), unlike the board's default
+ * build: the emulator IS a development tool end to end, so there is no
+ * "shipped, must not carry a knob" state to protect here the way there is
+ * on real firmware - see emu_abi.h's tunables section for the bigger
+ * caveat (this panel is for iteration speed, not for finding the right
+ * value; TouchSim is kinder than the real controller).
  * ======================================================================= */
 float emu_tune_get(int index) {
     const char *name; float mn, mx, def;
-    if (!sketch_tune_describe(index, &name, &mn, &mx, &def)) return 0.0f;
+    if (!tune_registry_describe(index, &name, &mn, &mx, &def)) return 0.0f;
     float v = def;
-    sketch_tune_get(name, &v);
+    tune_registry_get(name, &v);
     return v;
 }
 
 void emu_tune_set(int index, float value) {
     const char *name; float mn, mx, def;
-    if (!sketch_tune_describe(index, &name, &mn, &mx, &def)) return;
-    sketch_tune_set(name, value, NULL);
+    if (!tune_registry_describe(index, &name, &mn, &mx, &def)) return;
+    tune_registry_set(name, value, NULL);
 }
 
 // Owner ask, 2026-08-14: "rajoute un moyen pour remettre chaque bouton a sa
 // valeur par defaut" - a per-control way back to default, mirroring the
 // real device's devlink TUNE RESET. NOT yet wired to a control in the
-// page: src/ is owned by another agent right now, so this is the
+// page: emulator/src/ is owned by another agent right now, so this is the
 // export ready for whoever next touches tunables.ts/main.ts to call,
 // exactly the way emu_tune_get/emu_tune_set already were before this file
 // had a caller for them either.
 void emu_tune_reset(int index) {
     const char *name; float mn, mx, def;
-    if (!sketch_tune_describe(index, &name, &mn, &mx, &def)) return;
-    sketch_tune_set(name, def, NULL);
+    if (!tune_registry_describe(index, &name, &mn, &mx, &def)) return;
+    tune_registry_set(name, def, NULL);
 }
 
 int emu_sound_sample_rate(void) { return SOUND_SYNTH_SAMPLE_RATE_HZ; }
@@ -659,8 +882,12 @@ int emu_sound_frames(void) { return SOUND_PREVIEW_FRAMES; }
  * both" promise. */
 // 512 was tight even before "gestures" existed; the gesture's "how" prose
 // alone is over 200 bytes. 1024 was tight again once "tunables" joined it
-// (six entries, each with four numeric fields); 2048 leaves real headroom
-// for either array to grow without this needing to be revisited every time.
+// (six entries, each with four numeric fields, when it was sketch.c's
+// alone; ten now that clock.c's three and tables.c's one joined the same
+// registry - tune_registry.h - and still comfortably under 2048 by
+// measurement, not just by this estimate); 2048 leaves real headroom for
+// any of these arrays to grow without this needing to be revisited every
+// time.
 static char g_deviceJson[2048];
 
 static char *json_append(char *p, const char *s) {
@@ -669,9 +896,9 @@ static char *json_append(char *p, const char *s) {
 }
 
 // Plain char-by-char equality, not strcmp: this target is freestanding and
-// carries no libc (see this file's own header comment), so a comparison
-// this small is a loop, not an import. Used only by emu_device()'s
-// apps-array dedup below.
+// carries no libc (see this file's own header comment), so a comparison this
+// small is a loop, not an import. Used only by emu_device()'s apps-array
+// dedup below.
 static int str_eq(const char *a, const char *b) {
     while (*a && *b) {
         if (*a != *b) return 0;
@@ -720,16 +947,28 @@ int emu_device(void) {
     p = json_append(p, "{\"id\":\"pwr\",\"label\":\"PWR\",\"edge\":\"right\",\"at\":0.62,\"longPressMs\":1500}");
     p = json_append(p, "],");
     p = json_append(p, "\"touch\":{\"points\":1},");
-    p = json_append(p, "\"sensors\":[{\"id\":\"shake\",\"kind\":\"event\"},");
-    p = json_append(p, "{\"id\":\"tilt\",\"kind\":\"vector\"}],");
+    // Two sensors, and the ORDER IS THE ABI: emu_sensor_event() and
+    // emu_sensor_vector() both address them by their index in this array
+    // (emu_abi.h), so "shake" stays at 0. "gravity" declares the axes and
+    // unit tilt.h publishes: g, panel axes, +z into the glass, so flat on a
+    // table is (0,0,1). No magnetometer is declared because this board has
+    // none - the QMI8658 is a six-axis part, and no heading exists here to
+    // hand a host or an app (see firmware/runtime/tilt.h). tiltball.c
+    // (firmware/apps/tiltball.c) reads app_frame_t.tilt like every other
+    // orientation-aware app and draws from this same sensor, not a private
+    // one.
+    p = json_append(p, "\"sensors\":[");
+    p = json_append(p, "{\"id\":\"shake\",\"kind\":\"event\"},");
+    p = json_append(p, "{\"id\":\"gravity\",\"kind\":\"gravity\",\"label\":\"tilt\",\"unit\":\"g\"}");
+    p = json_append(p, "],");
     p = json_append(p, "\"apps\":[");
-    // Deduplicated by name: the --app roster (wasm/build.ts's --app flag,
-    // see its own header comment) aliases every one of the three app-table
-    // slots to the SAME app, so g_apps[] can hold repeated names there.
-    // Three identical "switch to fluid" buttons on the page would be
-    // nonsense, so a name that already appeared earlier in this array is
-    // skipped. The default roster's three apps (chrono/sketch/timer) have
-    // distinct names, so this loop is a no-op for it.
+    // Deduplicated by name, because a single-app build aliases every slot of
+    // its generated roster (firmware/apps/app_roster.inc, written by
+    // wasm/build.ts's --app flag) onto the SAME app, so g_apps[] can hold
+    // repeated names there. Several identical "switch to fluid" buttons on the
+    // page would be nonsense, so a name that already appeared earlier in this
+    // array is skipped. A roster whose apps have distinct names - every real
+    // firmware - makes this loop a no-op.
     int wroteApp = 0;
     for (int i = 0; i < g_appCount; i++) {
         int dup = 0;
@@ -754,16 +993,19 @@ int emu_device(void) {
     p = json_append(p, "\"how\":\"Hold BOOT, then also hold PWR. Keep both held until PWR ");
     p = json_append(p, "registers a long press (about 1.5s): that opens the app menu. ");
     p = json_append(p, "Do the same chord again to close it and return to what was running.\"}],");
-    // "tunables": sketch.c's SKETCH_LIVE_TUNE knobs, if this build has them
-    // (see emu_abi.h's tunables section). Declared the same way buttons/
-    // sensors/apps already are above: the page builds its controls from
-    // this, nothing here is hardcoded on the JS side.
+    // "tunables": every app's own LIVE_TUNE knobs, merged behind
+    // tune_registry.h's tune_registry_* (see emu_abi.h's tunables section
+    // and sensors.h's "DEVELOPMENT: live tuning" section). Declared the
+    // same way buttons/sensors/apps already are above: the page builds its
+    // controls from this, nothing here is hardcoded on the JS side, and
+    // this file has no idea (nor needs one) which app a given entry
+    // belongs to.
     p = json_append(p, "\"tunables\":[");
     {
-        int n = sketch_tune_count();
+        int n = tune_registry_count();
         for (int i = 0; i < n; i++) {
             const char *name; float mn, mx, def;
-            if (!sketch_tune_describe(i, &name, &mn, &mx, &def)) continue;
+            if (!tune_registry_describe(i, &name, &mn, &mx, &def)) continue;
             if (i > 0) p = json_append(p, ",");
             p = json_append(p, "{\"id\":\"");
             p = json_append(p, name);

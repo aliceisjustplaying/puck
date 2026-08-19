@@ -14,8 +14,7 @@
  * file's original header comment):
  *   - the sketchpad's stroke reconstruction (now apps/sketch.c's problem);
  *   - appswitch.c's reboot-to-other-slot dance (switching is a function call
- *     now; the old two-slot partitions are a crash-recovery fallback (kept in
- *     the private repo this came from), not how apps
+ *     now; the store/ partitions are a crash-recovery fallback, not how apps
  *     change - see docs/decisions/0002 section 6, and the watchdog note
  *     below for how that fallback and this runtime's own watchdog coexist);
  *   - a KEY_SHORT-triggered full-panel refresh (apps own their pixels now,
@@ -38,7 +37,9 @@
 #include "gfx.h"
 #include "sensors.h"
 #include "sound.h"
+#include "storage.h"
 #include "runtime_core.h"
+#include "tune_registry.h"
 
 // Cross-directory headers, included by relative path on purpose rather than
 // by bare filename: which directories end up on the compiler's include path
@@ -87,7 +88,8 @@ void rt_halt(void) {
 // gfx_push() call, a handful of microseconds of PIO/DMA time, not
 // milliseconds; runtime_core.c's power-off gesture only calls this when the
 // requested percentage actually changed (see set_brightness_if_changed()
-// there), so across the whole 3.5s dim ramp this fires at most a few dozen
+// there), so across the whole 2s dim ramp (PWR_HOLD_DIM_START_MS 1500 to
+// PWR_HOLD_POWEROFF_MS 3500, runtime_core.c) this fires at most a few dozen
 // times, not once a frame.
 //
 // AMOLED_1IN8_SetBrightness() already takes a 0-100 percent and clamps it
@@ -204,6 +206,42 @@ static bool devlink_hook_app_switch(int index) {
     return true;
 }
 
+// TILT: the orientation readback devlink prints (devlink.h's tilt_read
+// hook), which is how firmware/runtime/tilt.h's axis ritual is actually
+// run. Two different reads, on purpose:
+//
+//   raw3   straight from the published signal, in the QMI8658's own axes,
+//          unfiltered (tilt_reading_t.rawX/Y/Z);
+//   g3     what the CURRENT APP was handed on the last tick, filtered,
+//          mapped, and already rotated into that app's own drawing space
+//          (rtcore_last_tilt).
+//
+// The gap between those two columns is exactly where an orientation bug
+// lives, and reading only one of them cannot show it: raw alone cannot tell
+// a mapping error from a mounting surprise, and app-space alone cannot say
+// which of the two it was.
+//
+// Safe on core0: tilt_read() is a lock-free read of a published snapshot
+// (tilt.c) and rtcore_last_tilt() is a struct copy. Neither goes near i2c1,
+// which core1 has owned since sensors_start().
+static bool devlink_hook_tilt_read(float *raw3, float *g3, float *tiltDeg, int *up, int *valid) {
+    tilt_reading_t r;
+    tilt_read(to_ms_since_boot(get_absolute_time()), &r);
+    raw3[0] = r.rawX;
+    raw3[1] = r.rawY;
+    raw3[2] = r.rawZ;
+
+    app_tilt_t t;
+    rtcore_last_tilt(&t);
+    g3[0] = t.gx;
+    g3[1] = t.gy;
+    g3[2] = t.gz;
+    *tiltDeg = t.tiltDeg;
+    *up = (int)t.up;
+    *valid = t.valid ? 1 : 0;
+    return true;
+}
+
 // A generous, few-second watchdog timeout: the 182ms cold boot this
 // architecture exists to buy back (see docs/decisions/0002 section 1) makes
 // a watchdog reboot nearly invisible, so there is no reason to cut this
@@ -304,10 +342,19 @@ int main(void) {
     // out first. It has since been cleared. The root cause
     // (docs/decisions/0004, 0005) is a corrupted instruction fetch on core1
     // during core0's periodic BOOT-button read, which borrows the flash
-    // chip select - nothing to do with sound_init() or i2c1 at all, and the
-    // fix (copy_to_ram, firmware/CMakeLists.txt) makes the hazard
-    // impossible regardless of what runs at boot. The owner likes the
-    // chime and asked for it back the moment it was cleared.
+    // chip select - nothing to do with sound_init() or i2c1 at all. sound_init()
+    // runs on core0 before sensors_start() launches core1 (this file's own
+    // call order), so it is not itself at risk; what makes it (and every
+    // other core0-only function) safe by construction is that core0 is the
+    // one doing the borrow, in a function that is itself RAM-resident and
+    // interrupt-free for the borrow (bootbtn.c's read_cs_low()). Core1's own
+    // reachable code is what actually needs RAM placement, and does have it
+    // - see firmware/CMakeLists.txt's own comment and
+    // tools/invariants/rules/rp2350-amoled-1.8.ts's rule 1, the narrower,
+    // reachability-scoped form of decision 0004's original whole-image
+    // copy_to_ram fix (decision 0016 made the whole-image cost unaffordable
+    // for an 11-app build). The owner likes the chime and asked for it back
+    // the moment it was cleared.
     sound_init();
 
     if (!gfx_init()) {
@@ -338,21 +385,33 @@ int main(void) {
         .app_current = devlink_hook_app_current,
         .app_name = devlink_hook_app_name,
         .app_switch = devlink_hook_app_switch,
-        // Wired straight to sketch.c's sketch_tune_* (sensors.h): no
-        // adapter needed, unlike the hooks above, because their signatures
-        // already match devlink_hooks_t's tune_* shape exactly (see
-        // sensors.h's "DEVELOPMENT: sketchpad live tuning" section). These
-        // are defined unconditionally in sketch.c regardless of
-        // SKETCH_LIVE_TUNE - the gate-off build's versions just return
-        // count()==0 and false, which is what makes it safe to wire them
-        // here with no #if of this file's own.
-        .tune_count = sketch_tune_count,
-        .tune_describe = sketch_tune_describe,
-        .tune_define_name = sketch_tune_define_name,
-        .tune_get = sketch_tune_get,
-        .tune_set = sketch_tune_set,
+        .tilt_read = devlink_hook_tilt_read,
+        // Wired straight to tune_registry.h's tune_registry_* (firmware/
+        // runtime/tune_registry.c): no adapter needed, unlike the hooks
+        // above, because their signatures already match devlink_hooks_t's
+        // tune_* shape exactly. Used to be sketch.c's sketch_tune_*
+        // directly, back when the sketchpad was the only app with
+        // tunables; the registry now merges sketch.c's, clock.c's and
+        // tables.c's own sets behind one flat name/index space (see
+        // sensors.h's "DEVELOPMENT: live tuning" section and
+        // tune_registry.h's own header comment for the history and the
+        // shape). tune_registry_* is defined unconditionally regardless of
+        // any one app's own gate - a registry over every gate being off is
+        // still exactly zero tunables - which is what makes it safe to
+        // wire here with no #if of this file's own.
+        .tune_count = tune_registry_count,
+        .tune_describe = tune_registry_describe,
+        .tune_define_name = tune_registry_define_name,
+        .tune_get = tune_registry_get,
+        .tune_set = tune_registry_set,
     };
     devlink_init(&devlinkHooks);
+
+    // Once, on core0, before core1 exists - per docs/decisions/0011 and
+    // storage.c's own header comment. Reads the last-sector flash scan
+    // into RAM; nothing below this line touches flash again except through
+    // storage_save_u32()'s own flash_safe_execute()-guarded path.
+    storage_init();
 
     sensors_start();
     // ---- core0 must never touch i2c1 past this point. ----
@@ -461,7 +520,7 @@ int main(void) {
             uint32_t core1Loops = sensors_debug_core1_loops();
             uint32_t core1LoopsPerSec = core1Loops - g_profLastCore1Loops;
             printf("prof app=%s switch=%luus | loops=%lu/s | core1=%lu/s%s core1restarts=%lu | touch reads=%lu timeouts=%lu drops=%lu recoveries=%lu "
-                   "| imu timeouts=%lu | pmic timeouts=%lu poweroff cmds=%lu reg10h=%02lx->%02lx | shot drops=%lu\r\n",
+                   "| imu timeouts=%lu | pmic timeouts=%lu poweroff cmds=%lu reg10h=%02lx->%02lx | rtc write fails=%lu | shot drops=%lu\r\n",
                    switchName ? switchName : "?",
                    (unsigned long)rtcore_last_switch_us(),
                    (unsigned long)g_profLoops,
@@ -491,6 +550,13 @@ int main(void) {
                    // a real attempt prints actual register byte values instead.
                    (unsigned long)cur.poweroffRegBefore,
                    (unsigned long)cur.poweroffRegAfter,
+                   // rtc write fails: cumulative, not a delta, for the same
+                   // reason shot drops below is - the question is "has a
+                   // set-the-clock write ever failed on this board", not a
+                   // steady-state rate, and setting the clock is something
+                   // that happens a handful of times in a battery's life.
+                   // See sensors_stats_t.
+                   (unsigned long)cur.rtcWriteFails,
                    // shot drops: cumulative, not a delta - see devlink.h's
                    // devlink_dropped_shots() comment. Bumped only when a SHOT
                    // reply's body was cut short because the host stopped

@@ -30,6 +30,20 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+// The orientation signal. Included here, rather than left for each consumer
+// to include separately, because this header is where "the published
+// signals" live: anyone reading this file to find out what core1 publishes
+// must find gravity too, and runtime_core.c's documented seam stays exactly
+// three headers wide (app.h, gfx.h, sensors.h - see runtime_core.h).
+//
+// tilt.h is NOT a chip header and does not break this file's ownership rule:
+// it holds no i2c, it is portable enough to compile into emu.wasm unchanged
+// (like runtime_core.c and sound_synth.c), and the only thing that ever
+// feeds it a real accelerometer reading is core1, from inside this file's
+// own IMU poll. See the "shake" section below for what core1 does with that
+// one i2c read now that it serves two consumers.
+#include "tilt.h"
+
 /* ---- touch -------------------------------------------------------------
  *
  * Samples arrive through a single-producer/single-consumer ring: core1 is
@@ -105,13 +119,15 @@ void sensors_set_finger_down(bool down);
  * hardware. That reasoning was correct at the time and nobody made a
  * mistake deleting it.
  *
- * The requirement changed: the owner's power-off gesture (hold PWR alone
- * for 5 seconds) has to be timed in firmware, because 5 seconds does not
- * exist as an OFFLEVEL value (4/6/8/10s only, see above), and timing a hold
+ * The requirement changed: the owner's power-off gesture (hold PWR alone,
+ * for PWR_HOLD_POWEROFF_MS - five seconds originally, 3.5 since
+ * 2026-08-14) has to be timed in firmware, because neither number
+ * exists as an OFFLEVEL value (4/6/8/10s only, see above), and timing a hold
  * needs to know when it ENDS, not just when it started or how long the PMIC
  * decided it had already been. KEY_PRESS alone cannot answer "is PWR still
  * down right now", and re-deriving that from KEY_LONG (a one-shot verdict
- * at 1.5s, not a level) does not cover the 1.5s-5s window at all. So the
+ * at 1.5s, not a level) does not cover the window between that verdict and
+ * the power-off threshold at all. So the
  * mask widened again (pmic_poll_core1()'s `s1 & 0x0E` became `s1 & 0x0F`)
  * and the macro is reinstated to name the bit that mask now lets through.
  * See runtime_core.c's "the PWR-held-alone power-off gesture" section for
@@ -136,7 +152,7 @@ uint8_t sensors_key_take(void);
 // once. devlink.c's own KEY command names all four, including RELEASE
 // (see tools/README-devlink.md): without it, `KEY PRESS` alone started a
 // hold that devlink had no way to end, which is exactly what made the
-// PWR-held-5s power-off gesture (runtime_core.c) hard to reproduce safely
+// PWR-held-alone power-off gesture (runtime_core.c) hard to reproduce safely
 // by injection until this was added.
 //
 // Core0-owned end to end, like sensors_inject_erase() above, but for a
@@ -198,7 +214,7 @@ void sensors_inject_key(uint8_t bits);
  *
  * Core0-owned request, core1-owned execution, the same pattern
  * g_fingerDownShared (sensors.c) already uses: the DECISION - has PWR been
- * held 5 seconds alone, per runtime_core.c's gesture logic - is made by a
+ * held PWR_HOLD_POWEROFF_MS alone, per runtime_core.c's gesture logic - is made by a
  * portable, hardware-blind file that must never touch i2c1 even if it
  * wanted to, but the i2c write that actually cuts power must come from
  * core1 like every other transaction on this bus (see the ownership rule
@@ -216,6 +232,28 @@ void sensors_inject_key(uint8_t bits);
  * why the two are not redundant.
  */
 void sensors_request_poweroff(void);
+
+/* ---- the IMU serves two consumers, off one read -------------------------
+ *
+ * core1 polls the QMI8658's six accelerometer bytes every IMU_POLL_MS
+ * (sensors.c) and hands the result to two places:
+ *
+ *   1. the shake detector below, which is a private matter of this file;
+ *   2. tilt_submit_device_g() (tilt.h), which filters it, maps it into
+ *      panel axes and publishes it for every app.
+ *
+ * Same transaction, same 20ms cadence, no extra bus traffic: orientation
+ * costs this firmware one function call on core1 and nothing on i2c1. That
+ * is deliberate, and it is also the reason there is no "wantsTilt" opt-in
+ * anywhere - there is nothing to save by not publishing it.
+ *
+ * NOTHING OUTSIDE sensors.c MAY READ THE IMU. Not an app, not the runtime,
+ * not a diagnostic: the ownership rule at the top of this file covers the
+ * QMI8658 exactly as much as it covers the touch controller, and an app
+ * that wants orientation has app_frame_t.tilt (app.h). If a second IMU read
+ * ever appears in this tree, the whole point of tilt.h has been lost - see
+ * its header comment, and docs/decisions/0011.
+ */
 
 /* ---- shake -------------------------------------------------------------
  *
@@ -241,6 +279,78 @@ uint32_t sensors_erase_seq(void);
 // writer of anything core1 also writes.
 void sensors_inject_erase(void);
 
+/* ---- the wall clock ------------------------------------------------------
+ *
+ * There is a real RTC on this board and it survives a power cut. Established
+ * from the schematic and four datasheets in
+ * docs/decisions/0011-what-this-board-can-actually-do.md, not assumed: a
+ * PCF85063ATL (U2) with its own 32.768kHz crystal (Y1), at the part's fixed
+ * address 0x51, fed from the AXP2101's always-on RTCLDO rail (pin 28,
+ * "VCC-RTC"), which the PMIC keeps up at about 25uA when every other rail is
+ * off. So the time survives a firmware reboot, an app switch, and a
+ * deliberate power-off, for as long as the main battery holds.
+ *
+ * IT DOES NOT SURVIVE A FLAT BATTERY. The backup-cell pads (H1, net VBAT2)
+ * are marked NC on the schematic: pads, not a battery. When the RTC domain
+ * loses power the oscillator stops, and the part says so - the Seconds
+ * register's bit 7 is the OS flag ("oscillator stopped", NXP data sheet
+ * 7.3.1.1). That single bit is why this struct has a `known` field instead
+ * of just handing an app a number: a clock that confidently shows the wrong
+ * time is worse than one that admits it does not know, and this project has
+ * already lost a day to a stopwatch that looked identical whether it was
+ * working or dead (docs/decisions/0004). An app MUST branch on `known`.
+ *
+ * IT IS ON i2c1, SO CORE1 OWNS IT, with no exemption available: see the
+ * ownership rule at the top of this file. The shape below is decision 0011's
+ * and follows the same one-writer/one-reader pattern
+ * sensors_request_poweroff() already uses:
+ *
+ *   - the chip is READ ONCE, in sensors_init(), on core0, before core1
+ *     exists, next to the FT3168/AXP2101 bring-up that already happens
+ *     there;
+ *   - wall-clock time then runs off the RP2350's own timer from that base,
+ *     which is what `sampledAtMs` is for. NOTHING POLLS THE RTC PER FRAME,
+ *     and nothing should: the chip is only needed to answer "what time was
+ *     it when I woke up";
+ *   - SETTING the time is a write, so it is a core0 request executed by
+ *     core1, exactly like the power-off write.
+ */
+typedef struct {
+    // False when the RTC could not be read at all, or when its OS flag says
+    // the oscillator stopped (a flat or disconnected battery). The time is
+    // then NOT known, and the only honest thing to draw is a picture that
+    // says so.
+    bool     known;
+    // Time of day in seconds, 0..86399, at the instant `sampledAtMs` names.
+    // Date is deliberately absent: nothing on this device has any use for
+    // one, and a calendar nobody reads is a calendar nobody notices is
+    // wrong.
+    uint32_t secOfDay;
+    // to_ms_since_boot() at the moment secOfDay was sampled. A consumer adds
+    // (now - sampledAtMs) to secOfDay; that arithmetic is the whole clock.
+    uint32_t sampledAtMs;
+} sensors_clock_t;
+
+// Reads the published wall clock. Safe to call every frame from core0: it
+// touches no bus, only the value core1 (or sensors_init()) last published,
+// through a seqlock so a three-field snapshot can never be read torn.
+void sensors_clock(sensors_clock_t *out);
+
+// Sets the RTC to `secOfDay` (0..86399), seconds included as given. Core0
+// requests, core1 performs the i2c1 write and republishes, so a caller sees
+// the new time through sensors_clock() a loop iteration later.
+//
+// Clearing the OS flag is part of the write (the flag lives in bit 7 of the
+// Seconds register, which this necessarily overwrites), so setting the time
+// is also what tells the device it knows the time again. There is deliberately
+// no separate "mark valid" call: the only way to become valid is to be told
+// what time it is.
+//
+// Call this on the EVENT that set the time, never on a timer and never per
+// frame - one i2c write per real act of setting, the same discipline
+// decision 0011 asks of flash writes.
+void sensors_set_clock(uint32_t secOfDay);
+
 /* ---- diagnostics -------------------------------------------------------
  *
  * Core1 increments these and never prints them; core0 reads them and turns
@@ -254,6 +364,11 @@ typedef struct {
     uint32_t touchRecoveries;
     uint32_t imuTimeouts;
     uint32_t pmicTimeouts;
+    // RTC writes (sensors_set_clock()) that did not land on the chip. Core1
+    // cannot printf, so this counter is the only way a failed set is ever
+    // visible - and the symptom it explains is otherwise baffling: the time
+    // is right for this session and wrong again after the next power cycle.
+    uint32_t rtcWriteFails;
     // Bumped once per sensors_request_poweroff() core1 actually notices and
     // acts on (see that function's comment). Core1 cannot printf to prove a
     // shutdown command was sent (the ownership-rule banner above explains
@@ -436,32 +551,48 @@ typedef struct {
 // per-run arena, like the rest of sketch_state_t - see app.h on why).
 void sketch_debug_touch_diag(sketch_touch_diag_t *out);
 
-/* ---- DEVELOPMENT: sketchpad live tuning (SKETCH_LIVE_TUNE) --------------
+/* ---- DEVELOPMENT: live tuning (SKETCH_LIVE_TUNE / CLOCK_LIVE_TUNE /
+ * TABLES_LIVE_TUNE) --------------------------------------------------------
  *
  * Declared here rather than a new header, same reasoning as
  * sketch_debug_touch_diag() just above: this exists for the same class of
- * investigation (feeling out sketch.c's dropout-tolerance tuning against
- * real hardware, live) and is implemented in sketch.c, the only file with
- * the state to report or change. See sketch.c's own SKETCH_LIVE_TUNE
- * comment for the full design (what is tunable, why, and the freeze path).
+ * investigation (feeling out a constant against real hardware, live,
+ * instead of flash-draw-read-repeat) and each app below implements its own
+ * five functions, the only file with the state to report or change. See
+ * sketch.c's own SKETCH_LIVE_TUNE comment for the full design (what is
+ * tunable, why, and the freeze path) - clock.c's CLOCK_LIVE_TUNE and
+ * tables.c's TABLES_LIVE_TUNE follow the identical shape for their own
+ * constants.
  *
- * Unlike the TOUCH_POLL_SELFTEST diagnostics above, these are declared
- * unconditionally (not inside an #if in this header): sketch.c itself
- * always defines all five functions below, gated internally on
- * SKETCH_LIVE_TUNE - the gate-off build returns count()==0 and false from
+ * THIS WAS ONE APP'S SURFACE UNTIL THE CLOCK AND THE NUMPAD JOINED IT. What
+ * used to be a single `sketch_tune_*` set, called directly by devlink's
+ * TUNE command (runtime.c) and the emulator (emu_shim.c), is now three
+ * per-app sets - the three declared right below - merged behind ONE
+ * registry (firmware/runtime/tune_registry.h) that both of those callers
+ * address instead. Neither caller, nor this header, needs to grow again
+ * when a fourth app gets a tunable: that is one more row in
+ * tune_registry.c's own provider table.
+ *
+ * Unlike the TOUCH_POLL_SELFTEST diagnostics above, each app's five
+ * functions are declared unconditionally (not inside an #if in this
+ * header): the owning .c file always defines all five, gated internally on
+ * its own macro - the gate-off build returns count()==0 and false from
  * every describe/get/set call, the same "0 when the gate is off" contract
- * sensors_debug_touch_poll_selftest() uses. That means callers (devlink's
- * TUNE command wiring in runtime.c, the emulator's emu_tune_get/set) never
- * need to know whether the gate is on; they just see "nothing declared"
- * when it is off.
+ * sensors_debug_touch_poll_selftest() uses. That means callers (the
+ * registry, and through it devlink's TUNE wiring and emu_tune_get/set)
+ * never need to know whether any given gate is on; they just see "nothing
+ * declared" when it is off.
  *
- * Persists across app switches: the tunables are plain file-scope
- * statics in sketch.c, not part of sketch_state_t's per-run arena (app.h),
- * specifically so a TUNE command works regardless of which app is currently
- * showing on screen - the owner can be looking at the menu or the timer and
- * still dial in the sketchpad's touch tuning for the next time it is drawn
- * on.
+ * Persists across app switches: every app's tunables are plain file-scope
+ * statics in its own .c file, not part of that app's own per-run arena
+ * (app.h), specifically so a TUNE command works regardless of which app is
+ * currently showing on screen - the owner can be looking at the menu or
+ * the timer and still dial in the sketchpad's touch tuning, the clock's
+ * pulse or the numpad's thumb bias for the next time that app is on
+ * screen.
  */
+
+// ---- sketch.c: the sketchpad's dropout-tolerance knobs (six) -------------
 
 // How many tunables are declared. 0 when SKETCH_LIVE_TUNE is off.
 int sketch_tune_count(void);
@@ -487,6 +618,31 @@ bool sketch_tune_get(const char *name, float *out);
 // took effect. Returns false, applying nothing, if no tunable has that name
 // or the gate is off.
 bool sketch_tune_set(const char *name, float value, float *outApplied);
+
+// ---- clock.c: the long-ways separator's pulse (three) ---------------------
+// pulsecycle (the full on/off cycle length), pulseplateau (how much of that
+// cycle stays fully lit before the wink starts) and pulsedepth (how far the
+// wink dims at its lowest point - 0 is the shipped "goes fully gone,
+// invisible", 255 is "no wink at all"). See clock.c's own CLOCK_LIVE_TUNE
+// comment for the three scalars this regenerates DOTS_PULSE_CURVE from,
+// and why those three and not the whole table (a slider cannot edit a
+// lookup table).
+int clock_tune_count(void);
+bool clock_tune_describe(int index, const char **name, float *min, float *max, float *def);
+const char *clock_tune_define_name(int index);
+bool clock_tune_get(const char *name, float *out);
+bool clock_tune_set(const char *name, float value, float *outApplied);
+
+// ---- tables.c: the numpad's thumb-parallax bias (one) ---------------------
+// thumbbias: how far below the drawn cell the touch's reported y is taken
+// to actually mean, per Holz & Baudisch, "Understanding Touch" (CHI 2011) -
+// see tables.c's own TOUCH_THUMB_BIAS_Y comment for the full reasoning and
+// this tunable's range.
+int tables_tune_count(void);
+bool tables_tune_describe(int index, const char **name, float *min, float *max, float *def);
+const char *tables_tune_define_name(int index);
+bool tables_tune_get(const char *name, float *out);
+bool tables_tune_set(const char *name, float value, float *outApplied);
 
 /* ---- FT3168 has no pressure signal, measured -----------------------------
  *

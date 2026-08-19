@@ -69,7 +69,7 @@
  * THE SYNTHESISER ITSELF LIVES IN sound_synth.c/.h, not here, and that split
  * is load-bearing rather than tidiness: sound_synth.c has no PIO, DMA, i2c or
  * pico-sdk dependency, so it compiles unmodified into emu.wasm too
- * (packs/rp2350-touch-amoled-18/wasm/build.ts), and the emulator's own audio (emu_abi.h's sound
+ * (emulator/wasm/build.ts), and the emulator's own audio (emu_abi.h's sound
  * section, emu_shim.c) calls the exact same sound_synth_alarm_sample()
  * function this file does. What a browser plays through WebAudio is
  * therefore genuinely this firmware's own synthesis, not a JavaScript
@@ -315,6 +315,7 @@ static void i2s_hw_init(void) {
  * thread of execution already gives for free.
  */
 static bool s_playing = false;
+static sound_id_t s_activeId = SOUND_ID_TIMER_ALARM;
 static uint32_t s_playSampleIndex = 0;
 static uint32_t s_playStartMs = 0;
 
@@ -326,6 +327,14 @@ static uint32_t s_playStartMs = 0;
 // power-off request (see its comment).
 #define SOUND_SAFETY_CEILING_MS 120000u
 
+// The speaker amp, raised only while something is actually playing. Idempotent
+// so the callers do not have to track it, and a no-op before the hardware is
+// up so a failed bring-up cannot leave the pin driven.
+static void amp_set(bool on) {
+    if (!s_hwReady) return;
+    gpio_put(PIN_PA_ENABLE, on ? 1 : 0);
+}
+
 static void refill_buffer(uint32_t *buf) {
     if (!s_playing) {
         memset(buf, 0, SOUND_BUF_FRAMES * sizeof(uint32_t));
@@ -333,12 +342,19 @@ static void refill_buffer(uint32_t *buf) {
     }
     if (to_ms_since_boot(get_absolute_time()) - s_playStartMs > SOUND_SAFETY_CEILING_MS) {
         s_playing = false;
+        amp_set(false);
         memset(buf, 0, SOUND_BUF_FRAMES * sizeof(uint32_t));
         return;
     }
     for (int i = 0; i < SOUND_BUF_FRAMES; i++) {
         float tSec = (float)s_playSampleIndex / (float)SOUND_SYNTH_SAMPLE_RATE_HZ;
-        int16_t sample = sound_synth_alarm_sample(tSec);
+        // Two sounds now (sound.h): the alarm's repeating rising phrase and
+        // the ball's one-shot falling plunk. Dispatched by the id sound_play()
+        // last recorded, not by anything time-based, so a capture triggered
+        // moments after the alarm was dismissed cannot play the wrong sample.
+        int16_t sample = (s_activeId == SOUND_ID_BALL_CAPTURE)
+            ? sound_synth_capture_sample(tSec)
+            : sound_synth_alarm_sample(tSec);
         // Same sample in both I2S slots - see sound_i2s.pio's header comment
         // for why (mono codec, undocumented which slot it actually reads).
         buf[i] = ((uint32_t)(uint16_t)sample << 16) | (uint16_t)sample;
@@ -347,15 +363,17 @@ static void refill_buffer(uint32_t *buf) {
 }
 
 void sound_play(sound_id_t id) {
-    (void)id; // one sound exists today; see sound.h's comment on why the enum stays
     if (!s_hwReady) return;
+    s_activeId = id;
     s_playSampleIndex = 0;
     s_playStartMs = to_ms_since_boot(get_absolute_time());
     s_playing = true;
+    amp_set(true);
 }
 
 void sound_stop(void) {
     s_playing = false;
+    amp_set(false);
     if (!s_hwReady) return;
     // Zero BOTH buffers immediately, including whichever one the DMA is
     // currently mid-read of: this is not a data race worth guarding, since
@@ -413,9 +431,19 @@ void sound_init(void) {
     es8311_bring_up(); // the only i2c1 traffic this file ever issues
     i2s_hw_init();      // starts the bus running silence (both buffers zeroed)
 
-    if (s_hwReady) {
-        gpio_put(PIN_PA_ENABLE, 1); // now safe: the amp's input is silence, not a transient
-    }
+    // The amp is NOT switched on here any more. It used to be, right after
+    // the bus came up, and then stayed on for the life of the device: an
+    // idle class-D amplifier sitting on a running I2S bus hisses, and the
+    // owner heard it - "the device hums when the timer is counting down.
+    // should be silent". The timer is simply where a quiet room and a
+    // motionless screen made it audible; it was there in every app.
+    //
+    // So the amp now follows the sound: up in sound_play(), down when
+    // playback ends. The transient this pin's original ordering existed to
+    // avoid is still avoided, because the bus runs silence CONTINUOUSLY
+    // whether or not anything is playing (see refill_buffer(), which zeroes
+    // into the buffers when idle) - so the amp's input at the moment it is
+    // switched on is the same clean silence it was at boot.
 
     printf("sound: init %s\r\n", s_hwReady ? "ok" : "FAILED (no PIO state machine)");
 }

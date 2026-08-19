@@ -30,8 +30,10 @@
       "kind": "event"
     },
     {
-      "id": "tilt",
-      "kind": "vector"
+      "id": "gravity",
+      "kind": "gravity",
+      "label": "tilt",
+      "unit": "g"
     }
   ],
   "apps": [

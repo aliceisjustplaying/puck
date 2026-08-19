@@ -83,6 +83,29 @@ const args = [
 
 console.log(`${ZIG} ${args.join(" ")}`);
 
+// zig cc crashes inside its own linker roughly one run in three with this
+// many -Wl,--export= flags (verified against this exact toolchain by the
+// RP2350 sibling's build.ts, packs/rp2350-touch-amoled-18/wasm/build.ts):
+// exit code 5, no diagnostic, and the very next attempt with identical
+// arguments succeeds. Retried here, with a pause between attempts, for the
+// same reason that file gives: the failure rate is far worse under
+// concurrent contention, and the person most likely to hit this is running
+// the command for the first time with no reason yet to believe the
+// repository works.
+//
+// THE TIMEOUT IS NOT DECORATION: the same bug also HANGS, not just crashes
+// (observed twice on 2026-08-19, a zig process sitting at 0.02 seconds of
+// CPU for thirteen minutes on arguments that then succeeded immediately on
+// a manual retry - see packs/web/wasm/build.ts's compileModule for the
+// original writeup). A retry loop that only catches a non-zero exit waits
+// forever for that one, which is a far worse failure than a crash: a build
+// that never returns looks like a build that is working. Two minutes is
+// many times what a real compile of this one file takes, even under a
+// saturated machine.
+const MAX_ATTEMPTS = 8;
+const RETRY_PAUSE_MS = 400;
+const ATTEMPT_TIMEOUT_MS = 120_000;
+
 // Bun.spawnSync THROWS (does not return a failed result) when the
 // executable itself can't be found (ENOENT) - a plain `if (!result.success)`
 // below never runs in that case, which is exactly the newcomer path (no
@@ -92,15 +115,21 @@ console.log(`${ZIG} ${args.join(" ")}`);
 // running this script.
 let result: ReturnType<typeof Bun.spawnSync>;
 try {
-  result = Bun.spawnSync([ZIG, ...args], { stdout: "inherit", stderr: "inherit" });
+  result = Bun.spawnSync([ZIG, ...args], { stdout: "inherit", stderr: "inherit", timeout: ATTEMPT_TIMEOUT_MS });
 } catch (err) {
   console.error(`could not run "${ZIG}": ${err instanceof Error ? err.message : String(err)}`);
   console.error(`(zig not found? set ZIG_EXE to its path, or install it: https://ziglang.org/download/)`);
   process.exit(1);
 }
+for (let attempt = 2; !result.success && attempt <= MAX_ATTEMPTS; attempt++) {
+  const how = result.signalCode ? `was killed (${result.signalCode}, most likely this build's own ${ATTEMPT_TIMEOUT_MS}ms timeout)` : `exited ${result.exitCode}`;
+  console.error(`zig cc ${how}, retrying (${attempt}/${MAX_ATTEMPTS}) - see this file's header comment`);
+  Bun.sleepSync(RETRY_PAUSE_MS);
+  result = Bun.spawnSync([ZIG, ...args], { stdout: "inherit", stderr: "inherit", timeout: ATTEMPT_TIMEOUT_MS });
+}
 
 if (!result.success) {
-  console.error(`zig cc exited ${result.exitCode}`);
+  console.error(`zig cc exited ${result.exitCode} on all ${MAX_ATTEMPTS} attempts, so this is a real build failure`);
   console.error(`(zig not found? set ZIG_EXE to its path, or install it: https://ziglang.org/download/)`);
   process.exit(result.exitCode ?? 1);
 }

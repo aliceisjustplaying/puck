@@ -20,24 +20,34 @@
 #include "gfx.h"
 #include "sensors.h"
 
-/* ---- the app table -------------------------------------------------------
+/* ---- the app table and the menu's roster: THE CONSUMER'S, NOT THE PACK'S
  *
- * One extern per app, exactly as app.h's header comment describes: adding
- * an app is one entry here plus one file. g_menuApp and menu_set_return_app
- * are declared directly here (the same extern-per-app pattern) rather than
- * by including apps/menu.h, which this file may not: menu.h only pulls in
- * app.h itself, but the include is still outside the {app.h, gfx.h,
- * sensors.h} allowance runtime_core.h documents, and there is nothing menu.h
- * would add beyond what a plain extern already gives.
+ * Everything this runtime needs from the app layer - one extern per app
+ * object, g_apps[]/g_appCount, g_menuApp, menu_set_return_app() and the
+ * menu's own g_menuAppIndex[]/g_menuAppCount roster - is supplied by
+ * firmware/apps/app_roster.inc, which this file includes and NEVER owns.
+ *
+ * It is a separate file, and included rather than compiled, for one reason:
+ * this file is a DEVICE PACK source, shared verbatim by every firmware built
+ * on this board (see docs/convention/device-pack.md), while the list of apps
+ * is the single thing that is different in every one of them. A hardcoded
+ * table here is what made the pack un-shareable: a consumer with eleven apps
+ * and a six-app menu could not take this file without losing its own roster,
+ * so it kept a private fork of the whole runtime instead, and the fork
+ * drifted for weeks in both directions. The seam is here because this is
+ * exactly where the drift was.
+ *
+ * Included, not linked, so a single-app build (wasm/build.ts's --app flag,
+ * firmware/CMakeLists.txt's PUCK_SINGLE_APP_ROSTER) can generate one into a
+ * temp directory and put that directory first on the include path, with no
+ * new translation unit and no link-order question.
+ *
+ * This is the one relaxation of runtime_core.h's "includes nothing from
+ * apps/" contract, and it is deliberate: an .inc that IS the consumer's
+ * declaration of its own app layer is the seam that contract exists to keep
+ * narrow, not a breach of it. Nothing else from apps/ may be included here.
  */
-extern const app_t g_chronoApp;
-extern const app_t g_sketchApp;
-extern const app_t g_timerApp;
-extern const app_t g_menuApp;
-extern void menu_set_return_app(int index);
-
-const app_t *const g_apps[] = { &g_chronoApp, &g_sketchApp, &g_timerApp };
-const int g_appCount = sizeof(g_apps) / sizeof(g_apps[0]);
+#include "app_roster.inc"
 
 // Startup-only sentinel: "nothing has been entered yet", so do_switch()'s
 // first-ever call has no outgoing app to call leave() on. Never observed by
@@ -52,11 +62,11 @@ static const app_t *app_for_index(int index) {
 /* ---- tiny text formatting, because this file has no stdio.h --------------
  *
  * A freestanding wasm32 build links with -nostdlib and no libc, so there is
- * no snprintf to call (see packs/rp2350-touch-amoled-18/wasm/build.ts's notes on which C headers
- * actually exist for that target). The two rt_log() call sites below are
+ * no snprintf to call (see emulator/wasm/build.ts's notes on which C headers
+ * actually exist for that target). The three rt_log() call sites below are
  * the only formatted diagnostics in this file; these are just enough for
- * "name (N us)" and "requested N bytes, M of K used", not a general
- * formatter.
+ * "name (N us)", "requested N bytes, M of K used" and the power-off
+ * gesture's "PWR held N ms alone", not a general formatter.
  */
 static char *fmt_append_str(char *out, const char *s) {
     while (*s) *out++ = *s++;
@@ -175,7 +185,7 @@ void *app_alloc(size_t bytes) {
  * with. A tap that should have launched a tile is silently swallowed, and
  * because nothing on screen changes, this is discovered as "reentering the
  * menu just doesn't work any more" rather than as a missed tap. That
- * reproduced empirically (packs/rp2350-touch-amoled-18/wasm/tests/repro-switch-input.ts, run
+ * reproduced empirically (emulator/wasm/tests/repro-switch-input.ts, run
  * against this file before the fix below) and is what touch_resolver_reset()
  * exists to close: general principle, not a one-off patch - input state that
  * belongs to a run of an app must not outlive that run, exactly like the
@@ -271,6 +281,11 @@ static void do_switch(int target) {
     g_currentApp = to;
 }
 
+size_t rtcore_arena_used(void) {
+    return g_arenaUsed; // see runtime_core.h: the gate's arena-headroom
+                         // oracle, read at the app boundary, never by apps
+}
+
 void app_switch_to(int index) {
     g_switchPending = true;
     g_switchTarget = index;
@@ -308,7 +323,7 @@ uint32_t rtcore_last_switch_us(void) {
  * bundled into a single read and never arm at all, so a real press-then-
  * long-hold attempt produced no menu at all. Confirmed empirically while
  * investigating the reproduction this replaces
- * (packs/rp2350-touch-amoled-18/wasm/tests/repro-switch-input.ts's git history has the earlier,
+ * (emulator/wasm/tests/repro-switch-input.ts's git history has the earlier,
  * double-press version and a dedicated check for this). A chord has no
  * window and no edge history to lose: sensors_boot_down() answers "is BOOT
  * down right now", nothing about the past matters.
@@ -322,8 +337,10 @@ static int g_menuReturnApp = 0;
 
 /* ---- the PWR-held-alone power-off gesture --------------------------------
  *
- * The owner's requirement: holding PWR for 5 seconds powers the device off.
- * Five seconds does not exist in hardware - the AXP2101's OFFLEVEL field
+ * The owner's requirement: holding PWR powers the device off. The hold was
+ * five seconds until 2026-08-14 and is PWR_HOLD_POWEROFF_MS (3.5s) now -
+ * see that constant below for why only the END of the gesture moved.
+ * Neither number exists in hardware - the AXP2101's OFFLEVEL field
  * only offers 4/6/8/10s (sensors.h), and 10s of that is already spent as
  * the menu chord's safety backstop (pmic_raise_poweroff_threshold(),
  * sensors.c) - so this firmware measures the hold itself, in wall-clock
@@ -346,7 +363,8 @@ static int g_menuReturnApp = 0;
  * held right now". A per-instant check would let a child open the menu
  * (chord fires at 1.5s), keep gripping PWR out of habit while browsing,
  * happen to let go of BOOT alone, and have the device power off under her
- * mid-browse once wall-clock time since the ORIGINAL press reaches 5s -
+ * mid-browse once wall-clock time since the ORIGINAL press reaches
+ * PWR_HOLD_POWEROFF_MS -
  * technically still "BOOT not held" at that instant, but not what "the
  * chord must never power off, however long it is held" is asking for.
  * Tainting the whole hold closes that gap: once BOOT has touched this hold
@@ -357,7 +375,8 @@ static int g_menuReturnApp = 0;
  * end: the screen dims continuously while PWR is held alone, starting at
  * 1.5s (the same instant the PMIC's own long-press verdict would fire, so
  * there is only one threshold to learn, not two unrelated ones) and
- * reaching black exactly at 5s, when power-off is requested. Releasing PWR
+ * reaching black exactly at PWR_HOLD_POWEROFF_MS, when power-off is
+ * requested. Releasing PWR
  * at any point restores full brightness immediately. This adds NOTHING to
  * any app's screen - decision 0002 section 4b forbids exactly that - it is
  * the panel's own brightness changing, the same physical property real
@@ -409,8 +428,44 @@ static int g_menuReturnApp = 0;
  * "checked every tick regardless of what the rest of the state machine
  * believes" is deliberate, not an optimisation left for later.
  */
-#define PWR_HOLD_DIM_START_MS       1500u
-#define PWR_HOLD_POWEROFF_MS        5000u
+// 800, down from 1500 on 2026-08-15: the owner asked for the panel to start
+// going dark sooner ("je veux que ca commence a s'assombrir plus rapidement").
+//
+// I had told him 1500 was a floor because it is where the AXP2101's long-press
+// verdict lands. That was wrong, and worth correcting here rather than quietly:
+// the hold is counted from KEY_PRESS, the RAW press edge, not from the verdict,
+// so nothing forces the dim to wait for the PMIC to agree.
+//
+// What it does cost: a deliberate-but-slow press, a child leaning on PWR to
+// start the stopwatch, now pales the panel briefly before she lets go. It
+// restores itself on release. 800 is chosen to sit clear of an ordinary tap
+// (a few hundred ms) while still reading as immediate.
+//
+// The BOOT+PWR chord is unaffected: the moment BOOT is seen the hold is marked
+// tainted and brightness returns to baseline, so a real chord never dims.
+//
+// Welcome side effect: with PWR_HOLD_POWEROFF_MS at 2000 the fade was 500ms,
+// which read as a blink. It is 1200ms again.
+#define PWR_HOLD_DIM_START_MS       800u
+// 3500, down from 5000 on 2026-08-14: the owner asked for the whole gesture
+// to take 1.5s less. The dim START deliberately does not move, because 1500
+// is not a taste number: it is where the PMIC's own long-press verdict lands,
+// so the fade begins exactly when the hardware agrees a long press is
+// happening. What shortens is the ramp between them, from 3.5s to 2s.
+// 2000, down from 3500 on 2026-08-15, the second 1.5s the owner asked for.
+//
+// The dim START cannot follow it down: 1500 is where the AXP2101's own
+// long-press verdict lands, and dimming earlier would make the panel react
+// to ordinary short presses. So the fade is now 500ms, and that is the real
+// cost of this change rather than the shorter hold: the fade is the only
+// warning before the rails cut, and at 500ms it reads closer to a blink than
+// to a ramp. Told to the owner before it was made.
+//
+// Also worth knowing: 2000 is only 500ms past the verdict the BOOT+PWR chord
+// uses, so a chord attempt whose BOOT went unseen (BOOT is polled at 20Hz)
+// now becomes a power-off in two seconds rather than five. g_pwrChordTainted
+// still cancels it whenever BOOT IS seen.
+#define PWR_HOLD_POWEROFF_MS        2000u
 // How long to wait, after the panel reaches black and a shutdown command
 // has been sent, before concluding it did not take. The AXP2101 cutting its
 // own rails should be near-instant if it happens at all; 1.5s is generous
@@ -520,10 +575,85 @@ static void poweroff_gesture_tick(uint32_t nowMs, uint8_t key) {
         set_brightness_if_changed(0);
         if (!g_pwrPoweroffSent) {
             g_pwrPoweroffSent = true;
-            rt_log("poweroff: PWR held 5s alone (BOOT never held during this hold), requesting power-off");
+            // The threshold is FORMATTED IN, not spelled out in the string.
+            // This line read "PWR held 5s alone" for as long as it took
+            // someone to notice, after PWR_HOLD_POWEROFF_MS moved to 3500 -
+            // and this is the one line an incident like the owner's
+            // (sensors_request_poweroff() silently doing nothing, see
+            // "WHEN SHUTDOWN DOES NOTHING" above) actually gets read from.
+            // A diagnostic that misreports the threshold it just crossed is
+            // worse than one that never mentioned it.
+            char msg[112];
+            char *p = msg;
+            p = fmt_append_str(p, "poweroff: PWR held ");
+            p = fmt_append_u32(p, PWR_HOLD_POWEROFF_MS);
+            p = fmt_append_str(p, "ms alone (BOOT never held during this hold), requesting power-off");
+            *p = '\0';
+            rt_log(msg);
             sensors_request_poweroff();
         }
     }
+}
+
+/* ---- orientation: rotated into the app's own space, once, here -----------
+ *
+ * tilt.h publishes gravity in PANEL space. Half this device's apps draw in
+ * LANDSCAPE space (app_t.landscape), through gfx's rotation, and handing
+ * those a panel-space vector would mean every one of them rotating it back
+ * by hand - which is the written-twice seam tilt.h exists to prevent,
+ * reintroduced one link further along, and in the worst possible place: a
+ * spirit level whose bubble moves at ninety degrees to the tilt passes
+ * every automated check this project can build, because no software oracle
+ * knows which way is up.
+ *
+ * So the runtime rotates it, exactly like gfx_land_rect() already rotates
+ * rectangles for the same apps, and an app reads gravity in the same
+ * coordinates it draws in.
+ *
+ * The mapping, derived from gfx.h's own: landscape (lx, ly) -> panel
+ * (PANEL_W - 1 - ly, lx). Differentiating that (a direction has no origin,
+ * so the constant drops out) gives panel direction (dpx, dpy) from
+ * landscape (dlx, dly) as (-dly, dlx), and the inverse - which is what is
+ * needed here, panel to landscape - as:
+ *
+ *     dlx =  dpy
+ *     dly = -dpx
+ *
+ * Sanity check against the physical device: held sideways with the buttons
+ * along the top edge (gfx.h's landscape posture), gravity reads (-1, 0) in
+ * panel axes, which comes out (0, +1) in landscape axes: straight down the
+ * screen the app drew. Correct.
+ *
+ * The up-edge code rotates the same way, as a relabelling: the panel's
+ * right edge IS the landscape top edge, so land = (panel + 3) % 4.
+ * gz is unchanged by any rotation about the panel normal, by definition.
+ */
+static app_tilt_t tilt_for_app(const tilt_reading_t *r, bool landscape) {
+    app_tilt_t t;
+    t.tiltDeg = r->tiltDeg;
+    t.valid = r->valid;
+    t.coasting = r->coasting; // not affected by a rotation about the panel normal
+    t.gz = r->gz;
+    if (landscape) {
+        t.gx = r->gy;
+        t.gy = -r->gx;
+        t.up = (uint8_t)((r->up + 3u) % 4u);
+    } else {
+        t.gx = r->gx;
+        t.gy = r->gy;
+        t.up = r->up;
+    }
+    return t;
+}
+
+// The last thing handed to an app, kept for the one-off instruments that
+// have to read at the app boundary rather than at the sensor: devlink's
+// TILT command (the axis ritual in tilt.h) and the emulator's headless
+// orientation test. Nothing in the runtime's own logic reads this.
+static app_tilt_t g_lastAppTilt;
+
+void rtcore_last_tilt(app_tilt_t *out) {
+    *out = g_lastAppTilt;
 }
 
 /* ---- lifecycle: what the host drives -------------------------------------- */
@@ -561,22 +691,23 @@ void rtcore_tick(uint32_t nowMs) {
     frame.dtMs = dtMs;
 
     // ---- touch: drain into the simple down/pressed/released/x/y shape,
-    // except when the sketchpad is running.
+    // except for an app that asked for the raw stream instead
+    // (app_t.wantsRawTouch - the sketchpad is the only one today, because
+    // stroke reconstruction from the raw sample stream is its whole reason
+    // for existing; see sensors.h and app.h's comment on touchDown/X/Y).
     //
-    // This is a wart: app_t carries no "I want raw touch" flag, and the
-    // comparison below hardcodes one specific app's identity into this
-    // file, which is exactly the kind of thing app.h's design is supposed
-    // to keep out of here. It is done anyway because building the general
-    // mechanism serves exactly one consumer today: the sketchpad is the
-    // only app whose whole reason for existing is stroke reconstruction
-    // from the raw sample stream (see sensors.h and app.h's comment on
-    // touchDown/X/Y).
+    // This used to read `g_currentApp != &g_sketchApp`, naming one specific
+    // app inside the runtime, and this comment used to concede it was a wart
+    // justified by having exactly one consumer. It stopped being defensible
+    // the moment a firmware could be built with a roster that has no
+    // sketchpad in it: the runtime then failed to COMPILE, which is not a
+    // wart, it is a leak. See app.h's wantsRawTouch.
     //
     // Consequence of skipping the drain here: sensors_set_finger_down() is
-    // only called from this branch too, so while the sketchpad is running
-    // it is that app's own job (in its own tick(), draining
-    // sensors_touch_next() itself) to keep that signal fresh.
-    if (g_currentApp != &g_sketchApp) {
+    // only called from this branch too, so an app that opts out takes on
+    // keeping that signal fresh itself, from its own tick(), while it drains
+    // sensors_touch_next().
+    if (!g_currentApp->wantsRawTouch) {
         // g_touchWasDown/g_touchLastX/g_touchLastY: file-scope now, reset by
         // touch_resolver_reset() on every switch - see that function's
         // comment (up by the arena) for why these cannot be per-app-run
@@ -674,6 +805,17 @@ void rtcore_tick(uint32_t nowMs) {
         bool bumped = (seq != lastEraseSeq);
         lastEraseSeq = seq;
         frame.shaken = bumped && g_currentApp->wantsShake;
+    }
+
+    // Orientation. Read once per frame, rotated into whatever space the
+    // current app draws in (see tilt_for_app above), and handed over with
+    // no opt-in flag: it consumes nothing and destroys nothing, unlike
+    // shake.
+    {
+        tilt_reading_t r;
+        tilt_read(nowMs, &r);
+        frame.tilt = tilt_for_app(&r, g_currentApp->landscape);
+        g_lastAppTilt = frame.tilt;
     }
 
     g_currentApp->tick(&frame);

@@ -37,7 +37,7 @@
 // the eight math functions, exactly emu_abi.h's documented list. Everything
 // this file works around (malloc, printf, the three extra math functions)
 // is compiled INTO the module by emu_shim.c or shim/math.h, never imported.
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -52,6 +52,24 @@ const FIRMWARE = join(DEVICE_ROOT, "firmware");
 // this firmware instead of example/, with no wiring step in between.
 const DIST = join(REPO_ROOT, "wasm", "dist");
 const OUT = join(DIST, "emu.wasm");
+
+// The linker writes HERE, and the result is renamed onto OUT only once it has
+// succeeded. Two reasons, and the second one cost an afternoon twice on the
+// device project this pack was extracted from.
+//
+// A failed or crashed link leaves a truncated file behind, which the next test
+// run happily loads as if it were a module.
+//
+// And more importantly, a tree like this is worked on by more than one agent
+// at a time, so a second `zig cc` writing dist/emu.wasm while a test is
+// reading it is entirely normal. A torn read still COMPILES (the wasm prefix
+// is valid) and then fails at the first call after an app switch with
+// "RuntimeError: call_indirect to a signature that does not match", which
+// reads exactly like a firmware bug in whatever app you happen to be working
+// on and is nothing of the sort. A rename is atomic, so a reader sees either
+// the whole old module or the whole new one, never half of one. The pid keeps
+// two concurrent builders off each other's temp file.
+const OUT_TMP = `${OUT}.tmp-${process.pid}`;
 
 // The ABI header is the emulator's, at the repo root: one copy, so the
 // firmware cannot compile against a stale private fork of the contract.
@@ -81,8 +99,13 @@ const EMU_EXPORTS = [
   "emu_button_verdict",
   "emu_sensor_event",
   "emu_sensor_vector",
+  "emu_tilt",
   "emu_app_current",
   "emu_app_switch",
+  "emu_menu_app_count",
+  "emu_menu_app_index",
+  "emu_arena_used",
+  "emu_arena_capacity",
   "emu_tune_get",
   "emu_tune_set",
   "emu_tune_reset",
@@ -98,36 +121,32 @@ const EMU_EXPORTS = [
 // fluid.c - see that port's README.md). Default behaviour (no --app) is
 // UNCHANGED below: same SOURCES, same INCLUDES, same full firmware with its
 // menu. This is not the esp32-s3 sibling's --app convention (a single
-// g_demoApp slot, swapped by defining a symbol of that same name): this
-// pack's runtime_core.c - a pack firmware source, never edited by a port,
-// see AGENTS.md and docs/convention/device-pack.md - hardcodes THREE named
-// app slots plus a separate menu app (`const app_t *const g_apps[] =
-// {&g_chronoApp, &g_sketchApp, &g_timerApp};`, `extern const app_t
-// g_menuApp;`), all four referenced by exact symbol name. A single-app
-// build cannot make runtime_core.c ask for fewer symbols without touching
-// it, so instead every slot is pointed at the SAME app: g_chronoApp,
-// g_sketchApp, g_timerApp and g_menuApp all become the ported app, via a
-// tiny GENERATED roster file (not a pack firmware source - written to an OS
-// temp directory by this script, one literal app_t initializer per symbol,
-// and deleted after the build) rather than a hand-maintained one, per this
-// task's own instruction. Concretely this means: every one of the three
-// app-table slots boots into the same app, and the BOOT+PWR menu gesture
-// (runtime_core.c) switches to a "menu" that is that same app too - "no
-// menu" in the sense that nothing menu-shaped is reachable, not in the
-// sense that the gesture is disabled or that runtime_core.c changed.
+// g_demoApp slot, swapped by defining a symbol of that same name): on this
+// pack the app layer is declared by firmware/apps/app_roster.inc, which
+// runtime_core.c (a pack firmware source, never edited by a port - see
+// AGENTS.md and docs/convention/device-pack.md) includes. So a single-app
+// build GENERATES that one file into an OS temp directory and puts the
+// directory FIRST on the include path, and nothing else about the build
+// changes: no new translation unit, no link-order question, and
+// runtime_core.c is not touched.
+//
+// This used to be much worse, and the difference is the point of the
+// roster's own extraction: runtime_core.c hardcoded three named app slots
+// plus a menu app, all four referenced by exact symbol name, so a
+// single-app build had to alias EVERY slot onto the same app and ship a
+// firmware whose menu gesture opened the app it was already running. The
+// generated roster now says what it means - one app, one menu slot, one
+// entry - and the menu gesture opens that app because there is genuinely no
+// menu compiled in, not because four symbols were pointed at one object.
 //
 // The --app FILE's contract (this pack's own, not emu_abi.h's or app.h's):
 // two plain functions, `void port_enter(void)` and
 // `void port_tick(const app_frame_t *f)` - no app_t of its own, since the
-// generated roster below is what actually builds every app_t object this
-// build links; giving the port file a same-named app_t (chrono.c's own
-// pattern) would only mean choosing ONE of four required symbol names to
-// privilege for no reason, when none of the four is more "real" than the
-// others once every slot answers identically. `--landscape` and `--shake`
-// set the generated app_t's `landscape`/`wantsShake` fields (both default
-// false); nothing else in app_t varies per port on this pack today, so a
-// CLI flag is simpler than inventing a second file format the port's own
-// .c would have to satisfy.
+// generated roster below is what builds the app_t object this build links.
+// `--landscape` and `--shake` set the generated app_t's
+// `landscape`/`wantsShake` fields (both default false); nothing else in
+// app_t varies per port on this pack today, so a CLI flag is simpler than
+// inventing a second file format the port's own .c would have to satisfy.
 function parseArgs(argv: string[]): { appPath: string | null; landscape: boolean; shake: boolean } {
   const appIndex = argv.indexOf("--app");
   let appPath: string | null = null;
@@ -153,31 +172,45 @@ const { appPath: APP_PATH, landscape: APP_LANDSCAPE, shake: APP_SHAKE } = parseA
 // artifact, not a source this repository tracks.
 let generatedRosterDir: string | null = null;
 
+// Writes the generated app_roster.inc and returns the directory holding it,
+// which the caller puts FIRST on the include path so runtime_core.c's
+// `#include "app_roster.inc"` resolves to this one rather than to
+// firmware/apps/'s hand-written reference roster.
+//
+// The tunables stubs and the port's own app_t sit in here too rather than in
+// a second generated file, because everything below is the same thing: what
+// the app LAYER supplies to a build that has no apps/ directory compiled
+// into it.
 function generateRoster(appName: string, landscape: boolean, shake: boolean): string {
   generatedRosterDir = mkdtempSync(join(tmpdir(), "puck-port-roster-"));
-  const rosterPath = join(generatedRosterDir, "roster.c");
-  const initList = `{ .name = "${appName}", .enter = port_enter, .tick = port_tick, .leave = NULL, .landscape = ${landscape ? "true" : "false"}, .wantsShake = ${shake ? "true" : "false"} }`;
+  const rosterPath = join(generatedRosterDir, "app_roster.inc");
   const source = `// GENERATED by packs/rp2350-touch-amoled-18/wasm/build.ts's --app flag.
 // Not a pack firmware source (docs/convention/device-pack.md): written to a
-// temp file for this one build and deleted afterwards. See build.ts's
-// header comment on --app for why runtime_core.c (never edited) still needs
-// exactly these symbols even when only one app is meant to run.
-#include <stdbool.h>
-#include <stddef.h>
-#include "app.h"
-#include "sensors.h"
-
+// temp file for this one build and deleted afterwards. Included by
+// firmware/runtime/runtime_core.c, which is never edited - see build.ts's
+// header comment on --app, and firmware/apps/app_roster.inc for the
+// hand-written reference roster this stands in for.
 extern void port_enter(void);
 extern void port_tick(const app_frame_t *f);
 
-const app_t g_chronoApp = ${initList};
-const app_t g_sketchApp = ${initList};
-const app_t g_timerApp  = ${initList};
-const app_t g_menuApp   = ${initList};
+static const app_t g_portApp = { .name = "${appName}", .enter = port_enter, .tick = port_tick, .leave = NULL, .landscape = ${landscape ? "true" : "false"}, .wantsShake = ${shake ? "true" : "false"} };
+
+const app_t *const g_apps[] = { &g_portApp };
+const int g_appCount = 1;
+
+// One entry, so the picker would draw exactly the app already running. It is
+// never drawn: g_menuApp below IS the port, so the BOOT+PWR chord switches to
+// the same app rather than to a menu. Nothing menu-shaped is compiled into a
+// single-app build; the gesture is not disabled, there is simply nothing else
+// to reach.
+const int g_menuAppIndex[] = { 0 };
+const int g_menuAppCount = 1;
+
+const app_t g_menuApp = { .name = "${appName}", .enter = port_enter, .tick = port_tick, .leave = NULL, .landscape = ${landscape ? "true" : "false"}, .wantsShake = ${shake ? "true" : "false"} };
 
 // Called only from inside runtime_core.c's BOOT+PWR chord branch that opens
-// the menu. Every slot answers with the same app here, so there is no
-// distinct "menu" to remember returning from.
+// the menu. There is no distinct menu here, so there is nothing to remember
+// returning from.
 void menu_set_return_app(int index) { (void)index; }
 
 // emu_shim.c's tunables surface (emu_device()'s "tunables" JSON,
@@ -198,23 +231,39 @@ bool sketch_tune_set(const char *name, float value, float *outApplied) {
 }
 `;
   writeFileSync(rosterPath, source, "utf8");
-  return rosterPath;
+  return generatedRosterDir;
 }
 
+// The generated roster's directory, or null for a normal build. Computed
+// before SOURCES because the include path below has to lead with it.
+const ROSTER_DIR = APP_PATH
+  ? generateRoster(APP_PATH.replace(/\.c$/, "").split(/[\\/]/).pop() ?? "port", APP_LANDSCAPE, APP_SHAKE)
+  : null;
+
+// The runtime half, identical either way. tilt.c is in here for the same
+// reason sound_synth.c is: the emulator must run the board's OWN orientation
+// filter, axis mapping and hysteresis, not a browser-side second copy of them
+// that agrees on the day it is written and drifts after. storage.c is NOT:
+// it is flash, and emu_shim.c supplies an in-RAM stand-in for storage.h.
+const RUNTIME_SOURCES = [
+  join(WASM_DIR, "emu_shim.c"),
+  join(FIRMWARE, "runtime", "runtime_core.c"),
+  join(FIRMWARE, "runtime", "gfx.c"),
+  join(FIRMWARE, "runtime", "tilt.c"),
+  join(FIRMWARE, "runtime", "sound_synth.c"),
+  // The live-tune registry (firmware/runtime/tune_registry.h): one flat
+  // name/index space over whatever apps firmware/apps/app_tunables.inc
+  // lists. Portable like runtime_core.c and gfx.c above, so it belongs
+  // here the same way they do - and it MUST be here, because omitting it
+  // does not fail the link: -Wl,--import-symbols turns tune_registry_*
+  // into wasm imports the host never provides, silently.
+  join(FIRMWARE, "runtime", "tune_registry.c"),
+];
+
 const SOURCES = APP_PATH
-  ? [
-      join(WASM_DIR, "emu_shim.c"),
-      join(FIRMWARE, "runtime", "runtime_core.c"),
-      join(FIRMWARE, "runtime", "gfx.c"),
-      join(FIRMWARE, "runtime", "sound_synth.c"),
-      APP_PATH,
-      generateRoster(APP_PATH.replace(/\.c$/, "").split(/[\\/]/).pop() ?? "port", APP_LANDSCAPE, APP_SHAKE),
-    ]
+  ? [...RUNTIME_SOURCES, APP_PATH]
   : [
-      join(WASM_DIR, "emu_shim.c"),
-      join(FIRMWARE, "runtime", "runtime_core.c"),
-      join(FIRMWARE, "runtime", "gfx.c"),
-      join(FIRMWARE, "runtime", "sound_synth.c"),
+      ...RUNTIME_SOURCES,
       join(FIRMWARE, "apps", "digits.c"),
       join(FIRMWARE, "apps", "chrono.c"),
       join(FIRMWARE, "apps", "sketch.c"),
@@ -232,7 +281,13 @@ const SOURCES = APP_PATH
 // dirname(APP_PATH) is added too (only relevant for --app) so a ported app
 // living outside firmware/apps/ can #include a private helper header of its
 // own, the same allowance the esp32-s3 sibling's build.ts gives its --app.
+//
+// ROSTER_DIR goes ahead of all of them when --app is given: it holds the
+// generated app_roster.inc, and it must win over firmware/apps/'s
+// hand-written one, which is the whole mechanism by which a single-app build
+// replaces the app layer without editing a pack source.
 const INCLUDES = [
+  ...(ROSTER_DIR ? [ROSTER_DIR] : []),
   join(WASM_DIR, "shim"),
   join(FIRMWARE, "runtime"),
   join(FIRMWARE, "apps"),
@@ -290,10 +345,21 @@ const args = [
   // (emu_abi.h's "tunables" section) has nothing to build controls from
   // without this.
   "-DSKETCH_LIVE_TUNE=1",
+  // Extra flags from the environment, whitespace separated. This exists for
+  // firmware that carries a compile-time LAYOUT VARIANT somebody is meant to
+  // judge rather than a knob to be tuned, so that rendering the alternative is
+  //
+  //   EMU_EXTRA_DEFINES=-DSOME_LAYOUT=0 bun run pack:build
+  //
+  // rather than editing a #define, building, capturing, and remembering to put
+  // it back. It is deliberately NOT the tunables mechanism (emu_abi.h): that
+  // one is for values a running module can change, and a layout that decides
+  // the size of every rectangle on screen is not one of those.
+  ...(process.env.EMU_EXTRA_DEFINES ?? "").split(/\s+/).filter(Boolean),
   ...EMU_EXPORTS.map((name) => `-Wl,--export=${name}`),
   ...INCLUDES.flatMap((dir) => ["-I", dir]),
   ...SOURCES,
-  "-o", OUT,
+  "-o", OUT_TMP,
 ];
 
 console.log(`${ZIG} ${args.join(" ")}`);
@@ -324,11 +390,17 @@ for (let attempt = 2; !result.success && attempt <= MAX_ATTEMPTS; attempt++) {
 }
 
 if (!result.success) {
+  // Whatever half-written module the crashed linker left behind goes with it,
+  // rather than sitting in dist/ as a *.tmp-1234 nobody will ever look at. The
+  // previous emu.wasm is untouched and still valid, which is the other half of
+  // what the temp file buys.
+  rmSync(OUT_TMP, { force: true });
   console.error(`zig cc exited ${result.exitCode} on all ${MAX_ATTEMPTS} attempts, so this is a real build failure`);
   cleanupRoster();
   process.exit(result.exitCode ?? 1);
 }
 
+renameSync(OUT_TMP, OUT); // atomic: see OUT_TMP's own comment
 const size = statSync(OUT).size;
 console.log(`built ${OUT} (${size} bytes)`);
 cleanupRoster();

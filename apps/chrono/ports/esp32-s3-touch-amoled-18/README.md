@@ -96,7 +96,7 @@ cp wasm/dist/emu.wasm /tmp/rp2350-chrono.wasm
 ZIG_EXE=C:\Users\sylve\tools\zig\zig.exe bun run packs/esp32-s3-touch-amoled-18/wasm/build.ts --app apps/chrono/ports/esp32-s3-touch-amoled-18/chrono.c
 cp wasm/dist/emu.wasm /tmp/esp32-chrono.wasm
 bun run portdiff /tmp/rp2350-chrono.wasm /tmp/esp32-chrono.wasm apps/chrono/traces/chrono-idle.trace.json --every 100
-bun run portdiff /tmp/rp2350-chrono.wasm /tmp/esp32-chrono.wasm apps/chrono/traces/chrono-startstop.trace.json --write-frames apps/chrono/frames
+bun run portdiff /tmp/rp2350-chrono.wasm /tmp/esp32-chrono.wasm apps/chrono/traces/chrono-startstop.trace.json --at 1808,1888,2080 --write-frames apps/chrono/frames
 ```
 
 Both traces compared pixel-identical at every capture point (see the final report for verbatim

@@ -251,6 +251,27 @@ void emu_sensor_event(int index);
 // instead of a discrete one.
 void emu_sensor_vector(int index, float x, float y, float z);
 
+/* ---- optional: what the app was last handed -------------------------------
+ *
+ * The vector sensor's value AS THE CURRENT APP SAW IT on the last emu_tick():
+ * filtered, axis-mapped, and rotated into whatever coordinate space that app
+ * draws in. A TEST ORACLE, never an input.
+ *
+ * It exists because everything that can actually go wrong with a continuous
+ * orientation signal happens BETWEEN the sensor and the app: a swapped axis,
+ * an inverted sign, a rotation applied the wrong way, a filter that never
+ * converges. A test that asserted on what it had just passed to
+ * emu_sensor_vector() would be reading upstream of every one of those, and so
+ * would validate nothing.
+ *
+ * `field` selects a scalar, so this needs no struct across the wasm boundary:
+ * 0/1/2 are the vector's x/y/z, 3 the angle from flat in degrees, 4 which edge
+ * is up as a small integer, 5 whether the reading is valid at all, 6 whether
+ * the filter is coasting on its last belief. A firmware with no continuous
+ * sensor leaves this unimplemented and the host never calls it.
+ */
+float emu_tilt(int field);
+
 /* ---- optional: apps -----------------------------------------------------
  *
  * Only meaningful if emu_device() declared an "apps" array. A firmware
@@ -259,6 +280,36 @@ void emu_sensor_vector(int index, float x, float y, float z);
  */
 int  emu_app_current(void);
 void emu_app_switch(int index);
+
+/* ---- optional: the menu's own roster ---------------------------------------
+ *
+ * Which of emu_device()'s "apps" the firmware's own on-device picker actually
+ * shows, and in what order: emu_menu_app_index(slot) is an index INTO the
+ * apps array, for slot in [0, emu_menu_app_count()).
+ *
+ * A separate oracle from "apps" on purpose. Taking an app off the picker is a
+ * product decision and never a deletion, so a firmware can perfectly well
+ * carry eleven apps and show five, and a test that read the roster off the
+ * apps array would then be asserting something the device does not do. A
+ * firmware whose picker shows everything reports the identity mapping, and a
+ * firmware with no picker leaves these unimplemented.
+ */
+int emu_menu_app_count(void);
+int emu_menu_app_index(int slot);
+
+/* ---- optional: the app arena ----------------------------------------------
+ *
+ * How many bytes of its fixed per-app allocation arena the running app has
+ * taken, and how large that arena is. Both in bytes; used together they are a
+ * headroom check a gate can fail on BEFORE a flash, rather than a red screen
+ * discovered on the device.
+ *
+ * Only meaningful for a firmware whose app contract has a bump-allocated arena
+ * at all. One that allocates differently, or not at all, leaves these
+ * unimplemented.
+ */
+int emu_arena_used(void);
+int emu_arena_capacity(void);
 
 /* ---- sound ----------------------------------------------------------------
  *
