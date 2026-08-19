@@ -14,6 +14,8 @@
   --border: #e2e5e9;
   --accent: #2f6feb;
   --accent-ink: #ffffff;
+  --success: #1a7f37;
+  --success-ink: #ffffff;
   --radius: 10px;
 }
 
@@ -27,6 +29,8 @@
     --border: #262c33;
     --accent: #5b9dff;
     --accent-ink: #0d1117;
+    --success: #3fb950;
+    --success-ink: #0d1117;
   }
 }
 
@@ -317,14 +321,20 @@ footer { padding: 30px 0 60px; color: var(--text-soft); font-size: 0.85rem; bord
 .flash-btn-alt { background: transparent; color: var(--accent); border-color: var(--border); }
 .flash-btn-alt:hover { border-color: var(--accent); text-decoration: none; }
 .flash-hint { margin: 12px 0 0; color: var(--text-soft); font-size: 0.85rem; }
-.flash-progress { margin-top: 16px; }
+.flash-progress { margin-top: 16px; transition: opacity 0.4s ease; }
+.flash-progress.fade-out { opacity: 0; }
 .flash-progress-track {
   height: 6px;
   border-radius: 999px;
   background: var(--surface-2);
   overflow: hidden;
 }
-.flash-progress-bar { height: 100%; width: 0%; background: var(--accent); transition: width 0.2s ease; }
+.flash-progress-bar { height: 100%; width: 0%; background: var(--accent); transition: width 0.2s ease, background 0.3s ease; }
+/* The done phase: the bar itself turns success-green before the whole
+   .flash-progress block fades (see flash-ui.ts's showDone) - a visible
+   "it worked" beat, not just a silent jump straight to the completed line
+   below, so a slow read of the page still catches the moment it succeeded. */
+.flash-progress-bar.done { background: var(--success); }
 .flash-status { margin: 8px 0 0; color: var(--text-soft); font-size: 0.85rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .flash-error {
   margin-top: 14px;
@@ -334,6 +344,21 @@ footer { padding: 30px 0 60px; color: var(--text-soft); font-size: 0.85rem; bord
   border: 1px solid var(--border);
   color: var(--text);
   font-size: 0.88rem;
+}
+/* The completed state (flash-ui.ts's showDone, after the progress block
+   fades out): a distinct success banner, not a muted monospace log line
+   like .flash-status - this is the line that has to read as unambiguously
+   "it worked, you're done" even to someone who thought the bar had
+   frozen. */
+.flash-done {
+  margin-top: 14px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--success);
+  color: var(--success);
+  font-size: 0.92rem;
+  font-weight: 600;
 }
 .flash-ritual { margin-top: 16px; font-size: 0.88rem; }
 .flash-ritual summary { cursor: pointer; color: var(--text-soft); font-weight: 600; }

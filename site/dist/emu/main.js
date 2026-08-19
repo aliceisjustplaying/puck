@@ -695,6 +695,7 @@ function assignShortcut(id, used) {
 // src/sensors.ts
 function buildSensorControls(container, sensors, shortcuts, usedKeys, log, onFire, guardedCall) {
   container.innerHTML = "";
+  const firers = new Map;
   sensors.forEach((sensor, index) => {
     if (sensor.kind !== "event")
       return;
@@ -705,6 +706,7 @@ function buildSensorControls(container, sensors, shortcuts, usedKeys, log, onFir
         onFire?.(sensor, index);
       });
     };
+    firers.set(sensor.id.toLowerCase(), fire);
     const key = assignShortcut(sensor.id, usedKeys);
     const btn = document.createElement("button");
     btn.className = "btn sec sm sensor-btn";
@@ -719,6 +721,15 @@ function buildSensorControls(container, sensors, shortcuts, usedKeys, log, onFir
     btn.addEventListener("click", fire);
     container.appendChild(btn);
   });
+  return {
+    fire(id) {
+      const fn = firers.get(id.toLowerCase());
+      if (!fn)
+        return false;
+      fn();
+      return true;
+    }
+  };
 }
 
 // src/appstrip.ts
@@ -1633,7 +1644,7 @@ class PhoneMotion {
     chip.textContent = this.blocked ? "tilt blocked in Safari settings" : "tilt with your phone";
     chip.disabled = this.blocked;
     chip.addEventListener("click", this.onChipClick);
-    this.opts.stage.appendChild(chip);
+    (this.opts.mountTo ? this.opts.mountTo() : this.opts.stage).appendChild(chip);
     this.opts.stage.classList.add("motion-available");
     this.chip = chip;
     document.addEventListener("visibilitychange", this.onVisibilityChange);
@@ -1950,6 +1961,8 @@ var replayBarEl = $("#replayBar");
 var btnStopReplay = $("#btnStopReplay");
 var btnPause = $("#btnPause");
 var stageEl = $("#stage");
+var ROTATE_ICON_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" ' + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"></polyline>' + '<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>';
+var SHAKE_ICON_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">' + '<path d="M0 15h2V9H0v6zm3 2h2V7H3v10zm19-8v6h2V9h-2zm-3 10h2V7h-2v10zM16.5 3h-9C6.67 3 6 3.67 6 4.5v15c0 .83.67 1.5 1.5 1.5h9c.83 0 1.5-.67 1.5-1.5v-15c0-.83-.67-1.5-1.5-1.5zM16 19H8V5h8v14z"></path></svg>';
 var WASM_URL = new URLSearchParams(location.search).get("module") || DEFAULT_WASM_URL;
 var EMBED = new URLSearchParams(location.search).get("embed") === "1";
 var emu = null;
@@ -1993,7 +2006,8 @@ var phoneMotion = new PhoneMotion({
   sendVector: (x, y, z, source) => sendVector(x, y, z, source),
   fireShake: (now, source) => fireShakeSensor(now, source),
   onLayoutChanged: () => fitDeviceToStage(),
-  onOwnershipReleased: () => sendGravityForRotation()
+  onOwnershipReleased: () => sendGravityForRotation(),
+  mountTo: () => embedControlsRow ?? stageEl
 });
 var dragMotion = new DragMotion({
   bezel: bezelEl,
@@ -2014,6 +2028,7 @@ var wiredButtonById = new Map;
 var buttonKeyById = new Map;
 var appStripControl = null;
 var lastAppIndex = 0;
+var sensorControls = null;
 var paused = false;
 var replayer = null;
 var tickCount = 0;
@@ -2251,7 +2266,7 @@ function buildChrome(d) {
     shortcutListEl.appendChild(row);
   });
   if (emu) {
-    buildSensorControls($("#sensorControls"), d.sensors || [], shortcuts, usedKeys, (t) => consoleLog.push(t), (sensor) => {
+    sensorControls = buildSensorControls($("#sensorControls"), d.sensors || [], shortcuts, usedKeys, (t) => consoleLog.push(t), (sensor) => {
       if (sensor.id.toLowerCase() === "shake")
         puckMotion.impulse((Math.random() - 0.5) * 500, (Math.random() - 0.5) * 380);
     }, guardedAbiCall);
@@ -2264,6 +2279,8 @@ function buildChrome(d) {
     return acc;
   }, []);
   phoneMotion.onDeviceChanged(vectorSensorIndices.length > 0, shakeSensorIndex >= 0);
+  if (embedShakeBtn)
+    embedShakeBtn.hidden = shakeSensorIndex < 0;
   touchEnabled = (d.touch?.points ?? 0) > 0;
   panelEl.style.cursor = touchEnabled ? "crosshair" : "default";
   touchOverlay.pxPerMm = derivePxPerMm(d);
@@ -2390,6 +2407,37 @@ function applyEmbedMode() {
     return;
   document.documentElement.classList.add("embed");
 }
+var embedControlsRow = null;
+var embedShakeBtn = null;
+function buildEmbedControls() {
+  if (!EMBED)
+    return;
+  const row = document.createElement("div");
+  row.id = "embedControls";
+  row.className = "embed-controls";
+  const rotateBtn = document.createElement("button");
+  rotateBtn.type = "button";
+  rotateBtn.className = "embed-ctrl-btn";
+  rotateBtn.setAttribute("aria-label", "rotate");
+  rotateBtn.title = "rotate";
+  rotateBtn.innerHTML = ROTATE_ICON_SVG;
+  rotateBtn.addEventListener("click", () => cycleQuickRotation());
+  row.appendChild(rotateBtn);
+  const shakeBtn = document.createElement("button");
+  shakeBtn.type = "button";
+  shakeBtn.className = "embed-ctrl-btn";
+  shakeBtn.setAttribute("aria-label", "shake");
+  shakeBtn.title = "shake";
+  shakeBtn.innerHTML = SHAKE_ICON_SVG;
+  shakeBtn.hidden = true;
+  shakeBtn.addEventListener("click", () => {
+    sensorControls?.fire("shake");
+  });
+  row.appendChild(shakeBtn);
+  stageEl.appendChild(row);
+  embedControlsRow = row;
+  embedShakeBtn = shakeBtn;
+}
 function fitDeviceToStage() {
   if (!EMBED)
     return;
@@ -2402,8 +2450,8 @@ function fitDeviceToStage() {
   const boxW = quarterTurned ? bh : bw;
   const boxH = quarterTurned ? bw : bh;
   const margin = 16;
-  const motionReserve = stageEl.classList.contains("motion-available") ? 44 : 0;
-  const scale = Math.min(1, (stageRect.width - margin) / boxW, (stageRect.height - margin - motionReserve) / boxH);
+  const controlsReserve = 56;
+  const scale = Math.min(1, (stageRect.width - margin) / boxW, (stageRect.height - margin - controlsReserve) / boxH);
   deviceWrapEl.style.setProperty("--embed-scale", String(scale > 0 ? scale : 1));
 }
 var reloadInFlight = false;
@@ -2927,10 +2975,16 @@ function buildTouchControls() {
 }
 function wireStaticUI() {
   applyEmbedMode();
+  buildEmbedControls();
   window.addEventListener("resize", () => fitDeviceToStage());
+  if (EMBED) {
+    document.addEventListener("pointerdown", () => window.focus());
+  }
   wireContactSize();
-  makeDraggable(bezelEl, deviceWrapEl, onPuckDrag);
-  bezelEl.title = "drag to move; shake it back and forth to trigger the shake sensor";
+  if (!EMBED) {
+    makeDraggable(bezelEl, deviceWrapEl, onPuckDrag);
+    bezelEl.title = "drag to move; shake it back and forth to trigger the shake sensor";
+  }
   wirePanelInput();
   connectLiveReload();
   wireTraceFile();
@@ -3021,6 +3075,7 @@ window.__debug = {
   getDevice: () => device,
   getRecorder: () => recorder,
   rebuildGestures: () => device && buildGestures(device),
+  rebuildChrome: () => device && buildChrome(device),
   getSoundPlayer: () => soundPlayer,
   getPhoneMotion: () => phoneMotion,
   getDeadState: () => deadState,

@@ -14,7 +14,7 @@ import { PushOverlay } from "./overlay";
 import { TouchOverlay, CONTACT_PRESETS, DEFAULT_PX_PER_MM } from "./touchoverlay";
 import { mapClientPoint, gravityForQuickDeg } from "./rotate";
 import { makeDraggable, wireButton, createButtonElement, applyRotation, type WiredButton } from "./device";
-import { buildSensorControls } from "./sensors";
+import { buildSensorControls, type SensorControls } from "./sensors";
 import { buildAppStrip, type AppStripControl } from "./appstrip";
 import { ShortcutRegistry, assignShortcut } from "./shortcuts";
 import { ConsoleLog, type LogLine } from "./consolelog";
@@ -54,6 +54,21 @@ const replayBarEl = $("#replayBar");
 const btnStopReplay = $<HTMLButtonElement>("#btnStopReplay");
 const btnPause = $<HTMLButtonElement>("#btnPause");
 const stageEl = $("#stage");
+
+// ---- embed control cluster: inline icons -----------------------------
+// Self-contained SVG strings (never a fetched icon font/sprite - this page
+// has no build step for one and must keep working offline): Feather's
+// "rotate-cw" glyph for the rotate button, Material's "vibration" glyph for
+// the shake button, both stroke/fill set to currentColor so they inherit
+// the button's own colour (idle/hover/press, see app.css's .embed-ctrl-btn)
+// rather than carrying a hardcoded one of their own.
+const ROTATE_ICON_SVG =
+  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"></polyline>' +
+  '<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>';
+const SHAKE_ICON_SVG =
+  '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">' +
+  '<path d="M0 15h2V9H0v6zm3 2h2V7H3v10zm19-8v6h2V9h-2zm-3 10h2V7h-2v10zM16.5 3h-9C6.67 3 6 3.67 6 4.5v15c0 .83.67 1.5 1.5 1.5h9c.83 0 1.5-.67 1.5-1.5v-15c0-.83-.67-1.5-1.5-1.5zM16 19H8V5h8v14z"></path></svg>';
 
 // ---- module URL ----
 // Additive hook for a static gallery page that embeds this same emulator
@@ -168,6 +183,11 @@ const phoneMotion = new PhoneMotion({
   fireShake: (now, source) => fireShakeSensor(now, source),
   onLayoutChanged: () => fitDeviceToStage(),
   onOwnershipReleased: () => sendGravityForRotation(),
+  // Joins the same row as the rotate/shake buttons rather than
+  // self-centering on its own spot - resolved lazily (see PhoneMotionOptions'
+  // own header comment) since embedControlsRow is only built later, in
+  // wireStaticUI, well after this object is constructed at module load.
+  mountTo: () => embedControlsRow ?? stageEl,
 });
 
 // See motion.ts's DragMotion header comment for the full gating rationale
@@ -200,6 +220,12 @@ let wiredButtonById = new Map<string, WiredButton>();
 let buttonKeyById = new Map<string, string>();
 let appStripControl: AppStripControl | null = null;
 let lastAppIndex = 0;
+// Set inside buildChrome, alongside appStripControl above: the one handle
+// this file needs to fire a declared event sensor from OUTSIDE the (in
+// embed mode, hidden) sidebar buttons buildSensorControls itself renders --
+// see buildEmbedControls' shake button below, which is the reason this
+// exists at all.
+let sensorControls: SensorControls | null = null;
 
 let paused = false;
 let replayer: Replayer | null = null;
@@ -600,7 +626,7 @@ function buildChrome(d: DeviceDescriptor): void {
   });
 
   if (emu) {
-    buildSensorControls($("#sensorControls"), d.sensors || [], shortcuts, usedKeys, (t) => consoleLog.push(t), (sensor) => {
+    sensorControls = buildSensorControls($("#sensorControls"), d.sensors || [], shortcuts, usedKeys, (t) => consoleLog.push(t), (sensor) => {
       // The one place a sensor click drives something visible beyond the
       // firmware event itself: a "shake" sensor gets the same puck motion
       // a real window shake produces, since there is no window motion
@@ -622,6 +648,12 @@ function buildChrome(d: DeviceDescriptor): void {
     return acc;
   }, []);
   phoneMotion.onDeviceChanged(vectorSensorIndices.length > 0, shakeSensorIndex >= 0);
+  // The embed shake button only ever shows for a device that actually
+  // declared one - same source of truth as the (hidden, in embed) sidebar
+  // sensor button above, never a second, independent "does this have
+  // shake" guess. No-op outside embed mode: buildEmbedControls never ran,
+  // so embedShakeBtn stays null.
+  if (embedShakeBtn) embedShakeBtn.hidden = shakeSensorIndex < 0;
 
   touchEnabled = (d.touch?.points ?? 0) > 0;
   panelEl.style.cursor = touchEnabled ? "crosshair" : "default";
@@ -814,6 +846,70 @@ function applyEmbedMode(): void {
   document.documentElement.classList.add("embed");
 }
 
+// ---- embed mode: the minimal control cluster (rotate + shake) -------------
+// Sylve's own read of the run pages ("'r' doesn't rotate anything... just
+// include buttons on the emulators"): the R/S keyboard shortcuts above are
+// dead on arrival inside a run page's iframe until the iframe itself has
+// page focus (a visitor who never clicked/tapped the device gets nothing
+// from pressing a key), so a button is the PRIMARY path here, not a
+// decorative extra alongside the shortcut. Built fresh, once, for the embed
+// layer - this is explicitly NOT the old .bottom-bar strip (app.css's
+// html.embed .bottom-bar rule still hides that outright, unchanged): two
+// small ghost icon buttons, low-contrast until hovered/pressed (see
+// app.css's .embed-ctrl-btn), that fire through the EXACT same paths the
+// removed strip's own rotation segtog / shake pill used - cycleQuickRotation
+// and sensorControls.fire("shake") - never a second, parallel
+// implementation of either.
+//
+// Mounted into #stage (not #deviceWrap): centred under the device via CSS
+// (app.css's .embed-controls), the same "own row below the bezel" spot the
+// phone-tilt chip already uses (motion.ts's PhoneMotion) - and, when both
+// exist, phoneMotion's own chip joins THIS row (see phoneMotion's mountTo
+// option above) rather than sitting in a second, independently centred
+// spot.
+//
+// Called once from wireStaticUI, before reloadModule() ever runs, so
+// embedShakeBtn already exists by the time buildChrome's own
+// "if (embedShakeBtn) embedShakeBtn.hidden = ..." line first runs.
+let embedControlsRow: HTMLDivElement | null = null;
+let embedShakeBtn: HTMLButtonElement | null = null;
+function buildEmbedControls(): void {
+  if (!EMBED) return;
+  const row = document.createElement("div");
+  row.id = "embedControls";
+  row.className = "embed-controls";
+
+  const rotateBtn = document.createElement("button");
+  rotateBtn.type = "button";
+  rotateBtn.className = "embed-ctrl-btn";
+  rotateBtn.setAttribute("aria-label", "rotate");
+  rotateBtn.title = "rotate";
+  rotateBtn.innerHTML = ROTATE_ICON_SVG;
+  rotateBtn.addEventListener("click", () => cycleQuickRotation());
+  row.appendChild(rotateBtn);
+
+  // Hidden by default (no sensors are known yet, this runs before the
+  // first module load) and revealed by buildChrome the moment a loaded
+  // device actually declares a "shake" event sensor - see that function's
+  // own "if (embedShakeBtn) embedShakeBtn.hidden = shakeSensorIndex < 0"
+  // line, the single source of truth for whether this device has one.
+  const shakeBtn = document.createElement("button");
+  shakeBtn.type = "button";
+  shakeBtn.className = "embed-ctrl-btn";
+  shakeBtn.setAttribute("aria-label", "shake");
+  shakeBtn.title = "shake";
+  shakeBtn.innerHTML = SHAKE_ICON_SVG;
+  shakeBtn.hidden = true;
+  shakeBtn.addEventListener("click", () => {
+    sensorControls?.fire("shake");
+  });
+  row.appendChild(shakeBtn);
+
+  stageEl.appendChild(row);
+  embedControlsRow = row;
+  embedShakeBtn = shakeBtn;
+}
+
 // ---- embed mode: scale the device to fit whatever viewport/iframe this
 // page is running in, instead of the normal dev UI's scroll-and-drag stage.
 // Recomputed on load, on window resize, and on every rotation change (a
@@ -836,8 +932,13 @@ function fitDeviceToStage(): void {
   const boxW = quarterTurned ? bh : bw;
   const boxH = quarterTurned ? bw : bh;
   const margin = 16; // breathing room so the bezel's own drop-shadow never clips
-  const motionReserve = stageEl.classList.contains("motion-available") ? 44 : 0;
-  const scale = Math.min(1, (stageRect.width - margin) / boxW, (stageRect.height - margin - motionReserve) / boxH);
+  // Always reserved in embed mode now, not just while the phone-tilt chip
+  // happens to be mounted: the rotate button (buildEmbedControls) is
+  // unconditional, so this row always occupies that space below the
+  // device, chip or no chip - see html.embed .device-wrap's own top offset
+  // in app.css, which shifts the device up by the same amount.
+  const controlsReserve = 56;
+  const scale = Math.min(1, (stageRect.width - margin) / boxW, (stageRect.height - margin - controlsReserve) / boxH);
   deviceWrapEl.style.setProperty("--embed-scale", String(scale > 0 ? scale : 1));
 }
 
@@ -1521,11 +1622,44 @@ function buildTouchControls(): void {
 // ---- static UI: everything not dependent on a loaded module ----
 function wireStaticUI(): void {
   applyEmbedMode(); // before anything below, so the strip is already in place for first paint
+  buildEmbedControls(); // no-op outside embed mode; must exist before phoneMotion's own chip can mount into it
   window.addEventListener("resize", () => fitDeviceToStage()); // no-op outside embed mode
+
+  // Keyboard shortcuts' supporting fix, secondary to the buttons above: R/S
+  // only reach this page's own `window` (ShortcutRegistry's listener) once
+  // THIS document actually holds page/frame focus, which an embedded
+  // iframe with no focusable child does not reliably get from a touch (see
+  // this file's own EMBED header comment - "keydown goes to the outer
+  // document until the iframe is clicked" was the root cause report this
+  // whole feature responds to). Grabbing focus explicitly on the very
+  // first pointerdown anywhere in the embed means a key pressed right
+  // after the first tap/click reaches this document instead of silently
+  // landing on the parent page. Idempotent and cheap, so it stays wired on
+  // every subsequent pointerdown too rather than trying to fire "only
+  // once".
+  if (EMBED) {
+    document.addEventListener("pointerdown", () => window.focus());
+  }
+
   wireContactSize();
 
-  makeDraggable(bezelEl, deviceWrapEl, onPuckDrag);
-  bezelEl.title = "drag to move; shake it back and forth to trigger the shake sensor";
+  // Free bezel repositioning is a dev-UI convenience, not something an
+  // embed should ever offer: the iframe is fixed inside someone else's
+  // page layout, so "drag the plastic" only ever reads as a miss-click
+  // (see this file's EMBED header comment). Left uncalled entirely in
+  // embed mode - for EVERY pointer type, not just touch - rather than
+  // gated inside device.ts's makeDraggable, so the dev UI keeps its exact
+  // prior behaviour byte for byte. The embed's own accelerometer
+  // simulation (motion.ts's DragMotion, constructed above, fine-pointer
+  // only) is unaffected: it owns the bezel's pointer listeners
+  // independently and already claims every gesture it wants via
+  // stopImmediatePropagation before makeDraggable would ever see it, so
+  // nothing here is needed to protect that path - this is purely about
+  // not registering the free-drag listener at all when embedded.
+  if (!EMBED) {
+    makeDraggable(bezelEl, deviceWrapEl, onPuckDrag);
+    bezelEl.title = "drag to move; shake it back and forth to trigger the shake sensor";
+  }
   wirePanelInput();
   connectLiveReload();
   wireTraceFile();
@@ -1645,6 +1779,17 @@ async function boot(): Promise<void> {
   // "perform" button/honest-degrade text update without a real firmware
   // rebuild.
   rebuildGestures: () => device && buildGestures(device),
+  // Re-derives the WHOLE chrome (buttons, sensor controls, the embed shake
+  // button's own visibility, ...) from the current device object, the same
+  // "mutate getDevice()'s reference then re-derive" trick rebuildGestures
+  // above already uses, generalised past just the gestures panel. Exists
+  // for scripts/verify-embed.ts's negative case (the embed shake button
+  // must stay hidden for a device with no declared "shake" event sensor):
+  // every device pack and the example firmware in this repo declare one
+  // unconditionally today, so there is no real "no shake" module to load
+  // via ?module= for that proof, and this reaches the same code path
+  // (buildChrome) a real reload against such a module would.
+  rebuildChrome: () => device && buildChrome(device),
   getSoundPlayer: () => soundPlayer,
   getPhoneMotion: () => phoneMotion,
   // Engine-death state (see enterDeadState): exposed so the hostile-firmware

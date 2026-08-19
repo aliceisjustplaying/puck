@@ -156,6 +156,15 @@ try {
       statusLog: string[];
       usbLog: Array<Record<string, unknown>>;
       pageErrors: string[];
+      // FIX 1: the completed-state banner .flash-done replaces the
+      // progress block once the done-phase fade finishes (flash-ui.ts's
+      // showDone) - read straight from the DOM rather than inferred from
+      // statusLog, since that banner is a different element than the one
+      // the MutationObserver above is watching.
+      doneHidden: boolean | null;
+      doneText: string | null;
+      progressHidden: boolean | null;
+      progressBarHasDoneClass: boolean | null;
     }
 
     async function runScenario(scenario: Scenario, settleMs: number): Promise<ScenarioResult> {
@@ -268,8 +277,9 @@ try {
       await new Promise((r) => setTimeout(r, 400));
 
       await scenarioPage.evaluate(() => {
-        const w = window as unknown as { __statusLog: string[] };
+        const w = window as unknown as { __statusLog: string[]; __progressBarWasDone: boolean };
         w.__statusLog = [];
+        w.__progressBarWasDone = false;
         const status = document.querySelector(".flash-status");
         if (status) {
           const record = () => {
@@ -278,18 +288,37 @@ try {
           };
           new MutationObserver(record).observe(status, { childList: true, characterData: true, subtree: true });
         }
+        // FIX 1: the bar's "done" (success-green) class is added, held, and
+        // then removed again as the whole block fades - a snapshot read
+        // AFTER settleMs would always see it gone. Latching the flag the
+        // moment the class is ever added is what lets this script prove the
+        // green beat actually happened, not just that the final banner
+        // showed up.
+        const bar = document.querySelector(".flash-progress-bar");
+        if (bar) {
+          const watch = () => {
+            if (bar.classList.contains("done")) w.__progressBarWasDone = true;
+          };
+          new MutationObserver(watch).observe(bar, { attributes: true, attributeFilter: ["class"] });
+        }
         document.querySelector<HTMLButtonElement>(".flash-btn")?.click();
       });
       await new Promise((r) => setTimeout(r, settleMs));
 
       const observed = await scenarioPage.evaluate(() => {
-        const w = window as unknown as { __statusLog: string[]; __usbLog: Array<Record<string, unknown>> };
+        const w = window as unknown as { __statusLog: string[]; __usbLog: Array<Record<string, unknown>>; __progressBarWasDone: boolean };
         const el = document.querySelector<HTMLElement>(".flash-error");
+        const doneEl = document.querySelector<HTMLElement>(".flash-done");
+        const progressEl = document.querySelector<HTMLElement>(".flash-progress");
         return {
           errorHidden: el ? el.hidden : null,
           errorText: el ? el.textContent : null,
           statusLog: w.__statusLog || [],
           usbLog: w.__usbLog || [],
+          doneHidden: doneEl ? doneEl.hidden : null,
+          doneText: doneEl ? doneEl.textContent : null,
+          progressHidden: progressEl ? progressEl.hidden : null,
+          progressBarHasDoneClass: w.__progressBarWasDone,
         };
       });
       await scenarioPage.close();
@@ -327,7 +356,11 @@ try {
     // 3. The whole buttonless path, end to end against the fake: claim the
     //    reset interface, send the BOOTSEL control request, notice the
     //    re-enumerated device, flash it.
-    const reboot = await runScenario("reboots-and-flashes", 3000);
+    // 3500ms: enough for the fake stack's own ~250ms re-enumeration poll
+    // PLUS flash-ui.ts's own done-phase beat (FLASH_DONE_HOLD_MS 900 +
+    // FLASH_DONE_FADE_MS 400 = 1300ms) to fully play out before this
+    // script reads the DOM below.
+    const reboot = await runScenario("reboots-and-flashes", 3500);
     if (reboot.pageErrors.length > 0) fail(`running-device path threw: ${reboot.pageErrors.join(" | ")}`);
     if (reboot.errorHidden !== true) fail(`running-device path surfaced an error: ${JSON.stringify(reboot.errorText)}`);
 
@@ -359,6 +392,33 @@ try {
       fail(`the running-device path did not run through to a finished flash, last status: ${JSON.stringify(reboot.statusLog)}`);
     }
     console.log(`status line walked: ${JSON.stringify(reboot.statusLog)}`);
+
+    // FIX 1: the done phase must render as an unambiguous completed state,
+    // not leave the muted "done: Done. The board is rebooting..." log line
+    // as the last thing on screen - that's the exact report this fix
+    // answers (a real flash that worked, read as "stuck"). Three things,
+    // all against the REAL bundled flash-ui.ts, none of them CSS-by-name
+    // trust alone: the bar actually turned success-green at some point
+    // (the transient .done class, latched by the page-side observer
+    // above), the progress block ended up hidden (faded away, not just
+    // painted over), and .flash-done itself is visible with the completed
+    // sentence and its check glyph - a different, distinctly-styled
+    // element from the log line, per site/styles.css's .flash-done rule.
+    if (!reboot.progressBarHasDoneClass) {
+      fail("the done phase never added the progress bar's success-green \"done\" class - the bar must visibly turn green before it fades");
+    }
+    console.log("progress bar turned success-green (\"done\" class) on the done phase");
+    if (reboot.progressHidden !== true) {
+      fail(`the progress block is still visible after the done-phase fade should have finished (progressHidden=${reboot.progressHidden}) - it must fade away, not linger next to the completed banner`);
+    }
+    console.log("progress block faded away and is hidden, as expected");
+    if (reboot.doneHidden !== false) {
+      fail(`the completed-state banner (.flash-done) is not visible after a successful flash (doneHidden=${reboot.doneHidden})`);
+    }
+    if (!reboot.doneText || !/flashed/i.test(reboot.doneText) || !/restart/i.test(reboot.doneText) || !/✓/.test(reboot.doneText)) {
+      fail(`expected .flash-done to read a clear completed sentence with a check glyph, got: ${JSON.stringify(reboot.doneText)}`);
+    }
+    console.log(`completed state shown: "${reboot.doneText}"`);
 
     console.log("\nOK: flash UI verified.");
   } finally {

@@ -1,27 +1,50 @@
 // Headless verification of ?embed=1 (src/main.ts's EMBED, src/app.css's
 // html.embed rules): the BARE device a public run page iframes (see
-// site/build.ts) - no topbar, no sidebar, no bottom bar (no rotation
-// buttons, no shake pill), no backdrop, just the device floating on the
-// page's own background. Four things, in order, mirroring
-// scripts/verify.ts's own shape:
+// site/build.ts) - no topbar, no sidebar, no bottom bar (no OLD rotation
+// buttons, no OLD shake pill - that whole strip stays display:none, see the
+// mustBeHidden list below), no backdrop, just the device floating on the
+// page's own background, PLUS a minimal control cluster of its own (see
+// main.ts's buildEmbedControls): "r doesn't rotate anything, just put
+// buttons on the emulator" was the exact report this cluster answers, the R/S
+// keyboard shortcuts being real but secondary now. Several things, in order,
+// mirroring scripts/verify.ts's own shape:
 //
-//   1. Chrome that MUST be gone: the topbar, the sidebar, and now the
-//      WHOLE bottom bar (not just its cosmetic pieces) - either absent
-//      from the DOM's visible layout or actually hidden (display:none via
+//   1. Chrome that MUST be gone: the topbar, the sidebar, and the WHOLE OLD
+//      bottom bar (not just its cosmetic pieces) - either absent from the
+//      DOM's visible layout or actually hidden (display:none via
 //      getComputedStyle, not just a CSS class this script trusts by name)
 //      - plus #stage itself painting no background of its own.
-//   2. The device still works: the same real-input proof scripts/verify.ts
+//   2. The NEW embed control cluster: #embedControls exists with a visible
+//      rotate button, and (this loaded module declares a "shake" event
+//      sensor) a visible shake button too.
+//   3. The device still works: the same real-input proof scripts/verify.ts
 //      uses (a synthetic touch stroke, falling back to declared buttons),
 //      confirming embed mode is presentation-only and never touches the
 //      real input path.
-//   3. "r" still rotates the device with the strip hidden - what a run
-//      page's own on-page hint (site/build.ts) tells a visitor to press
-//      instead of a button they can no longer see.
-//   4. "s" still reaches a declared shake sensor, when the loaded module
-//      has one (conditional: not every firmware does).
+//   4. Clicking the rotate button visibly rotates the device (the bezel's
+//      own bounding rect swaps aspect - width/height invert).
+//   5. "r" still rotates the device with the OLD strip hidden - the
+//      keyboard path stays reachable once the iframe has focus, even
+//      though the buttons above are the primary path now.
+//   6. Clicking the shake button reaches the real sensor ABI call: a
+//      console line proves it landed, and the panel's own pixels move (the
+//      fluid module's visible reaction).
+//   7. "s" still reaches the same declared shake sensor via keyboard too.
+//   8. LAST (this mutates the loaded device's descriptor, so nothing above
+//      may depend on shake staying declared afterward): via the page's own
+//      __debug.rebuildChrome hook, simulate a device that declares NO
+//      "shake" sensor and confirm the shake button disappears while the
+//      rotate button and the old bottom bar's hidden state are unaffected.
+//      Every device pack and the example firmware in this repo declare
+//      "shake" unconditionally today (verified by reading each one's
+//      emu_device()), so there is no real "no shake" module to load via
+//      ?module= for this - the debug hook re-derives the chrome through
+//      the exact same buildChrome() a real reload against such a module
+//      would use, just without needing one to exist.
 //
-// Run with: bun run verify:embed (needs wasm/dist/emu.wasm - any firmware
-// works, this check is device-agnostic).
+// Run with: bun run verify:embed (needs wasm/dist/emu.wasm built WITH a
+// declared shake sensor for steps 2/6/7 to be meaningful - e.g. the
+// fluidbox pack build with --shake, see this repo's gate sequence).
 import puppeteer from "puppeteer-core";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
@@ -152,7 +175,40 @@ try {
   if (!deviceVisible) fail("embed mode: the device (#bezel) is not visible");
   console.log("visible as expected: the device itself (#bezel)");
 
-  // 2. The device still works: same real-input proof as scripts/verify.ts.
+  // 2. The NEW embed control cluster (main.ts's buildEmbedControls): a
+  // rotate button always, a shake button only when this loaded module
+  // actually declares a "shake" event sensor. Visible per getComputedStyle,
+  // same rigor as the mustBeHidden helper above, not just "exists in the
+  // DOM" (the shake button exists but stays `hidden` for a device with no
+  // such sensor - see step 8 below).
+  const isVisible = (sel: string) =>
+    page.evaluate((s) => {
+      const el = document.querySelector(s) as HTMLElement | null;
+      if (!el) return false;
+      const style = getComputedStyle(el);
+      return style.display !== "none" && style.visibility !== "hidden" && el.offsetParent !== null;
+    }, sel);
+
+  const rotateBtnVisible = await isVisible('#embedControls .embed-ctrl-btn[aria-label="rotate"]');
+  if (!rotateBtnVisible) fail("embed mode: the rotate button (#embedControls) is not visible");
+  console.log("visible as expected: the embed rotate button");
+
+  const loadedDevice = await page.evaluate(() => {
+    const debug = (window as unknown as { __debug: { getDevice: () => { sensors?: { id: string; kind: string }[] } | null } }).__debug;
+    return debug.getDevice();
+  });
+  const loadedHasShake = (loadedDevice?.sensors || []).some((s) => s.kind === "event" && s.id.toLowerCase() === "shake");
+  if (!loadedHasShake) {
+    fail(
+      "embed mode: the loaded module declares no \"shake\" event sensor - build it with one first " +
+        "(e.g. the fluidbox pack build with --shake) so steps 2/6/7 below are actually exercised"
+    );
+  }
+  const shakeBtnVisible = await isVisible('#embedControls .embed-ctrl-btn[aria-label="shake"]');
+  if (!shakeBtnVisible) fail("embed mode: the loaded module declares a shake sensor but the embed shake button is not visible");
+  console.log("visible as expected: the embed shake button (loaded module declares a shake sensor)");
+
+  // 3. The device still works: same real-input proof as scripts/verify.ts.
   const panelBox = await page.$eval("#panel", (el) => {
     const r = el.getBoundingClientRect();
     return { x: r.x, y: r.y, width: r.width, height: r.height };
@@ -193,7 +249,39 @@ try {
   console.log(`panel pixels changed after real input: ${changed} byte(s) different out of ${before.length}`);
   if (changed === 0) fail("embed mode: touch/button input reached the panel and NOTHING changed - input path is broken in embed mode");
 
-  // 3. "r" rotates even with the strip hidden. #rotQuick's own buttons
+  // 4. Clicking the rotate button visibly rotates the device: the bezel's
+  // own on-screen bounding rect (a real CSS transform: rotate(), not just
+  // internal state) swaps aspect at a quarter turn. This pack's panel is
+  // 368x448 (non-square), so a 90deg step always changes which dimension is
+  // larger.
+  // getBoundingClientRect()'s own properties live on its prototype, not as
+  // own enumerable fields, so returning it straight from page.$eval loses
+  // every field to serialization (an empty object comes back) - the same
+  // gotcha panelBox above already works around by picking fields out
+  // explicitly.
+  const bezelRect = () =>
+    page.$eval("#bezel", (el) => {
+      const r = el.getBoundingClientRect();
+      return { width: r.width, height: r.height };
+    });
+  const bezelBefore = await bezelRect();
+  await page.click('#embedControls .embed-ctrl-btn[aria-label="rotate"]');
+  await new Promise((r) => setTimeout(r, 300));
+  const bezelAfterClick = await bezelRect();
+  const wasPortrait = bezelBefore.height > bezelBefore.width;
+  const isPortraitNow = bezelAfterClick.height > bezelAfterClick.width;
+  if (wasPortrait === isPortraitNow) {
+    fail(
+      `embed mode: clicking rotate did not visibly rotate the device - before ${bezelBefore.width.toFixed(0)}x${bezelBefore.height.toFixed(0)}, ` +
+        `after ${bezelAfterClick.width.toFixed(0)}x${bezelAfterClick.height.toFixed(0)} (orientation did not flip)`
+    );
+  }
+  console.log(
+    `clicking rotate visibly rotated the device: ${bezelBefore.width.toFixed(0)}x${bezelBefore.height.toFixed(0)} -> ` +
+      `${bezelAfterClick.width.toFixed(0)}x${bezelAfterClick.height.toFixed(0)}`
+  );
+
+  // 5. "r" rotates even with the OLD strip hidden. #rotQuick's own buttons
   // (and their "active" markup) still exist in the DOM, just not painted -
   // this is what a run page's own hint (site/build.ts) tells a visitor to
   // press instead of a button they can no longer see.
@@ -210,34 +298,162 @@ try {
   if (degBefore === degAfter) fail(`embed mode: pressing "r" did not change the rotation (stayed at ${degBefore}deg)`);
   console.log(`"r" rotates as expected: ${degBefore}deg -> ${degAfter}deg`);
 
-  // 4. "s" reaches the shake sensor, when the loaded module declares one -
-  // conditional, not every firmware has a "shake" sensor (this script's own
-  // doc: "any firmware works"). #consolePane stays hidden but still
-  // receives every logged line (main.ts's ConsoleLog does not check EMBED),
-  // so its last line is a real proof a sensor fired, not a guess.
-  const hasSensorButton = (await page.$$("#sensorControls .sensor-btn")).length > 0;
-  if (hasSensorButton) {
-    await page.keyboard.press("s");
-    await new Promise((r) => setTimeout(r, 250));
-    const lastLine = await page.evaluate(() => {
-      const lines = document.querySelectorAll("#consolePane .console-line");
-      return lines.length ? lines[lines.length - 1]!.textContent : null;
-    });
-    // Either line is real proof: main.ts's own "sensor: <id>" (buildSensorControls'
-    // log callback) or the firmware's own reaction logged via js_log during
-    // emu_sensor_event() itself (e.g. example/firmware/main.c's "shake:
-    // cleared") - both only happen if the ABI call actually landed.
-    if (!lastLine || !/sensor|shake/i.test(lastLine)) fail(`embed mode: pressing "s" did not log a sensor event (last console line: ${lastLine})`);
-    console.log(`"s" reaches the sensor as expected (console: "${lastLine}")`);
-  } else {
-    console.log('no "kind":"event" sensor on this module - skipping the "s" shortcut check (not every firmware declares one)');
+  // 6. Clicking the shake button reaches the real sensor ABI call, exactly
+  // the "produces a frame change" proof asked for: a console line proves
+  // emu_sensor_event() actually landed, and (the fluidbox module's fluid
+  // sim visibly reacts to a shake) the panel's own pixels move too. The
+  // pixel diff alone would be weak evidence on its own (fluidbox keeps
+  // animating every tick regardless), so the console line is the
+  // load-bearing half of this proof and the pixel diff is corroboration.
+  const shakeBefore = await readPanel();
+  await page.click('#embedControls .embed-ctrl-btn[aria-label="shake"]');
+  await new Promise((r) => setTimeout(r, 300));
+  const shakeLastLine = await page.evaluate(() => {
+    const lines = document.querySelectorAll("#consolePane .console-line");
+    return lines.length ? lines[lines.length - 1]!.textContent : null;
+  });
+  if (!shakeLastLine || !/sensor|shake/i.test(shakeLastLine)) {
+    fail(`embed mode: clicking the shake button did not log a sensor event (last console line: ${shakeLastLine})`);
   }
+  const shakeChanged = countDiff(shakeBefore, await readPanel());
+  if (shakeChanged === 0) fail("embed mode: clicking the shake button logged a sensor event but the panel did not change at all");
+  console.log(`clicking shake reached the sensor (console: "${shakeLastLine}") and changed ${shakeChanged} panel byte(s)`);
+
+  // 7. "s" reaches the same shake sensor via keyboard too. #consolePane
+  // stays hidden but still receives every logged line (main.ts's
+  // ConsoleLog does not check EMBED), so its last line is a real proof a
+  // sensor fired, not a guess.
+  await page.keyboard.press("s");
+  await new Promise((r) => setTimeout(r, 250));
+  const sLastLine = await page.evaluate(() => {
+    const lines = document.querySelectorAll("#consolePane .console-line");
+    return lines.length ? lines[lines.length - 1]!.textContent : null;
+  });
+  if (!sLastLine || !/sensor|shake/i.test(sLastLine)) fail(`embed mode: pressing "s" did not log a sensor event (last console line: ${sLastLine})`);
+  console.log(`"s" reaches the sensor as expected (console: "${sLastLine}")`);
 
   const engineDead = await isEffectivelyHidden("#engineDead");
-  if (!engineDead) fail('embed mode: "r"/"s" left #engineDead visible - one of them crashed the module');
-  console.log("engine still alive after \"r\"/\"s\": #engineDead stayed hidden");
+  if (!engineDead) fail('embed mode: rotate/shake (button and keyboard) left #engineDead visible - one of them crashed the module');
+  console.log("engine still alive after every rotate/shake path: #engineDead stayed hidden");
 
-  console.log("\nPASS: ?embed=1 is the bare device (no control strip, no backdrop), real input still reaches the panel, and \"r\"/\"s\" reach rotate/shake with the strip hidden");
+  // 8. LAST: the negative case. Simulate a device with no declared "shake"
+  // sensor (every real pack/example firmware in this repo declares one
+  // unconditionally, so there is no module to load via ?module= for this -
+  // see this file's header comment) by mutating the live device object and
+  // re-deriving the whole chrome through the same buildChrome() a real
+  // reload would use. The shake button must disappear; the rotate button
+  // and the old bottom bar's hidden state must be completely unaffected.
+  await page.evaluate(() => {
+    const debug = (
+      window as unknown as {
+        __debug: { getDevice: () => { sensors?: { id: string; kind: string }[] } | null; rebuildChrome: () => void };
+      }
+    ).__debug;
+    const d = debug.getDevice();
+    if (d) d.sensors = (d.sensors || []).filter((s) => !(s.kind === "event" && s.id.toLowerCase() === "shake"));
+    debug.rebuildChrome();
+  });
+  await new Promise((r) => setTimeout(r, 250));
+  const shakeBtnVisibleAfter = await isVisible('#embedControls .embed-ctrl-btn[aria-label="shake"]');
+  if (shakeBtnVisibleAfter) fail("embed mode: simulated a device with no shake sensor, but the embed shake button is still visible");
+  console.log("shake button correctly absent for a device with no declared shake sensor");
+  const rotateBtnStillVisible = await isVisible('#embedControls .embed-ctrl-btn[aria-label="rotate"]');
+  if (!rotateBtnStillVisible) fail("embed mode: simulating a no-shake device also hid the rotate button - it must stay unconditional");
+  console.log("rotate button still visible, as expected (unconditional)");
+  const bottomBarStillHidden = await isEffectivelyHidden(".bottom-bar");
+  if (!bottomBarStillHidden) fail("embed mode: the OLD .bottom-bar strip is visible again after rebuilding chrome - it must never come back");
+  console.log("the OLD .bottom-bar strip is still absent after rebuilding chrome, as expected");
+
+  console.log(
+    "\nPASS: ?embed=1 is the bare device plus its own rotate/shake button cluster (no OLD control strip, no backdrop), " +
+      "real input still reaches the panel, clicking rotate/shake reaches the real ABI paths, \"r\"/\"s\" still work too, " +
+      "and the shake button correctly hides itself for a device with no declared shake sensor"
+  );
+
+  // 9. FIX 2: no bezel-drag response on a touch device. main.ts no longer
+  // calls device.ts's makeDraggable at all in embed mode (see its
+  // wireStaticUI comment) precisely so a touch drag can never miss-click
+  // into a free reposition, and motion.ts's DragMotion already bails out
+  // for any touch-capable pointer (its own isTouchCapable() check) before
+  // it ever calls sendVector or moves the visual offset - so a touch drag
+  // starting on the bare bezel plastic must leave the device exactly where
+  // it was and must never reach the vector ABI path. A fresh page/context
+  // is used, with a real mobile+touch viewport (isMobile+hasTouch both
+  // true), rather than reusing the page above: that page's own viewport
+  // never set hasTouch, so navigator.maxTouchPoints would still read 0
+  // there and this whole check would silently prove nothing.
+  const touchPage = await browser.newPage();
+  await touchPage.setViewport({ width: 400, height: 800, isMobile: true, hasTouch: true });
+  const touchPageErrors: string[] = [];
+  touchPage.on("pageerror", (e) => touchPageErrors.push(String(e)));
+  await touchPage.goto(`http://127.0.0.1:${PORT}/?embed=1`, { waitUntil: "domcontentloaded" });
+  await new Promise((r) => setTimeout(r, 1000));
+
+  const touchCapable = await touchPage.evaluate(
+    () => navigator.maxTouchPoints > 0 || matchMedia("(pointer: coarse)").matches
+  );
+  if (!touchCapable) fail("touch-emulation page: navigator.maxTouchPoints/matchMedia never went touch-capable - the emulation itself did not take, this check would prove nothing");
+  console.log("touch-emulation page is touch-capable, as expected");
+
+  const touchBezelBefore = await touchPage.$eval("#bezel", (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+  const touchDragX = touchBezelBefore.x + 8;
+  const touchDragY = touchBezelBefore.y + touchBezelBefore.height / 2;
+  const touchTarget = await touchPage.evaluate(
+    (p) => {
+      const el = document.elementFromPoint(p.x, p.y);
+      return el ? el.id || el.tagName : null;
+    },
+    { x: touchDragX, y: touchDragY }
+  );
+  if (touchTarget !== "bezel") fail(`touch-drag check: chosen point (${touchDragX},${touchDragY}) does not resolve to #bezel (got "${touchTarget}")`);
+
+  // Clear the recorder so the only "vector" events that could show up are
+  // ones this drag itself produces - not the initial-load/rotation-sync
+  // gravity read every module gets on boot.
+  await touchPage.evaluate(() => {
+    const debug = (window as unknown as { __debug: { getRecorder: () => { clear: () => void } } }).__debug;
+    debug.getRecorder().clear();
+  });
+
+  const touch = await touchPage.touchscreen.touchStart(touchDragX, touchDragY);
+  const TOUCH_DRAG_PX = 35;
+  const TOUCH_STEPS = 8;
+  for (let i = 1; i <= TOUCH_STEPS; i++) {
+    await touch.move(touchDragX + (TOUCH_DRAG_PX * i) / TOUCH_STEPS, touchDragY);
+    await new Promise((r) => setTimeout(r, 30));
+  }
+  await touch.end();
+  await new Promise((r) => setTimeout(r, 300));
+
+  const touchBezelAfter = await touchPage.$eval("#bezel", (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+  if (Math.abs(touchBezelAfter.x - touchBezelBefore.x) > 1 || Math.abs(touchBezelAfter.y - touchBezelBefore.y) > 1) {
+    fail(
+      `touch-drag on the bezel moved the device: was (${touchBezelBefore.x},${touchBezelBefore.y}), ` +
+        `now (${touchBezelAfter.x},${touchBezelAfter.y}) - free repositioning must be completely disabled on touch in embed mode`
+    );
+  }
+  console.log("touch-drag on the bezel left the device exactly where it was, as expected");
+
+  const vectorEventsAfterTouchDrag = await touchPage.evaluate(() => {
+    const debug = (
+      window as unknown as { __debug: { getRecorder: () => { events: { k: string }[] } } }
+    ).__debug;
+    return debug.getRecorder().events.filter((e) => e.k === "vector").length;
+  });
+  if (vectorEventsAfterTouchDrag > 0) {
+    fail(`touch-drag on the bezel sent ${vectorEventsAfterTouchDrag} vector event(s) - DragMotion must never fire for a touch pointer`);
+  }
+  console.log("touch-drag on the bezel sent no vector events, as expected");
+
+  if (touchPageErrors.length > 0) fail(`touch-drag check threw: ${touchPageErrors.join(" | ")}`);
+  await touchPage.close();
+  console.log("PASS (FIX 2): no bezel-drag response at all on a touch device in embed mode");
 } finally {
   if (browser) await closeBrowser(browser);
   try {

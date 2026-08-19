@@ -526,6 +526,9 @@ var PHASE_LABELS = {
   rebooting: "rebooting",
   done: "done"
 };
+var FLASH_DONE_HOLD_MS = 900;
+var FLASH_DONE_FADE_MS = 400;
+var FLASH_DONE_MESSAGE = "✓ Flashed. The board is restarting with the new firmware.";
 function initSection(section) {
   const uf2Url = section.dataset.uf2;
   if (!uf2Url)
@@ -534,19 +537,52 @@ function initSection(section) {
   const progressWrap = section.querySelector(".flash-progress");
   const progressBar = section.querySelector(".flash-progress-bar");
   const statusEl = section.querySelector(".flash-status");
+  const doneEl = section.querySelector(".flash-done");
   const errorEl = section.querySelector(".flash-error");
-  if (!btn || !progressWrap || !progressBar || !statusEl || !errorEl)
+  if (!btn || !progressWrap || !progressBar || !statusEl || !doneEl || !errorEl)
     return;
+  let doneToken = 0;
   function showError(message) {
+    doneToken++;
     errorEl.textContent = message;
     errorEl.hidden = false;
+    doneEl.hidden = true;
     progressWrap.hidden = true;
+    progressWrap.classList.remove("fade-out");
+    progressBar.classList.remove("done");
+  }
+  function showDone() {
+    const token = ++doneToken;
+    progressBar.style.width = "100%";
+    progressBar.classList.add("done");
+    statusEl.textContent = "done: Done. The board is rebooting into the new firmware.";
+    window.setTimeout(() => {
+      if (token !== doneToken)
+        return;
+      progressWrap.classList.add("fade-out");
+      window.setTimeout(() => {
+        if (token !== doneToken)
+          return;
+        progressWrap.hidden = true;
+        progressWrap.classList.remove("fade-out");
+        progressBar.classList.remove("done");
+        progressBar.style.width = "0%";
+        doneEl.textContent = FLASH_DONE_MESSAGE;
+        doneEl.hidden = false;
+      }, FLASH_DONE_FADE_MS);
+    }, FLASH_DONE_HOLD_MS);
   }
   function showProgress(p) {
+    doneToken++;
     errorEl.hidden = true;
+    doneEl.hidden = true;
     progressWrap.hidden = false;
+    progressWrap.classList.remove("fade-out");
+    progressBar.classList.remove("done");
     progressBar.style.width = `${p.percent}%`;
     statusEl.textContent = `${PHASE_LABELS[p.phase] ?? p.phase}: ${p.message}`;
+    if (p.phase === "done")
+      showDone();
   }
   async function run() {
     errorEl.hidden = true;

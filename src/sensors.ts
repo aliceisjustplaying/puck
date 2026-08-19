@@ -18,6 +18,24 @@ import type { EmuExports, DeviceSensor } from "./wasm";
 import type { ShortcutRegistry } from "./shortcuts";
 import { assignShortcut } from "./shortcuts";
 
+// Returned by buildSensorControls so a control OUTSIDE this module's own
+// rendered buttons (main.ts's embed rotate/shake cluster, see main.ts's
+// buildEmbedControls) can fire a declared event sensor through the EXACT
+// same path a real click on its (possibly hidden, e.g. embed mode's
+// sidebar) own button uses -- same guardedCall, same recorded event, same
+// onFire callback (the puck-motion jolt a "shake" click gets since there is
+// no real device motion behind it) -- rather than a second, independently
+// reimplemented "click shake" that could drift from this one.
+export interface SensorControls {
+  // false if no declared "event" sensor has this id (case-insensitive):
+  // nothing fired. This is also the one place that answers "does this
+  // device have a sensor called X" for a caller that only cares whether
+  // firing it is possible, so main.ts's embed shake button gates its own
+  // visibility on the SAME shakeSensorIndex >= 0 check buildChrome already
+  // computes, rather than asking this map a second way.
+  fire(id: string): boolean;
+}
+
 // No `emu` parameter: every ABI call this module makes goes through
 // guardedCall below, which already closes over the live module reference
 // (see main.ts's guardedAbiCall) -- a second, separately-passed `emu` would
@@ -39,8 +57,9 @@ export function buildSensorControls(
   // try/catch, calling straight into the module -- a trap here gets the
   // same #engineDead treatment as any other direct call, not silence.
   guardedCall: (cause: string, fn: (liveEmu: EmuExports) => void) => void
-): void {
+): SensorControls {
   container.innerHTML = "";
+  const firers = new Map<string, () => void>();
   sensors.forEach((sensor, index) => {
     if (sensor.kind !== "event") return;
     const fire = () => {
@@ -50,6 +69,7 @@ export function buildSensorControls(
         onFire?.(sensor, index);
       });
     };
+    firers.set(sensor.id.toLowerCase(), fire);
     const key = assignShortcut(sensor.id, usedKeys);
     const btn = document.createElement("button");
     btn.className = "btn sec sm sensor-btn";
@@ -64,4 +84,12 @@ export function buildSensorControls(
     btn.addEventListener("click", fire);
     container.appendChild(btn);
   });
+  return {
+    fire(id: string): boolean {
+      const fn = firers.get(id.toLowerCase());
+      if (!fn) return false;
+      fn();
+      return true;
+    },
+  };
 }

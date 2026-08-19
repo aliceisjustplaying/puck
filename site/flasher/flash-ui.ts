@@ -30,6 +30,19 @@ const PHASE_LABELS: Record<FlashPhase, string> = {
   done: "done",
 };
 
+// The done phase gets a distinct, unmissable beat rather than just another
+// muted log line (see flash-ui.ts's PHASE_LABELS comment above): the bar
+// turns success-green and holds for FLASH_DONE_HOLD_MS so a slow read
+// catches it, then the whole progress block fades over FLASH_DONE_FADE_MS
+// and is replaced by .flash-done - a completed-state banner, styled
+// (site/styles.css) as unambiguously "it worked", not a status string. A
+// real board takes a beat to actually restart after this fires, so the
+// wording says "restarting", not "rebooted" (still in progress, not a
+// promise the board is already back up).
+const FLASH_DONE_HOLD_MS = 900;
+const FLASH_DONE_FADE_MS = 400;
+const FLASH_DONE_MESSAGE = "✓ Flashed. The board is restarting with the new firmware.";
+
 function initSection(section: HTMLElement): void {
   const uf2Url = section.dataset.uf2;
   if (!uf2Url) return;
@@ -38,20 +51,60 @@ function initSection(section: HTMLElement): void {
   const progressWrap = section.querySelector<HTMLElement>(".flash-progress");
   const progressBar = section.querySelector<HTMLElement>(".flash-progress-bar");
   const statusEl = section.querySelector<HTMLElement>(".flash-status");
+  const doneEl = section.querySelector<HTMLElement>(".flash-done");
   const errorEl = section.querySelector<HTMLElement>(".flash-error");
-  if (!btn || !progressWrap || !progressBar || !statusEl || !errorEl) return;
+  if (!btn || !progressWrap || !progressBar || !statusEl || !doneEl || !errorEl) return;
+
+  // Bumped on every showProgress/showError call so a done-phase fade
+  // sequence in flight from a PREVIOUS run (setTimeout chain below) can
+  // tell it has been superseded and quietly no-op, instead of clobbering a
+  // fresh run's progress bar or error message a moment later. btn.disabled
+  // already keeps two runs from overlapping while one is in flight, but the
+  // fade sequence deliberately outlives run()'s own try/finally (it is
+  // still ticking after `finally` re-enables the button), so a fast second
+  // click right after a flash completes is the one case that needs this.
+  let doneToken = 0;
 
   function showError(message: string): void {
+    doneToken++;
     errorEl!.textContent = message;
     errorEl!.hidden = false;
+    doneEl!.hidden = true;
     progressWrap!.hidden = true;
+    progressWrap!.classList.remove("fade-out");
+    progressBar!.classList.remove("done");
+  }
+
+  function showDone(): void {
+    const token = ++doneToken;
+    progressBar!.style.width = "100%";
+    progressBar!.classList.add("done");
+    statusEl!.textContent = "done: Done. The board is rebooting into the new firmware.";
+    window.setTimeout(() => {
+      if (token !== doneToken) return; // superseded by a later run
+      progressWrap!.classList.add("fade-out");
+      window.setTimeout(() => {
+        if (token !== doneToken) return;
+        progressWrap!.hidden = true;
+        progressWrap!.classList.remove("fade-out");
+        progressBar!.classList.remove("done");
+        progressBar!.style.width = "0%";
+        doneEl!.textContent = FLASH_DONE_MESSAGE;
+        doneEl!.hidden = false;
+      }, FLASH_DONE_FADE_MS);
+    }, FLASH_DONE_HOLD_MS);
   }
 
   function showProgress(p: FlashProgress): void {
+    doneToken++; // any done-phase fade sequence from an earlier run is now stale
     errorEl!.hidden = true;
+    doneEl!.hidden = true;
     progressWrap!.hidden = false;
+    progressWrap!.classList.remove("fade-out");
+    progressBar!.classList.remove("done");
     progressBar!.style.width = `${p.percent}%`;
     statusEl!.textContent = `${PHASE_LABELS[p.phase] ?? p.phase}: ${p.message}`;
+    if (p.phase === "done") showDone();
   }
 
   async function run(): Promise<void> {

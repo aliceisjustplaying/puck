@@ -951,6 +951,7 @@ function renderFlashSection(comboId: string, pack: string): string {
       <div class="flash-progress-track"><div class="flash-progress-bar"></div></div>
       <p class="flash-status"></p>
     </div>
+    <p class="flash-done" hidden></p>
     <p class="flash-error" hidden></p>
     <details class="flash-ritual">
       <summary>BOOTSEL entry ritual</summary>
@@ -1022,7 +1023,7 @@ function buildRunDir(): void {
     const links = opts.docLinks.map((l) => `<a href="${l.href}">${escapeHtml(l.label)}</a>`).join("\n      ");
     const flashSection = renderFlashSection(opts.id, opts.pack);
     const flashScript = FLASH_ARTIFACTS[opts.id] ? `\n<script type="module" src="${withVersion("../flash/flash.js", FLASH_JS_VERSION)}"></script>` : "";
-    const phoneTiltHint = packHasVectorSensor.get(opts.pack) ? " &middot; on a phone: tilt" : "";
+    const phoneTiltHint = packHasVectorSensor.get(opts.pack) ? " &middot; tilt with your phone" : "";
     const body = `<div class="wrap">
   <div class="run-header">
     <div class="back"><a href="../index.html">&larr; puck</a></div>
@@ -1040,7 +1041,7 @@ function buildRunDir(): void {
       <iframe id="emu" allowtransparency="true" src="${iframeSrc}" width="${nativeW}" height="${nativeH}" title="${escapeHtml(opts.title)} running live" allow="autoplay"></iframe>
     </div>
   </div>
-  <p class="embed-hint">touch the screen &middot; R rotates &middot; S shakes${phoneTiltHint}</p>
+  <p class="embed-hint">touch the screen${phoneTiltHint}</p>
 
   <div class="run-footer"></div>
 

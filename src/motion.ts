@@ -24,6 +24,15 @@ export interface PhoneMotionOptions {
   fireShake: (now: number, source: string) => void;
   onLayoutChanged: () => void;
   onOwnershipReleased: () => void;
+  // Where the chip is actually APPENDED, resolved lazily (called only once
+  // mount() runs, never at construction time) so main.ts can hand this a
+  // getter for a row element it builds later in boot -- the embed rotate/
+  // shake button cluster (main.ts's buildEmbedControls), so the chip joins
+  // that SAME row instead of self-centering on its own, independent spot.
+  // Optional and defaults to `stage` (this class's original, only mount
+  // point) so nothing outside main.ts's embed wiring has to know this
+  // exists.
+  mountTo?: () => HTMLElement;
 }
 
 function motionApisAvailable(): boolean {
@@ -198,7 +207,7 @@ export class PhoneMotion {
     chip.textContent = this.blocked ? "tilt blocked in Safari settings" : "tilt with your phone";
     chip.disabled = this.blocked;
     chip.addEventListener("click", this.onChipClick);
-    this.opts.stage.appendChild(chip);
+    (this.opts.mountTo ? this.opts.mountTo() : this.opts.stage).appendChild(chip);
     this.opts.stage.classList.add("motion-available");
     this.chip = chip;
     document.addEventListener("visibilitychange", this.onVisibilityChange);

@@ -458,19 +458,80 @@ html.embed .stage { background: transparent; min-height: 0; }
    same transform list - this is why main.ts's embed path skips setting
    left/top at all (see centerDeviceOnce's own EMBED guard) rather than
    this rule trying to fight an inline style with !important. */
+/* Shifted up from dead centre by 28px, UNCONDITIONALLY (not just while the
+   phone-tilt chip happens to be mounted, contrast with an earlier version of
+   this rule): main.ts's buildEmbedControls always builds the rotate button
+   in embed mode, so the row below the device is always there, chip or no
+   chip. main.ts's fitDeviceToStage reserves the matching space in its own
+   scale computation (its own "controlsReserve" constant, kept in step with
+   this number by comment, not by a shared source - a CSS custom property
+   would be the more failure-proof link, left as-is since both live a few
+   lines from their own explanation). */
 html.embed .device-wrap {
   position: absolute;
   left: 50%;
-  top: 50%;
+  top: calc(50% - 28px);
   transform: translate(-50%, -50%) scale(var(--embed-scale, 1));
   transform-origin: center center;
 }
 
+/* ---------- embed mode: the minimal control cluster (rotate + shake,
+   main.ts's buildEmbedControls) - centred below the device, one row.
+   Ghost icon buttons: fully transparent until hovered/pressed, exactly the
+   design brief ("disappear into the page, visible on hover/press") and
+   this codebase's own existing .chrome-btn precedent (top of this file),
+   just circular and sized for a touch target instead of text. This is NOT
+   the old .bottom-bar strip above (still display:none) - a fresh, separate
+   element built only for the embed layer. ---------- */
+html.embed .embed-controls {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+html.embed .embed-ctrl-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
+}
+html.embed .embed-ctrl-btn:hover,
+html.embed .embed-ctrl-btn:focus-visible {
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  border-color: var(--border-soft);
+  color: var(--ink-soft);
+}
+html.embed .embed-ctrl-btn:active {
+  background: var(--accent-bg);
+  border-color: var(--accent-bg);
+  color: var(--accent-dark);
+}
+html.embed .embed-ctrl-btn[hidden] { display: none; }
+
 /* Created only when the loaded descriptor has a vector sensor and this
-   browser exposes a phone-motion API. Space is reserved below the device
-   by main.ts's fitDeviceToStage, so the control never covers the panel or
-   its physical buttons. Nothing here applies to the plain dev UI. */
-html.embed .stage.motion-available .device-wrap { top: calc(50% - 20px); }
+   browser exposes a phone-motion API - see motion.ts's PhoneMotion. Mounted
+   as a child of .embed-controls above (its own mountTo option) so it joins
+   the SAME row as the rotate/shake buttons rather than self-centering on a
+   second, independent spot: the position/transform this rule would
+   otherwise give it (a lone, absolutely-centred pill, this control's
+   original and still-default behaviour outside embed's shared row) are
+   overridden by the more specific ".embed-controls .motion-chip" rule right
+   below, letting it size and place itself as an ordinary flex row item
+   instead. */
 html.embed .motion-chip {
   position: absolute;
   z-index: 5;
@@ -485,6 +546,12 @@ html.embed .motion-chip {
   border: 1px solid var(--border-soft);
   pointer-events: auto;
   touch-action: manipulation;
+}
+html.embed .embed-controls .motion-chip {
+  position: static;
+  left: auto;
+  bottom: auto;
+  transform: none;
 }
 html.embed .motion-chip.active {
   color: var(--accent-dark);
