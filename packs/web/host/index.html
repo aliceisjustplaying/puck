@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<!-- viewport-fit=cover plus the safe-area padding below: without it an
+     installed copy paints under the home indicator on a notched phone, and
+     the bottom row of ghost buttons lands exactly where the system's own
+     swipe gesture lives. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<title>__TITLE__</title>
+<meta name="description" content="__DESCRIPTION__" />
+<meta name="theme-color" content="#000000" />
+<meta name="mobile-web-app-capable" content="yes" />
+<!-- iOS reads its own vendor-prefixed pair, not the manifest, when a page
+     is added to the home screen. Both are declared, and the manifest is
+     still what Android/Chrome installs from. -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+<meta name="apple-mobile-web-app-title" content="__SHORT_TITLE__" />
+<link rel="manifest" href="__MANIFEST__" />
+<link rel="icon" href="__ICON_SVG__" />
+<link rel="apple-touch-icon" href="__ICON_PNG__" />
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #000;
+    color: #d7d7d7;
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    /* End to end, not just on the canvas: Safari decides a gesture is a
+       scroll or a pull-to-refresh at the outermost element that allows it,
+       so a canvas alone declaring touch-action:none is not enough. */
+    touch-action: none;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: max(8px, env(safe-area-inset-top)) 8px calc(8px + env(safe-area-inset-bottom));
+  }
+  #root { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  #root.failed { color: #ff9c8a; max-width: 40ch; text-align: center; }
+  .stage { display: flex; align-items: center; justify-content: center; }
+  canvas#panel { display: block; background: #000; touch-action: none; }
+  .controls { display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; }
+  /* Ghost: an outline, not a slab. There is no bezel for a button to
+     protrude from here, so a button reads as a control by being drawn
+     lightly and by being where a thumb already is. */
+  .ghost {
+    appearance: none;
+    min-width: 76px;
+    min-height: 44px; /* the smallest target that is reliably tappable */
+    padding: 0 16px;
+    border: 1px solid #3a3a3a;
+    border-radius: 999px;
+    background: transparent;
+    color: #b9b9b9;
+    font: inherit;
+    letter-spacing: 0.08em;
+    touch-action: none;
+  }
+  .ghost.down { background: #2f6feb; border-color: #2f6feb; color: #fff; }
+  .ghost.on { border-color: #2f6feb; color: #cfe0ff; }
+  .ghost[disabled] { opacity: 0.4; }
+  footer { font-size: 11px; color: #6a6a6a; }
+  footer a { color: #6a6a6a; }
+  #install {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: #6a6a6a;
+    font: inherit;
+    font-size: 11px;
+  }
+</style>
+</head>
+<body data-module="__MODULE__" data-landscape="__LANDSCAPE__">
+<div id="root">loading __SHORT_TITLE__...</div>
+<footer><a href="__GALLERY__">puck</a> &middot; <button type="button" id="install" hidden></button></footer>
+<script type="module" src="__HOST_JS__"></script>
+</body>
+</html>

@@ -31,6 +31,20 @@
         "frames": "apps/chrono/frames"
       },
       "source": "apps/chrono/ports/esp32-s3-touch-amoled-18/chrono.c"
+    },
+    {
+      "pack": "web",
+      "mode": "faithful",
+      "verification": {
+        "kind": "pixel-exact",
+        "traces": [
+          "apps/chrono/traces/chrono-idle.trace.json",
+          "apps/chrono/traces/chrono-startstop.trace.json"
+        ],
+        "frames": "apps/chrono/frames"
+      },
+      "source": "apps/chrono/ports/web/chrono.c",
+      "buildArgs": ["--landscape"]
     }
   ]
 }

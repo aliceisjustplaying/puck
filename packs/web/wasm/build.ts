@@ -1,0 +1,400 @@
+// build.ts: compiles this pack's runtime plus one app to a single
+// wasm32-freestanding module, and (in host mode) writes a standalone,
+// deployable directory around it.
+//
+// TWO MODES, one build, because a browser is a target device in two
+// different senses at once:
+//
+//   MODULE MODE (default, and what tools/verify-bundle.ts drives)
+//     bun run packs/web/wasm/build.ts [--app <file>] [--landscape] [--shake]
+//     Writes the repository root's wasm/dist/emu.wasm, the one module
+//     puck's own emulator loads - exactly the contract every other pack's
+//     build.ts satisfies (docs/convention/device-pack.md). This is what
+//     makes a web-pack module replayable by harness/portdiff.ts and
+//     checkable by bun run verify-bundle, with no special case anywhere in
+//     the verifier: the verifier resolves <pack>/wasm/build.ts from
+//     registry.json and passes --app, and this pack answers like any other.
+//
+//   HOST MODE (--host)
+//     bun run packs/web/wasm/build.ts --app <file> --host --out <dir>
+//     Writes <dir>/index.html, host.<hash>.js, emu.<hash>.wasm, sw.js,
+//     manifest.webmanifest and two icons: the app, deployable as static
+//     files, installable, and offline once installed. This is the mode
+//     that makes "the browser is a target device" literal rather than a
+//     metaphor - the output is the shipped thing, not a preview of one.
+//
+// THE --app CONTRACT IS THE SIBLING PACK'S, deliberately unchanged
+// (packs/rp2350-touch-amoled-18/wasm/build.ts): a port file defines two
+// plain functions, `void port_enter(void)` and
+// `void port_tick(const app_frame_t *f)`, and this script generates the
+// app_t around them, with --landscape/--shake setting the two fields that
+// vary per port. Adopting the contract verbatim is the whole point of this
+// pack: apps/fluidbox/ports/web/fluid.c is a byte-for-byte copy of the
+// rp2350 port's, and it only compiles here because nothing about this
+// interface was improved.
+//
+// CACHE BUSTING IS A CONTENT HASH, everywhere, in host mode: emu.wasm and
+// host.js carry the first 10 hex of their own sha256 in their filenames,
+// and sw.js's cache name is derived from both. Two consecutive builds of
+// unchanged sources therefore emit byte-identical output (site/build.ts's
+// own idempotency contract depends on this), while any real change moves
+// every URL a browser could have cached. See gotchas.md for the Safari
+// failure this exists to close.
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, copyFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { iconPng, iconSvg } from "../host/icon";
+
+const WASM_DIR = import.meta.dir; // packs/web/wasm
+const PACK_ROOT = resolve(WASM_DIR, ".."); // packs/web
+const REPO_ROOT = resolve(PACK_ROOT, "..", ".."); // the puck repo root
+const RUNTIME = join(PACK_ROOT, "runtime");
+const HOST_DIR = join(PACK_ROOT, "host");
+
+// The one module puck's own emulator loads (see the root README and
+// server.ts). Writing here rather than into a pack-local dist/ is what
+// makes `build && bun run dev` show this pack with no wiring step.
+const MODULE_OUT = join(REPO_ROOT, "wasm", "dist", "emu.wasm");
+
+// The ABI header is the emulator's, at the repo root: one copy, so a pack
+// cannot compile against a stale private fork of the contract.
+const ABI_DIR = join(REPO_ROOT, "wasm");
+
+// zig is a binary this script invokes, never a language anything here is
+// authored in. No machine-specific default: it comes off PATH unless
+// ZIG_EXE says otherwise, the same as both sibling packs.
+const ZIG = process.env.ZIG_EXE ?? "zig";
+
+// Every symbol wasm/emu_abi.h declares that this pack implements.
+// Exported explicitly rather than derived by parsing the header, so a
+// symbol added there and forgotten here fails loudly (an undefined-export
+// link error) instead of silently missing from the module the host
+// expects. The sound and tunables exports are absent on purpose: this pack
+// declares neither (see wasm/emu_shim.c's header), and both are optional
+// on the host side (src/wasm.ts guards every call).
+const EMU_EXPORTS = [
+  "emu_device",
+  "emu_init",
+  "emu_tick",
+  "emu_fb",
+  "emu_push_count",
+  "emu_push_x",
+  "emu_push_y",
+  "emu_push_w",
+  "emu_push_h",
+  "emu_touch",
+  "emu_button",
+  "emu_button_verdict",
+  "emu_sensor_event",
+  "emu_sensor_vector",
+  "emu_app_current",
+  "emu_app_switch",
+];
+
+interface Args {
+  appPath: string | null;
+  landscape: boolean;
+  shake: boolean;
+  host: boolean;
+  outDir: string | null;
+  title: string | null;
+  gallery: string;
+}
+
+function parseArgs(argv: string[]): Args {
+  const valueOf = (flag: string): string | null => {
+    const i = argv.indexOf(flag);
+    if (i === -1) return null;
+    const v = argv[i + 1];
+    if (!v) {
+      console.error(`${flag} needs an argument (see this file's header comment)`);
+      process.exit(1);
+    }
+    return v;
+  };
+  const app = valueOf("--app");
+  const out = valueOf("--out");
+  return {
+    appPath: app ? resolve(process.cwd(), app) : null,
+    landscape: argv.includes("--landscape"),
+    shake: argv.includes("--shake"),
+    host: argv.includes("--host"),
+    outDir: out ? resolve(process.cwd(), out) : null,
+    title: valueOf("--title"),
+    gallery: valueOf("--gallery") ?? "../../",
+  };
+}
+
+const ARGS = parseArgs(process.argv.slice(2));
+
+// The app's own name: the --app file's stem, or "demo" for the pack's own
+// reference build. Used for the app_t's name (which reaches emu_device()'s
+// "apps" array and therefore the emulator's app strip), the page title and
+// the manifest.
+const APP_NAME = ARGS.appPath ? basename(ARGS.appPath).replace(/\.c$/, "") : "demo";
+const TITLE = ARGS.title ?? APP_NAME;
+
+// ---- the generated roster (only for --app) -------------------------------
+// runtime/runtime_core.c declares exactly one app slot, `extern const app_t
+// g_webApp`, and never changes for a port (it is pack firmware,
+// docs/convention/device-pack.md). A port file supplies port_enter/
+// port_tick; this is the app_t built around them. Written to an OS temp
+// directory for one build and deleted afterwards, so it is never mistaken
+// for a source this repository tracks.
+let generatedRosterDir: string | null = null;
+
+function generateRoster(): string {
+  generatedRosterDir = mkdtempSync(join(tmpdir(), "puck-web-roster-"));
+  const rosterPath = join(generatedRosterDir, "roster.c");
+  const source = `// GENERATED by packs/web/wasm/build.ts's --app flag. Not a pack firmware
+// source: written to a temp file for one build and deleted afterwards.
+#include <stdbool.h>
+#include <stddef.h>
+#include "app.h"
+
+extern void port_enter(void);
+extern void port_tick(const app_frame_t *f);
+
+const app_t g_webApp = {
+    .name       = "${APP_NAME}",
+    .enter      = port_enter,
+    .tick       = port_tick,
+    .leave      = NULL,
+    .landscape  = ${ARGS.landscape ? "true" : "false"},
+    .wantsShake = ${ARGS.shake ? "true" : "false"},
+};
+`;
+  writeFileSync(rosterPath, source, "utf8");
+  return rosterPath;
+}
+
+function cleanupRoster(): void {
+  if (generatedRosterDir) rmSync(generatedRosterDir, { recursive: true, force: true });
+  generatedRosterDir = null;
+}
+
+// ---- compiling the module ------------------------------------------------
+
+function compileModule(outPath: string): void {
+  const sources = [
+    join(WASM_DIR, "emu_shim.c"),
+    join(RUNTIME, "runtime_core.c"),
+    join(RUNTIME, "gfx.c"),
+    join(RUNTIME, "digits.c"),
+    ...(ARGS.appPath ? [ARGS.appPath, generateRoster()] : [join(PACK_ROOT, "apps", "demo.c")]),
+  ];
+
+  // shim/ goes FIRST: it is what makes a real port source compile
+  // unmodified (stdio.h/stdlib.h/math.h stand in for libc headers zig's
+  // freestanding wasm32 target does not ship at all). runtime/ gives the
+  // bare-filename includes a port already uses (app.h, gfx.h, sensors.h,
+  // digits.h). dirname(--app) is added so a port living outside this pack
+  // can include a private helper header of its own, the same allowance
+  // both sibling packs give.
+  const includes = [
+    join(WASM_DIR, "shim"),
+    RUNTIME,
+    ABI_DIR, // emu_abi.h, included bare from emu_shim.c
+    ...(ARGS.appPath ? [resolve(ARGS.appPath, "..")] : []),
+  ];
+
+  if (ZIG.includes("/") || ZIG.includes("\\")) {
+    // An explicit path was given (ZIG_EXE): check it, so a typo fails here
+    // rather than as an opaque spawn error. A bare "zig" is PATH-resolved
+    // and cannot be checked this way.
+    if (!existsSync(ZIG)) {
+      console.error(`zig not found at ${ZIG} (set ZIG_EXE to override)`);
+      cleanupRoster();
+      process.exit(1);
+    }
+  }
+  for (const src of sources) {
+    if (!existsSync(src)) {
+      console.error(`source not found: ${src}`);
+      cleanupRoster();
+      process.exit(1);
+    }
+  }
+  mkdirSync(resolve(outPath, ".."), { recursive: true });
+
+  const args = [
+    "cc",
+    "-target",
+    "wasm32-freestanding",
+    "-O2",
+    // The roster lives in a unique temp directory so concurrent builds
+    // cannot collide, but zig records that path in wasm debug metadata.
+    // Map only that random prefix to a stable virtual path, so identical
+    // sources emit byte-identical wasm across consecutive builds - which
+    // is what this pack's content-hashed filenames and site/build.ts's own
+    // idempotency check both depend on.
+    ...(generatedRosterDir ? [`-ffile-prefix-map=${generatedRosterDir}=puck-web-roster`] : []),
+    "-nostdlib",
+    "-Wl,--no-entry",
+    // Undefined externs (js_log, the math imports) become real wasm
+    // imports instead of a hard link error. `-Wl,--allow-undefined` is
+    // rejected outright by zig cc; this is the flag that works for this
+    // target, found by the sibling pack the same way, by building.
+    "-Wl,--import-symbols",
+    ...EMU_EXPORTS.map((name) => `-Wl,--export=${name}`),
+    ...includes.flatMap((dir) => ["-I", dir]),
+    ...sources,
+    "-o",
+    outPath,
+  ];
+
+  console.log(`${ZIG} ${args.join(" ")}`);
+
+  // zig cc crashes inside its own linker roughly one run in three with
+  // this many -Wl,--export= flags: exit code 5, no diagnostic, and the
+  // very next attempt with identical arguments succeeds. It is a compiler
+  // bug, not anything wrong with the tree. Retried rather than merely
+  // documented, because the person most likely to hit it is somebody
+  // running this for the first time. The pause matters as much as the
+  // retry: the failure rate is far worse under a concurrent build, so this
+  // is contention, not a coin flip.
+  //
+  // THE TIMEOUT IS NOT DECORATION, and it is the one thing this loop has
+  // that both sibling packs' loops do not. The same bug also HANGS, not
+  // just crashes: observed twice on 2026-08-19, a zig process sitting at
+  // 0.02 seconds of CPU for thirteen minutes on arguments that then
+  // succeeded immediately on a manual retry. A retry loop that only
+  // catches a non-zero exit waits forever for that one, which is a far
+  // worse failure than a crash: a build that never returns looks like a
+  // build that is working. Two minutes is many times the ~5s a real
+  // compile of these five files takes, even under a saturated machine.
+  const MAX_ATTEMPTS = 8;
+  const RETRY_PAUSE_MS = 400;
+  const ATTEMPT_TIMEOUT_MS = 120_000;
+  const spawn = () => Bun.spawnSync([ZIG, ...args], { stdout: "inherit", stderr: "inherit", timeout: ATTEMPT_TIMEOUT_MS });
+  let result = spawn();
+  for (let attempt = 2; !result.success && attempt <= MAX_ATTEMPTS; attempt++) {
+    const how = result.signalCode ? `was killed (${result.signalCode}, most likely this build's own ${ATTEMPT_TIMEOUT_MS}ms timeout)` : `exited ${result.exitCode}`;
+    console.error(`zig cc ${how}, retrying (${attempt}/${MAX_ATTEMPTS}) - see this call's comment`);
+    Bun.sleepSync(RETRY_PAUSE_MS);
+    result = spawn();
+  }
+
+  cleanupRoster();
+
+  if (!result.success) {
+    console.error(`zig cc exited ${result.exitCode} on all ${MAX_ATTEMPTS} attempts, so this is a real build failure`);
+    process.exit(result.exitCode ?? 1);
+  }
+}
+
+// ---- host mode -----------------------------------------------------------
+
+function hashOf(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex").slice(0, 10);
+}
+
+async function buildHost(outDir: string): Promise<void> {
+  rmSync(outDir, { recursive: true, force: true });
+  mkdirSync(outDir, { recursive: true });
+
+  // 1. the module, named by its own content hash
+  const stagedModule = join(outDir, "emu.wasm");
+  compileModule(stagedModule);
+  const moduleHash = hashOf(stagedModule);
+  const moduleName = `emu.${moduleHash}.wasm`;
+  copyFileSync(stagedModule, join(outDir, moduleName));
+  rmSync(stagedModule);
+
+  // 2. the host bundle, likewise
+  const hostBuild = await Bun.build({
+    entrypoints: [join(HOST_DIR, "host.ts")],
+    outdir: outDir,
+    naming: "host.js",
+    target: "browser",
+    format: "esm",
+    minify: false,
+  });
+  if (!hostBuild.success) {
+    for (const log of hostBuild.logs) console.error(log);
+    throw new Error("packs/web/wasm/build.ts: failed to bundle host/host.ts");
+  }
+  const hostHash = hashOf(join(outDir, "host.js"));
+  const hostName = `host.${hostHash}.js`;
+  copyFileSync(join(outDir, "host.js"), join(outDir, hostName));
+  rmSync(join(outDir, "host.js"));
+
+  // 3. icons and manifest
+  writeFileSync(join(outDir, "icon.svg"), iconSvg());
+  writeFileSync(join(outDir, "icon-192.png"), iconPng(192));
+  writeFileSync(join(outDir, "icon-512.png"), iconPng(512));
+  const manifest = {
+    name: `puck: ${TITLE}`,
+    short_name: TITLE,
+    start_url: "./",
+    scope: "./",
+    display: "standalone",
+    orientation: "any",
+    background_color: "#000000",
+    theme_color: "#000000",
+    icons: [
+      { src: "icon-192.png", sizes: "192x192", type: "image/png" },
+      { src: "icon-512.png", sizes: "512x512", type: "image/png" },
+      { src: "icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+    ],
+  };
+  writeFileSync(join(outDir, "manifest.webmanifest"), `${JSON.stringify(manifest, null, 2)}\n`);
+
+  // 4. index.html, from the template next to host.ts
+  const template = readFileSync(join(HOST_DIR, "index.html"), "utf8");
+  const html = template
+    .replaceAll("__TITLE__", `${TITLE}: puck on the web`)
+    .replaceAll("__SHORT_TITLE__", TITLE)
+    .replaceAll("__DESCRIPTION__", `${TITLE}, the real firmware compiled to WebAssembly, running on the browser as a target device.`)
+    .replaceAll("__MODULE__", moduleName)
+    // The same --landscape that set the app_t's own flag, forwarded to the
+    // page so the host presents a landscape app landscape (host/host.ts's
+    // Panel). One flag, one meaning, set once at build time.
+    .replaceAll("__LANDSCAPE__", ARGS.landscape ? "1" : "0")
+    .replaceAll("__HOST_JS__", hostName)
+    .replaceAll("__MANIFEST__", "manifest.webmanifest")
+    .replaceAll("__ICON_SVG__", "icon.svg")
+    .replaceAll("__ICON_PNG__", "icon-192.png")
+    .replaceAll("__GALLERY__", ARGS.gallery);
+  writeFileSync(join(outDir, "index.html"), html);
+
+  // 5. the service worker, its cache name derived from what it caches.
+  // index.html is precached under BOTH "./" and "index.html": a visitor
+  // who installed from the bare directory URL and one who bookmarked the
+  // file name are the same app, and a worker that only knows one of them
+  // is an app that works offline for half its users.
+  const precache = ["./", "index.html", moduleName, hostName, "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png"];
+  const cacheVersion = createHash("sha256")
+    .update(`${moduleHash}:${hostHash}:${hashOf(join(outDir, "index.html"))}`)
+    .digest("hex")
+    .slice(0, 10);
+  const swBuild = await Bun.build({
+    entrypoints: [join(HOST_DIR, "sw.ts")],
+    outdir: outDir,
+    naming: "sw.js",
+    target: "browser",
+    format: "esm",
+    minify: false,
+    define: {
+      __CACHE_VERSION__: JSON.stringify(cacheVersion),
+      __PRECACHE__: JSON.stringify(precache),
+    },
+  });
+  if (!swBuild.success) {
+    for (const log of swBuild.logs) console.error(log);
+    throw new Error("packs/web/wasm/build.ts: failed to bundle host/sw.ts");
+  }
+
+  console.log(`built host -> ${outDir} (module ${moduleName}, host ${hostName}, cache puck-web-${cacheVersion})`);
+}
+
+// ---- run -----------------------------------------------------------------
+
+if (ARGS.host) {
+  const outDir = ARGS.outDir ?? join(PACK_ROOT, "dist", APP_NAME);
+  await buildHost(outDir);
+} else {
+  compileModule(MODULE_OUT);
+  console.log(`built ${MODULE_OUT} (${statSync(MODULE_OUT).size} bytes)`);
+}

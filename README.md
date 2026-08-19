@@ -102,6 +102,18 @@ pack (an adaptation, verified by invariants, degraded per its own port
 notes). Both run live, alongside the reference pair, at
 [puck.sylve.org](https://puck.sylve.org).
 
+**A browser is a target device too.** [`packs/web/`](packs/web/) is a device
+pack like the other two: it declares the same 368x448 panel and the same two
+buttons, it vendors the RP2350 pack's app contract rather than inventing one,
+and its ports go through the same verifier. Chrono's web port diffs
+pixel-exact at tolerance 0 against the RP2350 module on both traces, and
+FluidBox's web port is a byte-for-byte copy of the RP2350 port's source that
+compiles unedited. The pack's own host build emits a standalone, installable
+page per app, which is what
+[puck.sylve.org/web/chrono/](https://puck.sylve.org/web/chrono/) and
+[/web/fluidbox/](https://puck.sylve.org/web/fluidbox/) are: not previews of
+those apps, those apps, on the device in your hand.
+
 ## The emulator
 
 It is not specific to this device. It is built entirely from what a
@@ -225,7 +237,10 @@ server.ts       the local dev server. Binds 127.0.0.1 explicitly. Also
                 (baselineStore.ts).
 packs/          self-contained device packs. The RP2350 AMOLED pack is the
                 reference, with board C, drivers, checks, USB tooling and a
-                build that writes wasm/dist/emu.wasm.
+                build that writes wasm/dist/emu.wasm. packs/web is the same
+                thing for the browser: a panel, two drawn buttons, a real
+                accelerometer, and a build that also emits an installable
+                page per app.
 apps/           portable app bundles. Chrono is the reference descriptor,
                 trace set and source snapshot.
 registry.json   local paths and external URLs for packs and apps.

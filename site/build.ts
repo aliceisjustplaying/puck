@@ -298,7 +298,34 @@ const COMBO_BUILD: Record<string, ComboBuild> = {
     portDoc: "apps/fluidbox/ports/rp2350-touch-amoled-18/README.md",
     blurb: "Ported down from a 900-particle, dual-core donor to 130 particles, single core: the interaction surface changed (fixed gravity, a touch stir), so this is verified by invariants, not pixel identity.",
   },
+  "chrono:web": {
+    script: "packs/web/wasm/build.ts",
+    args: ["--app", "apps/chrono/ports/web/chrono.c", "--landscape"],
+    portDoc: "apps/chrono/ports/web/README.md",
+    blurb: "The same source as the RP2350 reference, minus its app_t: pixel-identical to the board on both traces, running on the browser as a target device.",
+  },
+  "fluidbox:web": {
+    script: "packs/web/wasm/build.ts",
+    args: ["--app", "apps/fluidbox/ports/web/fluid.c", "--shake"],
+    portDoc: "apps/fluidbox/ports/web/README.md",
+    blurb: "The RP2350 port's file, byte for byte, on a device that finally has the accelerometer the app asks for: tilt the phone and the liquid pours.",
+  },
 };
+
+// The one pack whose run page is not an embedded emulator but the app
+// itself. Its build script has a --host mode that emits a standalone,
+// installable directory (packs/web/wasm/build.ts), and this generator
+// serves that directory at /web/<app>/ instead of writing a run/<id>.html
+// around an iframe. Named once here rather than tested for by string in
+// four places.
+const WEB_PACK = "web";
+
+// Where a visitor should go to run a given combo. Every caller goes
+// through this, so the landing page's cards, the proof matrix's cells and
+// any future link all agree about where a web combo actually lives.
+function comboHref(combo: Combo, depth: "" | "../"): string {
+  return combo.pack === WEB_PACK ? `${depth}web/${combo.app}/` : `${depth}run/${combo.id}.html`;
+}
 
 // The instrument's own minimal reference firmware (example/firmware/main.c,
 // docs/decisions/0001-example-is-minimal-not-a-shim.md), built and embedded
@@ -445,6 +472,44 @@ function buildAllModules(): void {
   if (!existsSync(REPO_WASM_OUT)) throw new Error(`${INSTRUMENT_EXAMPLE.script} did not write ${REPO_WASM_OUT}`);
   copyFileSync(REPO_WASM_OUT, join(MODULES_DIR, `${INSTRUMENT_EXAMPLE.id}.wasm`));
   console.log(`copied -> site/dist/modules/${INSTRUMENT_EXAMPLE.id}.wasm`);
+}
+
+// ---- 1.2. the web pack's own app pages -----------------------------------
+// Unlike every other run page, these are not this generator's HTML wrapped
+// around an iframe: they are the pack's OWN host build, emitted whole by
+// packs/web/wasm/build.ts --host. The distinction is the point of the pack.
+// A chip's run page can only ever be a window onto an emulator, because the
+// chip is not here; a browser IS here, so /web/chrono/ is not a preview of
+// chrono on the web, it is chrono on the web - full viewport, installable,
+// and offline once installed.
+//
+// Everything inside those directories (the module's and the host bundle's
+// content-hashed filenames, the service worker's cache name) is produced by
+// the pack, not by this file, so cache-busting there follows the pack's own
+// rule rather than this generator's ?v= convention. Both are content
+// hashes; only the shape differs, because a service worker keys its cache
+// on a URL and a query string is a poor cache key for one.
+function buildWebApps(): void {
+  for (const c of combos) {
+    if (c.pack !== WEB_PACK) continue;
+    const outDir = join(DIST, "web", c.app);
+    runBuild(c.build.script, [
+      ...c.build.args,
+      "--host",
+      "--out",
+      outDir,
+      "--title",
+      c.app,
+      // From /web/<app>/index.html back to the gallery root. The pack has
+      // no idea where it is deployed, so the link is an argument.
+      "--gallery",
+      "../../",
+    ]);
+    if (!existsSync(join(outDir, "index.html"))) {
+      throw new Error(`${c.build.script} --host did not write ${join(outDir, "index.html")}`);
+    }
+    console.log(`built -> site/dist/web/${c.app}/`);
+  }
 }
 
 // ---- 1.5. flash artifacts + the WebUSB flasher's own bundled JS --------
@@ -722,16 +787,14 @@ function modeLabel(mode: string): string {
 // distinct mark is proof-silicon below: only present when that port's own
 // bundle.json carries a "silicon" attestation, meaning it has ALSO been
 // run against real hardware, not only the emulator.
-function renderProofCell(entry: ProvenEntry | undefined, comboIdFor: string | null): string {
+function renderProofCell(entry: ProvenEntry | undefined, href: string | null): string {
   if (!entry) return `<td class="proof-cell empty">not ported</td>`;
   const verif = entry.degraded ? `${entry.verification} (degraded)` : entry.verification;
   const silicon = entry.silicon
     ? `<span class="proof-silicon" title="run against real hardware, attested ${escapeHtml(entry.silicon.attestedAt)}: ${escapeHtml(entry.silicon.how)}">&#9679; on silicon</span>`
     : "";
   const inner = `<span class="proof-mode">${escapeHtml(modeLabel(entry.mode))}</span><span class="proof-verif">${escapeHtml(verif)}</span>${silicon}`;
-  return comboIdFor
-    ? `<td class="proof-cell"><a href="run/${comboIdFor}.html">${inner}</a></td>`
-    : `<td class="proof-cell">${inner}</td>`;
+  return href ? `<td class="proof-cell"><a href="${href}">${inner}</a></td>` : `<td class="proof-cell">${inner}</td>`;
 }
 
 function buildIndexHtml(): void {
@@ -741,7 +804,16 @@ function buildIndexHtml(): void {
       const provenLinks = app.proven
         .map((p) => {
           const c = combos.find((x) => x.app === app.name && x.pack === p.pack)!;
-          return `<a href="run/${c.id}.html">run on ${escapeHtml(packLabel.get(p.pack) || p.pack)}</a>`;
+          // The web pack's link says where it runs rather than what it
+          // runs on, because that is the whole difference: every other
+          // link opens an emulator of a device the visitor does not have,
+          // and this one opens the app on the device already in their
+          // hand.
+          const label =
+            p.pack === WEB_PACK
+              ? `run on your phone: ${escapeHtml(packLabel.get(p.pack) || p.pack)}`
+              : `run on ${escapeHtml(packLabel.get(p.pack) || p.pack)}`;
+          return `<a href="${comboHref(c, "")}">${label}</a>`;
         })
         .join("");
       // Deduped: chrono is proven the same way (faithful/pixel-exact) on
@@ -778,7 +850,7 @@ function buildIndexHtml(): void {
         .map((pack) => {
           const entry = app.proven.find((p) => p.pack === pack);
           const c = entry ? combos.find((x) => x.app === app.name && x.pack === pack) : undefined;
-          return renderProofCell(entry, c ? c.id : null);
+          return renderProofCell(entry, c ? comboHref(c, "") : null);
         })
         .join("\n        ");
       return `      <tr>
@@ -868,7 +940,7 @@ ${refCardsHtml}
       <div class="how-grid">
         <div class="item">
           <h3>device packs</h3>
-          <p>A self-contained folder for one hardware target: real drivers, a real board's firmware, and a <code>device.json</code> descriptor the emulator reads at runtime. Nothing in the shared instrument names one device; every panel size and button comes from the pack itself.</p>
+          <p>A self-contained folder for one target: real drivers, a real board's firmware, and a <code>device.json</code> descriptor the emulator reads at runtime. Nothing in the shared instrument names one device; every panel size and button comes from the pack itself. The browser is one of those targets, so a phone is a device pack too, and an app ported to it goes through the same verifier as an app ported to a chip.</p>
           <span class="src"><a href="${gh("docs/convention/device-pack.md")}">device-pack.md</a></span>
         </div>
         <div class="item">
@@ -1094,6 +1166,10 @@ ${siteFooter("../")}
   }
 
   for (const c of combos) {
+    // The web pack writes its own page, whole, at /web/<app>/ (see
+    // buildWebApps above): there is no emulator to embed when the device
+    // is the browser already displaying the page.
+    if (c.pack === WEB_PACK) continue;
     const entry = c.proven;
     writeRunPage({
       id: c.id,
@@ -1187,12 +1263,21 @@ This site (puck.sylve.org) is the gallery: every proven combination runs
 live in the browser, compiled to WebAssembly, and the reference RP2350
 firmware also flashes onto real hardware over WebUSB.
 
+A browser is one of the target devices, not only the thing the others are
+shown in. The "web" pack (Web-Touch) is a device pack like any other: it
+declares the same 368x448 panel, the same two buttons and a tilt sensor,
+it vendors the RP2350 pack's app contract, and its ports are verified by
+the same harness. /web/chrono/ and /web/fluidbox/ are not previews of
+those apps: they are those apps, full-viewport, installable to a phone's
+home screen, and offline once installed.
+
 ## Machine-readable surfaces on this domain
 
 - /registry.json: local paths and external URLs for every device pack and app bundle this repo knows about.
 - /docs/convention/device-pack.md: what a device pack must contain.
-- /docs/convention/app-bundle.md: what an app bundle (descriptor + traces) must contain.
+- /docs/convention/app-bundle.md: what an app bundle (descriptor + traces) must contain, including how an affordance carries its intent.
 - /apps/<name>/descriptor.md: the portable descriptor for each proven app (chrono, fluidbox).
+- /web/<name>/: the app itself, running on the browser as its target device (chrono, fluidbox).
 - https://github.com/s0lness/puck: the repository itself, MIT licensed.
 
 ## Consuming a pack or app as an agent
@@ -1256,6 +1341,7 @@ if (existsSync(DIST)) rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
 
 buildAllModules();
+buildWebApps();
 buildEmulatorBundle();
 copyFileSync(join(SITE_DIR, "styles.css"), join(DIST, "styles.css"));
 STYLES_VERSION = contentHashOf(join(DIST, "styles.css"));

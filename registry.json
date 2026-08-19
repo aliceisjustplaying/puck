@@ -8,6 +8,10 @@
     {
       "name": "esp32-s3-touch-amoled-18",
       "path": "packs/esp32-s3-touch-amoled-18"
+    },
+    {
+      "name": "web",
+      "path": "packs/web"
     }
   ],
   "apps": [

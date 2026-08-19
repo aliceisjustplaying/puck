@@ -13,6 +13,9 @@
     "example:build": "bun run example/build.ts",
     "pack:build": "bun run packs/rp2350-touch-amoled-18/wasm/build.ts",
     "pack:esp32:build": "bun run packs/esp32-s3-touch-amoled-18/wasm/build.ts",
+    "pack:web:build": "bun run packs/web/wasm/build.ts",
+    "pack:web:host": "bun run packs/web/wasm/build.ts --host",
+    "pack:web:gate": "bun run packs/web/gate/device-agrees.ts",
     "pack:screens": "bun run packs/rp2350-touch-amoled-18/tools/screens.ts",
     "pack:demo": "bun run packs/rp2350-touch-amoled-18/tools/demo.ts",
     "harness:selftest": "bun run harness/selftest.ts",
@@ -29,7 +32,8 @@
     "site:build": "bun run site/build.ts",
     "site:record-demos": "bun run site/record-demos.ts",
     "site:verify-flash-ui": "bun run scripts/verify-flash-ui.ts",
-    "site:verify-embeds": "bun run scripts/verify-site-embeds.ts"
+    "site:verify-embeds": "bun run scripts/verify-site-embeds.ts",
+    "site:verify-web": "bun run scripts/verify-web-apps.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

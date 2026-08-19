@@ -14,6 +14,20 @@ Every descriptor has exactly three sections:
 
 [`apps/chrono/descriptor.md`](../../apps/chrono/descriptor.md) is the reference descriptor.
 
+### Affordances carry their intent
+
+`Interactions` stays bound and concrete: it names the actual input and the actual result, and a porter must be able to implement it without inventing anything. What it gains is one parenthetical per affordance, stating what that affordance is FOR.
+
+```
+- A short PWR press toggles between running and stopped. (intent: the primary one-tap toggle, and it must feel instant.)
+```
+
+The reason is what happens at the edge of a port. A target device has no PWR button, or no button at all, and the porter has to decide what replaces it. Without the intent, the two available moves are both wrong: reproduce the letter (a control labelled PWR, wherever it lands, however awkward) or reproduce nothing. With it, the porter knows the thing to preserve is a one-tap toggle that feels instant, and can put it wherever that is true on their device. `packs/web`'s chrono port is the worked example: its PWR is a drawn button rather than a felt one, which is a change to the letter and none at all to the intent.
+
+This is not a second `Demands` section and it must not become one. `Demands` is the platonic layer: what the app requires of a device at all, separated from what it prefers, checkable against a `device.json` before any code exists. An intent parenthetical is narrower and answers a different question: given that this affordance is being ported, what would a reimplementation have to keep to still be this app? Nothing checks intents mechanically, and nothing should; they are for the person or agent writing the port, and they are what a verdict of `faithful` versus `adaptation` gets argued from.
+
+No schema change: this is prose inside `Interactions`, which `bundle.json` never reads.
+
 ## Bundle schema (0.2)
 
 `bundle.json` sits next to `descriptor.md`. Its `convention` field states the schema version it was written against. Version 0.2 replaces the earlier loose `provenPacks` field with a `ports` array, one entry per pack the app has been ported to and proven on:

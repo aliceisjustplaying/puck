@@ -9,24 +9,24 @@
 <meta property="og:description" content="What this site is, its machine-readable surfaces (registry.json, convention docs, app descriptors), and how an agent consumes a pack or app." />
 <meta property="og:type" content="website" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%2214%22%20fill%3D%22%232f6feb%22%2F%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%225%22%20fill%3D%22%23fafafa%22%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="styles.css?v=681de05b49" />
+<link rel="stylesheet" href="styles.css?v=f051dd1b7a" />
 </head>
 <body>
 <div class="wrap">
   <div class="run-header">
     <div class="back"><a href="index.html">&larr; puck</a></div>
     <h1>puck, for an agent</h1>
-    <p class="meta">the same content as <a href="llms.txt?v=5bf23b7ec3">/llms.txt</a>, in HTML</p>
+    <p class="meta">the same content as <a href="llms.txt?v=617c1122b2">/llms.txt</a>, in HTML</p>
   </div>
   <section>
     <div class="wrap" style="padding:0">
       <h2>machine-readable surfaces</h2>
       <ul class="agent-links">
-        <li><a href="registry.json?v=88c347c4d4">registry.json</a>: local paths and external URLs for every device pack and app bundle.</li>
-        <li><a href="docs/convention/device-pack.md?v=257cdc27ea">docs/convention/device-pack.md</a></li>
-        <li><a href="docs/convention/app-bundle.md?v=0a221b287a">docs/convention/app-bundle.md</a></li>
-        <li><a href="apps/chrono/descriptor.md?v=302ea83d40">apps/chrono/descriptor.md</a></li>
-        <li><a href="apps/fluidbox/descriptor.md?v=ee008a9882">apps/fluidbox/descriptor.md</a></li>
+        <li><a href="registry.json?v=c9b3956e7c">registry.json</a>: local paths and external URLs for every device pack and app bundle.</li>
+        <li><a href="docs/convention/device-pack.md?v=1c50b01b03">docs/convention/device-pack.md</a></li>
+        <li><a href="docs/convention/app-bundle.md?v=5da5046143">docs/convention/app-bundle.md</a></li>
+        <li><a href="apps/chrono/descriptor.md?v=fe58a544a3">apps/chrono/descriptor.md</a></li>
+        <li><a href="apps/fluidbox/descriptor.md?v=f8706c0cc7">apps/fluidbox/descriptor.md</a></li>
         <li><a href="https://github.com/s0lness/puck/blob/master/README.md">github.com/s0lness/puck</a>, MIT licensed.</li>
       </ul>
       <pre class="agent-doc"># puck
@@ -42,12 +42,21 @@ This site (puck.sylve.org) is the gallery: every proven combination runs
 live in the browser, compiled to WebAssembly, and the reference RP2350
 firmware also flashes onto real hardware over WebUSB.
 
+A browser is one of the target devices, not only the thing the others are
+shown in. The &quot;web&quot; pack (Web-Touch) is a device pack like any other: it
+declares the same 368x448 panel, the same two buttons and a tilt sensor,
+it vendors the RP2350 pack&#39;s app contract, and its ports are verified by
+the same harness. /web/chrono/ and /web/fluidbox/ are not previews of
+those apps: they are those apps, full-viewport, installable to a phone&#39;s
+home screen, and offline once installed.
+
 ## Machine-readable surfaces on this domain
 
 - /registry.json: local paths and external URLs for every device pack and app bundle this repo knows about.
 - /docs/convention/device-pack.md: what a device pack must contain.
-- /docs/convention/app-bundle.md: what an app bundle (descriptor + traces) must contain.
+- /docs/convention/app-bundle.md: what an app bundle (descriptor + traces) must contain, including how an affordance carries its intent.
 - /apps/&lt;name&gt;/descriptor.md: the portable descriptor for each proven app (chrono, fluidbox).
+- /web/&lt;name&gt;/: the app itself, running on the browser as its target device (chrono, fluidbox).
 - https://github.com/s0lness/puck: the repository itself, MIT licensed.
 
 ## Consuming a pack or app as an agent

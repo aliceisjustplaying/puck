@@ -21,6 +21,13 @@ const MIME: Record<string, string> = {
   ".md": "text/markdown; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
   ".json": "application/json",
+  // The web device pack's host build emits these two (packs/web/wasm/
+  // build.ts): a manifest served as anything else is ignored by Chrome's
+  // install path, and an icon served as octet-stream never renders, so a
+  // local check of an installable page would pass while production
+  // behaved differently.
+  ".webmanifest": "application/manifest+json",
+  ".svg": "image/svg+xml",
 };
 
 // Serves `dist` (a directory, e.g. site/dist/) at "/" on 127.0.0.1:port -
@@ -35,7 +42,13 @@ export function serveDist(dist: string, port: number): ReturnType<typeof Bun.ser
     async fetch(req) {
       const url = new URL(req.url);
       let path = decodeURIComponent(url.pathname);
-      if (path === "/") path = "/index.html";
+      // Directory requests resolve to that directory's index.html, which
+      // is what Cloudflare Pages does and what the web device pack's own
+      // app pages depend on: they are served at /web/<app>/, a directory
+      // URL, and their manifest declares "start_url": "./". A server that
+      // only special-cased "/" would 404 them here while production served
+      // them fine, which is the worst shape a local check can have.
+      if (path.endsWith("/")) path += "index.html";
       const file = Bun.file(join(dist, path));
       if (!(await file.exists())) return new Response("not found", { status: 404 });
       const type = MIME[extname(path)] || "application/octet-stream";

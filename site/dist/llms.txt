@@ -11,12 +11,21 @@ This site (puck.sylve.org) is the gallery: every proven combination runs
 live in the browser, compiled to WebAssembly, and the reference RP2350
 firmware also flashes onto real hardware over WebUSB.
 
+A browser is one of the target devices, not only the thing the others are
+shown in. The "web" pack (Web-Touch) is a device pack like any other: it
+declares the same 368x448 panel, the same two buttons and a tilt sensor,
+it vendors the RP2350 pack's app contract, and its ports are verified by
+the same harness. /web/chrono/ and /web/fluidbox/ are not previews of
+those apps: they are those apps, full-viewport, installable to a phone's
+home screen, and offline once installed.
+
 ## Machine-readable surfaces on this domain
 
 - /registry.json: local paths and external URLs for every device pack and app bundle this repo knows about.
 - /docs/convention/device-pack.md: what a device pack must contain.
-- /docs/convention/app-bundle.md: what an app bundle (descriptor + traces) must contain.
+- /docs/convention/app-bundle.md: what an app bundle (descriptor + traces) must contain, including how an affordance carries its intent.
 - /apps/<name>/descriptor.md: the portable descriptor for each proven app (chrono, fluidbox).
+- /web/<name>/: the app itself, running on the browser as its target device (chrono, fluidbox).
 - https://github.com/s0lness/puck: the repository itself, MIT licensed.
 
 ## Consuming a pack or app as an agent

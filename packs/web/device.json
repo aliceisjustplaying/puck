@@ -1,0 +1,41 @@
+{
+  "convention": "0.2",
+  "name": "Web-Touch",
+  "panel": {
+    "w": 368,
+    "h": 448,
+    "format": "rgb565be"
+  },
+  "buttons": [
+    {
+      "id": "boot",
+      "label": "BOOT",
+      "edge": "right",
+      "at": 0.38
+    },
+    {
+      "id": "pwr",
+      "label": "PWR",
+      "edge": "right",
+      "at": 0.62,
+      "longPressMs": 1500
+    }
+  ],
+  "touch": {
+    "points": 1
+  },
+  "sensors": [
+    {
+      "id": "shake",
+      "kind": "event"
+    },
+    {
+      "id": "tilt",
+      "kind": "vector"
+    }
+  ],
+  "memory": {
+    "model": "full-framebuffer",
+    "note": "a browser has no SRAM budget; the rp2350 contract applies unchanged"
+  }
+}

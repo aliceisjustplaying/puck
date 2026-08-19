@@ -53,3 +53,6 @@ Thumbs.db
 # Pack-local native build outputs (the .uf2 goes on a GitHub release,
 # never in git - see the comment above about firmware/build/)
 packs/*/dist/
+
+# Session-local agent state and worktrees, never committed
+/.claude/

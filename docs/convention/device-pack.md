@@ -17,3 +17,12 @@ Nothing inside a pack imports emulator internals. The pack implements the public
 Packs may live under this repository's `packs/` directory or in an author's own repository. Local packs use a `{"name","path"}` entry in `registry.json`. External packs use a `{"name","url"}` entry.
 
 The reference pack is [`packs/rp2350-touch-amoled-18`](../../packs/rp2350-touch-amoled-18/).
+
+## A target device is not necessarily a chip
+
+Nothing above says "hardware". A pack describes a panel, some inputs, some sensors and a memory model, and a browser has all four, so [`packs/web`](../../packs/web/) is a device pack under this same convention rather than an exception to it: same `device.json`, same `AGENTS.md`, same `gotchas.md`, same `wasm/build.ts` writing the same `wasm/dist/emu.wasm`, same `bun run verify-bundle` deciding whether its ports are real.
+
+Two consequences worth stating, because both are visible in that pack:
+
+- **Self-containment cuts both ways.** A pack may not import the emulator's internals, and it may not import a sibling pack's either. `packs/web` adopts the RP2350 pack's app contract by VENDORING `app.h` and `gfx.h` with attribution (see its `NOTICE.md`), never by reaching across into that folder. The payoff is concrete: a port file written for one compiles against the other unchanged.
+- **A pack may emit more than a module.** `packs/web/wasm/build.ts` has a second mode that writes a standalone, installable page around the module. That is this pack's equivalent of the RP2350 pack's `.uf2`: the artifact you actually put on the target device.

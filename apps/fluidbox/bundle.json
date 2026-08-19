@@ -15,6 +15,19 @@
       },
       "source": "apps/fluidbox/ports/rp2350-touch-amoled-18/fluid.c",
       "buildArgs": ["--shake"]
+    },
+    {
+      "pack": "web",
+      "mode": "adaptation",
+      "verdict": "go",
+      "verification": {
+        "kind": "invariants",
+        "checker": "apps/fluidbox/invariants.ts",
+        "trace": "apps/fluidbox/traces/fluid-settle-shake.trace.json",
+        "captureAt": [4000, 4016, 9024]
+      },
+      "source": "apps/fluidbox/ports/web/fluid.c",
+      "buildArgs": ["--shake"]
     }
   ]
 }

@@ -4,10 +4,10 @@ Chrono is a full-screen stopwatch with no title, status chrome, controls, or dec
 
 ## Interactions
 
-- A short PWR press toggles between running and stopped. A stop freezes the displayed value in the same update that receives the press.
-- A BOOT click stops the stopwatch and resets it to `00:00:00` from any state.
-- There are no touch zones. Touch input does nothing in the reference implementation.
-- Shake input does nothing, so carrying the stopwatch cannot erase its value accidentally.
+- A short PWR press toggles between running and stopped. A stop freezes the displayed value in the same update that receives the press. (intent: the primary one-tap toggle, and it must feel instant.)
+- A BOOT click stops the stopwatch and resets it to `00:00:00` from any state. (intent: the one destructive action, deliberately on a different control from the toggle so it cannot be hit by accident.)
+- There are no touch zones. Touch input does nothing in the reference implementation. (intent: the whole face is a readout, never a control surface.)
+- Shake input does nothing, so carrying the stopwatch cannot erase its value accidentally. (intent: carrying the device must never destroy the measurement.)
 
 ## Demands
 

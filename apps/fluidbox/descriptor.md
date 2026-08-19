@@ -16,15 +16,21 @@ image.
 
 - Tilting or orienting the device changes which way gravity pulls the fluid, continuously: the
   low-pass-filtered accelerometer vector is "down" for the simulation, so turning the device pours
-  the liquid toward whichever face is now the bottom.
+  the liquid toward whichever face is now the bottom. (intent: holding the device IS the control;
+  the liquid answers the hand continuously, with no button in between.)
 - Shaking the device injects a burst of extra motion on top of gravity: particles spray outward and
-  the fastest ones flash toward white, then the fluid settles back to its resting pool.
+  the fastest ones flash toward white, then the fluid settles back to its resting pool. (intent: the
+  one violent input, and the only way to make the fluid look fast rather than merely present.)
 - A short PWR press resets the fluid: it re-seeds as a settled block at the bottom of the box,
-  discarding all current position and velocity.
+  discarding all current position and velocity. (intent: a way back to a known state that costs one
+  tap and needs no explanation.)
 - Touch does nothing in the reference implementation. The donor hardware has a touch controller,
-  but this app never reads it.
+  but this app never reads it. (intent: none, and this is an absence rather than a decision; a port
+  onto a device with a usable digitizer may add stirring, which is a widened interaction surface
+  and therefore an adaptation.)
 - Holding PWR long enough to power the device off is handled by hardware (an IO-expander pin wired
-  directly to the power chip), not by this app.
+  directly to the power chip), not by this app. (intent: the app never owns the power state; a
+  target without a power rail simply has nothing to implement here.)
 
 ## Demands
 
