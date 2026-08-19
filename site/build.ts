@@ -281,6 +281,33 @@ function copyFlashArtifacts(): void {
   }
 }
 
+// ---- 1.6. landing demo loops: recorded, tracked source, copied out -------
+// Same pattern as flash-artifacts above: site/demo-media/ is the tracked
+// source (written by site/record-demos.ts, committed like any other
+// asset), site/dist/assets/demos/ is untracked build output regenerated
+// from it every time. Every id the landing page actually links to
+// (demoThumb's own callers) must have all three files - missing media is
+// a loud warning, not a thrown error, so a fresh clone can still run
+// site:build once (to produce the wasm modules site/record-demos.ts itself
+// needs to drive) before any recording has happened yet.
+const DEMO_MEDIA_EXTS = ["mp4", "gif", "png"] as const;
+
+function copyDemoMedia(ids: string[]): void {
+  const outDir = join(DIST, "assets", "demos");
+  mkdirSync(outDir, { recursive: true });
+  for (const id of ids) {
+    for (const ext of DEMO_MEDIA_EXTS) {
+      const src = join(DEMO_MEDIA_DIR, `${id}.${ext}`);
+      if (!existsSync(src)) {
+        console.warn(`site/build.ts: no site/demo-media/${id}.${ext} yet (run \`bun run site:record-demos\` to generate it) - the landing page will link to a missing asset until then`);
+        continue;
+      }
+      copyFileSync(src, join(outDir, `${id}.${ext}`));
+      console.log(`copied -> site/dist/assets/demos/${id}.${ext}`);
+    }
+  }
+}
+
 // flash-ui.ts is the run page's own small entrypoint (wires the "Flash
 // over USB" button to site/flasher/flash.ts); bundled the same way the
 // root build.ts bundles src/main.ts, so this page ships one local JS file
@@ -318,6 +345,26 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
+// A monochrome puck glyph, inline (no separate .ico/.png asset to keep in
+// sync with the rest of the gallery): a disc with a smaller punched-out
+// centre, the same silhouette a hockey puck reads as from directly above.
+// One colour (the site's own accent), on transparent - matches "system
+// sans, one accent, no marketing" as much as a 32x32 glyph can. A data URI
+// means every page carries its own favicon with zero extra requests, and a
+// static build with no build-time image pipeline never has to write a
+// second file this could drift from.
+const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="#2f6feb"/><circle cx="16" cy="16" r="5" fill="#fafafa"/></svg>`;
+const FAVICON_HREF = `data:image/svg+xml,${encodeURIComponent(FAVICON_SVG)}`;
+
+// One footer, everywhere: the index page and every run page end on the
+// same GitHub link + MIT note, rather than the index's own copy being the
+// only place a visitor sees it.
+const SITE_FOOTER = `<footer>
+    <div class="wrap" style="padding:0">
+      <a href="${gh("README.md")}">s0lness/puck</a> on GitHub, MIT licensed.
+    </div>
+  </footer>`;
+
 function page(title: string, description: string, stylesHref: string, body: string): string {
   return `<!doctype html>
 <html lang="en">
@@ -326,6 +373,10 @@ function page(title: string, description: string, stylesHref: string, body: stri
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}" />
+<meta property="og:title" content="${escapeHtml(title)}" />
+<meta property="og:description" content="${escapeHtml(description)}" />
+<meta property="og:type" content="website" />
+<link rel="icon" href="${FAVICON_HREF}" />
 <link rel="stylesheet" href="${stylesHref}" />
 </head>
 <body>
@@ -335,18 +386,31 @@ ${body}
 `;
 }
 
-// ---- live card embeds: the landing page's own cards run the real thing --
-// Every app card on the index embeds the SAME shared emulator bundle every
-// run page does (?embed=1&module=...), pointed at that app's first proven
-// combo (app.proven[0] - deterministic since bundle.json's provenPacks is
-// an ordered array), so a visitor can click and touch the device right on
-// the landing page rather than only seeing a static screenshot and
-// following a link. `loading="lazy"` (native, no library) so a card below
-// the fold does not fetch and instantiate its wasm module - a real network
-// request plus a compile step, unlike a plain <img> - until it is actually
-// about to scroll into view, keeping the page's initial load cheap however
-// many combos the matrix grows to.
-//
+// ---- landing thumbnails: recorded loops, not live emulators -------------
+// The index page used to embed the same live ?embed=1 iframe every run page
+// does, once per card. Real, but expensive on a phone (four wasm fetches +
+// instantiations before anything paints) and fragile in exactly the way
+// Sylve's own iPhone Safari report showed ("the fluid simulation doesn't
+// seem to work"): a live embed's correctness depends on wasm compiling,
+// touch reaching the panel, and the device fitting its iframe, all before
+// a visitor sees anything move. A short recorded loop (site/record-demos.ts,
+// see its own header for how these are captured) has none of that: it is a
+// <video>, it always plays, and it costs one small file instead of a wasm
+// module. The live thing still exists, one click away - every thumbnail
+// links to its real run page, per site/build.ts's own COMBO ids so this
+// never points at a made-up id.
+const DEMO_MEDIA_DIR = join(SITE_DIR, "demo-media");
+const DEMO_ASSET_HREF = (id: string, ext: string) => `assets/demos/${id}.${ext}`;
+
+function demoThumb(id: string, alt: string, href: string): string {
+  return `<a class="thumb thumb-video" href="${href}" aria-label="${escapeHtml(alt)}, open the live run page">
+    <video autoplay muted loop playsinline poster="${DEMO_ASSET_HREF(id, "png")}">
+      <source src="${DEMO_ASSET_HREF(id, "mp4")}" type="video/mp4" />
+    </video>
+    <noscript><img src="${DEMO_ASSET_HREF(id, "gif")}" alt="${escapeHtml(alt)}" /></noscript>
+  </a>`;
+}
+
 // ROOT-ABSOLUTE, deliberately, not relative. src/main.ts's fetchWasmBytes()
 // calls fetch(WASM_URL) INSIDE the emu/index.html document, so a relative
 // value in the ?module= param resolves against THAT document's own
@@ -365,23 +429,6 @@ ${body}
 function moduleUrlAbs(moduleId: string): string {
   return `/modules/${moduleId}.wasm`;
 }
-
-// From site/dist/index.html (DIST root), the shared bundle lives at
-// emu/index.html (one level down, not two - run pages need `../emu/`
-// because THEY live one level down in run/; the index page itself does
-// not). The iframe's own `src` path is fine relative (it is resolved by the
-// BROWSER against the embedding page's URL, the normal way <iframe src>
-// always works); only the ?module= VALUE inside it needed to stop being
-// relative, per this function's own header comment above.
-function embedIframeSrc(moduleId: string): string {
-  return `emu/index.html?embed=1&module=${encodeURIComponent(moduleUrlAbs(moduleId))}`;
-}
-
-// Chrono's app declares a landscape layout (see apps/chrono/descriptor.md):
-// the panel's native buffer is portrait, so its live embed below also
-// clicks the same "-90deg" quick-rotate button the run page's own script
-// does, once loaded, rather than showing the digits sideways.
-const CARD_AUTO_ROTATE: Record<string, boolean> = { chrono: true };
 
 // ---- hand-written one-liners: bundle.json has no prose, this is it -----
 const APP_BLURB: Record<string, string> = {
@@ -407,7 +454,6 @@ function buildIndexHtml(): void {
   const cardsHtml = apps
     .map((app) => {
       const primary = combos.find((x) => x.app === app.name && x.pack === app.proven[0]!.pack)!;
-      const autoRotate = CARD_AUTO_ROTATE[app.name] ?? false;
       const provenLinks = app.proven
         .map((p) => {
           const c = combos.find((x) => x.app === app.name && x.pack === p.pack)!;
@@ -427,7 +473,7 @@ function buildIndexHtml(): void {
         .map((p) => `<span class="badge${p.degraded ? "" : " accent"}">${escapeHtml(modeLabel(p.mode))} · ${escapeHtml(p.verification)}</span>`)
         .join("");
       return `<div class="card">
-  <div class="thumb thumb-live" data-autorotate="${autoRotate ? "1" : "0"}"><iframe loading="lazy" allowtransparency="true" src="${embedIframeSrc(primary.id)}" width="400" height="300" title="${escapeHtml(app.name)}, running live" allow="autoplay"></iframe></div>
+  ${demoThumb(primary.id, `${app.name} demo`, `run/${primary.id}.html`)}
   <div class="body">
     <h3>${escapeHtml(app.name)}</h3>
     <p>${escapeHtml(APP_BLURB[app.name] || "")}</p>
@@ -460,10 +506,9 @@ function buildIndexHtml(): void {
   const matrixHead = packNames.map((p) => `<th>${escapeHtml(packLabel.get(p) || p)}</th>`).join("\n        ");
 
   // Every "reference" tile (a device pack proving itself, plus the
-  // instrument's own minimal example) also embeds its live emulator
-  // directly, same as the app cards above - see embedIframeSrc's header
-  // comment for why loading="lazy" is enough here rather than a bigger
-  // intersection-observer mechanism.
+  // instrument's own minimal example) gets the same recorded-loop
+  // treatment as the app cards above, and the same click-through to its
+  // real, live run page.
   const refTiles = [
     ...REFERENCE_APPS.map((r) => ({
       id: r.id,
@@ -481,7 +526,7 @@ function buildIndexHtml(): void {
   const refCardsHtml = refTiles
     .map(
       (r) => `<div class="ref-card">
-  <div class="thumb thumb-live"><iframe loading="lazy" allowtransparency="true" src="${embedIframeSrc(r.id)}" width="320" height="240" title="${escapeHtml(r.title)}, running live" allow="autoplay"></iframe></div>
+  ${demoThumb(r.id, `${r.title} demo`, `run/${r.id}.html`)}
   <h3>${escapeHtml(r.title)}</h3>
   <p>${escapeHtml(r.blurb)}</p>
   <div class="links"><a href="run/${r.id}.html">open full page</a> <a href="${r.docHref}">source</a></div>
@@ -493,7 +538,7 @@ function buildIndexHtml(): void {
   <header class="hero">
     <h1>puck</h1>
     <p class="tagline">apps that travel between tiny computers.</p>
-    <p class="sub">Every app below is running for real, compiled to WebAssembly, in the browser: not a recording, not a mockup. <a href="${gh("README.md")}">puck</a> is a device-agnostic emulator, a set of self-contained device packs, and a set of portable app bundles; this page proves the porting story with the real thing.</p>
+    <p class="sub">Every clip below is a recording of the real thing, compiled to WebAssembly and running live one click away. <a href="${gh("README.md")}">puck</a> is a device-agnostic emulator, a set of self-contained device packs, and a set of portable app bundles; open any run page to touch the actual emulator, not a mockup.</p>
   </header>
 
   <section id="apps">
@@ -507,7 +552,7 @@ ${cardsHtml}
   <section id="proof">
     <div class="wrap" style="padding:0">
       <h2>proof matrix</h2>
-      <p class="lede">Each cell is a real build of that app's own port, for that device pack's real firmware, verified by the shared harness and running live below.</p>
+      <p class="lede">Each cell is a real build of that app's own port, for that device pack's real firmware, verified by the shared harness: click through to run it live.</p>
       <div class="matrix-scroll">
         <table class="matrix">
           <thead><tr><th></th>
@@ -524,7 +569,7 @@ ${matrixRows}
   <section id="reference">
     <div class="wrap" style="padding:0">
       <h2>reference app</h2>
-      <p class="lede">Not a port: each device pack's own shipped app, plus the instrument's own minimal example firmware - every tile below is running live, click into it the same as the cards above.</p>
+      <p class="lede">Not a port: each device pack's own shipped app, plus the instrument's own minimal example firmware - every tile below links to it running live, the same as the cards above.</p>
       <div class="ref-cards">
 ${refCardsHtml}
       </div>
@@ -554,34 +599,18 @@ ${refCardsHtml}
     </div>
   </section>
 
-  <footer>
-    <div class="wrap" style="padding:0">
-      <a href="${gh("README.md")}">s0lness/puck</a> on GitHub, MIT licensed.
-    </div>
-  </footer>
-</div>
-<script>
-(function () {
-  // Chrono's live card embed (see CARD_AUTO_ROTATE above) gets the same
-  // one-time "-90deg" quick-rotate click the run page's own script gives
-  // it, once that iframe's document is actually loaded - lazy-loaded
-  // iframes fire their own "load" event the same as an eager one, just
-  // later, so no extra polling is needed here.
-  document.querySelectorAll(".thumb-live[data-autorotate=\\"1\\"] iframe").forEach(function (emu) {
-    emu.addEventListener("load", function () {
-      setTimeout(function () {
-        try {
-          var doc = emu.contentDocument;
-          var btn = doc && doc.querySelector('#rotQuick button[data-deg="-90"]');
-          if (btn) btn.click();
-        } catch (e) {}
-      }, 400);
-    });
-  });
-})();
-</script>`;
+  ${SITE_FOOTER}
+</div>`;
 
-  writeFileSync(join(DIST, "index.html"), page("puck: apps that travel between tiny computers", "A live gallery of firmware ported between device packs, running for real in the browser.", "styles.css", body));
+  writeFileSync(
+    join(DIST, "index.html"),
+    page(
+      "puck: apps that travel between tiny computers",
+      "A gallery of firmware ported between device packs: recorded demo loops on this page, the real WebAssembly build one click away on every run page.",
+      "styles.css",
+      body
+    )
+  );
 }
 
 // ---- flash section: real-device flashing over WebUSB, or an honest note ----
@@ -713,10 +742,12 @@ function buildRunDir(): void {
       <iframe id="emu" allowtransparency="true" src="${iframeSrc}" width="${nativeW}" height="${nativeH}" title="${escapeHtml(opts.title)} running live" allow="autoplay"></iframe>
     </div>
   </div>
+  <p class="embed-hint">touch the screen &middot; R rotates &middot; S shakes</p>
 
   <div class="run-footer"></div>
 
 ${flashSection}
+${SITE_FOOTER}
 </div>${flashScript}
 <script>
 (function () {
@@ -732,10 +763,10 @@ ${flashSection}
   fit();
   ${
     opts.autoRotate
-      ? `// Chrono renders landscape into a portrait-native panel (see
-  // site/build.ts's CARD_AUTO_ROTATE comment); this clicks the emulator's own
-  // "-90deg" quick-rotate button once the page loads, the same control a
-  // person would click by hand, rather than defaulting to a sideways view.
+      ? `// Chrono renders landscape into a portrait-native panel; this clicks
+  // the emulator's own "-90deg" quick-rotate button once the page loads,
+  // the same control a person would click by hand (or the "r" keyboard
+  // shortcut would cycle to), rather than defaulting to a sideways view.
   var emu = document.getElementById("emu");
   emu.addEventListener("load", function () {
     setTimeout(function () {
@@ -806,6 +837,15 @@ buildAllModules();
 buildEmulatorBundle();
 copyFileSync(join(SITE_DIR, "styles.css"), join(DIST, "styles.css"));
 copyFlashArtifacts();
+// Every id the landing page's own demoThumb() calls link to: the primary
+// (first-proven-pack) combo per app, plus every reference tile - the same
+// set site/record-demos.ts records.
+const DEMO_IDS = [
+  ...apps.map((app) => combos.find((x) => x.app === app.name && x.pack === app.proven[0]!.pack)!.id),
+  ...REFERENCE_APPS.map((r) => r.id),
+  INSTRUMENT_EXAMPLE.id,
+];
+copyDemoMedia(DEMO_IDS);
 await buildFlashUi();
 buildRunDir();
 buildIndexHtml();

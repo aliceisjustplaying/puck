@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ESP32-S3-Touch-AMOLED-1.8: demo: puck</title>
 <meta name="description" content="A bouncing square: the pack&#39;s own reference app, proving its band-render contract with nothing borrowed from another device." />
+<meta property="og:title" content="ESP32-S3-Touch-AMOLED-1.8: demo: puck" />
+<meta property="og:description" content="A bouncing square: the pack&#39;s own reference app, proving its band-render contract with nothing borrowed from another device." />
+<meta property="og:type" content="website" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%2214%22%20fill%3D%22%232f6feb%22%2F%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%225%22%20fill%3D%22%23fafafa%22%2F%3E%3C%2Fsvg%3E" />
 <link rel="stylesheet" href="../styles.css" />
 </head>
 <body>
@@ -25,6 +29,7 @@
       <iframe id="emu" allowtransparency="true" src="../emu/index.html?embed=1&module=%2Fmodules%2Fesp32-demo.wasm" width="448" height="618" title="ESP32-S3-Touch-AMOLED-1.8: demo running live" allow="autoplay"></iframe>
     </div>
   </div>
+  <p class="embed-hint">touch the screen &middot; R rotates &middot; S shakes</p>
 
   <div class="run-footer"></div>
 
@@ -32,6 +37,11 @@
     <h2>Flash to the real device</h2>
     <p class="flash-note">Flashing arrives when this pack&#39;s ESP-IDF half has been validated on real silicon (it has not).</p>
   </section>
+<footer>
+    <div class="wrap" style="padding:0">
+      <a href="https://github.com/s0lness/puck/blob/master/README.md">s0lness/puck</a> on GitHub, MIT licensed.
+    </div>
+  </footer>
 </div>
 <script>
 (function () {

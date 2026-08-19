@@ -1,17 +1,24 @@
 // Headless verification of ?embed=1 (src/main.ts's EMBED, src/app.css's
-// html.embed rules): the device-only view a public run page iframes (see
-// site/build.ts). Two things, in order, mirroring scripts/verify.ts's own
-// shape:
+// html.embed rules): the BARE device a public run page iframes (see
+// site/build.ts) - no topbar, no sidebar, no bottom bar (no rotation
+// buttons, no shake pill), no backdrop, just the device floating on the
+// page's own background. Four things, in order, mirroring
+// scripts/verify.ts's own shape:
 //
-//   1. Chrome that MUST be gone: the topbar (#topbar's own button ids),
-//      the sidebar (#consolePane, the input/tune controls), the
-//      diagnostics strip - either absent from the DOM's visible layout or
-//      actually hidden (display:none via getComputedStyle, not just a CSS
-//      class this script trusts by name).
+//   1. Chrome that MUST be gone: the topbar, the sidebar, and now the
+//      WHOLE bottom bar (not just its cosmetic pieces) - either absent
+//      from the DOM's visible layout or actually hidden (display:none via
+//      getComputedStyle, not just a CSS class this script trusts by name)
+//      - plus #stage itself painting no background of its own.
 //   2. The device still works: the same real-input proof scripts/verify.ts
 //      uses (a synthetic touch stroke, falling back to declared buttons),
 //      confirming embed mode is presentation-only and never touches the
 //      real input path.
+//   3. "r" still rotates the device with the strip hidden - what a run
+//      page's own on-page hint (site/build.ts) tells a visitor to press
+//      instead of a button they can no longer see.
+//   4. "s" still reaches a declared shake sensor, when the loaded module
+//      has one (conditional: not every firmware does).
 //
 // Run with: bun run verify:embed (needs wasm/dist/emu.wasm - any firmware
 // works, this check is device-agnostic).
@@ -104,6 +111,12 @@ try {
     { sel: ".tilt-slider", label: "cosmetic tilt slider" },
     { sel: "#btnPause", label: "pause button" },
     { sel: "#btnStep", label: "step button" },
+    // The bare-device pass: the WHOLE bottom bar is gone now, not just the
+    // tilt/pause/step pieces - no rotation buttons, no shake pill, on
+    // screen. See app.css's html.embed .bottom-bar rule.
+    { sel: ".bottom-bar", label: "bottom bar (rotation buttons + any shake pill)" },
+    { sel: "#rotQuick", label: "rotation buttons" },
+    { sel: "#sensorControls", label: "sensor-event buttons (e.g. shake)" },
   ];
   for (const { sel, label } of mustBeHidden) {
     const hidden = await isEffectivelyHidden(sel);
@@ -111,15 +124,12 @@ try {
     console.log(`hidden as expected: ${label} (${sel})`);
   }
 
-  // The rotation control MUST still be visible (it's the minimal strip).
-  const rotVisible = await page.evaluate(() => {
-    const el = document.querySelector("#rotQuick");
-    if (!el) return false;
-    const style = getComputedStyle(el as Element);
-    return style.display !== "none" && style.visibility !== "hidden";
-  });
-  if (!rotVisible) fail("embed mode: the rotation control (#rotQuick) should still be visible, and is not");
-  console.log("visible as expected: rotation control (#rotQuick)");
+  // No backdrop either: .stage must not paint a background of its own -
+  // this is the "device just floating" half of the bare-embed pass, not
+  // just an absence of buttons.
+  const stageBg = await page.evaluate(() => getComputedStyle(document.querySelector("#stage")!).backgroundColor);
+  if (!/rgba\(0, ?0, ?0, ?0\)|transparent/.test(stageBg)) fail(`embed mode: #stage still paints a background (${stageBg}), expected transparent`);
+  console.log(`transparent as expected: #stage background (${stageBg})`);
 
   // The device itself (bezel/panel) must still be visible.
   const deviceVisible = await page.evaluate(() => {
@@ -172,7 +182,51 @@ try {
   console.log(`panel pixels changed after real input: ${changed} byte(s) different out of ${before.length}`);
   if (changed === 0) fail("embed mode: touch/button input reached the panel and NOTHING changed - input path is broken in embed mode");
 
-  console.log("\nPASS: ?embed=1 hides dev-UI chrome, keeps the device + rotation strip, and real input still reaches the panel");
+  // 3. "r" rotates even with the strip hidden. #rotQuick's own buttons
+  // (and their "active" markup) still exist in the DOM, just not painted -
+  // this is what a run page's own hint (site/build.ts) tells a visitor to
+  // press instead of a button they can no longer see.
+  const activeDeg = () =>
+    page.evaluate(() => {
+      const b = document.querySelector("#rotQuick button.active") as HTMLButtonElement | null;
+      return b ? b.dataset.deg : null;
+    });
+  const degBefore = await activeDeg();
+  await page.keyboard.press("r");
+  await new Promise((r) => setTimeout(r, 250));
+  const degAfter = await activeDeg();
+  if (degBefore === null || degAfter === null) fail(`embed mode: could not read #rotQuick's active button (before=${degBefore}, after=${degAfter})`);
+  if (degBefore === degAfter) fail(`embed mode: pressing "r" did not change the rotation (stayed at ${degBefore}deg)`);
+  console.log(`"r" rotates as expected: ${degBefore}deg -> ${degAfter}deg`);
+
+  // 4. "s" reaches the shake sensor, when the loaded module declares one -
+  // conditional, not every firmware has a "shake" sensor (this script's own
+  // doc: "any firmware works"). #consolePane stays hidden but still
+  // receives every logged line (main.ts's ConsoleLog does not check EMBED),
+  // so its last line is a real proof a sensor fired, not a guess.
+  const hasSensorButton = (await page.$$("#sensorControls .sensor-btn")).length > 0;
+  if (hasSensorButton) {
+    await page.keyboard.press("s");
+    await new Promise((r) => setTimeout(r, 250));
+    const lastLine = await page.evaluate(() => {
+      const lines = document.querySelectorAll("#consolePane .console-line");
+      return lines.length ? lines[lines.length - 1]!.textContent : null;
+    });
+    // Either line is real proof: main.ts's own "sensor: <id>" (buildSensorControls'
+    // log callback) or the firmware's own reaction logged via js_log during
+    // emu_sensor_event() itself (e.g. example/firmware/main.c's "shake:
+    // cleared") - both only happen if the ABI call actually landed.
+    if (!lastLine || !/sensor|shake/i.test(lastLine)) fail(`embed mode: pressing "s" did not log a sensor event (last console line: ${lastLine})`);
+    console.log(`"s" reaches the sensor as expected (console: "${lastLine}")`);
+  } else {
+    console.log('no "kind":"event" sensor on this module - skipping the "s" shortcut check (not every firmware declares one)');
+  }
+
+  const engineDead = await isEffectivelyHidden("#engineDead");
+  if (!engineDead) fail('embed mode: "r"/"s" left #engineDead visible - one of them crashed the module');
+  console.log("engine still alive after \"r\"/\"s\": #engineDead stayed hidden");
+
+  console.log("\nPASS: ?embed=1 is the bare device (no control strip, no backdrop), real input still reaches the panel, and \"r\"/\"s\" reach rotate/shake with the strip hidden");
 } finally {
   if (browser) await browser.close();
   server.kill();

@@ -387,12 +387,20 @@
 .regression-thumb-label { font-size: 10px; color: var(--muted); text-align: center; margin-top: 3px; }
 .regression-modal-actions { display: flex; justify-content: flex-end; margin-top: 4px; }
 
-/* ---------- embed mode: device (+ minimal control strip) only, no chrome.
-   Additive: everything below is scoped under html.embed, so plain-mode
-   layout above is completely untouched. See main.ts's EMBED/applyEmbedMode
-   for what gets moved (nothing here reaches into main.ts's DOM logic, this
-   is presentation only) and docs/decisions/ for why this exists (a public
-   run page embedding just the device, not the dev tool around it). ---- */
+/* ---------- embed mode: the bare device, nothing else. No chrome, no
+   control strip (no rotation buttons, no shake pill, no diagnostics),
+   floating on the embedding page's own background. Additive: everything
+   below is scoped under html.embed, so plain-mode layout above is
+   completely untouched. Interactions do not go away, only their on-screen
+   controls do: pointer/touch on the panel keeps working exactly as before
+   (wirePanelInput never checks EMBED), and rotate/shake are reachable
+   through the R/S keyboard shortcuts main.ts's buildChrome now always
+   registers (a run page states this in a plain-text hint beside the
+   iframe, site/build.ts, since the strip that used to show it is gone).
+   See main.ts's EMBED/applyEmbedMode for what gets moved (nothing here
+   reaches into main.ts's DOM logic, this is presentation only) and
+   docs/decisions/ for why this exists (a public run page embedding just
+   the device, not the dev tool around it). ---- */
 /* Both html and body: family-budget.css's own `body { background:
    var(--paper) }` is what showed up as a hard white/paper stripe behind the
    device in the embedding page's own dark background (site/styles.css's
@@ -405,14 +413,13 @@ html.embed, html.embed body { background: transparent; }
 html.embed .topbar,
 html.embed .side.controls,
 html.embed .diag-strip,
-/* the cosmetic tilt slider and the pause/step/replay deck: not part of the
-   minimal strip (rotation + any declared event-sensor button only) */
-html.embed .tilt-slider,
-html.embed .stage-controls > .divider,
-html.embed #btnPause,
-html.embed #btnStep,
-html.embed #replayBar,
-html.embed #btnStopReplay {
+/* The ENTIRE bottom bar, not just the tilt slider/pause/step/replay
+   pieces: rotation buttons and any declared event-sensor ("shake") pill
+   used to survive here as the "minimal strip". Sylve's own read of the
+   embedded device ("more abstract, without the tilt bar... just floating")
+   was that this whole strip reads as chrome, not as part of the device -
+   gone entirely now, the interactions it exposed move to R/S. */
+html.embed .bottom-bar {
   display: none !important;
 }
 /* Sidebar column gone entirely: the stage and the bottom bar both size off

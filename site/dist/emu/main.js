@@ -1788,6 +1788,10 @@ function buildChrome(d) {
   const usedKeys = new Set;
   const shortcutListEl = $("#buttonShortcuts");
   shortcutListEl.innerHTML = "";
+  if (EMBED) {
+    usedKeys.add("r");
+    shortcuts.bindClick("r", cycleQuickRotation);
+  }
   const buttons = d.buttons || [];
   buttons.forEach((btn, index) => {
     const el = createButtonElement(btn.edge, btn.at, bezelEl.clientWidth, bezelEl.clientHeight);
@@ -1949,9 +1953,6 @@ function applyEmbedMode() {
   if (!EMBED)
     return;
   document.documentElement.classList.add("embed");
-  const strip = $("#rotQuick").parentElement;
-  const sensorControls = $("#sensorControls");
-  strip.appendChild(sensorControls);
 }
 function fitDeviceToStage() {
   if (!EMBED)
@@ -2201,6 +2202,19 @@ function sendGravityForRotation() {
       recorder.record({ t: performance.now(), k: "vector", i, x: g.x, y: g.y, z: g.z });
     });
   }
+}
+var QUICK_ROT_ORDER = [0, 90, 180, -90];
+function setQuickRotation(deg) {
+  quickDeg = deg;
+  $("#rotQuick").querySelectorAll("button").forEach((x) => x.classList.toggle("active", Number(x.dataset.deg) === deg));
+  applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX, puckMotion.offsetY);
+  sendGravityForRotation();
+  fitDeviceToStage();
+}
+function cycleQuickRotation() {
+  const i = QUICK_ROT_ORDER.indexOf(quickDeg);
+  const next = QUICK_ROT_ORDER[(i < 0 ? 0 : i + 1) % QUICK_ROT_ORDER.length];
+  setQuickRotation(next);
 }
 function fireShakeSensor(now, source) {
   if (shakeSensorIndex < 0 || replayer)
@@ -2496,14 +2510,7 @@ function wireStaticUI() {
       overlayCtx.clearRect(0, 0, overlayEl.width, overlayEl.height);
   });
   $("#rotQuick").querySelectorAll("button").forEach((b) => {
-    b.addEventListener("click", () => {
-      quickDeg = Number(b.dataset.deg);
-      $("#rotQuick").querySelectorAll("button").forEach((x) => x.classList.remove("active"));
-      b.classList.add("active");
-      applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX, puckMotion.offsetY);
-      sendGravityForRotation();
-      fitDeviceToStage();
-    });
+    b.addEventListener("click", () => setQuickRotation(Number(b.dataset.deg)));
   });
   $("#tilt").addEventListener("input", (e) => {
     tiltDeg = Number(e.target.value);

@@ -64,14 +64,16 @@ const stageEl = $("#stage");
 const WASM_URL = new URLSearchParams(location.search).get("module") || DEFAULT_WASM_URL;
 
 // ---- embed mode ----
-// Additive hook for a static gallery run page that wants ONLY the device
-// (frame, panel, its declared buttons) plus a minimal control strip
-// (rotation, plus any declared "kind": "event" sensor button - see
-// applyEmbedMode below), for embedding in a narrow iframe with no huge
+// Additive hook for a static gallery run page that wants ONLY the bare
+// device (frame, panel, its declared buttons), floating with no control
+// strip and no backdrop, for embedding in a narrow iframe with no huge
 // empty area around a full dev-UI layout it will never use (topbar, the
 // input/device/console sidebar, the tuning disclosure, the diagnostics
-// strip). Composes with ?module=; with no ?embed=1 the page is exactly the
-// existing dev UI, byte-for-byte the same behaviour as before this existed.
+// strip, and - as of this device-only pass - the bottom bar's rotation
+// buttons and shake pill too, see applyEmbedMode below and app.css's
+// html.embed .bottom-bar rule). Composes with ?module=; with no ?embed=1
+// the page is exactly the existing dev UI, byte-for-byte the same
+// behaviour as before this existed.
 const EMBED = new URLSearchParams(location.search).get("embed") === "1";
 
 // ---- state ----
@@ -508,6 +510,23 @@ function buildChrome(d: DeviceDescriptor): void {
   const shortcutListEl = $("#buttonShortcuts");
   shortcutListEl.innerHTML = "";
 
+  // embed: keyboard-only rotate. Gated on EMBED so the plain dev UI's own
+  // keyboard behaviour stays exactly what it was (this repo's own rule: src/
+  // changes stay behind the embed flag, dev UI untouched) - #rotQuick's
+  // buttons are still the only way to rotate there. In embed mode the whole
+  // bottom bar is hidden (app.css's html.embed .bottom-bar), so "r" is what
+  // a run page's own hint (site/build.ts) tells a visitor to press instead.
+  // Registered here, not in wireStaticUI (called once at boot), because
+  // shortcuts.clear() just above wipes every binding on each module
+  // (re)load, same reason the device buttons and sensor buttons below are
+  // (re)bound here too. Reserved into usedKeys BEFORE any button/sensor
+  // claims a letter, so "r" always means rotate regardless of what a device
+  // happens to call its own buttons.
+  if (EMBED) {
+    usedKeys.add("r");
+    shortcuts.bindClick("r", cycleQuickRotation);
+  }
+
   const buttons = d.buttons || [];
   buttons.forEach((btn, index) => {
     const el = createButtonElement(btn.edge, btn.at, bezelEl.clientWidth, bezelEl.clientHeight);
@@ -742,27 +761,19 @@ function centerDeviceOnce(): void {
   centeredOnce = true;
 }
 
-// ---- embed mode: device (+ minimal control strip) only -------------------
-// See EMBED's own header comment above. Everything here is DOM/CSS only -
-// no ABI behaviour changes, touch/keyboard input keeps working exactly as
-// before - and it is device-agnostic: the strip's contents are whatever
-// buildChrome/buildSensorControls already built generically from
-// emu_device() (the rotation control always exists; the sensor-event
-// button group is only non-empty for a device that declared one, e.g.
-// "shake" today), never a hardcoded button or sensor name.
+// ---- embed mode: the bare device only -------------------------------------
+// See EMBED's own header comment above. DOM/CSS only - no ABI behaviour
+// changes, touch/keyboard input keeps working exactly as before. Everything
+// that used to live in the bottom bar (rotation buttons, any declared
+// event-sensor pill) is hidden outright by app.css's html.embed .bottom-bar
+// rule, so there is nothing left here to relocate: the elements stay right
+// where buildChrome/buildSensorControls always put them, just not painted.
+// Reachable instead through the R/S keyboard shortcuts buildChrome always
+// registers (see its own "embed: keyboard-only rotate" comment) - device
+// agnostic the same way the old strip was, never a hardcoded button name.
 function applyEmbedMode(): void {
   if (!EMBED) return;
   document.documentElement.classList.add("embed");
-  // Physically relocates the two DOM nodes (not a copy - moving an
-  // existing element via appendChild carries its already-wired event
-  // listeners with it, so buildSensorControls/wireStaticUI never need to
-  // know embed mode exists) out of the sidebar/bottom-bar's normal spots
-  // and into one visible strip together. CSS (app.css's .embed rules)
-  // hides everything else (topbar, the rest of the sidebar, tune, console,
-  // the diagnostics strip, the tilt slider).
-  const strip = $("#rotQuick").parentElement!; // .stage-controls
-  const sensorControls = $("#sensorControls");
-  strip.appendChild(sensorControls);
 }
 
 // ---- embed mode: scale the device to fit whatever viewport/iframe this
@@ -1113,6 +1124,34 @@ function sendGravityForRotation(): void {
       recorder.record({ t: performance.now(), k: "vector", i, x: g.x, y: g.y, z: g.z });
     });
   }
+}
+
+// ---- quick rotation: the single place that actually applies a rotation
+// step, shared by the #rotQuick buttons' own click handler and (see
+// buildChrome's "embed: keyboard-only rotate" binding) the "r" keyboard
+// shortcut. Both need the exact same four steps (move the CSS transform,
+// mark which button is active, resend gravity, refit the embed scale); a
+// second, slightly-different copy of this in the keyboard path would be
+// the kind of drift that quietly breaks one of the two later.
+const QUICK_ROT_ORDER = [0, 90, 180, -90] as const;
+function setQuickRotation(deg: number): void {
+  quickDeg = deg;
+  $("#rotQuick")
+    .querySelectorAll<HTMLButtonElement>("button")
+    .forEach((x) => x.classList.toggle("active", Number(x.dataset.deg) === deg));
+  applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX, puckMotion.offsetY);
+  sendGravityForRotation();
+  fitDeviceToStage();
+}
+// Rotates one quarter turn further along QUICK_ROT_ORDER - what the "r"
+// keyboard shortcut does. Not a hardcoded "always -90": cycling keeps this
+// meaningful for a device that only ever needs one turn (chrono, one press
+// gets there) as much as for exploring all four (fluidbox's demo, see
+// site/record-demos.ts).
+function cycleQuickRotation(): void {
+  const i = QUICK_ROT_ORDER.indexOf(quickDeg as (typeof QUICK_ROT_ORDER)[number]);
+  const next = QUICK_ROT_ORDER[(i < 0 ? 0 : i + 1) % QUICK_ROT_ORDER.length]!;
+  setQuickRotation(next);
 }
 
 function fireShakeSensor(now: number, source: string): void {
@@ -1473,16 +1512,7 @@ function wireStaticUI(): void {
   $("#rotQuick")
     .querySelectorAll<HTMLButtonElement>("button")
     .forEach((b) => {
-      b.addEventListener("click", () => {
-        quickDeg = Number(b.dataset.deg);
-        $("#rotQuick")
-          .querySelectorAll("button")
-          .forEach((x) => x.classList.remove("active"));
-        b.classList.add("active");
-        applyRotation(bezelEl, quickDeg + tiltDeg, puckMotion.offsetX, puckMotion.offsetY);
-        sendGravityForRotation();
-        fitDeviceToStage();
-      });
+      b.addEventListener("click", () => setQuickRotation(Number(b.dataset.deg)));
     });
   $<HTMLInputElement>("#tilt").addEventListener("input", (e) => {
     tiltDeg = Number((e.target as HTMLInputElement).value);

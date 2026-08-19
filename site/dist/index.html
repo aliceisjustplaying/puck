@@ -4,7 +4,11 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>puck: apps that travel between tiny computers</title>
-<meta name="description" content="A live gallery of firmware ported between device packs, running for real in the browser." />
+<meta name="description" content="A gallery of firmware ported between device packs: recorded demo loops on this page, the real WebAssembly build one click away on every run page." />
+<meta property="og:title" content="puck: apps that travel between tiny computers" />
+<meta property="og:description" content="A gallery of firmware ported between device packs: recorded demo loops on this page, the real WebAssembly build one click away on every run page." />
+<meta property="og:type" content="website" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%2214%22%20fill%3D%22%232f6feb%22%2F%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%225%22%20fill%3D%22%23fafafa%22%2F%3E%3C%2Fsvg%3E" />
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -12,14 +16,19 @@
   <header class="hero">
     <h1>puck</h1>
     <p class="tagline">apps that travel between tiny computers.</p>
-    <p class="sub">Every app below is running for real, compiled to WebAssembly, in the browser: not a recording, not a mockup. <a href="https://github.com/s0lness/puck/blob/master/README.md">puck</a> is a device-agnostic emulator, a set of self-contained device packs, and a set of portable app bundles; this page proves the porting story with the real thing.</p>
+    <p class="sub">Every clip below is a recording of the real thing, compiled to WebAssembly and running live one click away. <a href="https://github.com/s0lness/puck/blob/master/README.md">puck</a> is a device-agnostic emulator, a set of self-contained device packs, and a set of portable app bundles; open any run page to touch the actual emulator, not a mockup.</p>
   </header>
 
   <section id="apps">
     <div class="wrap" style="padding:0">
       <div class="cards">
 <div class="card">
-  <div class="thumb thumb-live" data-autorotate="1"><iframe loading="lazy" allowtransparency="true" src="emu/index.html?embed=1&module=%2Fmodules%2Fchrono-rp2350.wasm" width="400" height="300" title="chrono, running live" allow="autoplay"></iframe></div>
+  <a class="thumb thumb-video" href="run/chrono-rp2350.html" aria-label="chrono demo, open the live run page">
+    <video autoplay muted loop playsinline poster="assets/demos/chrono-rp2350.png">
+      <source src="assets/demos/chrono-rp2350.mp4" type="video/mp4" />
+    </video>
+    <noscript><img src="assets/demos/chrono-rp2350.gif" alt="chrono demo" /></noscript>
+  </a>
   <div class="body">
     <h3>chrono</h3>
     <p>A full-screen stopwatch: six seven-segment digits, two buttons, nothing else on screen.</p>
@@ -31,7 +40,12 @@
   </div>
 </div>
 <div class="card">
-  <div class="thumb thumb-live" data-autorotate="0"><iframe loading="lazy" allowtransparency="true" src="emu/index.html?embed=1&module=%2Fmodules%2Ffluidbox-rp2350.wasm" width="400" height="300" title="fluidbox, running live" allow="autoplay"></iframe></div>
+  <a class="thumb thumb-video" href="run/fluidbox-rp2350.html" aria-label="fluidbox demo, open the live run page">
+    <video autoplay muted loop playsinline poster="assets/demos/fluidbox-rp2350.png">
+      <source src="assets/demos/fluidbox-rp2350.mp4" type="video/mp4" />
+    </video>
+    <noscript><img src="assets/demos/fluidbox-rp2350.gif" alt="fluidbox demo" /></noscript>
+  </a>
   <div class="body">
     <h3>fluidbox</h3>
     <p>A particle liquid that sloshes and settles inside the device&#39;s own enclosure shape.</p>
@@ -49,7 +63,7 @@
   <section id="proof">
     <div class="wrap" style="padding:0">
       <h2>proof matrix</h2>
-      <p class="lede">Each cell is a real build of that app's own port, for that device pack's real firmware, verified by the shared harness and running live below.</p>
+      <p class="lede">Each cell is a real build of that app's own port, for that device pack's real firmware, verified by the shared harness: click through to run it live.</p>
       <div class="matrix-scroll">
         <table class="matrix">
           <thead><tr><th></th>
@@ -76,16 +90,26 @@
   <section id="reference">
     <div class="wrap" style="padding:0">
       <h2>reference app</h2>
-      <p class="lede">Not a port: each device pack's own shipped app, plus the instrument's own minimal example firmware - every tile below is running live, click into it the same as the cards above.</p>
+      <p class="lede">Not a port: each device pack's own shipped app, plus the instrument's own minimal example firmware - every tile below links to it running live, the same as the cards above.</p>
       <div class="ref-cards">
 <div class="ref-card">
-  <div class="thumb thumb-live"><iframe loading="lazy" allowtransparency="true" src="emu/index.html?embed=1&module=%2Fmodules%2Fesp32-demo.wasm" width="320" height="240" title="ESP32-S3-Touch-AMOLED-1.8: demo, running live" allow="autoplay"></iframe></div>
+  <a class="thumb thumb-video" href="run/esp32-demo.html" aria-label="ESP32-S3-Touch-AMOLED-1.8: demo demo, open the live run page">
+    <video autoplay muted loop playsinline poster="assets/demos/esp32-demo.png">
+      <source src="assets/demos/esp32-demo.mp4" type="video/mp4" />
+    </video>
+    <noscript><img src="assets/demos/esp32-demo.gif" alt="ESP32-S3-Touch-AMOLED-1.8: demo demo" /></noscript>
+  </a>
   <h3>ESP32-S3-Touch-AMOLED-1.8: demo</h3>
   <p>A bouncing square: the pack&#39;s own reference app, proving its band-render contract with nothing borrowed from another device.</p>
   <div class="links"><a href="run/esp32-demo.html">open full page</a> <a href="https://github.com/s0lness/puck/blob/master/packs/esp32-s3-touch-amoled-18/firmware/apps/demo.c">source</a></div>
 </div>
 <div class="ref-card">
-  <div class="thumb thumb-live"><iframe loading="lazy" allowtransparency="true" src="emu/index.html?embed=1&module=%2Fmodules%2Fexample.wasm" width="320" height="240" title="puck-example, running live" allow="autoplay"></iframe></div>
+  <a class="thumb thumb-video" href="run/example.html" aria-label="puck-example demo, open the live run page">
+    <video autoplay muted loop playsinline poster="assets/demos/example.png">
+      <source src="assets/demos/example.mp4" type="video/mp4" />
+    </video>
+    <noscript><img src="assets/demos/example.gif" alt="puck-example demo" /></noscript>
+  </a>
   <h3>puck-example</h3>
   <p>The instrument&#39;s own minimal reference firmware: a 240x240 panel, two buttons (one with a long-press verdict), a shake sensor, and a scripted two-button chord. Not a device pack, not a ported app - the smallest complete emu_device() implementation, and where a new firmware author starts.</p>
   <div class="links"><a href="run/example.html">open full page</a> <a href="https://github.com/s0lness/puck/blob/master/example/firmware/main.c">source</a></div>
@@ -123,25 +147,5 @@
     </div>
   </footer>
 </div>
-<script>
-(function () {
-  // Chrono's live card embed (see CARD_AUTO_ROTATE above) gets the same
-  // one-time "-90deg" quick-rotate click the run page's own script gives
-  // it, once that iframe's document is actually loaded - lazy-loaded
-  // iframes fire their own "load" event the same as an eager one, just
-  // later, so no extra polling is needed here.
-  document.querySelectorAll(".thumb-live[data-autorotate=\"1\"] iframe").forEach(function (emu) {
-    emu.addEventListener("load", function () {
-      setTimeout(function () {
-        try {
-          var doc = emu.contentDocument;
-          var btn = doc && doc.querySelector('#rotQuick button[data-deg="-90"]');
-          if (btn) btn.click();
-        } catch (e) {}
-      }, 400);
-    });
-  });
-})();
-</script>
 </body>
 </html>

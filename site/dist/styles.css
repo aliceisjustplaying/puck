@@ -40,6 +40,11 @@ body {
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
+a:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
 
 .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
@@ -73,16 +78,15 @@ section > .wrap > p.lede { color: var(--text-soft); margin: -8px 0 22px; max-wid
   justify-content: center;
   overflow: hidden;
 }
-.card .thumb img { display: block; max-width: 100%; max-height: 100%; image-rendering: pixelated; }
-.card .thumb img.rot-ccw { transform: rotate(-90deg); max-width: none; max-height: none; width: 132%; }
-/* ---- live card embeds: the real emulator, not a screenshot. The iframe
-   fills whatever box .thumb (or .ref-card's own thumb below) already sizes
-   via aspect-ratio; the embedded page's own fitDeviceToStage() (src/app.css/
-   main.ts) scales the device to fit that box, so no size math is needed
-   here beyond "fill the parent". pointer-events left at their default
-   (auto) so touch/click reach the device directly - this is the whole
-   point of embedding it live rather than a static image. */
-.thumb-live iframe { display: block; width: 100%; height: 100%; border: 0; }
+/* ---- recorded card loops: a short video (site/record-demos.ts), gif
+   fallback for no-script, both filling whatever box .thumb (or .ref-card's
+   own thumb below) already sizes via aspect-ratio. The whole thumbnail is
+   a link to the real, live run page - a focus ring makes that reachable
+   by keyboard, not just discoverable by hover. */
+.thumb-video { display: block; width: 100%; height: 100%; }
+.thumb-video:hover { text-decoration: none; }
+.thumb-video:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.thumb-video video, .thumb-video img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .card .body { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
 .card h3 { margin: 0; font-size: 1.15rem; }
 .card p { margin: 0; color: var(--text-soft); font-size: 0.94rem; }
@@ -154,25 +158,58 @@ footer { padding: 30px 0 60px; color: var(--text-soft); font-size: 0.85rem; bord
 .run-header .meta { color: var(--text-soft); font-size: 0.95rem; margin: 0 0 10px; }
 .run-header .links { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.9rem; margin-top: 12px; }
 
+/* No card, no backdrop: the device floats directly on the page's own
+   background (Sylve's own read of the old boxed embed: "I'd prefer the
+   device was just floating with no background"). overflow:hidden stays -
+   it is what keeps a shrink-to-fit iframe from ever contributing to page
+   scrollWidth at a narrow viewport, a plain clipping property, not part of
+   the card look that got removed. touch-action:none on both this and the
+   iframe below is defensive, not load-bearing on desktop (the iframe's own
+   document already declares it on the panel canvas, src/app.css): Safari on
+   iOS has a documented history of deciding a touch that starts over an
+   iframe is a PAGE scroll/zoom gesture before that iframe's own
+   touch-action ever gets consulted, so this repeats the same declaration
+   one level up, where iOS's gesture arbitration actually looks first. */
 .emu-stage {
   width: 100%;
   overflow: hidden;
   display: flex;
   justify-content: center;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  touch-action: none;
 }
-.emu-frame { transform-origin: top left; }
+/* "top center", not "top left": fit() below shrinks this box with a plain
+   CSS scale() while .emu-stage centres the box's UNSCALED width via
+   justify-content - at any width narrower than the native frame, that
+   unscaled box is wider than the stage, so flex centres it with a NEGATIVE
+   left edge (half the overflow hangs off each side, symmetric, but not yet
+   scaled down). A "top left" origin then shrinks the box toward that
+   negative-offset corner instead of toward the stage's own centre, which
+   drags the whole visible device left and off the actual viewport - this
+   was the exact regression Sylve's own iPhone screenshot showed (device
+   overflowing the left edge, digits cut off) and is reproduced by any
+   run page at 390px width. "top center" shrinks around the box's own
+   horizontal MIDPOINT instead, which flex already placed exactly at the
+   stage's own horizontal centre - so scaling from there keeps the result
+   centred at any scale, including 1. The vertical anchor stays "top"
+   deliberately: .emu-stage has no explicit height itself (fit() sets one,
+   in JS, sized to the ALREADY-scaled frame), so there is no vertical
+   overflow-to-recentre problem to fix, and changing it would be an
+   unrelated behaviour change. */
+.emu-frame { transform-origin: top center; }
 /* Transparent, not white: the embedded emulator page (src/app.css's
    html.embed rules) makes its own html/body transparent in embed mode so
-   only the device and its control strip paint - a hardcoded white here
-   would sit BEHIND that transparent document and repaint the "page
-   background" this whole mechanism exists to remove, which is exactly what
-   showed up as a hard white stripe behind the device in dark mode before
-   this was transparent. .emu-stage (above) is the deliberate themed card
-   frame around the iframe; this is the iframe's own box, one level in. */
-.emu-frame iframe { display: block; border: 0; background: transparent; }
+   only the device paints - a hardcoded white here would sit BEHIND that
+   transparent document and repaint the "page background" this whole
+   mechanism exists to remove, which is exactly what showed up as a hard
+   white stripe behind the device in dark mode before this was transparent. */
+.emu-frame iframe { display: block; border: 0; background: transparent; touch-action: none; }
+
+.embed-hint {
+  margin: 14px 0 0;
+  text-align: center;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
 
 .run-footer { padding: 24px 0 60px; }
 
