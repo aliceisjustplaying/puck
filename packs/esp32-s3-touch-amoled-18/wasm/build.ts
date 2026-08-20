@@ -92,6 +92,32 @@ function parseAppArg(argv: string[]): string {
 
 const APP_SOURCE = parseAppArg(process.argv.slice(2));
 
+// --wasm-memory-mb <N>: pins the module's wasm linear memory to an EXPLICIT
+// size instead of leaving it to wasm-ld's own default (which grows the
+// initial memory to fit whatever static data + a default stack happen to
+// need, with no declared ceiling otherwise - fine for every app on this
+// pack until one has multi-megabyte static state to budget on purpose).
+// apps/gameos/ports/esp32-s3-touch-amoled-18/gameos_port.c is the first:
+// GOLF's own state (golf_int.h's golf_t) plus its full-resolution 565
+// framebuffer come to ~5.4MB of static data - see that port's own README,
+// "GOLF's memory budget", for the exact accounting and why 8MB (matching
+// packs/esp32-s3-touch-amoled-18/docs/decisions/0003-...'s own citation of
+// the donor's stated 8MB PSRAM target) was picked as the explicit ceiling
+// rather than leaving it to the linker's own default. Optional and unset
+// by default: every other app built against this pack (the reference demo,
+// chrono) keeps exactly the wasm-ld default it already had, unaffected.
+function parseMemoryMbArg(argv: string[]): number | null {
+  const i = argv.indexOf("--wasm-memory-mb");
+  if (i === -1) return null;
+  const value = Number(argv[i + 1]);
+  if (!Number.isFinite(value) || value <= 0) {
+    console.error("--wasm-memory-mb needs a positive number of megabytes");
+    process.exit(1);
+  }
+  return value;
+}
+const WASM_MEMORY_MB = parseMemoryMbArg(process.argv.slice(2));
+
 const SOURCES = [
   join(WASM_DIR, "emu_shim.c"),
   join(FIRMWARE, "runtime", "runtime_core.c"),
@@ -134,6 +160,7 @@ const args = [
   "-Wl,--no-entry",
   "-Wl,--import-symbols", // undefined externs (js_log) become wasm imports
                            // instead of a hard link error
+  ...(WASM_MEMORY_MB !== null ? [`-Wl,--initial-memory=${WASM_MEMORY_MB * 1024 * 1024}`] : []),
   ...EMU_EXPORTS.map((name) => `-Wl,--export=${name}`),
   ...INCLUDES.flatMap((dir) => ["-I", dir]),
   ...SOURCES,

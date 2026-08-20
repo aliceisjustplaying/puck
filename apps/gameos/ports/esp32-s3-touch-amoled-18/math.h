@@ -42,4 +42,13 @@ static inline long lrintf(float x) {
     return (long)(x >= 0.0f ? floorf(x + 0.5f) : -floorf(-x + 0.5f));
 }
 
+// fminf/fmaxf: added for GOLF (../../reference/esp32-gameos/golf_render.c
+// calls both - checked by grep, not guessed; neither gfx.c nor input.c nor
+// gunship.c/slots.c use either). Same "exact, non-transcendental, safe to
+// define" reasoning this file already gives ceilf/lrintf, composed locally
+// rather than imported - no numerical-fidelity risk a host Math.min/max
+// import could introduce differently.
+static inline float fminf(float a, float b) { return a < b ? a : b; }
+static inline float fmaxf(float a, float b) { return a > b ? a : b; }
+
 #endif

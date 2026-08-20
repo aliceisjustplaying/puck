@@ -330,9 +330,9 @@ const COMBO_BUILD: Record<string, ComboBuild> = {
   },
   "gameos:esp32-s3-touch-amoled-18": {
     script: "packs/esp32-s3-touch-amoled-18/wasm/build.ts",
-    args: ["--app", "apps/gameos/ports/esp32-s3-touch-amoled-18/gameos_port.c"],
+    args: ["--app", "apps/gameos/ports/esp32-s3-touch-amoled-18/gameos_port.c", "--wasm-memory-mb", "8"],
     portDoc: "apps/gameos/ports/esp32-s3-touch-amoled-18/README.md",
-    blurb: "gameos, born on this chip family, running its own real engine: core.c, gfx.c, input.c and both games compiled unmodified against a thin compat shim, its indexed-framebuffer present pass repainted 28 rows at a time on a device with no framebuffer.",
+    blurb: "gameos, born on this chip family, running its own real engine: core.c, gfx.c, input.c and all three games compiled unmodified against a thin compat shim (GOLF's own font and several-megabyte world state each got one declared substitution - see that port's own NOTICE.md), its indexed-framebuffer present pass repainted 28 rows at a time on a device with no framebuffer.",
   },
   "gameos:rp2350-touch-amoled-18": {
     script: "packs/rp2350-touch-amoled-18/wasm/build.ts",
@@ -854,7 +854,7 @@ const APP_BLURB: Record<string, string> = {
   chrono: "A full-screen stopwatch: six seven-segment digits, two buttons, nothing else on screen.",
   fluidbox: "A particle liquid that sloshes and settles inside the device's own enclosure shape.",
   tinydraw: "A full-panel finger-drawing canvas: variable-width antialiased ink, two-level zoom, one-stroke undo.",
-  gameos: "A handheld game console shell: tap a card to launch a thermal gunner or a slot machine, both procedurally rendered.",
+  gameos: "A handheld game console shell: tap a card to launch a thermal gunner, a slot machine, or a swing-driven procedural golf course.",
 };
 
 // ---- 3 & 4: generate every page --------------------------------------

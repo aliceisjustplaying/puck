@@ -6,14 +6,16 @@
  * beside "gos_hal.h" - see gfx.c's own `#ifndef GOS_HOST_SIM` guard).
  *
  * The one call site, `gos_gfx_fb565()`, is GOLF's own full-resolution
- * direct-mode framebuffer allocation, and GOLF is not part of this port
- * (see this port's NOTICE.md and
- * packs/esp32-s3-touch-amoled-18/docs/decisions/0003-... for the full
- * argument: GOLF's text renderer is welded to LVGL's font format in a way
- * that resists a thin shim). `gos_gfx_fb565()` is compiled in regardless
- * (it is part of gfx.c's own translation unit) but never CALLED by
- * anything this port actually runs - gunship.c and slots.c never declare
- * GOS_CAP_FB565 - so this only needs to link, not to work.
+ * direct-mode framebuffer allocation: `heap_caps_calloc(GOS_PANEL_W *
+ * GOS_PANEL_H, 2, MALLOC_CAP_8BIT)` = 368*448*2 = 329728 bytes, checked by
+ * grep over gfx.c, not guessed - the only call site left once gunship.c and
+ * slots.c (which never declare GOS_CAP_FB565) are the only OTHER games this
+ * port ships. packs/esp32-s3-touch-amoled-18/docs/decisions/0003-... is
+ * where this port's answer to "gos_gfx_fb565() wants PSRAM" was decided: a
+ * plain static array living in this app's own module, the wasm equivalent
+ * of what heap_caps_calloc(..., MALLOC_CAP_8BIT) would actually hand back
+ * on real silicon - not a general allocator, sized to this one exact call
+ * site. See this port's README, "GOLF's memory budget".
  */
 #ifndef _GAMEOS_ESP32_SHIM_ESP_HEAP_CAPS_H_
 #define _GAMEOS_ESP32_SHIM_ESP_HEAP_CAPS_H_
@@ -23,13 +25,28 @@
 
 #define MALLOC_CAP_8BIT (1u << 0)
 
-// Dead code on this port (see this file's header comment): never invoked,
-// so a NULL stand-in costs nothing. A real implementation would need this
-// port's own equivalent of GOLF's PSRAM-shaped mirror buffer, which is
-// exactly the piece this port does not build.
+// GOS_PANEL_W * GOS_PANEL_H * 2 (gos.h), spelled as a literal rather than
+// pulled from gos.h here: this header is included by gfx.c BEFORE gos.h's
+// own macros would be back in scope from this translation unit's point of
+// view is not guaranteed, and a mismatch would rather fail loudly (a
+// too-small buffer overrun caught by inspection/review) than silently via
+// a macro that quietly changed meaning. Cross-checked against gos.h's
+// GOS_PANEL_W=368/GOS_PANEL_H=448 by grep, not guessed.
+#define _GAMEOS_FB565_BYTES (368u * 448u * 2u)
+static uint8_t s_fb565Backing[_GAMEOS_FB565_BYTES];
+static int s_fb565Taken;
+
+// calloc semantics (zeroed) satisfied for free: a plain module-static array
+// is zero-initialized by the linker/loader, never written to by anything
+// else, so no explicit memset is needed. Returns NULL past the one call
+// this port's own gfx.c ever makes (n*size does not fit, or a second call
+// after the first already claimed it) rather than silently handing back an
+// undersized or aliased buffer.
 static inline void *heap_caps_calloc(size_t n, size_t size, uint32_t caps) {
-    (void)n; (void)size; (void)caps;
-    return (void *)0;
+    (void)caps;
+    if (s_fb565Taken || n * size > _GAMEOS_FB565_BYTES) return (void *)0;
+    s_fb565Taken = 1;
+    return s_fb565Backing;
 }
 
 #endif

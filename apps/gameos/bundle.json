@@ -1,7 +1,7 @@
 {
   "convention": "0.2",
   "name": "gameos",
-  "origin": "ported from MikeWilson/esp32-gameos (MIT) commit 93d0063156a548d2fb1ffea1adb2f88af93dff08; see apps/gameos/ports/rp2350-touch-amoled-18/NOTICE.md for that port (gos.h/gunship.c/slots.c vendored, the engine reimplemented against that pack's full-framebuffer ABI) and apps/gameos/ports/esp32-s3-touch-amoled-18/NOTICE.md for this bundle's featured port (gos.h/gos_core.h/gos_hal.h/core.c/gfx.c/input.c/font.c/gunship.c/slots.c all vendored unmodified, compiled against a thin compat shim - see that port's own README.md for the verdict and why GOLF is not part of this bundle)",
+  "origin": "ported from MikeWilson/esp32-gameos (MIT) commit 93d0063156a548d2fb1ffea1adb2f88af93dff08; see apps/gameos/ports/rp2350-touch-amoled-18/NOTICE.md for that port (gos.h/gunship.c/slots.c vendored, the engine reimplemented against that pack's full-framebuffer ABI, GOLF not part of it) and apps/gameos/ports/esp32-s3-touch-amoled-18/NOTICE.md for this bundle's featured port (gos.h/gos_core.h/gos_hal.h/core.c/gfx.c/input.c/font.c/gunship.c/slots.c/golf.c/golf_render.c/golf_cards.c/golf_int.h all vendored unmodified, compiled against a thin compat shim, GOLF included with two declared substitutions - font565, memory - see that port's own README.md for the verdict and NOTICE.md for the substitutions; GOLF's own standalone upstream MikeWilson/infinite-golf is unlicensed and was not used)",
   "ports": [
     {
       "pack": "esp32-s3-touch-amoled-18",
@@ -10,10 +10,11 @@
       "verification": {
         "kind": "invariants",
         "checker": "apps/gameos/invariants.ts",
-        "trace": "apps/gameos/traces/gameos-demo.trace.json",
-        "captureAt": [16, 48, 80, 192, 304, 700, 1500, 2316, 2460, 3212, 4396, 7004]
+        "trace": "apps/gameos/traces/gameos-demo-esp32.trace.json",
+        "captureAt": [586, 821, 1073, 1533, 2099, 2603, 3404, 4362, 4771, 5492, 6603, 9015, 43535, 45955, 47342]
       },
-      "source": "apps/gameos/ports/esp32-s3-touch-amoled-18/gameos_port.c"
+      "source": "apps/gameos/ports/esp32-s3-touch-amoled-18/gameos_port.c",
+      "buildArgs": ["--wasm-memory-mb", "8"]
     },
     {
       "pack": "rp2350-touch-amoled-18",

@@ -11,9 +11,10 @@
  * by grep, not guessed). strlen() is new versus the sibling port's own
  * string.h: gfx.c's real `gos_gfx_text_w()` calls it (the sibling port's
  * hand-written gos_runtime.c never did, since it computed text width
- * without strlen). Declared here, DEFINED in gos_hal_shim.c - plain byte
- * loops, no numerical-fidelity risk the way math.h's transcendental
- * functions carry.
+ * without strlen). strchr() is new for GOLF: golf_cards.c's own
+ * card_text_in() calls it to find an embedded newline. Declared here,
+ * DEFINED in gos_hal_shim.c - plain byte loops, no numerical-fidelity risk
+ * the way math.h's transcendental functions carry.
  */
 #ifndef _GAMEOS_ESP32_SHIM_STRING_H_
 #define _GAMEOS_ESP32_SHIM_STRING_H_
@@ -23,5 +24,6 @@
 void *memset(void *dst, int c, size_t n);
 void *memcpy(void *dst, const void *src, size_t n);
 size_t strlen(const char *s);
+char *strchr(const char *s, int c);
 
 #endif

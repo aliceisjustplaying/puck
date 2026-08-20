@@ -1778,9 +1778,9 @@ class PhoneMotion {
   isActive() {
     return this.active;
   }
-  onDeviceChanged(hasVector, hasShake) {
+  onDeviceChanged(hasVector, hasShake, hasAccelStream) {
     this.hasShake = hasShake;
-    const eligible = this.opts.embed && hasVector && motionApisAvailable() && isTouchCapable();
+    const eligible = this.opts.embed && (hasVector || hasAccelStream) && motionApisAvailable() && isTouchCapable();
     if (!eligible) {
       this.unmount();
       return;
@@ -1926,7 +1926,9 @@ class PhoneMotion {
     const raw = event.accelerationIncludingGravity;
     if (raw && raw.x !== null && raw.y !== null && raw.z !== null) {
       this.motionReadingSeen = true;
-      this.ingestMotion(mapAccelerationToVector(raw.x, raw.y, raw.z, isIOSSafariMotion()), event.timeStamp);
+      const mapped = mapAccelerationToVector(raw.x, raw.y, raw.z, isIOSSafariMotion());
+      this.opts.sendAccel(mapped.x, mapped.y, mapped.z, event.timeStamp, "phone tilt");
+      this.ingestMotion(mapped, event.timeStamp);
     } else if (this.lastOrientation) {
       this.ingestGravity(this.lastOrientation, event.timeStamp);
     }
@@ -2026,7 +2028,7 @@ class DragMotion {
       return;
     if (isTouchCapable())
       return;
-    if (!this.opts.isEligible() || !(this.opts.hasVector() || this.opts.hasShake()))
+    if (!this.opts.isEligible() || !(this.opts.hasVector() || this.opts.hasShake() || this.opts.hasAccelStream()))
       return;
     if (this.springRaf) {
       cancelAnimationFrame(this.springRaf);
@@ -2070,7 +2072,7 @@ class DragMotion {
     this.offsetX = clamp3(dx, -this.boundLeft, this.boundRight);
     this.offsetY = clamp3(dy, -this.boundTop, this.boundBottom);
     this.opts.onOffsetChanged(this.offsetX, this.offsetY);
-    if (this.opts.hasVector()) {
+    if (this.opts.hasVector() || this.opts.hasAccelStream()) {
       const dist = Math.hypot(this.offsetX, this.offsetY);
       const ux = dist > 0 ? this.offsetX / dist : 0;
       const uy = dist > 0 ? this.offsetY / dist : 0;
@@ -2078,7 +2080,10 @@ class DragMotion {
       const tilt = ratio * DRAG_MAX_TILT_DEG * Math.PI / 180;
       const view = { x: Math.sin(tilt) * ux, y: Math.cos(tilt), z: Math.sin(tilt) * uy };
       this.lastVector = composeViewVectorWithQuickDeg(view, this.opts.getQuickDeg());
-      this.opts.sendVector(this.lastVector.x, this.lastVector.y, this.lastVector.z, "drag tilt");
+      if (this.opts.hasVector())
+        this.opts.sendVector(this.lastVector.x, this.lastVector.y, this.lastVector.z, "drag tilt");
+      if (this.opts.hasAccelStream())
+        this.opts.sendAccel(this.lastVector.x, this.lastVector.y, this.lastVector.z, now, "drag tilt");
     }
     if (this.opts.hasShake() && this.opts.pollDragShake(clientX, clientY, now, false)) {
       this.opts.fireShake(now, "drag shake");
@@ -2096,13 +2101,16 @@ class DragMotion {
       this.offsetX = lerp(fromX, 0, eased);
       this.offsetY = lerp(fromY, 0, eased);
       this.opts.onOffsetChanged(this.offsetX, this.offsetY);
-      if (this.opts.hasVector()) {
+      if (this.opts.hasVector() || this.opts.hasAccelStream()) {
         this.lastVector = {
           x: lerp(fromVector.x, toVector.x, eased),
           y: lerp(fromVector.y, toVector.y, eased),
           z: lerp(fromVector.z, toVector.z, eased)
         };
-        this.opts.sendVector(this.lastVector.x, this.lastVector.y, this.lastVector.z, "drag tilt release");
+        if (this.opts.hasVector())
+          this.opts.sendVector(this.lastVector.x, this.lastVector.y, this.lastVector.z, "drag tilt release");
+        if (this.opts.hasAccelStream())
+          this.opts.sendAccel(this.lastVector.x, this.lastVector.y, this.lastVector.z, now, "drag tilt release");
       }
       if (t < 1) {
         this.springRaf = requestAnimationFrame(step);
@@ -2161,6 +2169,7 @@ var puckMotion = new PuckMotion;
 var soundPlayer = new SoundPlayer;
 var shakeSensorIndex = -1;
 var vectorSensorIndices = [];
+var streamSensorIndices = [];
 var centeredOnce = false;
 var overlayEnabled = false;
 var lastTouchMapped = null;
@@ -2179,6 +2188,7 @@ var phoneMotion = new PhoneMotion({
   stage: stageEl,
   getQuickDeg: () => quickDeg,
   sendVector: (x, y, z, source) => sendVector(x, y, z, source),
+  sendAccel: (ax, ay, az, tMs, source) => sendAccel(ax, ay, az, tMs, source),
   fireShake: (now, source) => fireShakeSensor(now, source),
   onLayoutChanged: () => fitDeviceToStage(),
   onOwnershipReleased: () => sendGravityForRotation(),
@@ -2189,11 +2199,13 @@ var dragMotion = new DragMotion({
   bezel: bezelEl,
   getQuickDeg: () => quickDeg,
   sendVector: (x, y, z, source) => sendVector(x, y, z, source),
+  sendAccel: (ax, ay, az, tMs, source) => sendAccel(ax, ay, az, tMs, source),
   fireShake: (now, source) => fireShakeSensor(now, source),
   pollDragShake: (x, y, now, suppressed) => puckDragShake.poll(x, y, now, suppressed),
   isEligible: () => EMBED && !phoneMotion.isActive(),
   hasVector: () => vectorSensorIndices.length > 0,
   hasShake: () => shakeSensorIndex >= 0,
+  hasAccelStream: () => streamSensorIndices.length > 0,
   onOffsetChanged: (dx, dy) => {
     dragOffsetX = dx;
     dragOffsetY = dy;
@@ -2456,7 +2468,12 @@ function buildChrome(d) {
       acc.push(i);
     return acc;
   }, []);
-  phoneMotion.onDeviceChanged(vectorSensorIndices.length > 0, shakeSensorIndex >= 0);
+  streamSensorIndices = (d.sensors || []).reduce((acc, s, i) => {
+    if (s.kind === "stream")
+      acc.push(i);
+    return acc;
+  }, []);
+  phoneMotion.onDeviceChanged(vectorSensorIndices.length > 0, shakeSensorIndex >= 0, streamSensorIndices.length > 0);
   if (embedShakeBtn)
     embedShakeBtn.hidden = shakeSensorIndex < 0;
   touchEnabled = (d.touch?.points ?? 0) > 0;
@@ -2862,6 +2879,16 @@ function sendVector(x, y, z, source) {
     guardedAbiCall(`sensor[${i}] vector (${source})`, (liveEmu) => {
       liveEmu.emu_sensor_vector(i, x, y, z);
       recorder.record({ t: performance.now(), k: "vector", i, x, y, z });
+    });
+  }
+}
+function sendAccel(ax, ay, az, tMs, source) {
+  if (!emu || !emu.emu_accel_sample || streamSensorIndices.length === 0)
+    return;
+  for (const i of streamSensorIndices) {
+    guardedAbiCall(`sensor[${i}] accel (${source})`, (liveEmu) => {
+      liveEmu.emu_accel_sample(i, tMs, ax, ay, az);
+      recorder.record({ t: tMs, k: "accel", i, ax, ay, az });
     });
   }
 }

@@ -21,6 +21,18 @@ export interface PhoneMotionOptions {
   stage: HTMLElement;
   getQuickDeg: () => number;
   sendVector: (x: number, y: number, z: number, source: string) => void;
+  // One RAW accelerometer sample (device.json's "kind": "stream" sensor,
+  // decision 0003), at whatever rate the underlying source really produces
+  // one - devicemotion's own ~60Hz on a phone, never resampled or upsampled
+  // to the board's own ~200Hz (a live page cannot manufacture samples that
+  // were never taken - see this option's DragMotion twin for the desktop
+  // side). tMs is the browser's own event timestamp, honest, not a fixed
+  // step: a game integrating this stream (GOLF's swing detector, LUCKY 7's
+  // yank) times itself off the gaps between real samples. A no-op call is
+  // fine and expected against a device with no stream sensor or a module
+  // that never exported emu_accel_sample - see main.ts's sendAccel, which
+  // is where that guard actually lives (this class never has to know).
+  sendAccel: (ax: number, ay: number, az: number, tMs: number, source: string) => void;
   fireShake: (now: number, source: string) => void;
   onLayoutChanged: () => void;
   onOwnershipReleased: () => void;
@@ -180,9 +192,18 @@ export class PhoneMotion {
     return this.active;
   }
 
-  onDeviceChanged(hasVector: boolean, hasShake: boolean): void {
+  // hasAccelStream added alongside hasVector: a device that declares ONLY a
+  // "kind":"stream" sensor (packs/esp32-s3-touch-amoled-18's gameos port,
+  // no "kind":"vector" sensor at all) still needs this chip - GOLF's own
+  // swing detector and GUNSHIP's tilt aim there both consume the raw
+  // stream, not a fused vector. Found by scripts/verify-gameos-accel.ts's
+  // own red/green proof: with the eligibility check pinned to hasVector
+  // alone, this chip (and, by the same bug, DragMotion's own eligibility
+  // below) never activated for that device at all, so sendAccel was dead
+  // code even though it was correctly wired end to end.
+  onDeviceChanged(hasVector: boolean, hasShake: boolean, hasAccelStream: boolean): void {
     this.hasShake = hasShake;
-    const eligible = this.opts.embed && hasVector && motionApisAvailable() && isTouchCapable();
+    const eligible = this.opts.embed && (hasVector || hasAccelStream) && motionApisAvailable() && isTouchCapable();
     if (!eligible) {
       this.unmount();
       return;
@@ -338,7 +359,15 @@ export class PhoneMotion {
     const raw = event.accelerationIncludingGravity;
     if (raw && raw.x !== null && raw.y !== null && raw.z !== null) {
       this.motionReadingSeen = true;
-      this.ingestMotion(mapAccelerationToVector(raw.x, raw.y, raw.z, isIOSSafariMotion()), event.timeStamp);
+      const mapped = mapAccelerationToVector(raw.x, raw.y, raw.z, isIOSSafariMotion());
+      // RAW, unfiltered, at devicemotion's own native rate - fed to the
+      // stream sensor BEFORE ingestMotion below runs it through the
+      // low-pass filter that feeds the fused tilt vector. A swing/yank
+      // detector wants exactly the pre-filter signal (gos_hal.h's own
+      // comment: "frame-rate sampling aliases short bursts") - see this
+      // option's own header comment.
+      this.opts.sendAccel(mapped.x, mapped.y, mapped.z, event.timeStamp, "phone tilt");
+      this.ingestMotion(mapped, event.timeStamp);
     } else if (this.lastOrientation) {
       this.ingestGravity(this.lastOrientation, event.timeStamp);
     }
@@ -455,6 +484,12 @@ export interface DragMotionOptions {
   bezel: HTMLElement;
   getQuickDeg: () => number;
   sendVector: (x: number, y: number, z: number, source: string) => void;
+  // Same stream-sensor seam as PhoneMotionOptions.sendAccel, fed from the
+  // bezel drag instead of a real phone: one sample per pointermove (the
+  // rate the input source really produces, no fixed Hz manufactured - see
+  // that option's own header comment for why), so a desktop session without
+  // a phone can still drive a swing/yank detector, not just the fused tilt.
+  sendAccel: (ax: number, ay: number, az: number, tMs: number, source: string) => void;
   fireShake: (now: number, source: string) => void;
   // Shares main.ts's own puckDragShake WindowShakeDetector instance (and,
   // critically, its cooldown) rather than standing up a second, independent
@@ -464,6 +499,10 @@ export interface DragMotionOptions {
   isEligible: () => boolean; // embed mode, and no real phone motion currently streaming
   hasVector: () => boolean;
   hasShake: () => boolean;
+  // A device with ONLY a "kind":"stream" sensor (no fused "vector") still
+  // wants this drag to drive it - see PhoneMotion.onDeviceChanged's own
+  // comment on the identical gap found there first.
+  hasAccelStream: () => boolean;
   onOffsetChanged: (dx: number, dy: number) => void; // bounded, px - feeds main.ts's applyRotation
 }
 
@@ -530,7 +569,7 @@ export class DragMotion {
     // for instance) is excluded too, not just the exact element.
     if (e.target instanceof Element && e.target.closest(EXCLUDED_SELECTOR)) return;
     if (isTouchCapable()) return; // fine pointer only - a touch drag gets nothing here at all
-    if (!this.opts.isEligible() || !(this.opts.hasVector() || this.opts.hasShake())) return;
+    if (!this.opts.isEligible() || !(this.opts.hasVector() || this.opts.hasShake() || this.opts.hasAccelStream())) return;
     if (this.springRaf) {
       cancelAnimationFrame(this.springRaf);
       this.springRaf = 0;
@@ -592,7 +631,15 @@ export class DragMotion {
     this.offsetY = clamp(dy, -this.boundTop, this.boundBottom);
     this.opts.onOffsetChanged(this.offsetX, this.offsetY);
 
-    if (this.opts.hasVector()) {
+    // hasVector OR hasAccelStream: a stream-only device (no fused "vector"
+    // sensor at all - packs/esp32-s3-touch-amoled-18's gameos port) still
+    // wants this same pendulum math driving its raw accel stream. Gating
+    // this whole block on hasVector() alone was the actual live-wiring bug
+    // scripts/verify-gameos-accel.ts's own red/green proof caught: GREEN
+    // recorded zero "accel" events even with sendAccel correctly wired
+    // below it, because that device has no vector sensor and this block
+    // never ran at all.
+    if (this.opts.hasVector() || this.opts.hasAccelStream()) {
       // Tilt direction/magnitude tracks the device's ACTUAL (bounded)
       // on-screen displacement, not the raw unclamped pointer delta - once
       // the device stops moving at the position bound, the tilt stops
@@ -614,7 +661,11 @@ export class DragMotion {
       // every other view-space vector this file produces.
       const view: Vector3 = { x: Math.sin(tilt) * ux, y: Math.cos(tilt), z: Math.sin(tilt) * uy };
       this.lastVector = composeViewVectorWithQuickDeg(view, this.opts.getQuickDeg());
-      this.opts.sendVector(this.lastVector.x, this.lastVector.y, this.lastVector.z, "drag tilt");
+      if (this.opts.hasVector()) this.opts.sendVector(this.lastVector.x, this.lastVector.y, this.lastVector.z, "drag tilt");
+      // Same vector, also offered to the stream sensor - see this class's
+      // sendAccel option header comment. One sample per pointermove, honest
+      // to this input's own rate.
+      if (this.opts.hasAccelStream()) this.opts.sendAccel(this.lastVector.x, this.lastVector.y, this.lastVector.z, now, "drag tilt");
     }
     if (this.opts.hasShake() && this.opts.pollDragShake(clientX, clientY, now, false)) {
       this.opts.fireShake(now, "drag shake");
@@ -637,13 +688,14 @@ export class DragMotion {
       this.offsetX = lerp(fromX, 0, eased);
       this.offsetY = lerp(fromY, 0, eased);
       this.opts.onOffsetChanged(this.offsetX, this.offsetY);
-      if (this.opts.hasVector()) {
+      if (this.opts.hasVector() || this.opts.hasAccelStream()) {
         this.lastVector = {
           x: lerp(fromVector.x, toVector.x, eased),
           y: lerp(fromVector.y, toVector.y, eased),
           z: lerp(fromVector.z, toVector.z, eased),
         };
-        this.opts.sendVector(this.lastVector.x, this.lastVector.y, this.lastVector.z, "drag tilt release");
+        if (this.opts.hasVector()) this.opts.sendVector(this.lastVector.x, this.lastVector.y, this.lastVector.z, "drag tilt release");
+        if (this.opts.hasAccelStream()) this.opts.sendAccel(this.lastVector.x, this.lastVector.y, this.lastVector.z, now, "drag tilt release");
       }
       if (t < 1) {
         this.springRaf = requestAnimationFrame(step);

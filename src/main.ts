@@ -136,6 +136,11 @@ let shakeSensorIndex = -1;
 // today, and nothing here assumes a particular count beyond "zero or
 // more".
 let vectorSensorIndices: number[] = [];
+// Same idea as vectorSensorIndices, for a "kind": "stream" sensor (raw
+// accelerometer samples, decision 0003 in packs/esp32-s3-touch-amoled-18)
+// instead of one continuous fused reading. Generic over kind, never over a
+// sensor's id, same AGENTS.md rule vectorSensorIndices already follows.
+let streamSensorIndices: number[] = [];
 let centeredOnce = false;
 
 // The contact toggle (disc, trail and coordinate readout together, one
@@ -180,6 +185,7 @@ const phoneMotion = new PhoneMotion({
   stage: stageEl,
   getQuickDeg: () => quickDeg,
   sendVector: (x, y, z, source) => sendVector(x, y, z, source),
+  sendAccel: (ax, ay, az, tMs, source) => sendAccel(ax, ay, az, tMs, source),
   fireShake: (now, source) => fireShakeSensor(now, source),
   onLayoutChanged: () => fitDeviceToStage(),
   onOwnershipReleased: () => sendGravityForRotation(),
@@ -201,11 +207,13 @@ const dragMotion = new DragMotion({
   bezel: bezelEl,
   getQuickDeg: () => quickDeg,
   sendVector: (x, y, z, source) => sendVector(x, y, z, source),
+  sendAccel: (ax, ay, az, tMs, source) => sendAccel(ax, ay, az, tMs, source),
   fireShake: (now, source) => fireShakeSensor(now, source),
   pollDragShake: (x, y, now, suppressed) => puckDragShake.poll(x, y, now, suppressed),
   isEligible: () => EMBED && !phoneMotion.isActive(),
   hasVector: () => vectorSensorIndices.length > 0,
   hasShake: () => shakeSensorIndex >= 0,
+  hasAccelStream: () => streamSensorIndices.length > 0,
   onOffsetChanged: (dx, dy) => {
     dragOffsetX = dx;
     dragOffsetY = dy;
@@ -651,7 +659,11 @@ function buildChrome(d: DeviceDescriptor): void {
     if (s.kind === "vector") acc.push(i);
     return acc;
   }, []);
-  phoneMotion.onDeviceChanged(vectorSensorIndices.length > 0, shakeSensorIndex >= 0);
+  streamSensorIndices = (d.sensors || []).reduce<number[]>((acc, s, i) => {
+    if (s.kind === "stream") acc.push(i);
+    return acc;
+  }, []);
+  phoneMotion.onDeviceChanged(vectorSensorIndices.length > 0, shakeSensorIndex >= 0, streamSensorIndices.length > 0);
   // The embed shake button only ever shows for a device that actually
   // declared one - same source of truth as the (hidden, in embed) sidebar
   // sensor button above, never a second, independent "does this have
@@ -1265,6 +1277,27 @@ function sendVector(x: number, y: number, z: number, source: string): void {
     guardedAbiCall(`sensor[${i}] vector (${source})`, (liveEmu) => {
       liveEmu.emu_sensor_vector!(i, x, y, z);
       recorder.record({ t: performance.now(), k: "vector", i, x, y, z });
+    });
+  }
+}
+
+// ---- stream sensors (raw accelerometer): driven live from motion.ts -------
+// A "kind": "stream" sensor's own ABI (emu_accel_sample, OPTIONAL) is a
+// SEPARATE call from sendVector's emu_sensor_vector: this pushes one RAW
+// sample per real reading the phone or the desktop drag synthesizer
+// actually produced, never a resample of the fused vector sendVector
+// already sent for the same event - see motion.ts's PhoneMotion.
+// onDeviceMotion and DragMotion.updateFromClient/springBack, the two call
+// sites that feed this. No-ops instantly if the device declared no stream
+// sensor, or the loaded module never exported emu_accel_sample (an older/
+// other firmware) - same "unimplemented means uncalled" contract sendVector
+// already follows for emu_sensor_vector.
+function sendAccel(ax: number, ay: number, az: number, tMs: number, source: string): void {
+  if (!emu || !emu.emu_accel_sample || streamSensorIndices.length === 0) return;
+  for (const i of streamSensorIndices) {
+    guardedAbiCall(`sensor[${i}] accel (${source})`, (liveEmu) => {
+      liveEmu.emu_accel_sample!(i, tMs, ax, ay, az);
+      recorder.record({ t: tMs, k: "accel", i, ax, ay, az });
     });
   }
 }

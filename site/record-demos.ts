@@ -377,23 +377,64 @@ const DEMOS: DemoSpec[] = [
     panelW: 368,
     panelH: 448,
     async play(ctx) {
-      // Byte-for-byte the same choreography as "gameos-rp2350" below: both
-      // ports share this app's own launcher.c (identical CARD_GUN_Y0..Y1
-      // layout, the same 184x224 game-space fractions), and neither demo
-      // drives a tilt/accel gesture through the live page - both ports'
-      // GUNSHIP aim starts centered and this choreography never asks it to
-      // move, so there is nothing here that differs by port.
-      await sleep(500); // idle on the launcher: two cards, GUNSHIP and LUCKY 7
-      await ctx.tap(0.5, 0.335, 120); // the GUNSHIP card
+      // NO LONGER byte-for-byte the same choreography as "gameos-rp2350"
+      // below: this port's own launcher.c grew a third card (GOLF) and
+      // re-laid-out card geometry (CARD_GUN_Y0..Y1=36..80, CARD_SLOTS_Y0..
+      // Y1=92..136, CARD_GOLF_Y0..Y1=148..192, all render-space out of 224
+      // - see that file's own header comment), so the GUNSHIP/LUCKY 7 tap
+      // fractions below differ from the rp2350 entry's even where the two
+      // games' own on-screen behavior is identical. Neither demo drives a
+      // tilt/accel gesture through the live page for GUNSHIP - both ports'
+      // aim starts centered and this choreography never asks it to move.
+      await sleep(500); // idle on the launcher: three cards, GUNSHIP/LUCKY 7/GOLF
+      await ctx.tap(0.5, 58 / 224, 120); // the GUNSHIP card
       await sleep(700); // briefing screen
       await ctx.tap(0.5, 0.7, 900); // lower two-thirds: starts the mission, then holds to fire (GOS_CAP_TOUCH_FIRE)
       await sleep(900); // watch the wave in progress
-      await ctx.stroke([[0.5, 0.03], [0.5, 0.22], [0.5, 0.42]], 90); // swipe down from the top strip: the always-available exit gesture, back to the launcher
+      // Swipe down from the top strip - the always-available exit gesture,
+      // back to the launcher. Ends well past render y=192 (below every
+      // card, into the hint-text strip): a swipe_exit() (gameos_port.c)
+      // fires exitNow the INSTANT the drag crosses its own +40 threshold,
+      // mid-touch, so the launcher's own launcher_update() can end up
+      // observing the tail of this same touch on the very next tick - an
+      // endpoint still over a card reads as a tap on it (reproduced while
+      // building this port's own invariants trace, scripts/
+      // record-gameos-golf-trace.ts's swipeExit() header comment has the
+      // full account).
+      await ctx.stroke([[0.5, 0.03], [0.5, 0.3], [0.5, 0.6], [0.5, 0.95]], 90);
       await sleep(500);
-      await ctx.tap(0.5, 0.7, 120); // the LUCKY 7 card
+      await ctx.tap(0.5, 114 / 224, 120); // the LUCKY 7 card
       await sleep(700); // idle reels
       await ctx.stroke([[0.5, 0.35], [0.5, 0.55], [0.5, 0.75], [0.5, 0.9]], 70); // drag down on the reel unit: pulls the lever, the drag's own length sets the spin strength
       await sleep(2200); // watch the spin resolve
+      await ctx.stroke([[0.5, 0.03], [0.5, 0.3], [0.5, 0.6], [0.5, 0.95]], 90); // exit back to the launcher
+      await sleep(500);
+
+      // GOLF: tap the card, then repeatedly tap the "1 PLAYER" zone (full-
+      // res tx<184,ty>=280 -> render tx<92,ty>=140 -> fraction (0.25,0.625))
+      // until it lands - a no-op while GOLF is still generating its own
+      // course art behind a static GST_LOADING screen (golf_render()'s own
+      // comment: "canvas holds"), and harmless once it lands during the
+      // GST_INTRO pan that follows (golf.c: any tap there just forces the
+      // pan to finish early). Same reasoning scripts/record-gameos-golf-
+      // trace.ts's own "1 PLAYER" loop documents at length.
+      await ctx.tap(0.5, 170 / 224, 120); // the GOLF card
+      for (let i = 0; i < 14; i++) {
+        await ctx.tap(0.25, 0.625, 90);
+        await sleep(700);
+      }
+      await sleep(2000); // let GST_INTRO's own pan settle into GST_READY
+      // Drag + release arms the swing (arm_swing(), golf.c): imu_ok and
+      // swing_mode are both true by default on this port, so a drag over
+      // 20 full-res px switches to GST_ARMED and shows the swing-power bar
+      // - the "glimpse" this choreography is named for. No accel stream is
+      // driven through the live page here (unlike scripts/record-gameos-
+      // golf-trace.ts's own invariant-proving trace), so the bar holds at
+      // rest rather than resolving into a real shot - a deliberate scope
+      // cut for a promotional loop, not a claim this demo verifies GOLF's
+      // own swing detector.
+      await ctx.stroke([[0.5, 120 / 224], [0.55, 105 / 224], [0.5435, 90 / 224]], 90);
+      await sleep(1800); // hold on the armed swing bar
     },
   },
   {
