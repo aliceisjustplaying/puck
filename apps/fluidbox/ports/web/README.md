@@ -59,6 +59,13 @@ $ echo $?
 0
 ```
 
+Re-verified 2026-08-20, after `fluid.c` stopped reading a private, non-ABI accessor
+(`emu_shim_tilt_get()`) and started reading `app_frame_t.tilt` directly - the same
+`cmp` command above still reports no difference. The rp2350 pack's tilt is now real on
+silicon (`firmware/runtime/tilt.c`); this pack has no chip to be real on, so it feeds the
+identical field from an already browser-filtered phone/desktop reading instead (see point 3
+below) - different sources, same field, so the file that reads it never had to change.
+
 That was the test of the convention, and it is why the file's own comments
 still point at `apps/fluidbox/ports/rp2350-touch-amoled-18/README.md` and
 still discuss the RP2350's single core. Rewriting those comments to say
@@ -70,16 +77,23 @@ adopting rather than improving:
 
 1. `app.h` and `gfx.h` are **vendored**, so `PANEL_W`, `PX_BLACK`,
    `px_swap`, `APP_STATE`, `gfx_fill_rect` and `gfx_push` all mean the same
-   thing under the same names.
+   thing under the same names. `app.h`'s vendored copy now carries
+   `app_tilt_t`/`app_frame_t.tilt` too (field for field, same units, same
+   meaning as the sibling's) - see this pack's `NOTICE.md`.
 2. The `--app` contract (`port_enter` / `port_tick`, `--shake` for
    `wantsShake`) is the sibling's, unchanged.
-3. `emu_shim_tilt_get(float*, float*, float*)` exists here under **exactly
-   that name and signature**. `fluid.c` declares a `__attribute__((weak))`
-   default of it and calls it; the web pack's `emu_shim.c` provides a
-   strong definition, which overrides the weak one at link time, exactly as
-   it does in the RP2350 wasm build. A pack that had invented a nicer name
-   for the same accessor would have forced a one-line edit, and a one-line
-   edit is a different file.
+3. `app_frame_t.tilt` reads the same on both packs. Neither has anything
+   to do with the other's real chip (the sibling's QMI8658, filtered by its
+   own `tilt.c`) or lack of one (this pack's browser `devicemotion`,
+   already low-pass filtered upstream in `src/motion.ts`) - each pack's own
+   `wasm/emu_shim.c` populates the field its own way (`sensors_tilt()`
+   here, `tilt_submit_device_g()` there), but `fluid.c` only ever reads the
+   field itself, never how it got there. That is what makes this port
+   read-compatible without a private, pack-specific accessor at all: an
+   earlier version of this file (and this section) named one,
+   `emu_shim_tilt_get()`, which both shims implemented under an identical
+   name and signature for exactly the same reason a one-line rename would
+   have broken - the field replaces the accessor, not the other way round.
 
 ## Particle count: 130, and what that costs
 
@@ -151,11 +165,11 @@ that had reached for a device fact would have needed one.
 
 The trace replays unchanged too, and reads the same on both packs for a
 specific reason: it contains no `vector` events at all (it predates that
-ABI addition), so `emu_shim_tilt_get()` returns the zero vector here as
-well, `fluid.c`'s own `TILT_MIN_G` fallback fires every tick, and gravity
-is fixed straight down for the whole replay. Live tilt is real on a phone
-and absent from the recorded proof; that split is deliberate and is exactly
-the same one the RP2350 port documents.
+ABI addition), so `app_frame_t.tilt` reads its own zero-magnitude default
+here as well, `fluid.c`'s own `TILT_MIN_G` fallback fires every tick, and
+gravity is fixed straight down for the whole replay. Live tilt is real on
+a phone and absent from the recorded proof; that split is deliberate and is
+exactly the same one the RP2350 port documents.
 
 ## What is untested
 

@@ -30,6 +30,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "app.h" // for app_tilt_t (sensors_tilt() below)
+
 /* ---- touch -------------------------------------------------------------
  *
  * One sample as it comes off the digitizer, queued and drained once per
@@ -103,5 +105,23 @@ bool sensors_boot_down(void);
  * derived from the same measurement.
  */
 uint32_t sensors_erase_seq(void);
+
+/* ---- tilt ----------------------------------------------------------------
+ *
+ * The gravity-direction reading, browser edition. The sibling has a
+ * dedicated tilt.c (a real filter over a real QMI8658 sample, portable to
+ * both its targets); this pack has neither the chip nor that file, so
+ * there is nothing to vendor here in the way sensors.c's touch/key/shake
+ * plumbing was vendored above. What plays the same role: the host's
+ * "tilt" vector sensor (packs/web/wasm/emu_abi.h's emu_sensor_vector),
+ * already low-pass filtered upstream in JS before it ever reaches this
+ * module (src/motion.ts's PhoneMotion, or the desktop drag/rotate stand-in
+ * - see that file's own header comment), converted straight into
+ * app_tilt_t by packs/web/wasm/emu_shim.c's own "tilt" section.
+ *
+ * Called once per frame by the runtime, the same "read the published
+ * signal" shape sensors_key_take()/sensors_erase_seq() already use above.
+ */
+void sensors_tilt(app_tilt_t *out);
 
 #endif // SENSORS_H

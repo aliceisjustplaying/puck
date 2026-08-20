@@ -54,13 +54,16 @@ pinned puck checkout. So nothing here `#include`s or `import`s across into
 copy would have been dishonest and a rewrite was correct instead
 (`gfx.c`, `sensors.h`).
 
-The one seam the vendored headers do not cover is
-`emu_shim_tilt_get(float*, float*, float*)`, a private, non-ABI accessor
-the sibling's wasm shim invented for the fluidbox port to read a tilt
-vector through. This pack implements it under **exactly that name and
-signature**, which is the only reason `fluid.c` copies over unedited: a
-pack that had invented a better name would have forced a one-line edit, and
-a one-line edit is a different file.
+`app.h`'s `app_frame_t.tilt` (`app_tilt_t`, vendored from the sibling field
+for field) is the seam a tilt-reading port actually compiles against.
+Neither pack has a real chip behind it here - the sibling's is a QMI8658
+read through `firmware/runtime/tilt.c`'s filter, this pack's is a phone's
+`devicemotion` (or a desktop drag stand-in), already low-pass filtered in
+`src/motion.ts` before `wasm/emu_shim.c`'s `sensors_tilt()` ever sees it -
+but both populate the exact same field, in the exact same units and axis
+convention, which is what lets `apps/fluidbox/ports/web/fluid.c` compile
+against this pack unedited, byte-for-byte identical to the rp2350 sibling's
+own port file.
 
 ## What is different here, stated plainly
 

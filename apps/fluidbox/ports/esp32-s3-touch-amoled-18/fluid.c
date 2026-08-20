@@ -31,19 +31,22 @@
  *                a data structure earning less than it costs.
  *
  * GRAVITY IS FIXED DOWN, and this file is SIMPLER for it. The rp2350 and
- * web ports both carry a weak emu_shim_tilt_get() hook, because those two
- * packs declare a {"id":"tilt","kind":"vector"} sensor and their emulator
- * shims drive it. This pack's device.json declares exactly one sensor,
- * {"id":"shake","kind":"event"} - there is no vector sensor to read, in the
- * emulator or on the board, so the hook would be a weak symbol nothing ever
- * overrides, a fallback branch that can never not be taken, and a paragraph
- * of comment explaining a capability this device does not have. It is left
- * out on purpose: gravity is the constant (0, +1) this port's whole
- * invariant trace already runs under on the other two packs (that trace
- * contains no vector event at all), so removing the hook changes no
- * behaviour and removes a thing to be wrong about. The interaction surface
- * this port DOES have is the same one the rp2350 port has: gravity down,
- * shake, and a touch stir the donor's own firmware never implemented.
+ * web ports both read f->tilt (app_frame_t.tilt, app.h) every tick, because
+ * those two packs declare a {"id":"tilt","kind":"vector"} sensor and wire a
+ * real gravity direction into that field (the rp2350 pack's own QMI8658
+ * through firmware/runtime/tilt.c, or the same field fed from a browser's
+ * motion path). This pack's app.h declares no such field at all
+ * (packs/esp32-s3-touch-amoled-18/firmware/runtime/app.h's app_frame_t) and
+ * its device.json declares exactly one sensor, {"id":"shake","kind":"event"}
+ * - there is no tilt signal to read, in the emulator or on the board, so
+ * reading one here would not compile, let alone mean anything. Gravity is
+ * simply the constant (0, +1) this port's whole invariant trace already
+ * runs under on the other two packs when their own tilt reading is near
+ * zero (that trace contains no vector event at all), so this is not a
+ * missing feature so much as the one fixed state the other ports already
+ * fall back to. The interaction surface this port DOES have is the same
+ * one the rp2350 port has: gravity down, shake, and a touch stir the
+ * donor's own firmware never implemented.
  *
  * MATH, and why there are four bare externs below instead of an #include.
  * This pack ships no shim/ directory (see wasm/build.ts's header comment):

@@ -66,23 +66,23 @@ describe("fluidbox-rp2350.uf2 (single-app fluid build)", () => {
   const bytes = loadArtifact("fluidbox-rp2350.uf2");
   const { blocks, familyGroups } = parseUf2(bytes);
 
-  // Refreshed after apps/fluidbox/ports/rp2350-touch-amoled-18/fluid.c's
-  // emu_shim_tilt_get() changed from a plain `extern` declaration to a weak
-  // default definition (the fix for the native single-app build's
-  // undefined-reference failure - the emulator's own emu_shim.c still
-  // provides the strong, real definition that wins in that build, see that
-  // function's own comment): the weak function body adds a handful of
-  // instructions to the native single-app link, so the built binary is
-  // slightly bigger and its block count and reported binary end both moved
-  // up from the previous artifact's numbers.
+  // Refreshed after apps/fluidbox/ports/rp2350-touch-amoled-18/fluid.c
+  // dropped the private emu_shim_tilt_get() weak-hook path entirely and
+  // started reading f->tilt (app_frame_t.tilt) instead - real firmware
+  // (firmware/runtime/runtime_core.c and tilt.c) that this single-app
+  // native build has always linked in, but the app itself now calls
+  // through app_frame_t rather than a private accessor. The built binary's
+  // size, block count and reported binary end moved up a little from the
+  // previous artifact's numbers (checked with `picotool info -a` against
+  // this rebuilt artifact, same as the previous numbers were).
 
-  test("has 306 total blocks", () => {
-    expect(blocks.length).toBe(306);
+  test("has 330 total blocks", () => {
+    expect(blocks.length).toBe(330);
   });
 
-  test("has one absolute/info block and 305 rp2350-arm-s blocks", () => {
+  test("has one absolute/info block and 329 rp2350-arm-s blocks", () => {
     expect(familyGroups.get(0xe48bff57)?.length).toBe(1);
-    expect(familyGroups.get(FAMILY_RP2350_ARM_S)?.length).toBe(305);
+    expect(familyGroups.get(FAMILY_RP2350_ARM_S)?.length).toBe(329);
   });
 
   test("every rp2350-arm-s block carries a contiguous 256-byte payload", () => {
@@ -90,17 +90,17 @@ describe("fluidbox-rp2350.uf2 (single-app fluid build)", () => {
     for (const b of family) expect(b.payloadSize).toBe(256);
   });
 
-  test("flash plan: range starts at 0x10000000 and covers picotool's reported binary end (0x10013004)", () => {
+  test("flash plan: range starts at 0x10000000 and covers picotool's reported binary end (0x10014814)", () => {
     const plan = computeFlashPlan(blocks, FAMILY_RP2350_ARM_S);
-    const BINARY_END = 0x10013004;
+    const BINARY_END = 0x10014814;
     expect(plan.rangeStart).toBe(0x10000000);
     expect(plan.rangeEnd).toBeGreaterThanOrEqual(BINARY_END);
-    expect(plan.chunks.length).toBe(305);
+    expect(plan.chunks.length).toBe(329);
   });
 
   test("erase range is 4096-aligned and covers the binary end", () => {
     const plan = computeFlashPlan(blocks, FAMILY_RP2350_ARM_S);
-    const BINARY_END = 0x10013004;
+    const BINARY_END = 0x10014814;
     expect(plan.eraseStart % FLASH_SECTOR_SIZE).toBe(0);
     expect(plan.eraseEnd % FLASH_SECTOR_SIZE).toBe(0);
     expect(plan.eraseStart).toBeLessThanOrEqual(plan.rangeStart);

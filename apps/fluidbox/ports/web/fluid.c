@@ -8,16 +8,17 @@
 // particle count, and an emulator that cannot prove a real-hardware fps
 // floor.
 //
-// GRAVITY DIRECTION. In the EMULATOR, this now follows the rotation
-// control's "kind": "vector" tilt sensor (wasm/emu_abi.h's emu_sensor_vector,
-// packs/rp2350-touch-amoled-18/wasm/emu_shim.c's emu_shim_tilt_get - a
-// private, non-ABI accessor scoped to this one --app build, NOT plumbed
-// through app_frame_t/sensors.h, since those are pack firmware this task
-// does not touch). ON REAL HARDWARE this still falls back to fixed-down
-// gravity: wiring a real QMI8658 reading into every app via app_frame_t
-// would mean editing firmware/runtime/app.h and sensors.c, out of scope
-// here (see this port's README, "the missing ABI call" section, for the
-// full honesty statement of what is and is not wired on which target).
+// GRAVITY DIRECTION. Read from f->tilt (app_frame_t's app_tilt_t, app.h),
+// which is now real on BOTH targets: on real silicon it is the QMI8658,
+// low-pass filtered and axis-mapped by firmware/runtime/tilt.c; in the
+// emulator it is the SAME tilt.c object code, fed by the rotation
+// control's / phone-tilt's "kind": "vector" sensor
+// (wasm/emu_abi.h's emu_sensor_vector, packs/rp2350-touch-amoled-18/wasm/
+// emu_shim.c's emu_sensor_vector -> tilt_submit_device_g()). This app no
+// longer reads any private, non-ABI accessor: app_tilt_t's own gx/gy is
+// already "gravity, in THIS APP'S drawing space" (app.h's own doc), so
+// there is nothing left for this file to map or guess - see
+// update_gravity_direction() below.
 //
 // This file defines no app_t of its own (unlike firmware/apps/chrono.c):
 // see packs/rp2350-touch-amoled-18/wasm/build.ts's --app header comment for
@@ -34,28 +35,16 @@
 // ONE .c, TWO TARGETS. This port also builds native, straight to the real
 // board (packs/rp2350-touch-amoled-18/tools/build-native.ts's --app flag),
 // and native has no emu_shim.c to link against at all - that file is
-// wasm-only (packs/rp2350-touch-amoled-18/wasm/). A plain `extern` here
-// would leave the native single-app link with an undefined reference.
-//
-// `weak` is the fix: the wasm build's real, STRONG emu_shim_tilt_get()
-// (emu_shim.c) always overrides this weak default when both are linked
-// together (that is exactly what `weak` means to the linker) - so the
-// emulator's tilt-follows-rotation behaviour is unaffected. The native
-// build links only this weak definition, since nothing else in that build
-// provides the symbol, and gets a constant zero vector: exactly what
-// update_gravity_direction() below already treats as "no tilt reading
-// yet" and falls back on, straight-down gravity, this port's original
-// behaviour and its ONLY behaviour on real hardware until a future
-// firmware change (see this file's header comment) wires a real QMI8658
-// read through app_frame_t. Nothing about the fallback threshold or logic
-// needed to change; the weak symbol just makes that fallback the native
-// build's only path rather than an unresolved symbol.
-__attribute__((weak)) void emu_shim_tilt_get(float *x, float *y, float *z) {
-    *x = 0.0f;
-    *y = 0.0f;
-    *z = 0.0f;
-}
-
+// wasm-only (packs/rp2350-touch-amoled-18/wasm/). That used to matter here:
+// an earlier version of this file called a private, non-ABI accessor
+// (emu_shim_tilt_get()) that only the wasm shim defined, and needed a weak
+// fallback definition so the native single-app link would not fail with an
+// undefined reference. That accessor is gone - this file now reads
+// f->tilt, a plain app_frame_t field that both targets' runtime_core.c
+// populate unconditionally (native and wasm alike compile the real
+// firmware/runtime/runtime_core.c and tilt.c, see this pack's wasm/build.ts
+// header comment) - so there is no symbol here that only one target
+// provides, and nothing to declare weak.
 /* ===========================================================================
  * Particle count
  *
@@ -122,14 +111,15 @@ __attribute__((weak)) void emu_shim_tilt_get(float *x, float *y, float *z) {
 
 // Below this tilt magnitude (g), gravity direction falls back to fixed
 // straight down rather than trusting a near-zero vector's direction (noise
-// dominates a vector this small, and a near-zero magnitude is exactly what
-// "no tilt reading yet" - the emu_shim.c default - looks like). Chosen well
-// under the ~1g a live rotation reading actually sends (rotate.ts's
-// gravityForQuickDeg always returns a unit vector) and well above 0, so the
-// existing invariant trace (which never sends a vector event at all, see
-// apps/fluidbox/ports/rp2350-touch-amoled-18/README.md) reads a magnitude of
-// exactly 0 and takes this fallback every tick, UNCHANGED from this port's
-// pre-tilt behaviour.
+// dominates a vector this small, and a near-zero in-plane magnitude is
+// exactly what "flat, no reading yet" looks like - tilt.c's own published
+// default, (gx,gy,gz)=(0,0,1), before any sample has ever arrived). Chosen
+// well under the ~1g a live tilt reading actually sends (a unit vector, on
+// both targets: the QMI8658 at rest, or rotate.ts's gravityForQuickDeg) and
+// well above 0, so the existing invariant trace (which never sends a
+// vector event at all, see apps/fluidbox/ports/rp2350-touch-amoled-18/
+// README.md) reads a magnitude of exactly 0 and takes this fallback every
+// tick, UNCHANGED from this port's pre-tilt behaviour.
 #define TILT_MIN_G        0.2f
 
 #define K_PRESSURE        400000.0f
@@ -188,10 +178,18 @@ typedef struct {
     int  touchLastX, touchLastY;
 
     // Current gravity DIRECTION (unit vector, panel coordinates), read once
-    // per tick from emu_shim_tilt_get() and used by every integrate_velocities()
-    // call until the next tick refreshes it - see port_tick and
-    // integrate_velocities below.
+    // per tick from f->tilt (app_frame_t, app.h) and used by every
+    // integrate_velocities() call until the next tick refreshes it - see
+    // port_tick and integrate_velocities below.
     float gravX, gravY;
+
+    // The panel-space bounding box (inclusive corners) of wherever this
+    // app's own particles are actually drawn on the panel RIGHT NOW - i.e.
+    // exactly what port_tick's own gfx_push call painted last tick. See
+    // port_tick's own comment on why this exists: found on real silicon,
+    // documented in packs/rp2350-touch-amoled-18/gotchas.md and this port's
+    // own README, "Panel push: bounding box, not full panel every tick".
+    int lastMinX, lastMinY, lastMaxX, lastMaxY;
 } fluid_state_t;
 
 static fluid_state_t *s;
@@ -515,16 +513,47 @@ static void draw_particles(void) {
     }
 }
 
-// Reads the emulator's tilt vector (if any) and resolves it to a unit
-// gravity DIRECTION in s->gravX/gravY, falling back to fixed straight down
-// when the reading is ~zero (see TILT_MIN_G's own comment for why that is
-// exactly what "no reading yet" and every pre-tilt trace both look like).
+// The panel-space bounding box (inclusive corners) of every particle's own
+// drawn square, at CURRENT s->x/s->y - i.e. exactly the region draw_particles()
+// is about to paint, computed with the identical (int)(v + 0.5f) rounding and
+// PARTICLE_HALF margin draw_particles() itself uses, so the two never
+// disagree about which pixels a particle occupies. Clamped to the panel,
+// same clip gfx_fill_rect already applies per-particle. Used by port_tick to
+// size the dirty push region - see that function's own comment for why a
+// bounding box, not the whole panel, is pushed every tick.
+static void particles_bbox(int *outMinX, int *outMinY, int *outMaxX, int *outMaxY) {
+    int minX = PANEL_W, minY = PANEL_H, maxX = -1, maxY = -1;
+    for (int i = 0; i < FLUID_N; i++) {
+        const int cx = (int)(s->x[i] + 0.5f);
+        const int cy = (int)(s->y[i] + 0.5f);
+        const int x0 = cx - PARTICLE_HALF, x1 = cx + PARTICLE_HALF;
+        const int y0 = cy - PARTICLE_HALF, y1 = cy + PARTICLE_HALF;
+        if (x0 < minX) minX = x0;
+        if (y0 < minY) minY = y0;
+        if (x1 > maxX) maxX = x1;
+        if (y1 > maxY) maxY = y1;
+    }
+    if (minX < 0) minX = 0;
+    if (minY < 0) minY = 0;
+    if (maxX > PANEL_W - 1) maxX = PANEL_W - 1;
+    if (maxY > PANEL_H - 1) maxY = PANEL_H - 1;
+    *outMinX = minX; *outMinY = minY; *outMaxX = maxX; *outMaxY = maxY;
+}
+
+// Reads the runtime's own tilt reading (f->tilt, app_frame_t - app.h) and
+// resolves it to a unit gravity DIRECTION in s->gravX/gravY, falling back
+// to fixed straight down when the reading is ~zero (see TILT_MIN_G's own
+// comment for why that is exactly what "no reading yet" and every pre-tilt
+// trace both look like). app_tilt_t's gx/gy is ALREADY "gravity, in this
+// app's own drawing space" (app.h's own doc: "+x is the direction its x
+// grows (right), +y the direction its y grows (down the screen)... a ball
+// rolls toward (gx, gy)") - exactly this solver's own (x right, y down)
+// panel convention, so there is no axis mapping left to do here; that work
+// happens once, in firmware/runtime/tilt.c, for every app on both targets.
 // The z component (into-screen) is read and deliberately ignored: this is
 // a 2D solver, gravity only ever pulls within the panel plane.
-static void update_gravity_direction(void) {
-    float tx, ty, tz;
-    emu_shim_tilt_get(&tx, &ty, &tz);
-    (void)tz;
+static void update_gravity_direction(const app_frame_t *f) {
+    const float tx = f->tilt.gx, ty = f->tilt.gy;
     const float mag = sqrtf(tx * tx + ty * ty);
     if (mag > TILT_MIN_G) {
         s->gravX = tx / mag;
@@ -549,6 +578,13 @@ void port_enter(void) {
     // is repaint it, then draw the seeded fluid on top.
     gfx_fill_rect(0, 0, PANEL_W, PANEL_H, FLUID_BG);
     draw_particles();
+
+    // Baseline for port_tick's own dirty-region tracking: after this
+    // function returns, the seeded block is exactly what the runtime's own
+    // full-panel push (app.h's enter() contract) puts on the panel, so this
+    // is where the FIRST tick's "wherever the panel already shows particles"
+    // union term starts from.
+    particles_bbox(&s->lastMinX, &s->lastMinY, &s->lastMaxX, &s->lastMaxY);
 }
 
 void port_tick(const app_frame_t *f) {
@@ -562,7 +598,7 @@ void port_tick(const app_frame_t *f) {
         apply_shake();
     }
     handle_touch(f);
-    update_gravity_direction();
+    update_gravity_direction(f);
 
     // dtMs is already clamped upstream (runtime_core.c: max 250ms per tick),
     // and SIM_DT_MAX caps the physics step itself the same way sim.c's own
@@ -572,13 +608,50 @@ void port_tick(const app_frame_t *f) {
     if (dt > SIM_DT_MAX) dt = SIM_DT_MAX;
     if (dt > 0.0f) substep(dt);
 
-    // Full-panel refresh every tick (this bundle's own Demand: the fluid can
-    // move anywhere in the box between two frames, so no region of the
-    // previous frame can be assumed still valid - see descriptor.md). Push
-    // the whole panel: gfx_push widens to the 8px row rule regardless, and
-    // at PANEL_W=368 (already a multiple of 8) a full-width push needs no
-    // padding.
-    gfx_fill_rect(0, 0, PANEL_W, PANEL_H, FLUID_BG);
+    // PANEL PUSH: one push per tick, sized to the union bounding box of
+    // "wherever the panel currently shows a particle" (s->lastMinX/Y/MaxX/Y,
+    // last tick's own push region) and "wherever a particle is about to be
+    // drawn this tick" (newMinX/Y/MaxX/Y, just computed from this tick's
+    // post-physics positions) - NOT the whole panel every tick.
+    //
+    // This is still exactly ONE gfx_push call, same as before: this port
+    // never pushed "many small per-particle rectangles" (measured directly
+    // via the emulator's emu_push_count() ABI, see this port's README's
+    // "Panel push" section - min=mean=max=1 push/tick on the pre-fix code
+    // too). What changed is the SIZE of that one push: previously the full
+    // 368x448 panel (164,864px) every tick regardless of how much of it
+    // actually changed; now just the union rectangle above, clamped to the
+    // panel, which for a settled or lightly-moving fluid is a small fraction
+    // of the panel. Fewer bytes per push means less time the QSPI bus spends
+    // driven on every tick - see packs/rp2350-touch-amoled-18/gotchas.md's
+    // "many small pushes" entry and this port's own README for why bus
+    // DURATION, not pixel count, is what the panel can show as an artifact,
+    // and why the emulator (no bus) cannot see this class of difference at
+    // all: this checker reads the framebuffer directly (harness/
+    // emulatorSide.ts -> src/replayCore.ts's emu_fb() read), never through
+    // gfx_push, so a smaller pushed region is invisible to every invariant
+    // and portdiff check in this repo by construction.
+    //
+    // The union (not just the new region) matters for correctness: a
+    // particle's OLD square must be erased wherever it no longer is, and
+    // lastMinX/Y/MaxX/Y is exactly "everywhere the panel might still show
+    // ink from last tick" - including the one tick right after a PWR reset,
+    // where seed_block() jumps every particle instantly and there is no
+    // gradual old->new path to bound.
+    int newMinX, newMinY, newMaxX, newMaxY;
+    particles_bbox(&newMinX, &newMinY, &newMaxX, &newMaxY);
+
+    int dirtyMinX = newMinX, dirtyMinY = newMinY;
+    int dirtyMaxX = newMaxX, dirtyMaxY = newMaxY;
+    if (s->lastMinX < dirtyMinX) dirtyMinX = s->lastMinX;
+    if (s->lastMinY < dirtyMinY) dirtyMinY = s->lastMinY;
+    if (s->lastMaxX > dirtyMaxX) dirtyMaxX = s->lastMaxX;
+    if (s->lastMaxY > dirtyMaxY) dirtyMaxY = s->lastMaxY;
+
+    gfx_fill_rect(dirtyMinX, dirtyMinY, dirtyMaxX - dirtyMinX + 1, dirtyMaxY - dirtyMinY + 1, FLUID_BG);
     draw_particles();
-    gfx_push(0, 0, PANEL_W - 1, PANEL_H - 1);
+    gfx_push(dirtyMinX, dirtyMinY, dirtyMaxX, dirtyMaxY);
+
+    s->lastMinX = newMinX; s->lastMinY = newMinY;
+    s->lastMaxX = newMaxX; s->lastMaxY = newMaxY;
 }

@@ -245,6 +245,12 @@ void rtcore_tick(uint32_t nowMs) {
 
     frame.bootClicked = sensors_boot_clicked();
 
+    // ---- tilt: always present, no opt-in flag, same as the sibling
+    // (app.h's own comment on app_frame_t.tilt). Read fresh every frame:
+    // see sensors.h's own comment on why this pack has no filter of its
+    // own to run here.
+    sensors_tilt(&frame.tilt);
+
     {
         uint32_t seq = sensors_erase_seq();
         // Advance the tracked sequence every frame regardless of whether

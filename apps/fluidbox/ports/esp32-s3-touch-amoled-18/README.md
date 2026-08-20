@@ -116,13 +116,16 @@ calls. So `tick()` refreshes a `uint16_t color[130]` cache at the end of the sol
 reads it. Same pixels, one sixteenth of the square roots. The full-framebuffer sibling never had a
 reason to separate those two steps.
 
-**No `emu_shim_tilt_get()` hook.** The rp2350 and web ports both carry a `__attribute__((weak))`
-declaration of that accessor, with a fallback branch for when it reads ~zero, because those packs
-declare a `"kind":"vector"` sensor their shims drive. This pack declares no vector sensor, so the
-hook would be a weak symbol nothing ever overrides and a branch that can never not be taken. It is
-left out, gravity is the constant `(0, +1)`, and `integrate_velocities()` is two lines shorter.
-Simpler is better here: on the other two packs that hook buys a real capability, and on this one it
-would buy a paragraph of comment explaining a sensor the device does not have.
+**No `app_frame_t.tilt` read.** The rp2350 and web ports both read `f->tilt.gx`/`f->tilt.gy` every
+tick, with a fallback branch for when the reading is ~zero, because those packs' `app.h` declares
+an `app_tilt_t tilt` field their own runtimes populate (the rp2350 pack's real QMI8658, through
+`firmware/runtime/tilt.c`; the web pack's browser motion path). This pack's own `app.h`
+(`packs/esp32-s3-touch-amoled-18/firmware/runtime/app.h`) declares no such field at all, and its
+`device.json` declares no vector sensor either - there is nothing to read, on the board or in the
+emulator, so reading one here would not compile. It is left out, gravity is the constant `(0, +1)`,
+and `integrate_velocities()` is two lines shorter. Simpler is better here: on the other two packs
+that field buys a real capability, and on this one it would buy a paragraph of comment explaining a
+sensor the device does not have.
 
 ## Arena budget
 

@@ -71,6 +71,61 @@ void *app_alloc(size_t bytes);
 // Zeroed convenience form, which is what an app's state struct always wants.
 #define APP_STATE(type) ((type *)app_alloc(sizeof(type)))
 
+/* ---- which way is up ----------------------------------------------------
+ *
+ * VENDORED from the sibling's app.h (see this file's own top-of-file note):
+ * the four edges of the app's OWN drawing space (see app_tilt_t.up below).
+ * This pack has no landscape-rotation runtime logic (runtime_core.c never
+ * rotates gravity the way the sibling's tilt_for_app() does - this pack
+ * ships one app per module, never a menu overlay to orient), so "top" here
+ * is simply the panel's own top edge.
+ */
+#define TILT_UP_TOP    0
+#define TILT_UP_RIGHT  1
+#define TILT_UP_BOTTOM 2
+#define TILT_UP_LEFT   3
+
+/* Orientation, as an app sees it. VENDORED from the sibling's app.h
+ * (packs/rp2350-touch-amoled-18/firmware/runtime/app.h's app_tilt_t) -
+ * same fields, same units, same meaning, so a port written against one
+ * reads the other without an edit. This pack has no QMI8658 and no
+ * tilt.c: a browser supplies a phone's accelerometer (or none at all)
+ * instead, wired in packs/web/wasm/emu_shim.c's own "tilt" section - see
+ * that file for what is and is not filtered here (the JS side,
+ * src/motion.ts, already low-passes before this struct is ever built, so
+ * there is no second filter in this pack's C).
+ */
+typedef struct {
+    // Gravity, in units of g, in THIS APP'S OWN drawing space: +x is the
+    // direction its x grows (right), +y the direction its y grows (down
+    // the screen as it drew it), +z straight into the glass. Lying flat on
+    // a table, screen up, is (0, 0, 1). Held upright with the app's top
+    // edge up is (0, 1, 0). A ball rolls toward (gx, gy); a bubble floats
+    // away from it.
+    float gx, gy, gz;
+
+    // Angle between the screen's inward normal and gravity, in degrees:
+    // 0 = flat with the screen up, 90 = on edge, 180 = flat face down.
+    float tiltDeg;
+
+    // Which edge of this app's own drawing space is the highest one, one of
+    // TILT_UP_TOP/RIGHT/BOTTOM/LEFT above.
+    uint8_t up;
+
+    // False until a tilt reading has arrived. An app that draws a level, a
+    // ball or a rotated clock from an invalid reading draws a confident
+    // lie; check this before trusting the rest of the struct.
+    bool valid;
+
+    // Always false on this pack: there is no magnitude-trust gate here
+    // (the sibling's tilt.c gates on |a| staying near 1g while the board
+    // is being carried or shaken; this pack has no raw accelerometer
+    // magnitude to gate on, only whatever direction the JS side already
+    // decided was worth sending). Published for struct parity with the
+    // sibling, not because this pack can compute it.
+    bool coasting;
+} app_tilt_t;
+
 /* ---- input the runtime hands to the app --------------------------------
  *
  * Apps read signals, never chips (see sensors.h for why that rule is
@@ -110,6 +165,11 @@ typedef struct {
     // Bumped when an accepted shake happened, and only delivered to apps
     // that asked for it.
     bool     shaken;
+
+    // Which way is down, in this app's own drawing space. VENDORED field
+    // (see app_tilt_t above and this file's top-of-file note): always
+    // present, no opt-in flag, same as the sibling.
+    app_tilt_t tilt;
 
     uint32_t nowMs;
     uint32_t dtMs;           // since the previous tick, clamped

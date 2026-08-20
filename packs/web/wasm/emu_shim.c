@@ -40,6 +40,7 @@
  */
 #include "emu_abi.h"
 
+#include <math.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -311,21 +312,24 @@ bool sensors_boot_down(void) {
  * this must match, and host/host.ts is what maps a devicemotion event's
  * two different sign conventions onto it.
  *
- * emu_shim_tilt_get() below is a private, non-ABI accessor with EXACTLY
- * the sibling's name and signature, and that is the whole point rather
- * than a coincidence: apps/fluidbox/ports/rp2350-touch-amoled-18/fluid.c
- * declares a WEAK default of this symbol and calls it, so a strong
- * definition here is what lets that port file compile against this pack
- * byte-for-byte unchanged. A pack that invented a nicer name would have
- * forced a one-line edit, and a one-line edit is no longer the same file.
- * See apps/fluidbox/ports/web/README.md for whether that actually held.
- *
  * Default (0, 0, 0) until the host sends a first vector: deliberately a
  * zero vector, not a unit one, because a magnitude of zero is what the
  * headless harness (which never drives a DOM, so never calls
- * emu_sensor_vector at all) reads, and fluid.c's own TILT_MIN_G fallback
+ * emu_sensor_vector at all) reads, and every consumer's own near-zero
+ * fallback (apps/fluidbox/ports/web/fluid.c's TILT_MIN_G, for instance)
  * recognises it and uses fixed straight-down gravity. That is what keeps
  * a trace recorded before this pack existed replaying identically here.
+ *
+ * sensors_tilt() below (../runtime/sensors.h's declaration) is what turns
+ * this raw ABI vector into the app_tilt_t every port actually reads
+ * (app_frame_t.tilt, ../runtime/app.h) - the same field name and shape as
+ * the rp2350 sibling's, so a port written against one compiles against
+ * the other unchanged (apps/fluidbox/ports/web/fluid.c is the proof: see
+ * that port's own README, "Zero-diff"). There used to be a private,
+ * non-ABI accessor here with the sibling's own private-accessor name,
+ * which is gone now that both packs feed app_frame_t.tilt directly - see
+ * the sibling's own wasm/emu_shim.c "orientation" section for the same
+ * change on that side.
  * ======================================================================= */
 static float g_tiltX = 0.0f, g_tiltY = 0.0f, g_tiltZ = 0.0f;
 
@@ -342,12 +346,60 @@ void emu_sensor_vector(int index, float x, float y, float z) {
     g_tiltZ = z;
 }
 
-// Private, non-ABI: not declared in wasm/emu_abi.h, not part of the
-// contract a firmware author reads there. See this section's comment.
-void emu_shim_tilt_get(float *x, float *y, float *z) {
-    *x = g_tiltX;
-    *y = g_tiltY;
-    *z = g_tiltZ;
+// ../runtime/sensors.h's sensors_tilt(): converts the raw ABI vector above
+// into app_tilt_t. Only ONE conversion is needed, not tilt.c's whole
+// filter-plus-axis-map pipeline: the ABI's own documented convention (x
+// right, y down the panel, units of g - wasm/emu_abi.h's emu_sensor_vector
+// doc) already matches app_tilt_t's x/y exactly (app.h: "+x is the
+// direction its x grows (right), +y the direction its y grows (down the
+// screen)"), so no swap is needed there, the way the sibling's real
+// QMI8658 mounting needs one (tilt.c's device_to_panel(), a correction for
+// THAT chip's physical orientation on THAT board - this pack has no chip
+// to be mounted at all). The one real difference is z: the ABI documents
+// SPECIFIC FORCE (flat, screen up, reads ~(0,0,-1) - the reaction pushing
+// back through the glass), while app_tilt_t documents GRAVITY'S OWN
+// direction (flat, screen up, is (0,0,1) - gravity pulls INTO the glass).
+// That is the same "accelerometer-vs-gravity flip" tilt.c's own header
+// comment names, and it lives in exactly one place here too: negate z on
+// the way in, nowhere else.
+//
+// No filtering, no up-edge hysteresis, no magnitude trust gate: this
+// pack's incoming vector is already low-pass filtered upstream, in JS
+// (src/motion.ts's PhoneMotion, FILTER_TAU_MS), before it ever reaches
+// emu_sensor_vector() - see sensors.h's own comment on why that is enough
+// and tilt.c's heavier machinery (a raw, unfiltered accelerometer sample
+// arriving at 200Hz+ with real shake/drop noise on it) does not apply to a
+// signal a browser already smoothed.
+void sensors_tilt(app_tilt_t *out) {
+    const float gx = g_tiltX;
+    const float gy = g_tiltY;
+    const float gz = -g_tiltZ;
+
+    out->gx = gx;
+    out->gy = gy;
+    out->gz = gz;
+
+    const float inPlane = sqrtf(gx * gx + gy * gy);
+    out->tiltDeg = atan2f(inPlane, gz) * 57.29577951308232f;
+
+    // Simplified up-edge decision: instantaneous, no hysteresis band (see
+    // this function's own header comment on why tilt.c's fuller machinery
+    // is not carried over). Holds the LAST decision only while there is
+    // truly nothing to go on (in-plane gravity ~0g), the same "do not
+    // flicker while flat" intent as the sibling's, just without the
+    // dominance band around the diagonals.
+    static uint8_t s_up = TILT_UP_TOP;
+    if (inPlane >= 0.35f) {
+        s_up = (fabsf(gy) >= fabsf(gx))
+            ? ((gy > 0.0f) ? TILT_UP_TOP : TILT_UP_BOTTOM)
+            : ((gx > 0.0f) ? TILT_UP_LEFT : TILT_UP_RIGHT);
+    }
+    out->up = s_up;
+
+    out->valid = true;   // always some reading, even if it is the zero
+                          // default - see this section's own header comment
+    out->coasting = false; // no trust gate on this pack - see app_tilt_t's
+                            // own comment in app.h
 }
 
 /* ---- shake: one monotonic counter, bumped by emu_sensor_event() for the

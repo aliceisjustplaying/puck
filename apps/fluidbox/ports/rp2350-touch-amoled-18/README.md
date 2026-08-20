@@ -10,25 +10,22 @@ Comparing `apps/fluidbox/descriptor.md`'s `Demands` against this pack's `device.
 | Continuous per-frame particle solver (donor: 900 particles @ 240MHz dual-core ESP32-S3) | `memory.model = "full-framebuffer"`, single-core RP2350 @ 150MHz Cortex-M33, single-precision FPU | met, at a **much smaller particle count** (see below) |
 | Full-screen redraw every frame | full-framebuffer memory model, `gfx_push`/`gfx_push_all` | met |
 | A colour panel | `panel.format = "rgb565be"` | met exactly |
-| Motion input: gravity vector preferred, shake event minimum | `sensors: [{"id":"shake","kind":"event"},{"id":"tilt","kind":"vector"}]` - a continuous gravity-vector ABI call now exists (`emu_sensor_vector`, `wasm/emu_abi.h`) | **met, in the emulator**; real hardware still only has the shake event (see "The missing ABI call" below for exactly what changed and what did not) |
-| *(prefers)* 60fps, IMU-driven gravity, 368x448 colour panel | panel is exactly 368x448 rgb565be; the emulator's rotation control now drives a continuous tilt vector; fps unproven (see Honesty below) | panel matches exactly, gravity follows tilt IN THE EMULATOR ONLY, fps is asserted plausible, not proven |
+| Motion input: gravity vector preferred, shake event minimum | `sensors: [{"id":"shake","kind":"event"},{"id":"tilt","kind":"vector"}]`, both live | **met, on BOTH targets** - real silicon reads a real QMI8658 through `firmware/runtime/tilt.c`, the emulator drives the same `app_frame_t.tilt` field through the same object code (see "Real tilt, on silicon too" below) |
+| *(prefers)* 60fps, IMU-driven gravity, 368x448 colour panel | panel is exactly 368x448 rgb565be; both targets drive a continuous tilt vector into `app_frame_t.tilt`; fps unproven (see Honesty below) | panel matches exactly, gravity now follows tilt on real hardware and in the emulator alike, fps is asserted plausible, not proven |
 
-Two real mismatches decide the verdict:
+One real mismatch decides the verdict:
 
 1. **Compute.** 150MHz single-core Cortex-M33 with a single-precision FPU is a fraction of a
    240MHz dual-core Xtensa LX7 running the solver on its own core while rendering runs on the
    other. There is no second core here to hide the physics behind - render and physics share one
-   tick, one core, one budget.
-2. **Sensor surface.** This pack's `device.json` declares exactly one sensor, `shake`, `kind:
-   "event"` - a discrete signal the emulator ABI fires once per shake, not a per-frame
-   accelerometer vector. There is no ABI call in `wasm/emu_abi.h` that hands an app a continuous
-   gravity direction. The Demand explicitly allows this ("a discrete shake event is the minimum"),
-   so the port is not refused, but it cannot deliver the *preferred* tilt-driven gravity either.
+   tick, one core, one budget. (The sensor-surface mismatch this section used to list alongside it
+   is gone: this port now reads a real tilt vector on real silicon - see "Real tilt, on silicon
+   too" below.)
 
-Neither mismatch is fatal to the app's identity (a fluid that slosh and settles, agitated by
-motion), so the verdict is **degraded**, not **refuse**. The interaction surface changes (gravity
-becomes fixed rather than tilt-driven, and this pack's touch controller - unused by the donor -
-becomes a stirring input instead), so the mode is **adaptation**, and verification is
+That mismatch is not fatal to the app's identity (a fluid that sloshes and settles, agitated by
+motion), so the verdict is **degraded**, not **refuse**, on particle count and unproven fps alone.
+The interaction surface still changes from the donor's (this pack's touch controller - unused by
+the donor - becomes a stirring input), so the mode is **adaptation**, and verification is
 **invariants** rather than pixel-exact frame diffs, per `docs/convention/app-bundle.md`.
 
 ## What is kept, what is lost
@@ -38,9 +35,9 @@ becomes a stirring input instead), so the mode is **adaptation**, and verificati
 | **Fluid character** | Clavet double density relaxation, unchanged formulas (density/near-density, signed pressure, viscosity fused into the density pass, position-based so it cannot explode under a hard shake); same `REST_SPACING`/`SMOOTH_RADIUS` this panel's own ppi already validated for the donor | The third dimension - no depth, no perspective, no depth-darkening or size falloff |
 | **Settle behaviour** | The fluid pools against a rounded-rectangle wall (the same first-stage wall projection the donor's `resolve_walls()` uses, one stage instead of two - see "2D, not 3D" below) and visibly flattens at rest | The donor's own settled speed/`rho` tuning does not carry over as numbers (different box, different particle count); this port's constants were re-tuned empirically against its own invariant checks, not copied |
 | **Shake response** | A visible burst - particles spray outward and read whiter/faster, then settle back | Continuous IMU shake (a magnitude that scales with how hard the board is actually shaken); this port gets one fixed-magnitude impulse per discrete event, however hard or soft the real shake was |
+| **IMU tilt steering** | Real on both targets: `app_frame_t.tilt` (the QMI8658, filtered by `firmware/runtime/tilt.c`, on silicon; the same tilt.c object code, fed by the emulator's rotation/phone-tilt controls, in the browser) - see "Real tilt, on silicon too" below | |
 | | | **Particle count**: 130 vs the donor's 900 (~14%) |
 | | | **fps**: unproven on real silicon (see Honesty) vs the donor's measured ~90fps display / ~38 steps/s |
-| | | **IMU tilt steering on real hardware**: still fixed straight down - see "The missing ABI call", below, for what changed (the emulator) and what did not (the board) |
 
 What is *gained*, not merely lost-and-kept: this pack has touch (`device.json`'s `touch.points:
 1`), which the donor board also has but never reads (`descriptor.md`'s Interactions: "the donor
@@ -174,38 +171,59 @@ proven. The real constraint most likely to bite is not the solver at all but the
 deferred - this is exactly the class of question `AGENTS.md`'s own regression-test section says
 the emulator cannot answer, not a gap specific to this port.
 
-## The missing ABI call: landed in the emulator, still open on the board
+## Real tilt, on silicon too
 
-The RP2350-Touch-AMOLED-1.8 **has** a QMI8658 IMU on real hardware
-(`packs/rp2350-touch-amoled-18/AGENTS.md`'s board table lists it). The candidate extension this
-README used to describe as "not attempted here" has landed, generically, in the shared instrument:
-`wasm/emu_abi.h` now declares an OPTIONAL `emu_sensor_vector(int index, float x, float y, float z)`
-export for any sensor declared `"kind": "vector"`, and this pack's `device.json` / `emu_device()`
-now declares one, `{"id":"tilt","kind":"vector"}`, alongside the existing `shake` event. The host
-(`src/main.ts`) drives it from the SAME rotation control that already remaps touch coordinates:
-rotating the on-screen view is physically rotating the device, so the emulator now sends a gravity
-reading that keeps "down" reading correctly in all four quick-rotate positions (`src/rotate.ts`'s
-`gravityForQuickDeg`). This app's own gravity direction now follows that reading (see
-`update_gravity_direction()` in `fluid.c`), falling back to fixed straight down when the reading is
-near zero - which is exactly what a pre-tilt trace, or a build that never received one, reads back
-as, so nothing about the existing invariant trace's behaviour changed (see "Invariant thresholds"
-below).
+This README used to describe tilt-driven gravity as emulator-only, with real hardware fixed
+straight down until "whoever next touches that pack's own `firmware/runtime/`" wired a QMI8658
+read through `app_frame_t`. That runtime convergence has since landed
+(`firmware/runtime/tilt.c`, `app.h`'s `app_tilt_t` and `app_frame_t.tilt`): every app on this pack,
+on real silicon, now receives a low-pass-filtered, axis-mapped gravity direction every tick, no
+opt-in required. This port's own job was smaller than it once would have been: read the field that
+now exists, rather than invent it.
 
-**What did NOT change: real hardware.** `wasm/emu_abi.h` is the shared instrument's contract, but
-`app_frame_t` (`firmware/runtime/app.h`) and the QMI8658 read (`firmware/runtime/sensors.c`) are
-pack FIRMWARE - real code that ships to real silicon - and this task's own rules forbid editing
-pack firmware sources. So this port's tilt reading is wired through a private, non-ABI accessor
-local to this one `--app` build (`emu_shim_tilt_get()`, declared in
-`packs/rp2350-touch-amoled-18/wasm/emu_shim.c`'s own "tilt" section, called directly by `fluid.c`
-via its own `extern` declaration - valid only because `wasm/build.ts`'s `--app` flag always compiles
-this file alongside that exact shim), NOT through `app_frame_t`, which gets no new field here. A
-build of this port for real hardware does not exist today (CMakeLists.txt never compiles
-`apps/fluidbox/`), so this gap is theoretical rather than a live inconsistency, but it is worth
-stating plainly: **tilt-driven gravity works in the emulator only.** Wiring it for real silicon
-would mean adding a `tiltX/Y/Z` field to `app_frame_t` and a low-pass-filtered QMI8658 read to
-`sensors.c` (reusing the same accelerometer burst `imu_poll_core1()` already takes for shake
-detection) - a firmware change, out of scope for an app port, left for whoever next touches that
-pack's own `firmware/runtime/`.
+`fluid.c`'s `update_gravity_direction()` reads `f->tilt.gx`/`f->tilt.gy` directly - `app_tilt_t`'s
+own doc (app.h) already states gravity in exactly this solver's coordinate system ("+x right, +y
+down the screen... a ball rolls toward (gx, gy)"), so there is no axis mapping left for this file
+to do; that work happens once, in `tilt.c`, for every app on both targets. The private,
+non-ABI `emu_shim_tilt_get()` accessor this section used to describe is gone, on both this pack's
+shim and the web pack's - see `packs/rp2350-touch-amoled-18/wasm/emu_shim.c`'s own "orientation"
+section.
+
+**The emulator drives the SAME `app_frame_t.tilt` field**, through the same `tilt.c` object code a
+real QMI8658 sample runs through: `wasm/emu_abi.h`'s `emu_sensor_vector(index, x, y, z)` (fired by
+the rotation control and the phone-tilt/drag paths, `src/rotate.ts` and `src/motion.ts`) feeds
+`tilt_submit_device_g()` every tick, exactly as `sensors.c`'s `imu_poll_core1()` does on the board.
+`fluid.c` cannot tell emulator from silicon - that is the point of the convergence, not a
+coincidence this port arranged.
+
+**One real bug was found and fixed making that true, not assumed.** `tilt.c`'s `device_to_panel()`
+is a real, MEASURED correction for how this pack's own QMI8658 happens to be soldered onto this
+one board (swap x/y, negate z) - unrelated to the emulator ABI's own convention, which
+`src/rotate.ts`/`src/motion.ts` already express directly in panel space. Wiring `app_frame_t.tilt`
+into `fluid.c` and running `bun run verify:tilt` caught this immediately: rotating the emulator's
+view sent gravity to the WRONG panel edge, a 90-degree rotation baked in by feeding a panel-space
+vector through a chip-mounting-specific swap it was never meant to pass through. The fix lives in
+`packs/rp2350-touch-amoled-18/wasm/emu_shim.c`'s `emu_sensor_vector()` (a pre-compensating swap on
+x/y only, since `device_to_panel()` is self-inverse - see that function's own comment for the
+derivation), not in `tilt.c` itself, which stays exactly what real silicon runs. `bun run
+verify:tilt`, `verify:motion` and `verify:drag` all pass against the fixed module (see "Reproducing
+the proof" below).
+
+Nothing about the existing invariant trace's behaviour changed: it contains no vector event at all
+(predates the ABI addition), so on a fresh boot `tilt.c` publishes its own neutral default (flat,
+no in-plane gravity) every tick, `fluid.c`'s `TILT_MIN_G` fallback fires, and gravity is fixed
+straight down for the whole replay - byte-identical to this port's pre-tilt behaviour (see
+"Invariant thresholds" below).
+
+**UNVERIFIED ON SILICON.** Everything above is checked against the emulator (`verify:tilt`,
+`verify:motion`, `verify:drag`, all passing) and against the native single-app build's own
+invariant gate (`build-native.ts`'s post-build `tools/invariants` check, which reads pixels, not
+tilt), because tilt itself is not something any of this repo's checkers can read off a flashed
+board. `firmware/runtime/tilt.c`'s own `device_to_panel()` carries the same caveat for the same
+reason (its header comment: "the corrected function itself has run in the emulator and its tests,
+never yet on the board"). The one-line bench test that closes this: flash
+`site/flash-artifacts/fluidbox-rp2350.uf2`, tilt the puck, and watch the liquid pour toward
+whichever face is now the bottom.
 
 ## Invariant thresholds, and why
 
@@ -267,6 +285,9 @@ cp wasm/dist/emu.wasm /tmp/fluidbox.wasm
 bun run invariants /tmp/fluidbox.wasm apps/fluidbox/traces/fluid-settle-shake.trace.json apps/fluidbox/invariants.ts --at 4000,4016,9024
 cp /tmp/fluidbox.wasm /tmp/fluidbox-b.wasm
 bun run portdiff /tmp/fluidbox.wasm /tmp/fluidbox-b.wasm apps/fluidbox/traces/fluid-settle-shake.trace.json --at 4000,4016,9024 --write-frames apps/fluidbox/frames
+bun run verify:tilt    # rotation control steers app_frame_t.tilt to the correct panel edge
+bun run verify:motion  # phone accelerometer path, same field
+bun run verify:drag    # desktop drag-as-accelerometer stand-in, same field
 ```
 
 The `portdiff` step is not this bundle's verification (that is the `invariants` run above); it is
