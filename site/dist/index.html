@@ -9,7 +9,7 @@
 <meta property="og:description" content="A gallery of firmware ported between device packs: recorded demo loops on this page, the real WebAssembly build one click away on every run page." />
 <meta property="og:type" content="website" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%2214%22%20fill%3D%22%232f6feb%22%2F%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%225%22%20fill%3D%22%23fafafa%22%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="styles.css?v=f051dd1b7a" />
+<link rel="stylesheet" href="styles.css?v=681de05b49" />
 </head>
 <body>
 <div class="wrap">
@@ -66,6 +66,50 @@
     </div>
   </div>
 </div>
+<div class="card">
+  <a class="thumb thumb-video" style="aspect-ratio:404 / 484" href="run/tinydraw-rp2350.html" aria-label="tinydraw demo, open the live run page">
+    <span class="card-bezel" style="border-radius:8.416%">
+      <span class="card-panel" style="left:4.455%;top:3.719%;width:91.089%;height:92.562%;border-radius:1.630%">
+        <video autoplay muted loop playsinline poster="assets/demos/tinydraw-rp2350.png?v=fe1bb68d12" data-panel-w="368" data-panel-h="448">
+          <source src="assets/demos/tinydraw-rp2350.mp4?v=5f0e51085e" type="video/mp4" />
+        </video>
+      </span>
+      <span class="card-btn" style="right:0;top:33.603%;width:3.465%;height:11.570%"></span><span class="card-btn" style="right:0;top:54.826%;width:3.465%;height:11.570%"></span>
+    </span>
+    <noscript><img src="assets/demos/tinydraw-rp2350.gif?v=4d0fe4d0ad" alt="tinydraw demo" /></noscript>
+  </a>
+  <div class="body">
+    <h3>tinydraw</h3>
+    <p>A full-panel finger-drawing canvas: variable-width antialiased ink, two-level zoom, one-stroke undo.</p>
+    <div class="badges"><span class="badge">adaptation · invariants</span></div>
+    <div class="links">
+      <a href="run/tinydraw-rp2350.html">run on RP2350-Touch-AMOLED-1.8</a><a href="web/tinydraw/">run on your phone: Web-Touch</a>
+      <a href="https://github.com/s0lness/puck/blob/master/apps/tinydraw/descriptor.md">descriptor</a>
+    </div>
+  </div>
+</div>
+<div class="card">
+  <a class="thumb thumb-video" style="aspect-ratio:404 / 484" href="run/gameos-rp2350.html" aria-label="gameos demo, open the live run page">
+    <span class="card-bezel" style="border-radius:8.416%">
+      <span class="card-panel" style="left:4.455%;top:3.719%;width:91.089%;height:92.562%;border-radius:1.630%">
+        <video autoplay muted loop playsinline poster="assets/demos/gameos-rp2350.png?v=c67386614e" data-panel-w="368" data-panel-h="448">
+          <source src="assets/demos/gameos-rp2350.mp4?v=b239cbf121" type="video/mp4" />
+        </video>
+      </span>
+      <span class="card-btn" style="right:0;top:33.603%;width:3.465%;height:11.570%"></span><span class="card-btn" style="right:0;top:54.826%;width:3.465%;height:11.570%"></span>
+    </span>
+    <noscript><img src="assets/demos/gameos-rp2350.gif?v=db89461e72" alt="gameos demo" /></noscript>
+  </a>
+  <div class="body">
+    <h3>gameos</h3>
+    <p>A handheld game console shell: tap a card to launch a thermal gunner or a slot machine, both procedurally rendered.</p>
+    <div class="badges"><span class="badge">adaptation · invariants</span></div>
+    <div class="links">
+      <a href="run/gameos-rp2350.html">run on RP2350-Touch-AMOLED-1.8</a>
+      <a href="https://github.com/s0lness/puck/blob/master/apps/gameos/descriptor.md">descriptor</a>
+    </div>
+  </div>
+</div>
       </div>
     </div>
   </section>
@@ -93,6 +137,18 @@
         <td class="proof-cell"><a href="run/fluidbox-rp2350.html"><span class="proof-mode">adaptation</span><span class="proof-verif">invariants (degraded)</span></a></td>
         <td class="proof-cell"><a href="run/fluidbox-esp32.html"><span class="proof-mode">adaptation</span><span class="proof-verif">invariants</span></a></td>
         <td class="proof-cell"><a href="web/fluidbox/"><span class="proof-mode">adaptation</span><span class="proof-verif">invariants</span></a></td>
+      </tr>
+      <tr>
+        <td class="app-row">tinydraw</td>
+        <td class="proof-cell"><a href="run/tinydraw-rp2350.html"><span class="proof-mode">adaptation</span><span class="proof-verif">invariants (degraded)</span></a></td>
+        <td class="proof-cell empty">not ported</td>
+        <td class="proof-cell"><a href="web/tinydraw/"><span class="proof-mode">adaptation</span><span class="proof-verif">invariants (degraded)</span></a></td>
+      </tr>
+      <tr>
+        <td class="app-row">gameos</td>
+        <td class="proof-cell"><a href="run/gameos-rp2350.html"><span class="proof-mode">adaptation</span><span class="proof-verif">invariants (degraded)</span></a></td>
+        <td class="proof-cell empty">not ported</td>
+        <td class="proof-cell empty">not ported</td>
       </tr>
           </tbody>
         </table>
@@ -167,7 +223,7 @@
   <footer>
     <div class="wrap" style="padding:0">
       <a href="https://github.com/s0lness/puck/blob/master/README.md">s0lness/puck</a> on GitHub, MIT licensed.
-      &middot; <a href="agents.html?v=f61ff10915">agents</a>
+      &middot; <a href="agents.html?v=d2f4305d09">agents</a>
     </div>
   </footer>
 </div>

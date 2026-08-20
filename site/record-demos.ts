@@ -329,6 +329,67 @@ const DEMOS: DemoSpec[] = [
       await sleep(2600); // hold so the border reads clearly before the loop restarts
     },
   },
+  {
+    id: "tinydraw-rp2350",
+    panelW: 368,
+    panelH: 448,
+    async play(ctx) {
+      await sleep(500);
+      // A single stroke, fast-slow-fast: widely spaced points (large
+      // distance per fixed stepMs = high speed = thin, radius_from_pressure's
+      // "fast = light" model, tinydraw.c) at both ends, closely spaced
+      // points (slow = thick) in the middle - the same shape this bundle's
+      // own captured frames/tinydraw-demo.t750.png shows.
+      await ctx.stroke(
+        [
+          [0.2, 0.28],
+          [0.32, 0.34],
+          [0.4, 0.38],
+          [0.46, 0.41],
+          [0.5, 0.43],
+          [0.54, 0.45],
+          [0.6, 0.47],
+          [0.72, 0.53],
+          [0.82, 0.58],
+        ],
+        50
+      );
+      await sleep(600);
+      await ctx.keyTap("p"); // PWR short press: cycles the zoom level (1x -> 2x), reprojecting the stroke about the panel center
+      await sleep(700);
+      // A second, short stroke, drawn while zoomed.
+      await ctx.stroke(
+        [
+          [0.3, 0.68],
+          [0.4, 0.63],
+          [0.5, 0.66],
+          [0.58, 0.6],
+        ],
+        60
+      );
+      await sleep(700);
+      await ctx.keyTap("b"); // BOOT click: undo removes exactly the most recent stroke
+      await sleep(1500); // hold the single-stroke, zoomed result before the loop restarts
+    },
+  },
+  {
+    id: "gameos-rp2350",
+    panelW: 368,
+    panelH: 448,
+    async play(ctx) {
+      await sleep(500); // idle on the launcher: two cards, GUNSHIP and LUCKY 7
+      await ctx.tap(0.5, 0.335, 120); // the GUNSHIP card (launcher.c's own CARD_GUN_Y0..Y1, as a fraction of the 184x224 gos layout)
+      await sleep(700); // briefing screen
+      await ctx.tap(0.5, 0.7, 900); // lower two-thirds: starts the mission, then holds to fire (GOS_CAP_TOUCH_FIRE)
+      await sleep(900); // watch the wave in progress
+      await ctx.stroke([[0.5, 0.03], [0.5, 0.22], [0.5, 0.42]], 90); // swipe down from the top strip: the always-available exit gesture, back to the launcher
+      await sleep(500);
+      await ctx.tap(0.5, 0.7, 120); // the LUCKY 7 card
+      await sleep(700); // idle reels
+      await ctx.stroke([[0.5, 0.35], [0.5, 0.55], [0.5, 0.75], [0.5, 0.9]], 70); // drag down on the reel unit: pulls the lever, the drag's own length sets the spin strength
+      await sleep(2200); // watch the spin resolve
+    },
+  },
 ];
 
 const onlyId = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);

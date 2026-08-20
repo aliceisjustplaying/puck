@@ -1,0 +1,31 @@
+{
+  "convention": "0.2",
+  "name": "tinydraw",
+  "origin": "ported from aliceisjustplaying/tinydraw (MIT), a large multi-target C++20 drawing app; see apps/tinydraw/ports/rp2350-touch-amoled-18/tinydraw.c's own header comment for what was reimplemented from scratch versus carried from the donor's described essence",
+  "ports": [
+    {
+      "pack": "rp2350-touch-amoled-18",
+      "mode": "adaptation",
+      "verdict": "degraded",
+      "verification": {
+        "kind": "invariants",
+        "checker": "apps/tinydraw/invariants.ts",
+        "trace": "apps/tinydraw/traces/tinydraw-demo.trace.json",
+        "captureAt": [750, 1050, 1350, 1600]
+      },
+      "source": "apps/tinydraw/ports/rp2350-touch-amoled-18/tinydraw.c"
+    },
+    {
+      "pack": "web",
+      "mode": "adaptation",
+      "verdict": "degraded",
+      "verification": {
+        "kind": "invariants",
+        "checker": "apps/tinydraw/invariants.ts",
+        "trace": "apps/tinydraw/traces/tinydraw-demo.trace.json",
+        "captureAt": [750, 1050, 1350, 1600]
+      },
+      "source": "apps/tinydraw/ports/web/tinydraw.c"
+    }
+  ]
+}

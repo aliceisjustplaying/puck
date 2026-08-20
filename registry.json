@@ -22,6 +22,14 @@
     {
       "name": "fluidbox",
       "path": "apps/fluidbox"
+    },
+    {
+      "name": "tinydraw",
+      "path": "apps/tinydraw"
+    },
+    {
+      "name": "gameos",
+      "path": "apps/gameos"
     }
   ]
 }

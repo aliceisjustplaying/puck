@@ -316,6 +316,24 @@ const COMBO_BUILD: Record<string, ComboBuild> = {
     portDoc: "apps/fluidbox/ports/web/README.md",
     blurb: "The RP2350 port's file, byte for byte, on a device that finally has the accelerometer the app asks for: tilt the phone and the liquid pours.",
   },
+  "tinydraw:rp2350-touch-amoled-18": {
+    script: "packs/rp2350-touch-amoled-18/wasm/build.ts",
+    args: ["--app", "apps/tinydraw/ports/rp2350-touch-amoled-18/tinydraw.c"],
+    portDoc: "apps/tinydraw/ports/rp2350-touch-amoled-18/README.md",
+    blurb: "A from-scratch reimplementation of the donor's ink+zoom+undo essence, sized to a 65536-byte app arena: two fixed zoom levels instead of a continuous pannable camera, one-stroke undo instead of ten tile-based slots.",
+  },
+  "tinydraw:web": {
+    script: "packs/web/wasm/build.ts",
+    args: ["--app", "apps/tinydraw/ports/web/tinydraw.c"],
+    portDoc: "apps/tinydraw/ports/web/README.md",
+    blurb: "The RP2350 port's file, byte for byte, on a device with no SRAM budget of its own: the pack still vendors the same 65536-byte app arena contract, so the same reductions apply on their own merits.",
+  },
+  "gameos:rp2350-touch-amoled-18": {
+    script: "packs/rp2350-touch-amoled-18/wasm/build.ts",
+    args: ["--app", "apps/gameos/ports/rp2350-touch-amoled-18/gameos_port.c"],
+    portDoc: "apps/gameos/ports/rp2350-touch-amoled-18/README.md",
+    blurb: "A launcher plus two of the donor's six games (GUNSHIP, LUCKY 7), most of their own code vendored byte for byte: one 150MHz core does the game logic, software rasterization AND the 2x upscale the donor's own second core and DMA hardware share.",
+  },
 };
 
 // The one pack whose run page is not an embedded emulator but the app
@@ -829,6 +847,8 @@ function moduleUrlAbs(moduleId: string): string {
 const APP_BLURB: Record<string, string> = {
   chrono: "A full-screen stopwatch: six seven-segment digits, two buttons, nothing else on screen.",
   fluidbox: "A particle liquid that sloshes and settles inside the device's own enclosure shape.",
+  tinydraw: "A full-panel finger-drawing canvas: variable-width antialiased ink, two-level zoom, one-stroke undo.",
+  gameos: "A handheld game console shell: tap a card to launch a thermal gunner or a slot machine, both procedurally rendered.",
 };
 
 // ---- 3 & 4: generate every page --------------------------------------
@@ -1384,17 +1404,17 @@ A browser is one of the target devices, not only the thing the others are
 shown in. The "web" pack (Web-Touch) is a device pack like any other: it
 declares the same 368x448 panel, the same two buttons and a tilt sensor,
 it vendors the RP2350 pack's app contract, and its ports are verified by
-the same harness. /web/chrono/ and /web/fluidbox/ are not previews of
-those apps: they are those apps, full-viewport, installable to a phone's
-home screen, and offline once installed.
+the same harness. /web/chrono/, /web/fluidbox/ and /web/tinydraw/ are not
+previews of those apps: they are those apps, full-viewport, installable to
+a phone's home screen, and offline once installed.
 
 ## Machine-readable surfaces on this domain
 
 - /registry.json: local paths and external URLs for every device pack and app bundle this repo knows about.
 - /docs/convention/device-pack.md: what a device pack must contain.
 - /docs/convention/app-bundle.md: what an app bundle (descriptor + traces) must contain, including how an affordance carries its intent.
-- /apps/<name>/descriptor.md: the portable descriptor for each proven app (chrono, fluidbox).
-- /web/<name>/: the app itself, running on the browser as its target device (chrono, fluidbox).
+- /apps/<name>/descriptor.md: the portable descriptor for each proven app (chrono, fluidbox, tinydraw, gameos).
+- /web/<name>/: the app itself, running on the browser as its target device (chrono, fluidbox, tinydraw).
 - https://github.com/s0lness/puck: the repository itself, MIT licensed.
 
 ## Consuming a pack or app as an agent
