@@ -192,6 +192,14 @@ typedef struct {
     // call until the next tick refreshes it - see port_tick and
     // integrate_velocities below.
     float gravX, gravY;
+
+    // The panel-space bounding box (inclusive corners) of wherever this
+    // app's own particles are actually drawn on the panel RIGHT NOW - i.e.
+    // exactly what port_tick's own gfx_push call painted last tick. See
+    // port_tick's own comment on why this exists: found on real silicon,
+    // documented in packs/rp2350-touch-amoled-18/gotchas.md and this port's
+    // own README, "Panel push: bounding box, not full panel every tick".
+    int lastMinX, lastMinY, lastMaxX, lastMaxY;
 } fluid_state_t;
 
 static fluid_state_t *s;
@@ -515,6 +523,33 @@ static void draw_particles(void) {
     }
 }
 
+// The panel-space bounding box (inclusive corners) of every particle's own
+// drawn square, at CURRENT s->x/s->y - i.e. exactly the region draw_particles()
+// is about to paint, computed with the identical (int)(v + 0.5f) rounding and
+// PARTICLE_HALF margin draw_particles() itself uses, so the two never
+// disagree about which pixels a particle occupies. Clamped to the panel,
+// same clip gfx_fill_rect already applies per-particle. Used by port_tick to
+// size the dirty push region - see that function's own comment for why a
+// bounding box, not the whole panel, is pushed every tick.
+static void particles_bbox(int *outMinX, int *outMinY, int *outMaxX, int *outMaxY) {
+    int minX = PANEL_W, minY = PANEL_H, maxX = -1, maxY = -1;
+    for (int i = 0; i < FLUID_N; i++) {
+        const int cx = (int)(s->x[i] + 0.5f);
+        const int cy = (int)(s->y[i] + 0.5f);
+        const int x0 = cx - PARTICLE_HALF, x1 = cx + PARTICLE_HALF;
+        const int y0 = cy - PARTICLE_HALF, y1 = cy + PARTICLE_HALF;
+        if (x0 < minX) minX = x0;
+        if (y0 < minY) minY = y0;
+        if (x1 > maxX) maxX = x1;
+        if (y1 > maxY) maxY = y1;
+    }
+    if (minX < 0) minX = 0;
+    if (minY < 0) minY = 0;
+    if (maxX > PANEL_W - 1) maxX = PANEL_W - 1;
+    if (maxY > PANEL_H - 1) maxY = PANEL_H - 1;
+    *outMinX = minX; *outMinY = minY; *outMaxX = maxX; *outMaxY = maxY;
+}
+
 // Reads the emulator's tilt vector (if any) and resolves it to a unit
 // gravity DIRECTION in s->gravX/gravY, falling back to fixed straight down
 // when the reading is ~zero (see TILT_MIN_G's own comment for why that is
@@ -549,6 +584,13 @@ void port_enter(void) {
     // is repaint it, then draw the seeded fluid on top.
     gfx_fill_rect(0, 0, PANEL_W, PANEL_H, FLUID_BG);
     draw_particles();
+
+    // Baseline for port_tick's own dirty-region tracking: after this
+    // function returns, the seeded block is exactly what the runtime's own
+    // full-panel push (app.h's enter() contract) puts on the panel, so this
+    // is where the FIRST tick's "wherever the panel already shows particles"
+    // union term starts from.
+    particles_bbox(&s->lastMinX, &s->lastMinY, &s->lastMaxX, &s->lastMaxY);
 }
 
 void port_tick(const app_frame_t *f) {
@@ -572,13 +614,50 @@ void port_tick(const app_frame_t *f) {
     if (dt > SIM_DT_MAX) dt = SIM_DT_MAX;
     if (dt > 0.0f) substep(dt);
 
-    // Full-panel refresh every tick (this bundle's own Demand: the fluid can
-    // move anywhere in the box between two frames, so no region of the
-    // previous frame can be assumed still valid - see descriptor.md). Push
-    // the whole panel: gfx_push widens to the 8px row rule regardless, and
-    // at PANEL_W=368 (already a multiple of 8) a full-width push needs no
-    // padding.
-    gfx_fill_rect(0, 0, PANEL_W, PANEL_H, FLUID_BG);
+    // PANEL PUSH: one push per tick, sized to the union bounding box of
+    // "wherever the panel currently shows a particle" (s->lastMinX/Y/MaxX/Y,
+    // last tick's own push region) and "wherever a particle is about to be
+    // drawn this tick" (newMinX/Y/MaxX/Y, just computed from this tick's
+    // post-physics positions) - NOT the whole panel every tick.
+    //
+    // This is still exactly ONE gfx_push call, same as before: this port
+    // never pushed "many small per-particle rectangles" (measured directly
+    // via the emulator's emu_push_count() ABI, see this port's README's
+    // "Panel push" section - min=mean=max=1 push/tick on the pre-fix code
+    // too). What changed is the SIZE of that one push: previously the full
+    // 368x448 panel (164,864px) every tick regardless of how much of it
+    // actually changed; now just the union rectangle above, clamped to the
+    // panel, which for a settled or lightly-moving fluid is a small fraction
+    // of the panel. Fewer bytes per push means less time the QSPI bus spends
+    // driven on every tick - see packs/rp2350-touch-amoled-18/gotchas.md's
+    // "many small pushes" entry and this port's own README for why bus
+    // DURATION, not pixel count, is what the panel can show as an artifact,
+    // and why the emulator (no bus) cannot see this class of difference at
+    // all: this checker reads the framebuffer directly (harness/
+    // emulatorSide.ts -> src/replayCore.ts's emu_fb() read), never through
+    // gfx_push, so a smaller pushed region is invisible to every invariant
+    // and portdiff check in this repo by construction.
+    //
+    // The union (not just the new region) matters for correctness: a
+    // particle's OLD square must be erased wherever it no longer is, and
+    // lastMinX/Y/MaxX/Y is exactly "everywhere the panel might still show
+    // ink from last tick" - including the one tick right after a PWR reset,
+    // where seed_block() jumps every particle instantly and there is no
+    // gradual old->new path to bound.
+    int newMinX, newMinY, newMaxX, newMaxY;
+    particles_bbox(&newMinX, &newMinY, &newMaxX, &newMaxY);
+
+    int dirtyMinX = newMinX, dirtyMinY = newMinY;
+    int dirtyMaxX = newMaxX, dirtyMaxY = newMaxY;
+    if (s->lastMinX < dirtyMinX) dirtyMinX = s->lastMinX;
+    if (s->lastMinY < dirtyMinY) dirtyMinY = s->lastMinY;
+    if (s->lastMaxX > dirtyMaxX) dirtyMaxX = s->lastMaxX;
+    if (s->lastMaxY > dirtyMaxY) dirtyMaxY = s->lastMaxY;
+
+    gfx_fill_rect(dirtyMinX, dirtyMinY, dirtyMaxX - dirtyMinX + 1, dirtyMaxY - dirtyMinY + 1, FLUID_BG);
     draw_particles();
-    gfx_push(0, 0, PANEL_W - 1, PANEL_H - 1);
+    gfx_push(dirtyMinX, dirtyMinY, dirtyMaxX, dirtyMaxY);
+
+    s->lastMinX = newMinX; s->lastMinY = newMinY;
+    s->lastMaxX = newMaxX; s->lastMaxY = newMaxY;
 }

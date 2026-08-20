@@ -309,6 +309,25 @@ capture points you chose. If your wasm build draws a different pixel than
 your board does for the exact same trace, this finds it and shows you
 both images plus a diff heatmap.
 
+**Does not see bus-load artifacts.** Every frame this harness compares - on
+both the emulator side and the real-hardware side - is read straight out of
+a framebuffer (`emu_fb()`'s memory, or a real `SHOT`), never off the wire the
+panel push actually travels. A firmware bug that corrupts what lands in the
+framebuffer shows up here; a firmware pattern that corrupts nothing but
+drives the QSPI bus harder than any pattern this pack has shipped before -
+many small pushes a tick, or one push that is unusually large or unusually
+frequent - does not, because the emulator has no bus to model in the first
+place (decision 0003: the emulator is a pure function of the ABI calls it
+receives, with no notion of a wire, a clock line, or how long a transfer
+takes). Found exactly this way on `apps/fluidbox`'s rp2350 port: the
+emulator ran the fix and the pre-fix code identically, pixel for pixel, at
+every capture point, while only a human looking at the real panel could see
+the shimmer the pre-fix code caused (`packs/rp2350-touch-amoled-18/
+gotchas.md`'s "many small pushes" entry has the measured numbers). This is
+why a silicon attestation - eyes on the physical panel, not another harness
+run - stays a required step for this class of change, not a formality this
+tooling could someday absorb.
+
 **Does not check that the two sides are the same program.** Nothing in
 devlink carries a build identity, so the harness will happily diff a wasm
 module built from your working tree against whatever firmware happens to be

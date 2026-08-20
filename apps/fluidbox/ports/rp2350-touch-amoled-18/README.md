@@ -85,6 +85,63 @@ is `12 * 130 * 4 + ~16 ~= 6,256` bytes, under 10% of the budget - the particle c
 reducing to fit the arena; the binding constraint throughout was compute (see the honesty section
 below), not memory.
 
+## Panel push: bounding box, not full panel every tick (silicon finding, 2026-08-20)
+
+Flashed onto a real RP2350-Touch-AMOLED-1.8: the emulator's own simulation "purred" correctly,
+but the physical panel visibly shimmered/flickered while the fluid ran. The task brief's working
+hypothesis going in was the family of bug this pack's own `docs/decisions/0001-push-min-width.md`
+already names - many small per-particle `gfx_push` calls, each its own QSPI/DMA transaction - so
+that was checked FIRST, empirically, before touching anything: `wasm/emu_abi.h`'s
+`emu_push_count()`/`emu_push_x/y/w/h()` ABI lets any wasm build report exactly what it pushed, per
+tick, with no bus involved. Measured over the full `apps/fluidbox/traces/fluid-settle-shake.trace.json`
+window (settle ~4s, shake, settle ~5s more, 593 ticks at 16ms):
+
+| | pushes/tick (min/mean/max) | pushed pixels/tick (min/mean/max) |
+|---|---|---|
+| Pre-fix (this port, unmodified) | 1 / 1.00 / 1 | 164,864 / 164,864 / 164,864 (100% of the panel, every tick) |
+| Post-fix (bounding-box push) | 1 / 1.00 / 1 | 21,344 / 25,569 / 40,832 (13-25% of the panel) |
+
+**The hypothesis was wrong for this file.** `port_tick()` already issued exactly one `gfx_push`
+call per tick, not many - there was never a per-particle erase+draw push here. What was real,
+though not what was first suspected: that one push covered the *whole* 368x448 panel
+unconditionally, every tick, at up to 60 ticks/s. `gfx.c`'s `gfx_push_all()` prices a full-panel
+push at ~12ms on real hardware (this README's own honesty section, below, already flagged this as
+"the real constraint most likely to bite"), so this app was driving the QSPI bus at close to that
+duty cycle *continuously* for as long as it runs - a load pattern no other app on this pack
+reaches (`chrono`/`timer`/`sketch` push small dirty rectangles only on discrete events, not every
+tick). That is the same electrical territory `firmware/lib/QSPI_PIO/qspi.pio`'s clock-halving
+comment documents (signal integrity failing under load at the vendor's original clock), just
+reached by sustained duty cycle instead of a single wide window.
+
+**The fix**: `port_tick()` now tracks the bounding box of wherever a particle is drawn (see
+`fluid.c`'s `particles_bbox()`), unions it with wherever a particle was drawn *last* tick
+(`fluid_state_t`'s new `lastMinX/Y/MaxX/Y`, updated at the end of every tick, seeded once in
+`port_enter()`), clears and redraws only that rectangle instead of the full panel, and pushes
+exactly that rectangle. Still one `gfx_push` call - transaction count did not change, because it
+was already 1 - but the DATA VOLUME of that one push dropped by roughly 75-87% depending on how
+spread out the fluid currently is. **Transactions are not the axis that moved; bytes per push,
+and therefore how long the bus stays continuously driven, is** - see
+`packs/rp2350-touch-amoled-18/gotchas.md`'s "many small pushes" entry for why that is the
+panel-visible cost, not pixel count and not transaction count in isolation.
+
+The union (not just the new frame's positions) matters for correctness, not just efficiency: a
+particle's old square has to be erased wherever it no longer is, and the one tick right after a
+PWR reset (`seed_block()` jumps every particle instantly, with no gradual old-to-new path a
+bounding box could otherwise infer) is exactly why `lastMinX/Y/MaxX/Y` is carried as real state
+rather than derived from `oldx/oldy` each tick.
+
+**Why the emulator could not have caught this on its own**, and did not need to: every invariant
+and portdiff check in this repository reads the framebuffer directly
+(`harness/emulatorSide.ts` -> `src/replayCore.ts`'s `emu_fb()` read), never through `gfx_push` -
+see `docs/harness.md`'s "Does not see bus-load artifacts" paragraph. Re-running
+`apps/fluidbox/invariants.ts` against the post-fix module at the same three capture points
+(`--at 4000,4016,9024`) still reports `PASS: all invariants held over 3 captured frame(s)`, byte
+for byte the same as before this change, which is exactly what should happen: nothing about the
+fluid's own physics or drawn pixels moved, only how much of the panel gets sent to the display
+controller each tick. This is precisely why the physical shimmer needed a human looking at real
+silicon to be found at all, and why fixing it needed measuring against the emulator's push-count
+ABI rather than guessing.
+
 ## Honesty: the emulator cannot prove an fps floor on real silicon
 
 Per this project's own harness documentation (`packs/rp2350-touch-amoled-18/AGENTS.md`'s

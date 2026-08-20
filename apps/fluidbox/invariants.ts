@@ -157,7 +157,38 @@ function borderIsClean(frame: TimedFrame["frame"]): boolean {
   return true;
 }
 
-export function check(frames: TimedFrame[], _meta: InvariantMeta): InvariantResult {
+// (5) Panel push stays a bounding box, not the whole panel, every tick.
+// Found on real silicon (packs/rp2350-touch-amoled-18/gotchas.md's "many
+// small pushes" entry, this port's own README's "Panel push" section):
+// continuous full-panel gfx_push every tick reads as shimmer on the real
+// device even though it is pixel-perfect in the emulator, because every
+// invariant here reads the framebuffer directly and never sees what
+// actually got pushed. This is the gate that WOULD have caught the
+// regression before silicon: not a push-COUNT bound (the pre-fix code
+// already pushed exactly once a tick, same as the fix - count was never the
+// discriminating number here) but a push-PIXELS bound, since that is the
+// axis that actually moved (164,864px/tick pre-fix vs 21,344-40,832px/tick
+// post-fix, measured over this same trace). Checked against the worst
+// (max), not average, tick, so an intermittent regression cannot hide
+// behind a low mean. PUSH_PIXELS_MAX = 90,000px (~55% of the 164,864px
+// panel) sits comfortably above the post-fix measured max
+// (40,832px, room for a bigger splash than this trace's own shake produces)
+// and well below the pre-fix constant (164,864px, every tick) - so a
+// regression back to "push the whole panel" fails loudly, while ordinary
+// per-tick variance in how spread out the fluid is does not.
+//
+// Also checked, for hygiene rather than because it discriminates this
+// specific bug: pushes/tick must stay small. This port issues exactly one
+// gfx_push per tick both before and after the fix, so PUSH_COUNT_MAX = 4
+// (generous headroom, not a tight bound) exists to catch a genuinely
+// different regression - a future edit that reintroduces PER-PARTICLE
+// pushes - not the one this task found and fixed.
+const PUSH_PIXELS_MAX = 90000; // checked against the WORST tick, not the mean
+                                // - a bug that only occasionally pushes the
+                                // whole panel would hide under a mean bound.
+const PUSH_COUNT_MAX = 4;
+
+export function check(frames: TimedFrame[], meta: InvariantMeta): InvariantResult {
   const failures: string[] = [];
 
   if (frames.length !== 3) {
@@ -205,6 +236,37 @@ export function check(frames: TimedFrame[], _meta: InvariantMeta): InvariantResu
   for (const f of frames) {
     if (!borderIsClean(f.frame)) {
       failures.push(`bounds: fluid pixel found in the panel's outermost 1px border at t=${f.atMs} (wall containment broken)`);
+    }
+  }
+
+  // (5) panel push stays a bounding box, not the whole panel, every tick -
+  // see PUSH_PIXELS_MAX/PUSH_COUNT_MAX's own comment. Scoped to the rp2350
+  // pack ONLY (meta.device.name), not to every port this checker file is
+  // shared across (apps/fluidbox/bundle.json also verifies esp32-s3 and web
+  // with this exact function): the silicon finding this invariant guards
+  // against is specific to THIS pack's QSPI bus and panel
+  // (packs/rp2350-touch-amoled-18/gotchas.md's "many small pushes" entry) -
+  // the esp32-s3 port's own gfx is a different memory model entirely (band
+  // renderer, not full-framebuffer, see that port's own README), and the
+  // web port has no physical bus to shimmer at all. A shared numeric bound
+  // across three unrelated displays would either be meaningless for two of
+  // them or would fail two ports for a defect this task never touched or
+  // verified on their hardware - apps/fluidbox/ports/rp2350-touch-amoled-18/
+  // README.md's own before/after numbers are this pack's alone. Also
+  // skipped, not failed, for a module built without the push-tracking
+  // export (meta.pushStats undefined): this invariant is additive and must
+  // never turn a module that predates it into an infra failure.
+  if (meta.device.name === "RP2350-Touch-AMOLED-1.8" && meta.pushStats) {
+    const { maxPushesPerTick, maxPushPixelsPerTick, tickCount } = meta.pushStats;
+    if (maxPushPixelsPerTick > PUSH_PIXELS_MAX) {
+      failures.push(
+        `panel push: worst tick pushed ${maxPushPixelsPerTick}px (of ${tickCount} ticks replayed), max allowed ${PUSH_PIXELS_MAX}px - see this port's README's "Panel push" section`
+      );
+    }
+    if (maxPushesPerTick > PUSH_COUNT_MAX) {
+      failures.push(
+        `panel push: worst tick issued ${maxPushesPerTick} gfx_push call(s), max allowed ${PUSH_COUNT_MAX} - looks like a return of per-particle pushes`
+      );
     }
   }
 

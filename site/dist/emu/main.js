@@ -1170,6 +1170,25 @@ async function replayFromBytes(bytes, events, capturePoints, options = {}) {
   const fbPtr = emu.emu_fb();
   const remainingPoints = [...capturePoints].sort((a, b) => a - b);
   const frames = [];
+  const tracksPushes = typeof emu.emu_push_count === "function";
+  let pushTickCount = 0;
+  let maxPushesPerTick = 0;
+  let maxPushPixelsPerTick = 0;
+  let sumPushPixelsPerTick = 0;
+  function recordPushLoad() {
+    if (!tracksPushes)
+      return;
+    const count = emu.emu_push_count();
+    let pixels = 0;
+    for (let i = 0;i < count; i++)
+      pixels += emu.emu_push_w(i) * emu.emu_push_h(i);
+    pushTickCount++;
+    if (count > maxPushesPerTick)
+      maxPushesPerTick = count;
+    if (pixels > maxPushPixelsPerTick)
+      maxPushPixelsPerTick = pixels;
+    sumPushPixelsPerTick += pixels;
+  }
   function captureNow(atMs) {
     const rgb = readFramebufferRGB(emu.memory, fbPtr, device.panel.w, reader, {
       x: 0,
@@ -1198,6 +1217,7 @@ async function replayFromBytes(bytes, events, capturePoints, options = {}) {
         break;
       case "tick":
         emu.emu_tick(ev.t);
+        recordPushLoad();
         while (remainingPoints.length > 0 && remainingPoints[0] <= ev.t) {
           captureNow(remainingPoints.shift());
         }
@@ -1206,7 +1226,13 @@ async function replayFromBytes(bytes, events, capturePoints, options = {}) {
   }
   for (const p of remainingPoints)
     captureNow(p);
-  return { device, frames, log };
+  const pushStats = tracksPushes ? {
+    tickCount: pushTickCount,
+    maxPushesPerTick,
+    maxPushPixelsPerTick,
+    meanPushPixelsPerTick: pushTickCount > 0 ? sumPushPixelsPerTick / pushTickCount : 0
+  } : undefined;
+  return { device, frames, log, pushStats };
 }
 
 // src/compare.ts

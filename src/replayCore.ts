@@ -31,12 +31,36 @@ import { pixelReaderFor, readFramebufferRGB } from "./panel";
 import type { CapturedFrame } from "./frame";
 import type { TraceEvent } from "./recorder";
 
+// Aggregate panel-push load over an entire replay, from emu_push_count()/
+// emu_push_x/y/w/h() (wasm/emu_abi.h) - the same ABI a firmware author
+// reaches for by hand to check "how much am I pushing per tick" (see
+// packs/rp2350-touch-amoled-18/gotchas.md's "many small pushes" entry, found
+// exactly this way). Tracked here, once, in the shared replay path, so any
+// bundle wanting a push-load invariant (apps/fluidbox/invariants.ts today)
+// gets it for free instead of re-instrumenting its own replay. Aggregate
+// only (max/mean over the whole trace), not a per-tick array: a checker
+// caring about the shimmer class of bug wants "did any tick push far more
+// than usual", not a full timeline, and an array here would scale with
+// trace length for no caller that exists today.
+export interface PushLoadStats {
+  tickCount: number;
+  maxPushesPerTick: number;
+  maxPushPixelsPerTick: number;
+  meanPushPixelsPerTick: number;
+}
+
 export interface ReplayResult {
   device: DeviceDescriptor;
   // One captured frame per requested capture point, in the same order,
   // paired with the trace timestamp (nowMs) it was captured at.
   frames: { atMs: number; frame: CapturedFrame }[];
   log: string[];
+  // Present whenever the module exports emu_push_count() (every module
+  // built against wasm/emu_abi.h's documented export list does - see
+  // packs/*/wasm/build.ts's EMU_EXPORTS). Optional only for defensive
+  // symmetry with the other optional emu_* exports this file already treats
+  // that way (emu_sensor_vector, above).
+  pushStats?: PushLoadStats;
 }
 
 // Options carried from the replayed trace into the instantiation itself.
@@ -68,6 +92,27 @@ export async function replayFromBytes(bytes: ArrayBuffer, events: TraceEvent[], 
 
   const remainingPoints = [...capturePoints].sort((a, b) => a - b);
   const frames: { atMs: number; frame: CapturedFrame }[] = [];
+
+  // Push-load aggregation (see PushLoadStats above). Guarded on the export
+  // existing at all: a module built before wasm/emu_abi.h grew this export,
+  // or one that genuinely omits it, simply gets no pushStats back rather
+  // than throwing mid-replay.
+  const tracksPushes = typeof emu.emu_push_count === "function";
+  let pushTickCount = 0;
+  let maxPushesPerTick = 0;
+  let maxPushPixelsPerTick = 0;
+  let sumPushPixelsPerTick = 0;
+
+  function recordPushLoad(): void {
+    if (!tracksPushes) return;
+    const count = emu.emu_push_count();
+    let pixels = 0;
+    for (let i = 0; i < count; i++) pixels += emu.emu_push_w(i) * emu.emu_push_h(i);
+    pushTickCount++;
+    if (count > maxPushesPerTick) maxPushesPerTick = count;
+    if (pixels > maxPushPixelsPerTick) maxPushPixelsPerTick = pixels;
+    sumPushPixelsPerTick += pixels;
+  }
 
   function captureNow(atMs: number): void {
     const rgb = readFramebufferRGB(emu.memory, fbPtr, device.panel.w, reader, {
@@ -105,6 +150,7 @@ export async function replayFromBytes(bytes: ArrayBuffer, events: TraceEvent[], 
         break;
       case "tick":
         emu.emu_tick(ev.t);
+        recordPushLoad();
         while (remainingPoints.length > 0 && remainingPoints[0]! <= ev.t) {
           captureNow(remainingPoints.shift()!);
         }
@@ -116,5 +162,14 @@ export async function replayFromBytes(bytes: ArrayBuffer, events: TraceEvent[], 
   // a legitimate thing to ask for (e.g. --at the trace's total duration).
   for (const p of remainingPoints) captureNow(p);
 
-  return { device, frames, log };
+  const pushStats: PushLoadStats | undefined = tracksPushes
+    ? {
+        tickCount: pushTickCount,
+        maxPushesPerTick,
+        maxPushPixelsPerTick,
+        meanPushPixelsPerTick: pushTickCount > 0 ? sumPushPixelsPerTick / pushTickCount : 0,
+      }
+    : undefined;
+
+  return { device, frames, log, pushStats };
 }

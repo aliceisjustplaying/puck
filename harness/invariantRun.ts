@@ -68,6 +68,7 @@ import { pathToFileURL } from "node:url";
 import { replayEmulator } from "./emulatorSide";
 import type { CapturedFrame, Trace } from "./types";
 import type { DeviceDescriptor } from "../src/wasm";
+import type { PushLoadStats } from "../src/replayCore";
 
 const EXIT_OK = 0;
 const EXIT_FAIL = 1;
@@ -90,6 +91,15 @@ export interface TimedFrame {
 // bundle.
 export interface InvariantMeta {
   device: DeviceDescriptor;
+  // Panel-push load aggregated over the WHOLE replayed trace (every tick,
+  // not just the requested capture points), from src/replayCore.ts's own
+  // emu_push_count()/emu_push_x/y/w/h() instrumentation. Undefined only for
+  // a module built without that export (see PushLoadStats's own comment).
+  // Exists so a bundle can assert a bus-load bound - "no tick should ever
+  // push more than X pixels" - a class of regression the framebuffer-only
+  // pixel checks in this same file's `frames` argument cannot see by
+  // construction (docs/harness.md's "Does not see bus-load artifacts").
+  pushStats?: PushLoadStats;
 }
 
 export interface InvariantResult {
@@ -196,7 +206,7 @@ export async function runInvariants(opts: RunInvariantsOptions): Promise<RunInva
   const check = checkerModule.check as InvariantChecker;
 
   const frames: TimedFrame[] = result.frames.map((f) => ({ atMs: f.atMs, frame: f.frame }));
-  const meta: InvariantMeta = { device: result.device };
+  const meta: InvariantMeta = { device: result.device, pushStats: result.pushStats };
 
   let verdict: InvariantResult;
   try {
