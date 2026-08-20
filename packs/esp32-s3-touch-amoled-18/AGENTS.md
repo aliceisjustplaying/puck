@@ -198,3 +198,11 @@ Same as the rest of this repository (root `AGENTS.md`): TypeScript only for
 anything that is not firmware, no `.js`/`.mjs`, no em dashes anywhere,
 `zig`/`cmake`/`idf.py` are binaries this pack's scripts invoke, never a
 language anything here is authored in.
+
+## Web Serial flash: bench-proven
+
+2026-08-20: the gallery's Flash over USB on the esp32 run pages completed
+against the real board on the first attempt, and the board rebooted into
+the flashed demo. The esptool.py-style RTS pulse expressed in esptool-js's
+reset mini-language, previously documented as reasoned but not measured,
+is now measured.

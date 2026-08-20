@@ -26,9 +26,9 @@ identity.
 
 The gallery at [puck.sylve.org](https://puck.sylve.org) runs every proven
 combination live: the real firmware, compiled to WebAssembly, in the
-browser, no install and no mockup. From the same pages, the reference
-RP2350 firmware also flashes onto a real board over WebUSB, no separate
-tool, no serial driver to install.
+browser, no install and no mockup. From the same pages, real boards flash
+too: the RP2350 over WebUSB and the ESP32-S3 over Web Serial, both
+bench-proven, no separate tool, no serial driver to install.
 
 This repository has three connected surfaces.
 
