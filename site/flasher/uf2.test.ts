@@ -30,13 +30,23 @@ describe("puck-full.uf2 (full firmware, boots chrono)", () => {
   const bytes = loadArtifact("puck-full.uf2");
   const { blocks, familyGroups } = parseUf2(bytes);
 
-  test("has 380 total blocks", () => {
-    expect(blocks.length).toBe(380);
+  // Refreshed 2026-08-20 (tilt.c's horizontal-axis fix - see that file's
+  // device_to_panel() header comment: vertical tilt was correct on real
+  // silicon, horizontal was inverted, now fixed). This artifact was
+  // already stale before that fix: the PRIOR commit (fluid.c reading
+  // app_frame_t.tilt instead of a private accessor) grew runtime_core.c,
+  // which every build links, but only rebuilt and re-tested the fluidbox
+  // artifact below, not this one. Rebuilding now catches up both changes
+  // at once (checked with `picotool info -a` against this rebuilt
+  // artifact, same method the fluidbox numbers below were checked with).
+
+  test("has 400 total blocks", () => {
+    expect(blocks.length).toBe(400);
   });
 
-  test("has one absolute/info block (family 0xE48BFF57) and 379 rp2350-arm-s blocks", () => {
+  test("has one absolute/info block (family 0xE48BFF57) and 399 rp2350-arm-s blocks", () => {
     expect(familyGroups.get(0xe48bff57)?.length).toBe(1);
-    expect(familyGroups.get(FAMILY_RP2350_ARM_S)?.length).toBe(379);
+    expect(familyGroups.get(FAMILY_RP2350_ARM_S)?.length).toBe(399);
   });
 
   test("every rp2350-arm-s block carries a contiguous 256-byte payload", () => {
@@ -44,17 +54,17 @@ describe("puck-full.uf2 (full firmware, boots chrono)", () => {
     for (const b of family) expect(b.payloadSize).toBe(256);
   });
 
-  test("flash plan: range starts at 0x10000000 and covers picotool's reported binary end (0x10017a70)", () => {
+  test("flash plan: range starts at 0x10000000 and covers picotool's reported binary end (0x10018e78)", () => {
     const plan = computeFlashPlan(blocks, FAMILY_RP2350_ARM_S);
-    const BINARY_END = 0x10017a70;
+    const BINARY_END = 0x10018e78;
     expect(plan.rangeStart).toBe(0x10000000);
     expect(plan.rangeEnd).toBeGreaterThanOrEqual(BINARY_END);
-    expect(plan.chunks.length).toBe(379);
+    expect(plan.chunks.length).toBe(399);
   });
 
   test("erase range is 4096-aligned and covers the binary end", () => {
     const plan = computeFlashPlan(blocks, FAMILY_RP2350_ARM_S);
-    const BINARY_END = 0x10017a70;
+    const BINARY_END = 0x10018e78;
     expect(plan.eraseStart % FLASH_SECTOR_SIZE).toBe(0);
     expect(plan.eraseEnd % FLASH_SECTOR_SIZE).toBe(0);
     expect(plan.eraseStart).toBeLessThanOrEqual(plan.rangeStart);
@@ -159,12 +169,12 @@ describe("coalesceWriteRuns", () => {
     for (const run of runs) expect(run.data.length).toBeLessThanOrEqual(PICOBOOT_MAX_WRITE_SIZE);
   });
 
-  test("a real artifact's flash plan coalesces 379 chunks into a small handful of runs", () => {
+  test("a real artifact's flash plan coalesces 399 chunks into a small handful of runs", () => {
     const bytes = loadArtifact("puck-full.uf2");
     const { blocks } = parseUf2(bytes);
     const plan = computeFlashPlan(blocks, FAMILY_RP2350_ARM_S);
     const runs = coalesceWriteRuns(plan.chunks);
-    expect(plan.chunks.length).toBe(379);
+    expect(plan.chunks.length).toBe(399);
     expect(runs.length).toBeLessThan(10);
     expect(runs.reduce((sum, r) => sum + r.data.length, 0)).toBe(plan.chunks.reduce((sum, c) => sum + c.data.length, 0));
   });

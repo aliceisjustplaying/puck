@@ -479,19 +479,26 @@ void sensors_inject_erase(void) {
  * gravityForQuickDeg, src/motion.ts's composePhoneVector) - documents and
  * derives its (x, y) directly in PANEL space (x right, y down), the same
  * space app_tilt_t's own gx/gy already promise an app. Handed to
- * tilt_submit_device_g() unchanged, device_to_panel()'s swap (px=dy,
- * py=dx) would silently rotate that promise 90 degrees - caught empirically
- * (bun run verify:tilt failed after wiring app_frame_t.tilt into fluid.c,
- * gravity landing on the wrong panel edge) before being understood, not
- * guessed in advance. So x and y are swapped here, ONE TIME, before
- * quantisation: device_to_panel() is self-inverse on a swap (tilt.c's own
- * comment proves it), so feeding it the swap of what the host meant
- * produces exactly what the host meant. z is NOT touched here - the
- * specific-force-to-gravity flip device_to_panel() also performs is not a
- * chip-mounting artifact, it is the same physics on every accelerometer
- * regardless of mounting, and docs/abi.md's own convention (flat, screen
- * up, reads ~(0,0,-1)) already assumes that flip still happens once,
- * downstream, in tilt.c - exactly where it happens for real hardware too.
+ * tilt_submit_device_g() unchanged, device_to_panel()'s swap (px=-dy,
+ * py=dx) would silently rotate (and, since 2026-08-20, also mirror) that
+ * promise - caught empirically (bun run verify:tilt failed after wiring
+ * app_frame_t.tilt into fluid.c, gravity landing on the wrong panel edge)
+ * before being understood, not guessed in advance. So x and y are
+ * transformed here, ONE TIME, before quantisation, by solving
+ * device_to_panel(dx,dy,dz)=(x,y,z) for (dx,dy): with py=dx unchanged,
+ * dx=y still; with px=-dy now (tilt.c's 2026-08-20 horizontal-axis fix,
+ * see its own header comment), -dy=x, so dy=-x - the negation on x is NEW
+ * here, in lockstep with that fix, and is what keeps this round-trip
+ * exact: device_to_panel() was self-inverse on a plain swap before that
+ * fix (px=dy, py=dx), so back then dy=x needed no sign change; it is no
+ * longer self-inverse now that px carries an extra minus sign, and this is
+ * that minus sign, moved to the other side of the equation. z is NOT
+ * touched here - the specific-force-to-gravity flip device_to_panel() also
+ * performs (pz=-dz, unchanged by the 2026-08-20 fix) is not a chip-mounting
+ * artifact, it is the same physics on every accelerometer regardless of
+ * mounting, and docs/abi.md's own convention (flat, screen up, reads
+ * ~(0,0,-1)) already assumes that flip still happens once, downstream, in
+ * tilt.c - exactly where it happens for real hardware too.
  */
 #define QMI8658_RANGE_G   8.0f
 #define QMI8658_G_PER_LSB (1.0f / 4096.0f)
@@ -514,8 +521,11 @@ void emu_sensor_vector(int index, float x, float y, float z) {
                  // ("gravity"); a host passing another index is a host bug,
                  // ignored rather than trapped, same policy emu_button()
                  // uses for a bad button index.
-    // x/y swapped on the way in - see this section's own header comment
-    // ("PRE-COMPENSATED FOR device_to_panel()").
+    // x/y transformed on the way in (dx=y, dy=x): device_to_panel() is a
+    // plain self-inverse swap again (px=dy, py=dx) since the silicon
+    // verdict of 2026-08-20 REVERTED the earlier px=-dy change (Sylve's
+    // hands on the real puck: vertical fine, horizontal inverted with the
+    // negation). See tilt.c's device_to_panel() comment.
     g_gravX = accel_as_hardware_would(y);
     g_gravY = accel_as_hardware_would(x);
     g_gravZ = accel_as_hardware_would(z);
