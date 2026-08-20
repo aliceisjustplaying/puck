@@ -28,6 +28,12 @@
     {
       "id": "shake",
       "kind": "event"
+    },
+    {
+      "id": "accel",
+      "kind": "stream",
+      "rateHz": 200,
+      "unit": "g"
     }
   ],
   "memory": {

@@ -121,6 +121,38 @@ void rtcore_sensor_event(int index) {
     if (index == RT_SENSOR_SHAKE) g_shakeSeq++;
 }
 
+/* ---- raw accelerometer sample stream: a small ring, write side latches,
+ * read side drains. See runtime_core.h's own comment for why this is a
+ * ring and not a single latched value like touch/button. Overflow policy:
+ * drop the OLDEST unread sample to make room for the newest, same "a slow
+ * consumer sees a gap, never a stall" choice a real 200Hz-vs-60Hz producer/
+ * consumer pair would force on real hardware too - a consumer that drains
+ * every tick (GOLF's own budget) never gets close to APP_ACCEL_RING
+ * anyway. */
+static app_accel_sample_t g_accelRing[APP_ACCEL_RING];
+static int g_accelHead = 0; // next write slot
+static int g_accelCount = 0; // samples currently held, <= APP_ACCEL_RING
+
+void rtcore_accel_sample(uint32_t tMs, float ax, float ay, float az) {
+    g_accelRing[g_accelHead] = (app_accel_sample_t){ tMs, ax, ay, az };
+    g_accelHead = (g_accelHead + 1) % APP_ACCEL_RING;
+    if (g_accelCount < APP_ACCEL_RING) g_accelCount++;
+    // else: ring was full, the write above just overwrote the oldest slot,
+    // and the read side's tail implicitly advances with it (see below).
+}
+
+int app_accel_read(app_accel_sample_t *out, int max) {
+    int n = g_accelCount < max ? g_accelCount : max;
+    // Oldest-first: the oldest held sample sits `g_accelCount` slots behind
+    // the next write position, wrapping.
+    int start = (g_accelHead - g_accelCount + APP_ACCEL_RING) % APP_ACCEL_RING;
+    for (int i = 0; i < n; i++) {
+        out[i] = g_accelRing[(start + i) % APP_ACCEL_RING];
+    }
+    g_accelCount -= n;
+    return n;
+}
+
 /* ---- lifecycle ------------------------------------------------------- */
 static bool g_started = false;
 static uint32_t g_lastNowMs = 0;
@@ -152,6 +184,8 @@ void rtcore_reset(void) {
     g_bootClickedPending = false;
     g_shakeSeqSeen = g_shakeSeq;
     g_started = false;
+    g_accelHead = 0;
+    g_accelCount = 0;
 
     if (g_app->enter != NULL) g_app->enter();
 }

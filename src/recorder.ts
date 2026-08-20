@@ -22,6 +22,18 @@ export type TraceEvent =
   // emu_sensor_vector - a trace with no "vector" events (every trace
   // recorded before this event kind existed) replays exactly as before.
   | { t: number; k: "vector"; i: number; x: number; y: number; z: number }
+  // One raw accelerometer sample (emu_abi.h's OPTIONAL emu_accel_sample),
+  // by index into the declared sensors array (a "kind": "stream" sensor).
+  // Unlike "vector" (one continuous, level-triggered reading), a real
+  // stream sensor produces several of these between two "tick" events
+  // (packs/esp32-s3-touch-amoled-18's device.json declares ~200Hz against a
+  // ~60Hz tick rate), so a trace legitimately carries multiple "accel"
+  // events at the same or nearby `t`. Replayed by replayCore.ts, which
+  // skips it silently against a module that never exported
+  // emu_accel_sample - same "unimplemented means uncalled" contract
+  // "vector" already uses, so a trace with no "accel" events replays
+  // exactly as before.
+  | { t: number; k: "accel"; i: number; ax: number; ay: number; az: number }
   | { t: number; k: "tick" };
 
 export interface Trace {

@@ -44,14 +44,14 @@ var __export = (target, all) => {
 };
 var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 
-// node_modules/atob-lite/atob-browser.js
+// ../../../node_modules/atob-lite/atob-browser.js
 var require_atob_browser = __commonJS((exports, module) => {
   module.exports = function _atob(str) {
     return atob(str);
   };
 });
 
-// node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32.json
+// ../../../node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32.json
 var require_stub_flasher_32 = __commonJS((exports, module) => {
   module.exports = {
     entry: 1074521580,
@@ -63,7 +63,7 @@ var require_stub_flasher_32 = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32c2.json
+// ../../../node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32c2.json
 var require_stub_flasher_32c2 = __commonJS((exports, module) => {
   module.exports = {
     entry: 1077413304,
@@ -75,7 +75,7 @@ var require_stub_flasher_32c2 = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32c3.json
+// ../../../node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32c3.json
 var require_stub_flasher_32c3 = __commonJS((exports, module) => {
   module.exports = {
     entry: 1077413584,
@@ -87,7 +87,7 @@ var require_stub_flasher_32c3 = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32c5.json
+// ../../../node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32c5.json
 var require_stub_flasher_32c5 = __commonJS((exports, module) => {
   module.exports = {
     entry: 1082133128,
@@ -99,7 +99,7 @@ var require_stub_flasher_32c5 = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32c6.json
+// ../../../node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32c6.json
 var require_stub_flasher_32c6 = __commonJS((exports, module) => {
   module.exports = {
     entry: 1082132164,
@@ -111,7 +111,7 @@ var require_stub_flasher_32c6 = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32c61.json
+// ../../../node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32c61.json
 var require_stub_flasher_32c61 = __commonJS((exports, module) => {
   module.exports = {
     entry: 1082132164,
@@ -123,7 +123,7 @@ var require_stub_flasher_32c61 = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32h2.json
+// ../../../node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32h2.json
 var require_stub_flasher_32h2 = __commonJS((exports, module) => {
   module.exports = {
     entry: 1082132164,
@@ -135,7 +135,7 @@ var require_stub_flasher_32h2 = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32p4rc1.json
+// ../../../node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32p4rc1.json
 var require_stub_flasher_32p4rc1 = __commonJS((exports, module) => {
   module.exports = {
     entry: 1341196642,
@@ -147,7 +147,7 @@ var require_stub_flasher_32p4rc1 = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32p4.json
+// ../../../node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32p4.json
 var require_stub_flasher_32p4 = __commonJS((exports, module) => {
   module.exports = {
     entry: 1341459344,
@@ -159,7 +159,7 @@ var require_stub_flasher_32p4 = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32s2.json
+// ../../../node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32s2.json
 var require_stub_flasher_32s2 = __commonJS((exports, module) => {
   module.exports = {
     entry: 1073907716,
@@ -171,7 +171,7 @@ var require_stub_flasher_32s2 = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32s3.json
+// ../../../node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_32s3.json
 var require_stub_flasher_32s3 = __commonJS((exports, module) => {
   module.exports = {
     entry: 1077381760,
@@ -183,7 +183,7 @@ var require_stub_flasher_32s3 = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_8266.json
+// ../../../node_modules/esptool-js/lib/targets/stub_flasher/stub_flasher_8266.json
 var require_stub_flasher_8266 = __commonJS((exports, module) => {
   module.exports = {
     entry: 1074843652,
@@ -195,7 +195,7 @@ var require_stub_flasher_8266 = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/rom.js
+// ../../../node_modules/esptool-js/lib/targets/rom.js
 class ROM {
   constructor() {
     this.FLASH_SIZES = {
@@ -220,7 +220,7 @@ class ROM {
   }
 }
 
-// node_modules/esptool-js/lib/targets/esp8266.js
+// ../../../node_modules/esptool-js/lib/targets/esp8266.js
 var exports_esp8266 = {};
 __export(exports_esp8266, {
   ESP8266ROM: () => ESP8266ROM
@@ -341,7 +341,7 @@ var init_esp8266 = __esm(() => {
   ESP8266ROM.IROM_MAP_END = 1076887552;
 });
 
-// node_modules/esptool-js/lib/targets/esp32.js
+// ../../../node_modules/esptool-js/lib/targets/esp32.js
 var exports_esp32 = {};
 __export(exports_esp32, {
   ESP32ROM: () => ESP32ROM
@@ -548,7 +548,7 @@ var init_esp32 = __esm(() => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/esp32c3.js
+// ../../../node_modules/esptool-js/lib/targets/esp32c3.js
 var exports_esp32c3 = {};
 __export(exports_esp32c3, {
   ESP32C3ROM: () => ESP32C3ROM
@@ -701,7 +701,7 @@ var init_esp32c3 = __esm(() => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/esp32c2.js
+// ../../../node_modules/esptool-js/lib/targets/esp32c2.js
 var exports_esp32c2 = {};
 __export(exports_esp32c2, {
   ESP32C2ROM: () => ESP32C2ROM
@@ -817,7 +817,7 @@ var init_esp32c2 = __esm(() => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/esp32c6.js
+// ../../../node_modules/esptool-js/lib/targets/esp32c6.js
 var exports_esp32c6 = {};
 __export(exports_esp32c6, {
   ESP32C6ROM: () => ESP32C6ROM
@@ -919,7 +919,7 @@ var init_esp32c6 = __esm(() => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/esp32c61.js
+// ../../../node_modules/esptool-js/lib/targets/esp32c61.js
 var exports_esp32c61 = {};
 __export(exports_esp32c61, {
   ESP32C61ROM: () => ESP32C61ROM
@@ -1041,7 +1041,7 @@ var init_esp32c61 = __esm(() => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/esp32c5.js
+// ../../../node_modules/esptool-js/lib/targets/esp32c5.js
 var exports_esp32c5 = {};
 __export(exports_esp32c5, {
   ESP32C5ROM: () => ESP32C5ROM
@@ -1237,7 +1237,7 @@ var init_esp32c5 = __esm(() => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/esp32h2.js
+// ../../../node_modules/esptool-js/lib/targets/esp32h2.js
 var exports_esp32h2 = {};
 __export(exports_esp32h2, {
   ESP32H2ROM: () => ESP32H2ROM
@@ -1345,7 +1345,7 @@ var init_esp32h2 = __esm(() => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/esp32s3.js
+// ../../../node_modules/esptool-js/lib/targets/esp32s3.js
 var exports_esp32s3 = {};
 __export(exports_esp32s3, {
   ESP32S3ROM: () => ESP32S3ROM
@@ -1549,7 +1549,7 @@ var init_esp32s3 = __esm(() => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/esp32s2.js
+// ../../../node_modules/esptool-js/lib/targets/esp32s2.js
 var exports_esp32s2 = {};
 __export(exports_esp32s2, {
   ESP32S2ROM: () => ESP32S2ROM
@@ -1779,7 +1779,7 @@ var init_esp32s2 = __esm(() => {
   };
 });
 
-// node_modules/esptool-js/lib/targets/esp32p4.js
+// ../../../node_modules/esptool-js/lib/targets/esp32p4.js
 var exports_esp32p4 = {};
 __export(exports_esp32p4, {
   ESP32P4ROM: () => ESP32P4ROM
@@ -2079,11 +2079,11 @@ var init_esp32p4 = __esm(() => {
   };
 });
 
-// node_modules/esptool-js/lib/types/error.js
+// ../../../node_modules/esptool-js/lib/types/error.js
 class ESPError extends Error {
 }
 
-// node_modules/pako/dist/pako.esm.mjs
+// ../../../node_modules/pako/dist/pako.esm.mjs
 /*! pako 2.2.0 https://github.com/nodeca/pako @license (MIT AND Zlib) */
 var Z_FIXED$1 = 4;
 var Z_BINARY = 0;
@@ -6172,7 +6172,7 @@ var { Inflate, inflate, inflateRaw, ungzip } = inflate_1$1;
 var deflate_1 = deflate;
 var Inflate_1 = Inflate;
 
-// node_modules/esptool-js/lib/util.js
+// ../../../node_modules/esptool-js/lib/util.js
 function padTo(data, alignment, padCharacter = 255) {
   const padMod = data.length % alignment;
   if (padMod !== 0) {
@@ -6202,7 +6202,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// node_modules/esptool-js/lib/webserial.js
+// ../../../node_modules/esptool-js/lib/webserial.js
 class Transport {
   constructor(device, tracing = false, enableSlipReader = true) {
     this.device = device;
@@ -6515,7 +6515,7 @@ class Transport {
   }
 }
 
-// node_modules/esptool-js/lib/reset.js
+// ../../../node_modules/esptool-js/lib/reset.js
 function sleep2(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -6629,7 +6629,7 @@ class CustomReset {
   }
 }
 
-// node_modules/esptool-js/lib/stubFlasher.js
+// ../../../node_modules/esptool-js/lib/stubFlasher.js
 var import_atob_lite = __toESM(require_atob_browser(), 1);
 async function getStubJsonByChipName(chipName, chipRevision) {
   let jsonStub;
@@ -6694,7 +6694,7 @@ function decodeBase64Data(dataStr) {
   return new Uint8Array(chardata);
 }
 
-// node_modules/esptool-js/lib/image/base.js
+// ../../../node_modules/esptool-js/lib/image/base.js
 init_esp8266();
 var ESP_IMAGE_MAGIC = 233;
 function alignFilePosition(position, size) {
@@ -6938,7 +6938,7 @@ class BaseFirmwareImage {
   }
 }
 
-// node_modules/esptool-js/lib/image/esp32.js
+// ../../../node_modules/esptool-js/lib/image/esp32.js
 class ESP32FirmwareImage extends BaseFirmwareImage {
   constructor(rom, loadFile = null, appendDigest = true, ramOnlyHeader = false) {
     super(rom);
@@ -7194,7 +7194,7 @@ class ESP32FirmwareImage extends BaseFirmwareImage {
   }
 }
 
-// node_modules/esptool-js/lib/image/esp8266.js
+// ../../../node_modules/esptool-js/lib/image/esp8266.js
 init_esp8266();
 class ESP8266ROMFirmwareImage extends BaseFirmwareImage {
   constructor(rom, loadFile = null) {
@@ -7283,7 +7283,7 @@ class ESP8266V2FirmwareImage extends BaseFirmwareImage {
 ESP8266V2FirmwareImage.IMAGE_V2_MAGIC = 234;
 ESP8266V2FirmwareImage.IMAGE_V2_SEGMENT = 4;
 
-// node_modules/esptool-js/lib/image/others.js
+// ../../../node_modules/esptool-js/lib/image/others.js
 class ESP32S2FirmwareImage extends ESP32FirmwareImage {
   constructor(rom, loadFile = null, appendDigest = true, ramOnlyHeader = false) {
     super(rom, loadFile, appendDigest, ramOnlyHeader);
@@ -7349,7 +7349,7 @@ class ESP32H2FirmwareImage extends ESP32C6FirmwareImage {
   }
 }
 
-// node_modules/esptool-js/lib/image/index.js
+// ../../../node_modules/esptool-js/lib/image/index.js
 async function loadFirmwareImage(rom, imageData) {
   const binaryData = imageData instanceof Uint8Array ? imageData : bstrToUi8(imageData);
   const chipName = rom.CHIP_NAME.toLowerCase().replace(/[-()]/g, "");
@@ -7410,7 +7410,7 @@ async function loadFirmwareImage(rom, imageData) {
   return image;
 }
 
-// node_modules/esptool-js/lib/esploader.js
+// ../../../node_modules/esptool-js/lib/esploader.js
 async function magic2Chip(magic) {
   switch (magic) {
     case 15736195: {

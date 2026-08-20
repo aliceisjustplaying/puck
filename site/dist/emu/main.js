@@ -971,6 +971,9 @@ class Replayer {
         case "vector":
           emu.emu_sensor_vector?.(ev.i, ev.x, ev.y, ev.z);
           break;
+        case "accel":
+          emu.emu_accel_sample?.(ev.i, ev.t, ev.ax, ev.ay, ev.az);
+          break;
         case "tick":
           emu.emu_tick(ev.t);
           return ev.t;
@@ -1214,6 +1217,9 @@ async function replayFromBytes(bytes, events, capturePoints, options = {}) {
         break;
       case "vector":
         emu.emu_sensor_vector?.(ev.i, ev.x, ev.y, ev.z);
+        break;
+      case "accel":
+        emu.emu_accel_sample?.(ev.i, ev.t, ev.ax, ev.ay, ev.az);
         break;
       case "tick":
         emu.emu_tick(ev.t);
@@ -2248,6 +2254,8 @@ function describeTraceEvent(ev) {
       return `sensor[${ev.i}] @${ev.t.toFixed(1)}ms`;
     case "vector":
       return `sensor[${ev.i}] vector (${ev.x.toFixed(2)},${ev.y.toFixed(2)},${ev.z.toFixed(2)}) @${ev.t.toFixed(1)}ms`;
+    case "accel":
+      return `sensor[${ev.i}] accel (${ev.ax.toFixed(2)},${ev.ay.toFixed(2)},${ev.az.toFixed(2)}) @${ev.t.toFixed(1)}ms`;
     case "tick":
       return `tick @${ev.t.toFixed(1)}ms`;
   }

@@ -40,6 +40,15 @@ export interface EmuExports {
   // (e.g. `emu.emu_sensor_vector?.(...)`) exactly like the sound exports
   // below.
   emu_sensor_vector?(index: number, x: number, y: number, z: number): void;
+  // Optional: only present for a firmware that declared at least one
+  // sensor with "kind": "stream" (emu_abi.h) and implemented the export.
+  // Unlike emu_sensor_vector (one continuous reading), this is called once
+  // PER RAW SAMPLE a real accelerometer would have produced since the last
+  // call - a trace or a live session may call it several times between two
+  // emu_tick()s. tMs shares emu_tick()'s own clock (host-driven, not wall
+  // time), so a replay stays deterministic. Every call site guards it with
+  // `?.()`, same as emu_sensor_vector.
+  emu_accel_sample?(index: number, tMs: number, ax: number, ay: number, az: number): void;
   // Optional: only present when the firmware declared an "apps" array in
   // its device descriptor (emu_abi.h, "the emulator will not call them"
   // otherwise).

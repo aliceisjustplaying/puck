@@ -69,6 +69,7 @@ const EMU_EXPORTS = [
   "emu_button",
   "emu_button_verdict",
   "emu_sensor_event",
+  "emu_accel_sample",
 ];
 
 // --app <path> overrides which single C file supplies this pack's one app

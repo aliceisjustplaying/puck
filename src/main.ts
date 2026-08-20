@@ -319,6 +319,8 @@ function describeTraceEvent(ev: TraceEvent): string {
       return `sensor[${ev.i}] @${ev.t.toFixed(1)}ms`;
     case "vector":
       return `sensor[${ev.i}] vector (${ev.x.toFixed(2)},${ev.y.toFixed(2)},${ev.z.toFixed(2)}) @${ev.t.toFixed(1)}ms`;
+    case "accel":
+      return `sensor[${ev.i}] accel (${ev.ax.toFixed(2)},${ev.ay.toFixed(2)},${ev.az.toFixed(2)}) @${ev.t.toFixed(1)}ms`;
     case "tick":
       return `tick @${ev.t.toFixed(1)}ms`;
   }

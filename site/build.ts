@@ -328,11 +328,17 @@ const COMBO_BUILD: Record<string, ComboBuild> = {
     portDoc: "apps/tinydraw/ports/web/README.md",
     blurb: "The RP2350 port's file, byte for byte, on a device with no SRAM budget of its own: the pack still vendors the same 65536-byte app arena contract, so the same reductions apply on their own merits.",
   },
+  "gameos:esp32-s3-touch-amoled-18": {
+    script: "packs/esp32-s3-touch-amoled-18/wasm/build.ts",
+    args: ["--app", "apps/gameos/ports/esp32-s3-touch-amoled-18/gameos_port.c"],
+    portDoc: "apps/gameos/ports/esp32-s3-touch-amoled-18/README.md",
+    blurb: "gameos, born on this chip family, running its own real engine: core.c, gfx.c, input.c and both games compiled unmodified against a thin compat shim, its indexed-framebuffer present pass repainted 28 rows at a time on a device with no framebuffer.",
+  },
   "gameos:rp2350-touch-amoled-18": {
     script: "packs/rp2350-touch-amoled-18/wasm/build.ts",
     args: ["--app", "apps/gameos/ports/rp2350-touch-amoled-18/gameos_port.c"],
     portDoc: "apps/gameos/ports/rp2350-touch-amoled-18/README.md",
-    blurb: "A launcher plus two of the donor's six games (GUNSHIP, LUCKY 7), most of their own code vendored byte for byte: one 150MHz core does the game logic, software rasterization AND the 2x upscale the donor's own second core and DMA hardware share.",
+    blurb: "The cross-chip port: a from-scratch reimplementation of the same gos.h contract, most of the two games' own code still vendored byte for byte, one 150MHz core doing the game logic, software rasterization AND the 2x upscale the donor's own second core and DMA hardware share.",
   },
 };
 

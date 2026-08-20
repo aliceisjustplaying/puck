@@ -147,6 +147,17 @@ void emu_sensor_event(int index) {
     rtcore_sensor_event(index);
 }
 
+// OPTIONAL (emu_abi.h). device.json declares one "kind": "stream" sensor
+// ("accel", index 0 by construction - this pack has exactly one), so this
+// is exported unconditionally rather than guarded on anything: an app that
+// never drains app_accel_read() simply lets the ring fill and wrap (see
+// runtime_core.c), the same "costs nothing to leave unread" property a
+// real sensor's own overflow would have.
+void emu_accel_sample(int index, uint32_t tMs, float ax, float ay, float az) {
+    (void)index;
+    rtcore_accel_sample(tMs, ax, ay, az);
+}
+
 /* ---- emu_device(): a fixed string is enough, same reasoning
  * example/firmware/main.c gives - nothing about this device's shape changes
  * at runtime (no "apps" array, no gestures, no tunables). MUST match
@@ -163,7 +174,10 @@ static const char g_deviceJson[] =
     "{\"id\":\"pwr\",\"label\":\"PWR\",\"edge\":\"right\",\"at\":0.62,\"longPressMs\":1500}"
     "],"
     "\"touch\":{\"points\":1},"
-    "\"sensors\":[{\"id\":\"shake\",\"kind\":\"event\"}]"
+    "\"sensors\":["
+    "{\"id\":\"shake\",\"kind\":\"event\"},"
+    "{\"id\":\"accel\",\"kind\":\"stream\",\"rateHz\":200,\"unit\":\"g\"}"
+    "]"
     "}";
 
 int emu_device(void) { return (int)(intptr_t)g_deviceJson; }

@@ -146,7 +146,13 @@
  *                 for a gravity direction); the host must not special-case
  *                 a particular id, only the "kind", so a future second
  *                 vector sensor (a compass heading, say) works with no host
- *                 change.
+ *                 change. "stream" is a SEQUENCE of raw samples at a stated
+ *                 rate, delivered via the OPTIONAL emu_accel_sample() below,
+ *                 for a firmware whose own app needs sample-rate data a
+ *                 single per-tick reading would alias away (see that
+ *                 export's own doc comment); "rateHz" on the sensor's own
+ *                 declaration is documentation for a human/host synthesizing
+ *                 samples, not something the firmware ever reads back.
  *
  *   apps          optional. Purely so the emulator can offer a jump-to-app
  *                 control. A firmware with no such concept omits it, and the
@@ -250,6 +256,35 @@ void emu_sensor_event(int index);
 // dishonesty that rule exists to catch, just for a continuous signal
 // instead of a discrete one.
 void emu_sensor_vector(int index, float x, float y, float z);
+
+/* ---- optional: a raw sensor sample stream --------------------------------
+ *
+ * Only meaningful for a sensor declared "kind": "stream" (see emu_device()'s
+ * field notes above). Unlike "vector" (one continuous, level-triggered
+ * reading, replacing whatever the app had before), a "stream" sensor is a
+ * SEQUENCE: the host calls this once per raw sample a real sensor at that
+ * rate would have produced, in chronological order, and a firmware with
+ * something to do with sample-rate data (a swing or a yank detector reading
+ * short bursts a per-tick reading would alias away - added for
+ * apps/gameos's GOLF, packs/esp32-s3-touch-amoled-18's own rationale) drains
+ * them from its own ring buffer rather than reading a single current value.
+ * A firmware with no such consumer leaves this unimplemented (unexported)
+ * and the host never calls it, same "unimplemented means uncalled" contract
+ * emu_sensor_vector() and the sound exports already use.
+ *
+ * tMs shares emu_tick()'s own clock: the host's driven timestamp, not wall
+ * time, so a trace replays this bit-identically no matter how fast or slow
+ * the host that recorded it was running. Several calls may (and, at a real
+ * sensor's rate against a real tick rate, normally will) share one tMs or
+ * arrive between two ticks with no tick in between at all - this is not an
+ * error, it is what a faster-than-frame-rate sensor looks like from the
+ * firmware's side.
+ *
+ * AXIS CONVENTION: identical to emu_sensor_vector()'s (device coordinates,
+ * units of g) - both describe readings off the same physical accelerometer,
+ * one fused/filtered, one raw.
+ */
+void emu_accel_sample(int index, uint32_t tMs, float ax, float ay, float az);
 
 /* ---- optional: what the app was last handed -------------------------------
  *

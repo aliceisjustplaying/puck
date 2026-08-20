@@ -67,6 +67,11 @@ export class Replayer {
           // with no emu_sensor_vector export just never receives it.
           emu.emu_sensor_vector?.(ev.i, ev.x, ev.y, ev.z);
           break;
+        case "accel":
+          // See replayCore.ts's identical case: unguarded optional call, a
+          // module with no emu_accel_sample export just never receives it.
+          emu.emu_accel_sample?.(ev.i, ev.t, ev.ax, ev.ay, ev.az);
+          break;
         case "tick":
           emu.emu_tick(ev.t);
           return ev.t;

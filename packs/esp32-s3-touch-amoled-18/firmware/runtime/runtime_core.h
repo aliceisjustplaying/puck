@@ -103,6 +103,50 @@ void rtcore_set_button(int index, int down);
 void rtcore_set_button_verdict(int index, int isLong);
 void rtcore_sensor_event(int index);
 
+/* ---- optional: raw accelerometer sample stream ----------------------------
+ *
+ * ADDITIVE: nothing above this comment changes shape or meaning. Added for
+ * a real esp32-gameos need (GOLF's swing detector reads sample-rate motion
+ * a per-tick reading would alias away - see this pack's docs/decisions/ for
+ * the fuller argument) and declared on device.json as a "kind": "stream"
+ * sensor, id "accel". An app that never calls app_accel_read() costs
+ * nothing beyond this ring's own static bytes; the existing app_frame_t
+ * contract (touch/key/bootClicked/shaken/nowMs/dtMs) and the band draw
+ * contract (app.h) are both untouched by this.
+ *
+ * rtcore_accel_sample() is the platform's write side, mirroring
+ * rtcore_set_touch() etc. exactly: wasm/emu_shim.c's emu_accel_sample()
+ * calls this once per sample a trace or the live page hands over (there is
+ * no board-side producer yet - see the decision record for why that is a
+ * stated follow-up, not attempted here). app_accel_read() is the app's read
+ * side, a drain (oldest first, up to `max`), the same pull shape
+ * gos_imu_accel_read()/hal_imu_accel_read() already use in the donor
+ * engine this capability exists for - so a vendored consumer needs no
+ * translation layer beyond a type rename.
+ *
+ * Samples arrive between ticks (a real ~200Hz stream against a ~60Hz
+ * tick), so this is a ring, not a single latched value like touch/button:
+ * rtcore_tick() never clears it (unlike frame.bootClicked, say) - only a
+ * drain does, so an app that only reads once every few ticks still sees
+ * every sample, not just the most recent one.
+ */
+#define APP_ACCEL_RING 64
+
+typedef struct {
+    uint32_t tMs; // shares emu_tick()'s own clock - see emu_abi.h
+    float ax, ay, az; // g units, same device-axis convention as app_tilt_t
+                      // would use on the RP2350 sibling pack (this pack
+                      // publishes no fused vector today - raw samples only)
+} app_accel_sample_t;
+
+void rtcore_accel_sample(uint32_t tMs, float ax, float ay, float az);
+
+// Drains up to `max` samples, oldest first, into `out`. Returns the number
+// actually written (0 if the ring is empty - a firmware/trace that never
+// calls rtcore_accel_sample() at all is indistinguishable from "device
+// present but currently still", never an error).
+int app_accel_read(app_accel_sample_t *out, int max);
+
 /* ---- lifecycle: what the platform drives ----------------------------------
  *
  * rtcore_init() allocates and enters the one reference app. rtcore_tick() is

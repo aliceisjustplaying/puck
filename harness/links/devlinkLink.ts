@@ -478,6 +478,15 @@ export class DevlinkLink implements HardwareLink {
         // comment, an event this link cannot deliver throws rather than
         // being silently dropped.
         throw new Error(`no devlink command for a vector sensor event (index ${event.i}): real-hardware tilt injection is not wired`);
+      case "accel":
+        // Same policy as "vector", just above, and for the same reason: no
+        // devlink command exists to inject a raw accelerometer sample onto
+        // real hardware (packs/esp32-s3-touch-amoled-18/firmware/runtime/
+        // runtime_core.c's rtcore_accel_sample() has no board-side producer
+        // yet either - see that pack's docs/decisions/0003-...). Throws
+        // rather than being silently dropped, per this function's own
+        // header comment.
+        throw new Error(`no devlink command for a raw accel sample (index ${event.i}): real-hardware accel injection is not wired`);
       case "tick":
         // Never sent: emu_tick(nowMs) is the emulator's synthetic clock and
         // has no hardware equivalent. harness/hardwareSide.ts already

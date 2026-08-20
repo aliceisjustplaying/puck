@@ -148,6 +148,11 @@ export async function replayFromBytes(bytes: ArrayBuffer, events: TraceEvent[], 
         // identically either way.
         emu.emu_sensor_vector?.(ev.i, ev.x, ev.y, ev.z);
         break;
+      case "accel":
+        // Optional export, same silent-no-op contract as "vector" above -
+        // see recorder.ts's header comment on this event kind.
+        emu.emu_accel_sample?.(ev.i, ev.t, ev.ax, ev.ay, ev.az);
+        break;
       case "tick":
         emu.emu_tick(ev.t);
         recordPushLoad();
