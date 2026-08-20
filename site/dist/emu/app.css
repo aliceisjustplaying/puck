@@ -409,6 +409,31 @@
    background rule elsewhere today, but is included here too so this stays
    correct even if one is added later without anyone remembering embed mode
    depends on staying transparent. */
+/* No scrollbars, ever, in embed mode, and no RESERVED scrollbar gutter
+   either: family-budget.css's `html { scrollbar-gutter: stable; }` (there
+   for the plain dev UI's own sidebar/stage scroll stability) was leaking
+   into embed mode too. html/body have no explicit overflow rule anywhere
+   else in this file, so the browser treats the viewport as an implicit
+   auto-scroller and honours that stable gutter unconditionally -
+   permanently reserving a vertical-scrollbar's width (~15px) on the right
+   edge even though embed mode never scrolls at all (root cause of the
+   horizontal-scrollbar-looking strip a run page's iframe showed: not a
+   real content overflow, a reserved-but-unused gutter). That reservation
+   shrinks #root/.stage's actual rendered width below the iframe's own
+   width, so centerDeviceOnce/fitDeviceToStage's otherwise-correct 50% math
+   centers the device in the SHRUNK box, landing it left of the iframe's
+   true visual centre with dead space on the right - exactly what this
+   overrides. `overflow: hidden` on both html and body (belt and braces:
+   only one of them is the actual "scrolling element" depending on
+   doctype/quirks, and paying the redundant declaration once here is
+   cheaper than depending on that browser-internal choice) plus `.stage`
+   below closes off every remaining overflow source (the base .stage rule
+   above is `overflow: auto`, needed for the plain dev UI's large draggable
+   canvas, wrong here where nothing should ever scroll). */
+html.embed, html.embed body {
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
 html.embed, html.embed body { background: transparent; }
 html.embed .topbar,
 html.embed .side.controls,
@@ -427,7 +452,26 @@ html.embed .bottom-bar {
    lets both reflow to the full width with no other rule needing to know
    embed mode exists. */
 html.embed { --sidebar-w: 0px; }
-html.embed .stage { background: transparent; min-height: 0; }
+html.embed .stage { background: transparent; min-height: 0; overflow: hidden; }
+/* FIX 2: whole-stage drag-as-accelerometer (src/motion.ts's DragMotion).
+   The draggable zone is the whole stage now, not just the bezel plastic -
+   grab/grabbing reads correctly over the background too, not just over the
+   device. .panel keeps its own inline cursor (main.ts sets it directly,
+   which always wins over this rule regardless of source order) and
+   .embed-ctrl-btn/.dev-btn keep their own pointer/default cursor for the
+   same reason - none of those are ever a drag start point (motion.ts's
+   EXCLUDED_SELECTOR), so they should never look like one either. */
+html.embed .stage { cursor: grab; }
+html.embed .dev-btn { cursor: pointer; }
+/* Forced everywhere (not just on the stage) while an actual drag is held:
+   DragMotion toggles this on <html> itself for exactly the span between
+   pointerdown and pointerup/cancel, so the cursor reads as "dragging the
+   whole zone" even where the pointer happens to be hovering a
+   higher-specificity/inline cursor rule (the panel, a button) underneath -
+   correct here because a captured drag routes every event to the stage
+   regardless of what is visually under the pointer, so nothing under it is
+   actually interactive during that span anyway. */
+html.embed.dm-dragging, html.embed.dm-dragging * { cursor: grabbing !important; }
 /* #sensorControls (main.ts moves this node into .stage-controls itself, so
    the wrap/gap it already has is enough) sits right after the rotation
    segtog in source order once moved; no extra spacing rule needed beyond

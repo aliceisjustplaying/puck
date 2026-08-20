@@ -395,35 +395,63 @@ export class PhoneMotion {
 // ---- desktop drag-as-accelerometer -----------------------------------
 // On a fine (non-touch) pointer, in embed mode, with no real phone
 // streaming its own motion (that always wins - see isEligible below),
-// grabbing the device BEZEL - never the panel, which is the app's own
-// input surface (main.ts's wirePanelInput) and must never be intercepted -
-// and dragging it simulates the phone's accelerometer, like a pendulum:
-// the bounded on-screen displacement becomes a tilt angle, composed
-// through the exact same view-rotation math PhoneMotion already uses
-// (composeViewVectorWithQuickDeg, rotate.ts) and delivered through the
+// grabbing ANYWHERE in the embed stage - the background behind the device,
+// or the bezel plastic itself, but never the panel (the app's own input
+// surface, main.ts's wirePanelInput, which must never be intercepted),
+// never the embed-controls cluster (rotate/shake), and never a declared
+// device button (.dev-btn, which must stay a plain press, not a drag
+// hijack) - and dragging simulates the phone's accelerometer, like a
+// pendulum: the bounded on-screen displacement becomes a tilt angle,
+// composed through the exact same view-rotation math PhoneMotion already
+// uses (composeViewVectorWithQuickDeg, rotate.ts) and delivered through the
 // exact same sendVector path passed in via opts - never a second, forked
 // vector-sending path.
 //
-// This class owns the bezel's own pointerdown/move/up/cancel listeners and,
-// only for a gesture it decides to claim (see onPointerDown below), calls
-// stopImmediatePropagation() to keep device.ts's makeDraggable listener -
-// registered on the SAME bezel element, afterwards, in main.ts's
-// wireStaticUI - from also reacting to the same gesture as a free,
-// unbounded reposition. The two behaviours must never both apply to one
-// drag. Every gesture this class does not claim (dev UI, touch, real phone
-// motion already streaming, a device with neither a vector nor a shake
-// sensor declared) is left completely untouched: the event is never even
-// looked at, and makeDraggable's own existing behaviour is exactly what
-// runs, byte for byte the same as before this class existed. The one
-// accepted side effect of claiming a gesture: stopImmediatePropagation also
-// keeps it from bubbling to main.ts's document-level audio-unlock listener,
-// which is fine, since that unlock is idempotent and only ever needs ANY
-// one gesture to have happened, not specifically this one.
-const DRAG_MAX_RADIUS_PX = 40;
+// This class owns the STAGE's own pointerdown/move/up/cancel listeners
+// (not just the bezel's - see EXCLUDED_SELECTOR below for what carves
+// itself out of that zone) and, only for a gesture it decides to claim
+// (see onPointerDown below), calls stopImmediatePropagation(). In embed
+// mode device.ts's makeDraggable is never even wired (main.ts's
+// wireStaticUI guards that call on !EMBED), so there is no competing free-
+// drag listener to defend against here any more; the one remaining,
+// accepted side effect of claiming a gesture is keeping it from bubbling to
+// main.ts's document-level audio-unlock listener, which is fine, since that
+// unlock is idempotent and only ever needs ANY one gesture to have
+// happened, not specifically this one. Every gesture this class does not
+// claim (an excluded target, touch, real phone motion already streaming, a
+// device with neither a vector nor a shake sensor declared) is left
+// completely untouched: the event is never even looked at, and that
+// target's own handler (panel input, a button's wireButton, a rotate/shake
+// click) runs exactly as if this class did not exist, because target-phase
+// listeners on the actual element always run before a bubbled listener up
+// at the stage even sees the event.
+const EXCLUDED_SELECTOR = ".panel, .embed-controls, .dev-btn";
+
+// Capped well before the stage edge (DRAG_MAX_TILT_DEG below), reached at a
+// RADIUS PROPORTIONAL to the device's own on-screen size rather than a
+// fixed pixel count: computed fresh at the start of every drag from the
+// bezel's own current getBoundingClientRect() (post embed-scale, so this
+// stays correct whether the device is shown at 1x on a wide desktop stage
+// or scaled down on a narrow one). 35% of the device's smaller on-screen
+// dimension is the choice: small enough that a drag of roughly a third of
+// the device's own body already reads as a full pendulum swing (a natural
+// "push it over" gesture), independent of how much further the pointer is
+// still allowed to travel across the rest of a much larger stage before
+// hitting the position bound below.
+const DRAG_TILT_RADIUS_FRACTION = 0.35;
 const DRAG_MAX_TILT_DEG = 60;
 const DRAG_SPRING_MS = 200;
 
 export interface DragMotionOptions {
+  // The whole draggable zone: pointerdown anywhere in here (background or
+  // bezel, minus EXCLUDED_SELECTOR) starts a drag. Previously just the
+  // bezel; see this class's own header comment for why the whole stage is
+  // now the listen target.
+  stage: HTMLElement;
+  // The device chrome itself: read-only here (getBoundingClientRect()), to
+  // size the position bound (stage rect minus the device's own extents)
+  // and the tilt-saturation radius above - never a second listen target,
+  // the stage is.
   bezel: HTMLElement;
   getQuickDeg: () => number;
   sendVector: (x: number, y: number, z: number, source: string) => void;
@@ -457,14 +485,31 @@ export class DragMotion {
   private startY = 0;
   private offsetX = 0;
   private offsetY = 0;
+  // Position bound, computed fresh at the start of every drag from the
+  // stage's and the bezel's own current getBoundingClientRect() (see
+  // onPointerDown): how far the device is allowed to travel in each
+  // direction from wherever it started before its own edge would leave the
+  // stage. Four independent numbers, not a single radius, because the
+  // device sits off-centre vertically in embed mode (the controls row
+  // reserves space below it - app.css's html.embed .device-wrap) and the
+  // stage itself is rarely square, so "room to the right" and "room to the
+  // left" are genuinely different quantities.
+  private boundLeft = 0;
+  private boundRight = 0;
+  private boundTop = 0;
+  private boundBottom = 0;
+  // Tilt-saturation radius for THIS drag, in px - see DRAG_TILT_RADIUS_FRACTION's
+  // own header comment for why this is a fraction of the bezel's own
+  // on-screen size rather than a fixed constant.
+  private tiltRadiusPx = 1;
   private lastVector: Vector3 = { x: 0, y: 1, z: 0 };
   private springRaf = 0;
 
   constructor(private readonly opts: DragMotionOptions) {
-    opts.bezel.addEventListener("pointerdown", this.onPointerDown);
-    opts.bezel.addEventListener("pointermove", this.onPointerMove);
-    opts.bezel.addEventListener("pointerup", this.onPointerUp);
-    opts.bezel.addEventListener("pointercancel", this.onPointerUp);
+    opts.stage.addEventListener("pointerdown", this.onPointerDown);
+    opts.stage.addEventListener("pointermove", this.onPointerMove);
+    opts.stage.addEventListener("pointerup", this.onPointerUp);
+    opts.stage.addEventListener("pointercancel", this.onPointerUp);
   }
 
   // The view-space vector the panel rests at when nobody is dragging: the
@@ -478,18 +523,44 @@ export class DragMotion {
   }
 
   private readonly onPointerDown = (e: PointerEvent): void => {
-    if (e.target !== this.opts.bezel) return; // bare plastic only, exactly device.ts's own makeDraggable rule
-    if (isTouchCapable()) return; // fine pointer only - a touch drag is the dev UI's plain free-drag, untouched
+    // Anywhere in the stage EXCEPT the panel, the embed-controls cluster,
+    // and a declared device button - see EXCLUDED_SELECTOR's own header
+    // comment. closest() (not a strict equality check) so a click landing
+    // on a descendant of any of those (an icon svg inside a rotate button,
+    // for instance) is excluded too, not just the exact element.
+    if (e.target instanceof Element && e.target.closest(EXCLUDED_SELECTOR)) return;
+    if (isTouchCapable()) return; // fine pointer only - a touch drag gets nothing here at all
     if (!this.opts.isEligible() || !(this.opts.hasVector() || this.opts.hasShake())) return;
     if (this.springRaf) {
       cancelAnimationFrame(this.springRaf);
       this.springRaf = 0;
     }
+    // Bound = stage rect minus the device's own current extents, computed
+    // once per drag from real, live geometry - never a fixed pixel radius,
+    // so this stays correct at every embed-scale and every stage size a
+    // run page's iframe hands it (see site/build.ts's embedFrameSize).
+    const stageRect = this.opts.stage.getBoundingClientRect();
+    const bezelRect = this.opts.bezel.getBoundingClientRect();
+    this.boundLeft = Math.max(0, bezelRect.left - stageRect.left);
+    this.boundRight = Math.max(0, stageRect.right - bezelRect.right);
+    this.boundTop = Math.max(0, bezelRect.top - stageRect.top);
+    this.boundBottom = Math.max(0, stageRect.bottom - bezelRect.bottom);
+    this.tiltRadiusPx = Math.max(1, Math.min(bezelRect.width, bezelRect.height) * DRAG_TILT_RADIUS_FRACTION);
     this.capturing = true;
     this.activePointerId = e.pointerId;
     this.startX = e.clientX;
     this.startY = e.clientY;
-    this.opts.bezel.setPointerCapture(e.pointerId);
+    // See app.css's "html.embed.dm-dragging" rule: forces a grabbing
+    // cursor everywhere for the span of this drag, regardless of which
+    // element's own cursor CSS is under the pointer at any given moment.
+    document.documentElement.classList.add("dm-dragging");
+    // Captured on the STAGE (the element these listeners are actually
+    // registered on), not the original click target - this is what lets
+    // the drag keep tracking the pointer across the whole zone, including
+    // past the bezel's own edge onto bare background, and even past the
+    // stage's own edge (updateFromClient's clamp is what keeps the VISUAL
+    // offset bounded, capture just keeps delivering move/up events to us).
+    this.opts.stage.setPointerCapture(e.pointerId);
     e.stopImmediatePropagation();
     e.preventDefault();
     this.updateFromClient(e.clientX, e.clientY, performance.now());
@@ -506,22 +577,33 @@ export class DragMotion {
     e.stopImmediatePropagation();
     this.capturing = false;
     this.activePointerId = null;
+    document.documentElement.classList.remove("dm-dragging");
     this.springBack();
   };
 
   private updateFromClient(clientX: number, clientY: number, now: number): void {
     const dx = clientX - this.startX;
     const dy = clientY - this.startY;
-    const dist = Math.hypot(dx, dy);
-    const clamped = Math.min(dist, DRAG_MAX_RADIUS_PX);
-    const ux = dist > 0 ? dx / dist : 0;
-    const uy = dist > 0 ? dy / dist : 0;
-    this.offsetX = ux * clamped;
-    this.offsetY = uy * clamped;
+    // Position: clamped independently per axis/direction to this drag's own
+    // bound (room to the stage's own edges), so the device follows the
+    // pointer everywhere inside the zone and simply stops at the edge
+    // rather than snapping or fighting the cursor beyond it.
+    this.offsetX = clamp(dx, -this.boundLeft, this.boundRight);
+    this.offsetY = clamp(dy, -this.boundTop, this.boundBottom);
     this.opts.onOffsetChanged(this.offsetX, this.offsetY);
 
     if (this.opts.hasVector()) {
-      const ratio = clamped / DRAG_MAX_RADIUS_PX;
+      // Tilt direction/magnitude tracks the device's ACTUAL (bounded)
+      // on-screen displacement, not the raw unclamped pointer delta - once
+      // the device stops moving at the position bound, the tilt stops
+      // changing too, exactly like a real pendulum can't swing further once
+      // its own arm is fully extended. Saturates at this drag's own
+      // tiltRadiusPx (see DRAG_TILT_RADIUS_FRACTION), independent of and
+      // typically far smaller than the position bound.
+      const dist = Math.hypot(this.offsetX, this.offsetY);
+      const ux = dist > 0 ? this.offsetX / dist : 0;
+      const uy = dist > 0 ? this.offsetY / dist : 0;
+      const ratio = Math.min(dist, this.tiltRadiusPx) / this.tiltRadiusPx;
       const tilt = (ratio * DRAG_MAX_TILT_DEG * Math.PI) / 180;
       // A pendulum: the baseline "hanging straight down" view vector
       // (0,1,0) tilted toward the drag direction - sideways drag (ux)

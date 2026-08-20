@@ -9,6 +9,15 @@
 // check for this page (FIX 2): a real, non-touch viewport must never show
 // the "tilt with your phone" chip.
 //
+// Whole-stage drag pass (bezel-grab-only -> the entire embed stage):
+// grabbing bare STAGE BACKGROUND, well away from the bezel, must move the
+// device and steer the vector exactly like grabbing the bezel plastic
+// itself; the panel and #embedControls (rotate/shake) must both stay
+// completely un-hijackable drag surfaces, proven here by clicking them
+// after the whole-stage listener is live and confirming the device was
+// never displaced sideways; and every drag, wherever it started, still
+// springs back to centre on release.
+//
 // PRECONDITION: wasm/dist/emu.wasm must be the fluidbox module with shake:
 //   ZIG_EXE=<path> bun run pack:build -- --app apps/fluidbox/ports/rp2350-touch-amoled-18/fluid.c --shake
 //
@@ -62,6 +71,20 @@ const server = Bun.spawn(["bun", "run", "server.ts"], {
   stdout: "pipe",
   stderr: "pipe",
 });
+
+// getBoundingClientRect()'s own properties live on its prototype, not as
+// own enumerable fields (same gotcha scripts/verify-embed.ts's own
+// bezelRect helper already documents) - returning it straight from
+// page.$eval loses every field to serialization (x/y/etc. all come back
+// undefined, silently turning every numeric comparison below into a NaN
+// comparison that never fails). Every rect read in this file goes through
+// this helper so that mistake cannot recur field-by-field.
+async function rectOf(page: import("puppeteer-core").Page, selector: string): Promise<{ x: number; y: number; width: number; height: number; left: number; top: number; right: number; bottom: number }> {
+  return page.$eval(selector, (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height, left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+  });
+}
 
 // Same technique verify-tilt.ts/verify-motion.ts already use: the single
 // most common RGBA colour is "background", the centroid of every other
@@ -146,7 +169,15 @@ try {
 
   await page.mouse.move(dragX, dragY);
   await page.mouse.down();
-  const DRAG_PX = 35; // within DragMotion's 40px max radius
+  // Whole-stage drag (FIX 2): the position bound is now the stage minus the
+  // device's own extents, so a fixed small px count is no longer a
+  // meaningful "near max tilt" distance - motion.ts's DragMotion saturates
+  // tilt at DRAG_TILT_RADIUS_FRACTION (35%) of the bezel's own on-screen
+  // size instead. 90% of that same radius lands comfortably inside the
+  // saturated zone regardless of viewport/scale, mirroring the production
+  // formula rather than a magic number picked to fit the old 40px bound.
+  const tiltRadiusPx = Math.min(bezelBox.width, bezelBox.height) * 0.35;
+  const DRAG_PX = Math.round(tiltRadiusPx * 0.9);
   const STEPS = 8;
   for (let i = 1; i <= STEPS; i++) {
     await page.mouse.move(dragX + (DRAG_PX * i) / STEPS, dragY);
@@ -175,7 +206,7 @@ try {
   }
   console.log(`fluid moved ${recovered.toFixed(1)}px back toward baseline after release`);
 
-  const bezelAfterRelease = await page.$eval("#bezel", (el) => el.getBoundingClientRect());
+  const bezelAfterRelease = await rectOf(page, "#bezel");
   if (Math.abs(bezelAfterRelease.x - bezelBox.x) > 1 || Math.abs(bezelAfterRelease.y - bezelBox.y) > 1) {
     fail(`bezel did not spring back to its original position: was (${bezelBox.x},${bezelBox.y}), now (${bezelAfterRelease.x},${bezelAfterRelease.y})`);
   }
@@ -202,7 +233,7 @@ try {
   await new Promise((r) => setTimeout(r, 500)); // let the spring-back from this gesture finish too
 
   // ---- panel drag: still paints app input, never moves the device --------
-  const bezelBeforePanelDrag = await page.$eval("#bezel", (el) => el.getBoundingClientRect());
+  const bezelBeforePanelDrag = await rectOf(page, "#bezel");
   const panelBox = await page.$eval("#panel", (el) => {
     const r = el.getBoundingClientRect();
     return { x: r.x, y: r.y, width: r.width, height: r.height };
@@ -232,7 +263,7 @@ try {
   console.log(`panel pixels changed after dragging the PANEL: ${panelChanged} byte(s)`);
   if (panelChanged === 0) fail("dragging the panel did not paint any app input - panel input path is broken");
 
-  const bezelAfterPanelDrag = await page.$eval("#bezel", (el) => el.getBoundingClientRect());
+  const bezelAfterPanelDrag = await rectOf(page, "#bezel");
   if (Math.abs(bezelAfterPanelDrag.x - bezelBeforePanelDrag.x) > 1 || Math.abs(bezelAfterPanelDrag.y - bezelBeforePanelDrag.y) > 1) {
     fail(
       `dragging the PANEL moved/translated the device element: was (${bezelBeforePanelDrag.x},${bezelBeforePanelDrag.y}), ` +
@@ -241,8 +272,107 @@ try {
   }
   console.log("dragging the panel painted app input and left the device element exactly where it was");
 
+  // ---- FIX 2: whole-stage drag - a grab starting on bare STAGE BACKGROUND,
+  // well away from the bezel, still moves the device and steers the vector.
+  // Picked near the stage's top-left corner: outside the bezel's own rect,
+  // outside #embedControls (bottom row), and never the panel.
+  const stageBox = await page.$eval("#stage", (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+  const bgX = stageBox.x + 16;
+  const bgY = stageBox.y + 16;
+  const bgTarget = await page.evaluate((p) => {
+    const el = document.elementFromPoint(p.x, p.y);
+    return el ? el.id || el.tagName : null;
+  }, { x: bgX, y: bgY });
+  if (bgTarget !== "stage") fail(`background drag point (${bgX},${bgY}) does not resolve to #stage (got "${bgTarget}") - geometry assumption is wrong`);
+  console.log(`background point (${bgX.toFixed(0)}, ${bgY.toFixed(0)}) resolves to #stage, as expected`);
+
+  const bezelBeforeBgDrag = await rectOf(page, "#bezel");
+  const bgBefore = await readCentroid(page);
+  await page.mouse.move(bgX, bgY);
+  await page.mouse.down();
+  const BG_DRAG_PX = Math.round(tiltRadiusPx * 0.9);
+  for (let i = 1; i <= STEPS; i++) {
+    await page.mouse.move(bgX + (BG_DRAG_PX * i) / STEPS, bgY);
+    await new Promise((r) => setTimeout(r, 30));
+  }
+  console.log(`dragged from stage background +${BG_DRAG_PX}px sideways, holding...`);
+  await new Promise((r) => setTimeout(r, 3000));
+
+  const bezelDuringBgDrag = await rectOf(page, "#bezel");
+  const bgMoved = Math.hypot(bezelDuringBgDrag.x - bezelBeforeBgDrag.x, bezelDuringBgDrag.y - bezelBeforeBgDrag.y);
+  if (bgMoved < 15) {
+    fail(`dragging from the stage background moved the device only ${bgMoved.toFixed(1)}px - whole-stage drag is not reaching the device`);
+  }
+  console.log(`device followed the background drag: moved ${bgMoved.toFixed(1)}px`);
+
+  const bgHeld = await readCentroid(page);
+  const bgHeldShift = Math.abs(bgHeld.cx - bgBefore.cx) + Math.abs(bgHeld.cy - bgBefore.cy);
+  if (bgHeldShift < 10) {
+    fail(`fluid centroid barely moved (${bgHeldShift.toFixed(1)}px total) after a background drag - the tilt vector is not being steered`);
+  }
+  console.log(`fluid centroid shifted ${bgHeldShift.toFixed(1)}px total after the background drag - tilt vector is steered`);
+
+  await page.mouse.up();
+  await new Promise((r) => setTimeout(r, 1000));
+  const bezelAfterBgDrag = await rectOf(page, "#bezel");
+  if (Math.abs(bezelAfterBgDrag.x - bezelBeforeBgDrag.x) > 1 || Math.abs(bezelAfterBgDrag.y - bezelBeforeBgDrag.y) > 1) {
+    fail(
+      `bezel did not spring back to centre after a background-started drag: was (${bezelBeforeBgDrag.x},${bezelBeforeBgDrag.y}), ` +
+        `now (${bezelAfterBgDrag.x},${bezelAfterBgDrag.y})`
+    );
+  }
+  console.log("device returned to centre after releasing a background-started drag");
+
+  // ---- FIX 2: clicking rotate/shake in #embedControls still works, no
+  // drag hijack - a pointerdown landing inside .embed-controls must never
+  // be claimed by DragMotion (motion.ts's EXCLUDED_SELECTOR), so the
+  // button's own click handler fires normally and the device is never
+  // displaced sideways the way an actual drag would displace it.
+  const bezelBeforeCtrlClick = await rectOf(page, "#bezel");
+  const wasPortraitBeforeClick = bezelBeforeCtrlClick.height > bezelBeforeCtrlClick.width;
+  await page.click('#embedControls .embed-ctrl-btn[aria-label="rotate"]');
+  await new Promise((r) => setTimeout(r, 300));
+  const bezelAfterCtrlClick = await rectOf(page, "#bezel");
+  const isPortraitAfterClick = bezelAfterCtrlClick.height > bezelAfterCtrlClick.width;
+  if (wasPortraitBeforeClick === isPortraitAfterClick) {
+    fail("clicking the embed rotate button did not visibly rotate the device (orientation did not flip) - FIX 2 may have broken it");
+  }
+  console.log("clicking the embed rotate button still rotates the device");
+  const ctrlClickCenterX = (bezelAfterCtrlClick.left + bezelAfterCtrlClick.right) / 2;
+  const beforeClickCenterX = (bezelBeforeCtrlClick.left + bezelBeforeCtrlClick.right) / 2;
+  if (Math.abs(ctrlClickCenterX - beforeClickCenterX) > 3) {
+    fail(
+      `clicking the embed rotate button also displaced the device sideways (centre x ${beforeClickCenterX.toFixed(1)} -> ` +
+        `${ctrlClickCenterX.toFixed(1)}) - looks like the click was hijacked into a drag`
+    );
+  }
+  console.log("clicking the embed rotate button did not displace the device - no drag hijack");
+
+  const shakeBtnVisible = await page.evaluate(() => {
+    const el = document.querySelector('#embedControls .embed-ctrl-btn[aria-label="shake"]') as HTMLElement | null;
+    return !!el && el.offsetParent !== null;
+  });
+  if (shakeBtnVisible) {
+    const consoleShakeBefore = await page.$$eval("#consolePane .console-line", (els) => els.length);
+    const bezelBeforeShakeClick = await rectOf(page, "#bezel");
+    await page.click('#embedControls .embed-ctrl-btn[aria-label="shake"]');
+    await new Promise((r) => setTimeout(r, 300));
+    const consoleShakeAfter = await page.$$eval("#consolePane .console-line", (els) => els.length);
+    if (consoleShakeAfter <= consoleShakeBefore) fail("clicking the embed shake button did not log anything - click may not have reached its handler");
+    const bezelAfterShakeClick = await rectOf(page, "#bezel");
+    if (Math.abs(bezelAfterShakeClick.x - bezelBeforeShakeClick.x) > 3 || Math.abs(bezelAfterShakeClick.y - bezelBeforeShakeClick.y) > 3) {
+      fail("clicking the embed shake button displaced the device - looks like the click was hijacked into a drag");
+    }
+    console.log("clicking the embed shake button still fires and did not displace the device - no drag hijack");
+  }
+
   console.log(
-    "\nPASS: no chip on desktop, bezel drag steers the shared vector ABI path and springs back, a wiggle drag fires the shared shake path, and panel dragging is untouched"
+    "\nPASS: no chip on desktop, bezel drag and stage-background drag both steer the shared vector ABI path and spring back, " +
+      "a wiggle drag fires the shared shake path, panel dragging is untouched, and clicking rotate/shake in #embedControls " +
+      "still works with no drag hijack"
   );
 } finally {
   if (browser) await closeBrowser(browser);

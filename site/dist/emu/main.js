@@ -84,6 +84,106 @@ function validateAudioBuffer(memory, framesPtr, frameCount, sampleRate) {
   return { ok: true };
 }
 
+// src/wasiLite.ts
+var WASI_MODULE = "wasi_snapshot_preview1";
+var SUPPORTED_WASI_IMPORTS = ["clock_time_get", "fd_write", "proc_exit", "random_get"];
+var DEFAULT_TRACE_SEED = 1347767089;
+var ERRNO_SUCCESS = 0;
+var ERRNO_BADF = 8;
+var FD_STDOUT = 1;
+var FD_STDERR = 2;
+function makePrng(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = state + 1831565813 >>> 0;
+    let t = state;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return (t ^ t >>> 14) >>> 0 & 255;
+  };
+}
+function wasiImportNames(imports) {
+  const seen = new Set;
+  for (const imp of imports) {
+    if (imp.module === WASI_MODULE)
+      seen.add(imp.name);
+  }
+  return [...seen];
+}
+function unsupportedWasiImports(names) {
+  const supported = new Set(SUPPORTED_WASI_IMPORTS);
+  return names.filter((n) => !supported.has(n)).sort();
+}
+function unsupportedWasiMessage(unsupported) {
+  return `wasm module imports ${unsupported.map((n) => `${WASI_MODULE}.${n}`).join(", ")}, which this emulator does not provide. ` + `Supported ${WASI_MODULE} imports: ${SUPPORTED_WASI_IMPORTS.join(", ")}. ` + `This is WASI-lite, not WASI: only imports that can be answered deterministically from a trace are shimmed ` + `(see docs/decisions/0004-wasi-lite-not-wasi.md). Build against wasm32-freestanding, or stop linking whatever pulls these in.`;
+}
+
+class ProcExitError extends Error {
+  code;
+  constructor(code) {
+    super(`module called ${WASI_MODULE}.proc_exit(${code}): a puck module never exits, it returns from emu_tick() and is called again. ` + `This halt is fatal for this instance; nothing after it ran.`);
+    this.code = code;
+    this.name = "ProcExitError";
+  }
+}
+function buildWasiLite(host) {
+  const nextByte = makePrng(host.seed);
+  const view = () => {
+    const memory = host.getMemory();
+    return memory ? new DataView(memory.buffer) : null;
+  };
+  return {
+    fd_write: (fd, iovsPtr, iovsLen, nwrittenPtr) => {
+      if (fd !== FD_STDOUT && fd !== FD_STDERR)
+        return ERRNO_BADF;
+      const memory = host.getMemory();
+      const dv = view();
+      if (!memory || !dv)
+        return ERRNO_BADF;
+      const bytes = [];
+      let written = 0;
+      for (let i = 0;i < iovsLen; i++) {
+        const base = iovsPtr + i * 8;
+        const ptr = dv.getUint32(base, true);
+        const len = dv.getUint32(base + 4, true);
+        const chunk = new Uint8Array(memory.buffer, ptr, len);
+        for (const b of chunk)
+          bytes.push(b);
+        written += len;
+      }
+      const text = new TextDecoder().decode(new Uint8Array(bytes));
+      const lines = text.split(`
+`);
+      if (lines.length > 1 && lines[lines.length - 1] === "")
+        lines.pop();
+      for (const line of lines)
+        host.onLog(line);
+      dv.setUint32(nwrittenPtr, written, true);
+      return ERRNO_SUCCESS;
+    },
+    clock_time_get: (_clockId, _precision, timePtr) => {
+      const dv = view();
+      if (!dv)
+        return ERRNO_BADF;
+      const ns = BigInt(Math.max(0, Math.floor(host.nowMs()))) * 1000000n;
+      dv.setBigUint64(timePtr, ns, true);
+      return ERRNO_SUCCESS;
+    },
+    random_get: (bufPtr, bufLen) => {
+      const memory = host.getMemory();
+      if (!memory)
+        return ERRNO_BADF;
+      const out = new Uint8Array(memory.buffer, bufPtr, bufLen);
+      for (let i = 0;i < bufLen; i++)
+        out[i] = nextByte();
+      return ERRNO_SUCCESS;
+    },
+    proc_exit: (code) => {
+      throw new ProcExitError(code);
+    }
+  };
+}
+
 // src/wasm.ts
 var DEFAULT_WASM_URL = "wasm/emu.wasm";
 function buildImportObject(onLog, getMemory) {
@@ -126,24 +226,53 @@ function hasWasmMagic(bytes) {
   const b = new Uint8Array(bytes, 0, 4);
   return b[0] === 0 && b[1] === 97 && b[2] === 115 && b[3] === 109;
 }
-async function instantiate(bytes, onLog) {
+async function instantiate(bytes, onLog, options = {}) {
   if (!hasWasmMagic(bytes)) {
     throw new Error(`not a valid wasm module: bad magic bytes (${bytes.byteLength} bytes read). ` + `This usually means the file was read mid-rebuild; wait a moment and retry.`);
   }
-  let memory;
-  const importObject = buildImportObject(onLog, () => memory);
-  let result;
+  let module;
   try {
-    result = await WebAssembly.instantiate(bytes, importObject);
+    module = await WebAssembly.compile(bytes);
   } catch (err) {
     throw err instanceof Error ? err : new Error(String(err));
   }
-  const exports = result.instance.exports;
+  let memory;
+  let lastNowMs = 0;
+  const importObject = buildImportObject(onLog, () => memory);
+  const wasiNames = wasiImportNames(WebAssembly.Module.imports(module));
+  const wantsWasi = wasiNames.length > 0;
+  if (wantsWasi) {
+    const unsupported = unsupportedWasiImports(wasiNames);
+    if (unsupported.length > 0)
+      throw new Error(unsupportedWasiMessage(unsupported));
+    importObject[WASI_MODULE] = buildWasiLite({
+      onLog,
+      getMemory: () => memory,
+      nowMs: () => lastNowMs,
+      seed: options.seed ?? DEFAULT_TRACE_SEED
+    });
+  }
+  let instance;
+  try {
+    instance = await WebAssembly.instantiate(module, importObject);
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+  const exports = instance.exports;
   memory = exports.memory;
   if (!memory) {
     throw new Error("wasm module has no exported 'memory'; the emulator reads the framebuffer and emu_device() through it.");
   }
-  return exports;
+  if (!wantsWasi)
+    return exports;
+  const rawTick = exports.emu_tick.bind(exports);
+  return {
+    ...exports,
+    emu_tick(nowMs) {
+      lastNowMs = nowMs;
+      rawTick(nowMs);
+    }
+  };
 }
 function readCString(memory, ptr) {
   const bytes = new Uint8Array(memory.buffer);
@@ -1031,9 +1160,9 @@ function escapeHtml(s) {
 }
 
 // src/replayCore.ts
-async function replayFromBytes(bytes, events, capturePoints) {
+async function replayFromBytes(bytes, events, capturePoints, options = {}) {
   const log = [];
-  const emu = await instantiate(bytes, (text) => log.push(text));
+  const emu = await instantiate(bytes, (text) => log.push(text), { seed: options.seed });
   if (emu.emu_init() === 0)
     throw new Error("emu_init() returned 0");
   const device = readDeviceDescriptor(emu);
@@ -1820,7 +1949,8 @@ class PhoneMotion {
     });
   }
 }
-var DRAG_MAX_RADIUS_PX = 40;
+var EXCLUDED_SELECTOR = ".panel, .embed-controls, .dev-btn";
+var DRAG_TILT_RADIUS_FRACTION = 0.35;
 var DRAG_MAX_TILT_DEG = 60;
 var DRAG_SPRING_MS = 200;
 function clamp3(v, lo, hi) {
@@ -1842,20 +1972,25 @@ class DragMotion {
   startY = 0;
   offsetX = 0;
   offsetY = 0;
+  boundLeft = 0;
+  boundRight = 0;
+  boundTop = 0;
+  boundBottom = 0;
+  tiltRadiusPx = 1;
   lastVector = { x: 0, y: 1, z: 0 };
   springRaf = 0;
   constructor(opts) {
     this.opts = opts;
-    opts.bezel.addEventListener("pointerdown", this.onPointerDown);
-    opts.bezel.addEventListener("pointermove", this.onPointerMove);
-    opts.bezel.addEventListener("pointerup", this.onPointerUp);
-    opts.bezel.addEventListener("pointercancel", this.onPointerUp);
+    opts.stage.addEventListener("pointerdown", this.onPointerDown);
+    opts.stage.addEventListener("pointermove", this.onPointerMove);
+    opts.stage.addEventListener("pointerup", this.onPointerUp);
+    opts.stage.addEventListener("pointercancel", this.onPointerUp);
   }
   baselineVector() {
     return composeViewVectorWithQuickDeg({ x: 0, y: 1, z: 0 }, this.opts.getQuickDeg());
   }
   onPointerDown = (e) => {
-    if (e.target !== this.opts.bezel)
+    if (e.target instanceof Element && e.target.closest(EXCLUDED_SELECTOR))
       return;
     if (isTouchCapable())
       return;
@@ -1865,11 +2000,19 @@ class DragMotion {
       cancelAnimationFrame(this.springRaf);
       this.springRaf = 0;
     }
+    const stageRect = this.opts.stage.getBoundingClientRect();
+    const bezelRect = this.opts.bezel.getBoundingClientRect();
+    this.boundLeft = Math.max(0, bezelRect.left - stageRect.left);
+    this.boundRight = Math.max(0, stageRect.right - bezelRect.right);
+    this.boundTop = Math.max(0, bezelRect.top - stageRect.top);
+    this.boundBottom = Math.max(0, stageRect.bottom - bezelRect.bottom);
+    this.tiltRadiusPx = Math.max(1, Math.min(bezelRect.width, bezelRect.height) * DRAG_TILT_RADIUS_FRACTION);
     this.capturing = true;
     this.activePointerId = e.pointerId;
     this.startX = e.clientX;
     this.startY = e.clientY;
-    this.opts.bezel.setPointerCapture(e.pointerId);
+    document.documentElement.classList.add("dm-dragging");
+    this.opts.stage.setPointerCapture(e.pointerId);
     e.stopImmediatePropagation();
     e.preventDefault();
     this.updateFromClient(e.clientX, e.clientY, performance.now());
@@ -1886,20 +2029,20 @@ class DragMotion {
     e.stopImmediatePropagation();
     this.capturing = false;
     this.activePointerId = null;
+    document.documentElement.classList.remove("dm-dragging");
     this.springBack();
   };
   updateFromClient(clientX, clientY, now) {
     const dx = clientX - this.startX;
     const dy = clientY - this.startY;
-    const dist = Math.hypot(dx, dy);
-    const clamped = Math.min(dist, DRAG_MAX_RADIUS_PX);
-    const ux = dist > 0 ? dx / dist : 0;
-    const uy = dist > 0 ? dy / dist : 0;
-    this.offsetX = ux * clamped;
-    this.offsetY = uy * clamped;
+    this.offsetX = clamp3(dx, -this.boundLeft, this.boundRight);
+    this.offsetY = clamp3(dy, -this.boundTop, this.boundBottom);
     this.opts.onOffsetChanged(this.offsetX, this.offsetY);
     if (this.opts.hasVector()) {
-      const ratio = clamped / DRAG_MAX_RADIUS_PX;
+      const dist = Math.hypot(this.offsetX, this.offsetY);
+      const ux = dist > 0 ? this.offsetX / dist : 0;
+      const uy = dist > 0 ? this.offsetY / dist : 0;
+      const ratio = Math.min(dist, this.tiltRadiusPx) / this.tiltRadiusPx;
       const tilt = ratio * DRAG_MAX_TILT_DEG * Math.PI / 180;
       const view = { x: Math.sin(tilt) * ux, y: Math.cos(tilt), z: Math.sin(tilt) * uy };
       this.lastVector = composeViewVectorWithQuickDeg(view, this.opts.getQuickDeg());
@@ -2010,6 +2153,7 @@ var phoneMotion = new PhoneMotion({
   mountTo: () => embedControlsRow ?? stageEl
 });
 var dragMotion = new DragMotion({
+  stage: stageEl,
   bezel: bezelEl,
   getQuickDeg: () => quickDeg,
   sendVector: (x, y, z, source) => sendVector(x, y, z, source),

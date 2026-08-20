@@ -190,12 +190,14 @@ const phoneMotion = new PhoneMotion({
   mountTo: () => embedControlsRow ?? stageEl,
 });
 
-// See motion.ts's DragMotion header comment for the full gating rationale
-// and why this constructs BEFORE wireStaticUI's own makeDraggable(bezelEl,
-// ...) call below (module top-level code runs before boot() calls
-// wireStaticUI, so this listener always registers first, which is what
-// lets its stopImmediatePropagation() actually pre-empt makeDraggable's).
+// See motion.ts's DragMotion header comment for the full gating rationale.
+// In embed mode wireStaticUI never calls device.ts's makeDraggable at all
+// (its own "if (!EMBED)" guard below), so there is no competing bezel-drag
+// listener to pre-empt any more - this still constructs before boot() runs
+// wireStaticUI (module top-level code runs first) purely so the listener
+// exists before the very first pointerdown a visitor could ever produce.
 const dragMotion = new DragMotion({
+  stage: stageEl,
   bezel: bezelEl,
   getQuickDeg: () => quickDeg,
   sendVector: (x, y, z, source) => sendVector(x, y, z, source),
@@ -1651,11 +1653,9 @@ function wireStaticUI(): void {
   // gated inside device.ts's makeDraggable, so the dev UI keeps its exact
   // prior behaviour byte for byte. The embed's own accelerometer
   // simulation (motion.ts's DragMotion, constructed above, fine-pointer
-  // only) is unaffected: it owns the bezel's pointer listeners
-  // independently and already claims every gesture it wants via
-  // stopImmediatePropagation before makeDraggable would ever see it, so
-  // nothing here is needed to protect that path - this is purely about
-  // not registering the free-drag listener at all when embedded.
+  // only, listening on the whole stage) is unaffected either way - this is
+  // purely about not registering the free-drag listener at all when
+  // embedded.
   if (!EMBED) {
     makeDraggable(bezelEl, deviceWrapEl, onPuckDrag);
     bezelEl.title = "drag to move; shake it back and forth to trigger the shake sensor";

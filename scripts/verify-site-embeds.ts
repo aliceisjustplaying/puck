@@ -279,6 +279,58 @@ try {
     const status = result!.ok ? "fits" : "OVERFLOWS";
     console.log(`  [${width}px] ${file}: device ${status} (${result!.reason})`);
     if (!result!.ok) fail(`${file} @ ${width}px: embedded device overflows its iframe viewport (${result!.reason})`);
+
+    // No scrollbar INSIDE the embedded emu document itself, in either axis
+    // - a different check from the outer page's own scrollWidth above: this
+    // is the emu/index.html?embed=1 document's own html/body, one browsing
+    // context down. Root cause this guards against: family-budget.css's
+    // `html { scrollbar-gutter: stable; }` reserving a permanent vertical-
+    // scrollbar gutter even with nothing to scroll, which shrank #root/
+    // .stage's real width below the iframe's own and pushed the device left
+    // of centre with dead space on the right (src/app.css's html.embed
+    // overflow:hidden + scrollbar-gutter:auto override is the fix; this is
+    // the regression check for it).
+    let innerResult: { ok: boolean; reason: string } | null = null;
+    try {
+      innerResult = await frame.evaluate((eps) => {
+        const html = document.documentElement;
+        const noHScroll = html.scrollWidth <= html.clientWidth + eps;
+        const noVScroll = html.scrollHeight <= html.clientHeight + eps;
+        const ok = noHScroll && noVScroll;
+        return {
+          ok,
+          reason: `scrollWidth ${html.scrollWidth} vs clientWidth ${html.clientWidth}, scrollHeight ${html.scrollHeight} vs clientHeight ${html.clientHeight}`,
+        };
+      }, 1);
+    } catch (err) {
+      innerResult = { ok: false, reason: `evaluate failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    console.log(`  [${width}px] ${file}: embed document ${innerResult!.ok ? "has no scrollbar" : "SCROLLS"} (${innerResult!.reason})`);
+    if (!innerResult!.ok) fail(`${file} @ ${width}px: the embedded emu document itself scrolls (${innerResult!.reason})`);
+
+    // The device's rendered centre must sit within 2px of the iframe's own
+    // horizontal centre - the visual half of the same regression: a
+    // reserved-but-unscrolled gutter (or any other stray horizontal offset)
+    // can shrink the content box without ever tripping the scrollWidth
+    // check above (scrollWidth can still be <= clientWidth while everything
+    // sits off-centre inside a narrower box), so this is a genuinely
+    // separate assertion, not a restatement of the one above.
+    let centerResult: { ok: boolean; reason: string } | null = null;
+    try {
+      centerResult = await frame.evaluate((eps) => {
+        const bezel = document.querySelector("#bezel") as HTMLElement | null;
+        if (!bezel) return { ok: false, reason: "no #bezel element found in frame" };
+        const r = bezel.getBoundingClientRect();
+        const deviceCenterX = (r.left + r.right) / 2;
+        const viewportCenterX = window.innerWidth / 2;
+        const off = Math.abs(deviceCenterX - viewportCenterX);
+        return { ok: off <= eps, reason: `device centre x ${deviceCenterX.toFixed(1)} vs viewport centre x ${viewportCenterX.toFixed(1)} (off by ${off.toFixed(1)}px)` };
+      }, 2);
+    } catch (err) {
+      centerResult = { ok: false, reason: `evaluate failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    console.log(`  [${width}px] ${file}: device horizontal centring ${centerResult!.ok ? "OK" : "OFF"} (${centerResult!.reason})`);
+    if (!centerResult!.ok) fail(`${file} @ ${width}px: embedded device is not horizontally centred (${centerResult!.reason})`);
   }
 
   const page = await browser.newPage();

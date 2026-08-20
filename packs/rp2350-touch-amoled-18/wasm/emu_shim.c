@@ -959,7 +959,7 @@ int emu_device(void) {
     // one.
     p = json_append(p, "\"sensors\":[");
     p = json_append(p, "{\"id\":\"shake\",\"kind\":\"event\"},");
-    p = json_append(p, "{\"id\":\"gravity\",\"kind\":\"gravity\",\"label\":\"tilt\",\"unit\":\"g\"}");
+    p = json_append(p, "{\"id\":\"gravity\",\"kind\":\"vector\",\"label\":\"tilt\",\"unit\":\"g\"}");
     p = json_append(p, "],");
     p = json_append(p, "\"apps\":[");
     // Deduplicated by name, because a single-app build aliases every slot of

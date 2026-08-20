@@ -59,6 +59,31 @@ Every path is relative to the repository root the bundle lives in (this reposito
 - **`buildArgs`** (optional, `string[]`) carries extra flags a pack's `wasm/build.ts --app` build needs beyond `--app <source>` itself, for example `apps/fluidbox/bundle.json`'s `["--shake"]` (the pack build script's `--shake` flag, which this port needs to receive shake sensor events at all). This is a 0.2 addition beyond the minimal shape above, added because a real port (fluidbox) needed it and the alternative, a build flag known only to a README, is exactly the bug this schema exists to close.
 - **`verdict`** (optional, `"go" | "degraded"`, default `go`) carries the porting flow's own verdict (see "Porting flow" below) through to the published bundle: a `degraded` port fits the pack but at a real, stated cost (fluidbox's rp2350 port, fixed gravity instead of tilt, a much smaller particle count). A refused port is never published, so `refuse` never appears here. Another 0.2 addition beyond the minimal shape above, carrying forward what 0.1's per-pack `degraded` boolean used to.
 - **`silicon`** is optional and only present once a port has been run against real hardware, not only the emulator. It is an attestation, not an automatic guarantee: a dated claim that a named run happened, citable back to a commit. See [`publishing.md`](publishing.md) for the responsibility model behind it.
+- **`build`** (optional) declares that this port's module is not built by a local pack's `wasm/build.ts` but by another repository's own build. See "External ports" below. When it is present, `source` may be omitted (the source lives in that repository, identified by `repo` + `commit`), and the port's `pack` is not looked up in `registry.json` at all, since no local pack is being built: the pack name still says which device the recorded frames belong to.
+
+## External ports
+
+An app may live entirely outside this repository, with its own source, its own toolchain and its own history. Such a port declares how to build itself:
+
+```
+"build": {
+  "repo": "<git URL, or a path to a directory on this machine>",
+  "commit": "<commit sha, 7 to 40 hex characters>",
+  "command": "<shell command, run at the root of the checkout>",
+  "artifact": "<the built .wasm, relative to the checkout root>"
+}
+```
+
+`bun run verify-bundle` then clones that repository at that commit into a temporary directory (or copies it, for a local path, which is what `test/fixtures/external-bundle/` uses), runs the command there through `bash -c`, takes the artifact, and verifies it **exactly like any other module**: the same traces, the same recorded frames, the same tolerance. The trace and frame requirements do not soften for an external port. `tools/externalBuild.ts` is the single implementation of that clone-pin-run step.
+
+Four rules the verifier enforces, each for one reason:
+
+- **A local path is resolved against the bundle's own repository root**, the same rule every other path in `bundle.json` follows.
+- **`commit` must be a sha, not a branch or a tag.** A moving target is not a reproduction. The one exception is the literal `"working-tree"`, allowed only for a local directory that is not a git repository at all (a fixture, a scratch checkout); it is reported as unpinned wherever provenance is shown, never as if it were a pin. A local directory that DOES have git history is refused if it asks for `"working-tree"`.
+- **`artifact` must stay inside the checkout**, and it is deleted before the command runs, so "the artifact exists" can only mean "this command produced it". A `.wasm` committed into a repository does not count as a build output.
+- **Nothing about verification changes.** A port that cannot produce the recorded frames fails, wherever its module came from.
+
+**Listing a bundle with a `build` command means running that repository's build on your own machine.** That is a deliberate choice, not an oversight; the reasoning, and what the pinned commit does and does not buy, is in [`../decisions/0005-external-ports-are-reproduced.md`](../decisions/0005-external-ports-are-reproduced.md).
 
 This schema fixes a specific bug in 0.1: the exact pixel-exact capture points and the invariants capture-at times used to live only in a port's own `README.md`, prose a verifier cannot read. `bundle.json` now carries everything `verify-bundle` needs on its own.
 
