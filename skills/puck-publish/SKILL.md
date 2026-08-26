@@ -19,6 +19,8 @@ A descriptor has exactly three sections, in this order: `Essence` (what appears 
 
 Extract the descriptor from the app's own source and behavior, not from what the source code happens to look like internally: the descriptor records intent, the source is evidence. Show the extracted descriptor to the author and iterate on it before treating it as final. A vague or incomplete `Demands` section produces a false `go` verdict later, so push on it here.
 
+**If the donor ships reference media or a host frame-dump harness, check it before listing.** A donor repository sometimes carries its own reference screenshot, a recorded demo video, or a documented host-side simulator pattern - evidence of what the real thing actually looks like, independent of anything this repository's own harness produces. When it exists, at least one emulator frame must be compared against that donor-produced reference BEFORE the port is listed, and the comparison committed with the bundle (structural + pixel diff, a README explaining what matched and what differs and why). A port that only ever checks itself against its own prior captures can drift from the real device for a long time without anyone noticing - this is the check that catches it. If the donor's own reference material is stale or the host harness will not run here, say so plainly in the comparison README rather than skipping the step silently.
+
 ## c. Record traces and confirm determinism
 
 Traces are recorded live, in the emulator page (`bun run dev`): every input call the page makes is recorded in order, saved as a trace, and can be loaded back and replayed bit-for-bit. Record the interactions the descriptor names, covering both the "requires" and the "prefers" paths where they differ in behavior.

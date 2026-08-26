@@ -66,26 +66,63 @@ int gosport_abs(int x) { return x < 0 ? -x : x; }
 
 /* ---- stdio.h: snprintf/vsnprintf ------------------------------------------
  *
- * A minimal printf-subset, the same one this app's rp2350 port's own
- * gos_runtime.c already carries (gosrt_vformat there): %d, %ld, %+d,
- * %+ld, %s, %%, plain text. Covers every format string the real, vendored
- * core.c/gfx.c/input.c/gunship.c/slots.c actually pass (checked by grep
- * over all five, not guessed) - core.c/input.c's own two NVS-key
- * snprintf() calls (the only ones using a width/precision spec, "%.12s")
- * are unreachable on this port: nvs_open() always fails first (see
- * nvs.h), so this formatter never has to parse one.
+ * A printf subset, sized against the FULL set of conversions the real,
+ * vendored core.c/gfx.c/input.c/gunship.c/slots.c/golf.c/golf_render.c/
+ * golf_cards.c/apps.c/shell.c actually pass - checked by grep across all
+ * ten files, not guessed: %d, %ld, %+d, %+ld, %u, %lu, %2d/%3d (width, no
+ * zero-pad), %02X (width + zero-pad hex), %s, %.9s/%.12s (precision-capped
+ * string), %f with a width.precision and an optional '+' (%+6.1f, %+7.2f,
+ * %+5.2f, %+5.1f, %+.2f, %4.2f, %.2f), %%.
+ *
+ * This grew considerably once this task vendored apps.c/shell.c: this
+ * port's ORIGINAL formatter (this function's own git history) only ever
+ * needed %d/%ld/%s/%%, because none of core.c/gfx.c/input.c/gunship.c/
+ * slots.c/golf* call %f or %u - DIAG's and the calibration wizard's own
+ * pitch/roll/gyro/aim readouts (apps.c, shell.c's calib_frame) are the
+ * first vendored code on this port to need real float formatting. The gap
+ * was found empirically, not anticipated: an early version of this port's
+ * DIAG/calibration screens rendered "PITCH .2f ROLL .2f" (the width/
+ * precision digits swallowed, the literal "f" printed) instead of real
+ * numbers, because the old %d/%s/%%-only formatter silently ate any
+ * conversion it didn't recognise - see this file's own git history for
+ * the screenshot that caught it. Fixed here rather than left as a stated
+ * gap: garbled diagnostic text is a real formatting bug in this port's own
+ * shim, not a hardware capability this ABI is honestly missing.
  */
+static void gosport_emit(char *buf, size_t cap, size_t *n, char c) {
+    if (*n < cap - 1) buf[(*n)++] = c;
+}
+static void gosport_emit_padded(char *buf, size_t cap, size_t *n, const char *digits, int len, int width, int zeroPad) {
+    for (int i = len; i < width; i++) gosport_emit(buf, cap, n, zeroPad ? '0' : ' ');
+    for (int i = 0; i < len; i++) gosport_emit(buf, cap, n, digits[i]);
+}
+
 int gosport_vsnprintf(char *buf, size_t cap, const char *fmt, va_list ap) {
     if (cap == 0) return 0;
     size_t n = 0;
-    for (const char *s = fmt; *s && n < cap - 1; s++) {
-        if (*s != '%') { buf[n++] = *s; continue; }
+    for (const char *s = fmt; *s; s++) {
+        if (n >= cap - 1) break;
+        if (*s != '%') { gosport_emit(buf, cap, &n, *s); continue; }
         s++;
-        int forceSign = 0;
-        if (*s == '+') { forceSign = 1; s++; }
+        int forceSign = 0, zeroPad = 0;
+        for (;;) {
+            if (*s == '+') { forceSign = 1; s++; }
+            else if (*s == '0') { zeroPad = 1; s++; }
+            else if (*s == '-') { s++; } // left-justify: not used by any vendored caller (checked by grep) - flag consumed, not applied
+            else break;
+        }
+        int width = 0;
+        while (*s >= '0' && *s <= '9') { width = width * 10 + (*s - '0'); s++; }
+        int precision = -1;
+        if (*s == '.') {
+            s++;
+            precision = 0;
+            while (*s >= '0' && *s <= '9') { precision = precision * 10 + (*s - '0'); s++; }
+        }
         int isLong = 0;
-        if (*s == 'l') { isLong = 1; s++; }
-        char tmp[24];
+        while (*s == 'l' || *s == 'h') { if (*s == 'l') isLong = 1; s++; } // ll/hh collapse to the same one-bit distinction this port needs
+
+        char tmp[40];
         if (*s == 'd') {
             long v = isLong ? va_arg(ap, long) : va_arg(ap, int);
             int t = 0;
@@ -94,18 +131,71 @@ int gosport_vsnprintf(char *buf, size_t cap, const char *fmt, va_list ap) {
             do { tmp[t++] = (char)('0' + uv % 10); uv /= 10; } while (uv && t < (int)sizeof tmp);
             if (neg) tmp[t++] = '-';
             else if (forceSign) tmp[t++] = '+';
-            while (t > 0 && n < cap - 1) buf[n++] = tmp[--t];
+            // tmp is built least-significant-digit-first; reverse into a
+            // second buffer so width padding (which must precede the
+            // digits) can be computed against the real final length.
+            char rev[40];
+            for (int i = 0; i < t; i++) rev[i] = tmp[t - 1 - i];
+            gosport_emit_padded(buf, cap, &n, rev, t, width, zeroPad);
+        } else if (*s == 'u') {
+            unsigned long v = isLong ? va_arg(ap, unsigned long) : va_arg(ap, unsigned int);
+            int t = 0;
+            do { tmp[t++] = (char)('0' + v % 10); v /= 10; } while (v && t < (int)sizeof tmp);
+            char rev[40];
+            for (int i = 0; i < t; i++) rev[i] = tmp[t - 1 - i];
+            gosport_emit_padded(buf, cap, &n, rev, t, width, zeroPad);
+        } else if (*s == 'X' || *s == 'x') {
+            unsigned long v = isLong ? va_arg(ap, unsigned long) : va_arg(ap, unsigned int);
+            const char *hexTab = (*s == 'X') ? "0123456789ABCDEF" : "0123456789abcdef";
+            int t = 0;
+            do { tmp[t++] = hexTab[v % 16]; v /= 16; } while (v && t < (int)sizeof tmp);
+            char rev[40];
+            for (int i = 0; i < t; i++) rev[i] = tmp[t - 1 - i];
+            gosport_emit_padded(buf, cap, &n, rev, t, width, zeroPad);
+        } else if (*s == 'f') {
+            // va_arg promotes a float argument to double in a variadic
+            // call - every vendored %f call site casts its own float
+            // field to (double) explicitly at the call site anyway
+            // (checked by grep), so this is never reading past what the
+            // caller actually passed.
+            double v = va_arg(ap, double);
+            int prec = precision < 0 ? 6 : precision;
+            int neg = v < 0.0;
+            if (neg) v = -v;
+            long long scale = 1;
+            for (int i = 0; i < prec; i++) scale *= 10;
+            long long scaled = (long long)(v * (double)scale + 0.5);
+            long long ip = scaled / (scale ? scale : 1);
+            long long fp = scaled % (scale ? scale : 1);
+            char digits[40];
+            int t = 0;
+            if (prec > 0) {
+                long long fpv = fp;
+                for (int i = 0; i < prec; i++) { digits[t++] = (char)('0' + fpv % 10); fpv /= 10; }
+                digits[t++] = '.';
+            }
+            long long ipv = ip;
+            do { digits[t++] = (char)('0' + ipv % 10); ipv /= 10; } while (ipv && t < (int)sizeof digits);
+            if (neg) digits[t++] = '-';
+            else if (forceSign) digits[t++] = '+';
+            char rev[40];
+            for (int i = 0; i < t; i++) rev[i] = digits[t - 1 - i];
+            gosport_emit_padded(buf, cap, &n, rev, t, width, zeroPad);
         } else if (*s == 's') {
             const char *sv = va_arg(ap, const char *);
-            if (sv) while (*sv && n < cap - 1) buf[n++] = *sv++;
+            int max = precision >= 0 ? precision : 0x7fffffff;
+            if (sv) {
+                int i = 0;
+                while (*sv && i < max) { gosport_emit(buf, cap, &n, *sv); sv++; i++; }
+            }
         } else if (*s == '%') {
-            buf[n++] = '%';
+            gosport_emit(buf, cap, &n, '%');
         } else if (*s == 0) {
             break;
         }
         // any other conversion: silently skipped rather than misparsed -
-        // none of the five files above use one (see this function's own
-        // header comment).
+        // the full set above is the complete list any vendored source in
+        // this port passes (this function's own header comment).
     }
     buf[n] = 0;
     return (int)n;
@@ -353,8 +443,76 @@ void gos_audio_stop_all(void) { }
 void gos_audio_master(int level) { (void)level; }
 int gos_audio_master_get(void) { return 0; }
 
-/* ---- esp_timer.h: this port's own tick clock, never a wall clock ---------- */
+/* ---- esp_timer.h: this port's own tick clock, never a wall clock ----------
+ * Declared here (rather than down by esp_timer_get_time() itself) because
+ * esp_random() below also reads it - moved up one section so its
+ * declaration precedes every use in this file, plain C, no forward
+ * declaration trick needed. */
 static uint32_t s_nowMs;
+
+/* ---- gos_hal.h: power, fed by nothing - this port declares no battery HAL
+ *
+ * hal_power_get()'s `hal_batt_t.present` is unconditionally false: this pack
+ * (packs/esp32-s3-touch-amoled-18/device.json) declares no battery/PMIC
+ * sensor at all, the same stated gap this app's rp2350 port already carries
+ * for the identical reason (see that port's own gos_runtime.c). shell.c's
+ * own draw_bottom_bar() (../../reference/esp32-gameos/shell.c) already
+ * handles `present == false` as its own real, donor-authored fallback: it
+ * draws "USB" instead of a percentage - not a rewrite this port made to
+ * accommodate the gap, the donor's own code already reads exactly this way
+ * when a real board has no PMIC wired (the shell's own header comment: "hal_power_init()
+ * ... gracefully stubs out if the PMIC is absent"). This is why the donor's
+ * own media/launcher.png reference screenshot (this bundle's
+ * reference/esp32-gameos/media/launcher.png) shows "USB" in that same
+ * corner too - see this port's own donor-comparison README for the exact
+ * pixel match this produces.
+ */
+bool hal_power_init(void) { return false; }
+void hal_power_poll(void) { }
+void hal_power_get(hal_batt_t *out) { *out = (hal_batt_t){ .percent = 0, .charging = false, .present = false }; }
+
+/* ---- gos_core.h: mixer init, stubbed alongside the rest of audio ---------
+ *
+ * gos_core/mixer.c (the real 8-voice synth) is not vendored - see
+ * NOTICE.md's "Not carried at all" - so gos_mixer_init() (gos_core.h's own
+ * declaration, called once at boot by this port's own esp32gameos_enter(),
+ * mirroring main.c's own app_main() init order: gfx, input, mixer, shell)
+ * needs a real, linkable body. A pure no-op: every gos_audio_play/loop/...
+ * call this port's games make is already stubbed independently, directly
+ * below (this file's own "gos.h: audio, stubbed" section), so there is no
+ * mixer state anywhere in this module for an init step to prepare.
+ */
+void gos_mixer_init(void) { }
+
+/* ---- esp_system.h: esp_restart(), a genuine no-op on this ABI ------------
+ *
+ * See esp_system.h's own header comment: settings_frame()'s factory-reset
+ * row (../../reference/esp32-gameos/shell.c) calls this after
+ * nvs_flash_erase() (nvs_flash.h, already an honest always-fails stub) once
+ * a 3s hold completes. This emulator module has no reboot concept to invoke
+ * instead - a stated, declared gap (NOTICE.md), not a rewrite of the
+ * donor's own settings screen: the row still draws, still charges its hold
+ * bar for 3s exactly as the real device does, and simply does nothing
+ * further once it completes, rather than the real device's full reboot.
+ */
+void esp_restart(void) { }
+
+/* ---- esp_random.h: esp_random(), deterministic - see that file's own
+ * header comment for the full argument. Composed from this port's own tick
+ * clock (s_nowMs, defined just below) and a monotonically increasing call
+ * counter, so two calls within the same tick (which never happens on this
+ * port's own call site, shell.c's launch(), but is not assumed away) still
+ * differ - the same xorshift-style mixing gos_rand() itself already uses,
+ * not a new algorithm.
+ */
+static uint32_t s_espRandomCalls;
+uint32_t esp_random(void) {
+    uint32_t x = (s_nowMs * 2654435761u) ^ (0x9E3779B9u + s_espRandomCalls++ * 0x85EBCA6Bu);
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+    return x;
+}
+
+/* ---- esp_timer.h: this port's own tick clock, never a wall clock ---------- */
 int64_t esp_timer_get_time(void) { return (int64_t)s_nowMs * 1000; }
 
 /* ---- fed once per tick by gameos_port.c's tick(), before gos_input_update() */

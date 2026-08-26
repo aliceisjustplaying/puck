@@ -1,7 +1,7 @@
 {
   "convention": "0.2",
   "name": "gameos",
-  "origin": "ported from MikeWilson/esp32-gameos (MIT) commit 93d0063156a548d2fb1ffea1adb2f88af93dff08; see apps/gameos/ports/rp2350-touch-amoled-18/NOTICE.md for that port (gos.h/gunship.c/slots.c vendored, the engine reimplemented against that pack's full-framebuffer ABI, GOLF not part of it) and apps/gameos/ports/esp32-s3-touch-amoled-18/NOTICE.md for this bundle's featured port (gos.h/gos_core.h/gos_hal.h/core.c/gfx.c/input.c/font.c/gunship.c/slots.c/golf.c/golf_render.c/golf_cards.c/golf_int.h all vendored unmodified, compiled against a thin compat shim, GOLF included with two declared substitutions - font565, memory - see that port's own README.md for the verdict and NOTICE.md for the substitutions; GOLF's own standalone upstream MikeWilson/infinite-golf is unlicensed and was not used)",
+  "origin": "ported from MikeWilson/esp32-gameos (MIT) commit 93d0063156a548d2fb1ffea1adb2f88af93dff08; see apps/gameos/ports/rp2350-touch-amoled-18/NOTICE.md for that port (gos.h/gunship.c/slots.c vendored, the engine AND its own bespoke picker reimplemented against that pack's full-framebuffer ABI, GOLF not part of it) and apps/gameos/ports/esp32-s3-touch-amoled-18/NOTICE.md for this bundle's featured port (gos.h/gos_core.h/gos_hal.h/core.c/gfx.c/input.c/font.c/gunship.c/slots.c/golf.c/golf_render.c/golf_cards.c/golf_int.h/apps.c/registry.c/shell.c all vendored unmodified, compiled against a thin compat shim - the donor's own REAL shell (apps.c/registry.c/shell.c), not a port-authored picker, is now this port's entry point - GOLF included with two declared substitutions - font565, memory - see that port's own README.md for the verdict and NOTICE.md for the substitutions; GOLF's own standalone upstream MikeWilson/infinite-golf is unlicensed and was not used)",
   "ports": [
     {
       "pack": "esp32-s3-touch-amoled-18",
@@ -11,7 +11,7 @@
         "kind": "invariants",
         "checker": "apps/gameos/invariants.ts",
         "trace": "apps/gameos/traces/gameos-demo-esp32.trace.json",
-        "captureAt": [586, 821, 1073, 1533, 2099, 2603, 3404, 4362, 4771, 5492, 6603, 9015, 43535, 45955, 47342]
+        "captureAt": [1378, 1629, 1882, 2331, 2883, 3396, 4212, 5188, 5829, 6257, 7025, 8157, 10601, 12005, 45455, 47862, 49663, 50087, 51432, 51873, 53231]
       },
       "source": "apps/gameos/ports/esp32-s3-touch-amoled-18/gameos_port.c",
       "buildArgs": ["--wasm-memory-mb", "8"]

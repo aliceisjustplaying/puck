@@ -4,25 +4,31 @@
 // `g_demoApp` of type `app_t`, see runtime_core.c's own `extern const
 // app_t g_demoApp;` and that build script's own header comment on --app).
 //
-// Unlike this app's rp2350 port (a from-scratch reimplementation of gos.h
-// against that pack's ABI, see ports/rp2350-touch-amoled-18/gos_runtime.c),
-// THIS port compiles the donor's REAL, unmodified engine
-// (../../reference/esp32-gameos/{core,gfx,input,font}.c) and the same
-// real, unmodified games (gunship.c, slots.c, golf.c/golf_render.c/
-// golf_cards.c) against a thin compat/shim layer (this directory's
-// math.h/stdio.h/stdlib.h/string.h/esp_*.h/nvs*.h plus gos_hal_shim.c and
-// font565_shim.c, the two files here that are genuinely new code) - see
-// NOTICE.md for exactly what is vendored byte-for-byte versus new (GOLF's
-// two declared substitutions - font565, memory - included), and
-// packs/esp32-s3-touch-amoled-18/docs/decisions/0003-... for why the real
-// engine's own rendering pipeline (an indexed 184x224 buffer, upscaled
-// through a palette LUT, PLUS GOLF's separate full-resolution direct565
-// buffer) needed no change to this pack's band contract at all to make
-// that possible.
+// This port compiles the donor's REAL, unmodified engine
+// (../../reference/esp32-gameos/{core,gfx,input,font}.c), the same real,
+// unmodified games (gunship.c, slots.c, golf.c/golf_render.c/golf_cards.c,
+// apps.c's aimtest/diag), AND (as of this task) the donor's REAL, unmodified
+// shell (registry.c/apps.c/shell.c) against a thin compat/shim layer (this
+// directory's math.h/stdio.h/stdlib.h/string.h/esp_*.h/nvs*.h plus
+// gos_hal_shim.c and font565_shim.c, the two files here that are genuinely
+// new code) - see NOTICE.md for exactly what is vendored byte-for-byte
+// versus new, and packs/esp32-s3-touch-amoled-18/docs/decisions/0003-... for
+// why the real engine's own rendering pipeline needed no change to this
+// pack's band contract at all to make that possible.
 //
-// A unity build, forced by --app's single-file contract, exactly like the
-// rp2350 port's own gameos_port.c: everything below arrives through
-// #include, in one translation unit.
+// THE SHELL REPLACES THIS PORT'S OWN FORMER launcher.c ENTIRELY (deleted -
+// see NOTICE.md and this bundle's git history). Sylve flashed the donor
+// firmware on his own real board: the shell shown there is the donor's own
+// Wii-menu-style channel grid (shell.c), not a bespoke picker this port
+// invented - so faithfulness here means running that real shell, not a
+// from-scratch stand-in for it. registry.c's own game table
+// (gunship/golf/slots/aimtest/diag, in that order) is what actually decides
+// the grid's contents and layout; this file does not duplicate that
+// decision anywhere.
+//
+// A unity build, forced by --app's single-file contract, exactly like
+// before: everything below arrives through #include, in one translation
+// unit.
 #include "app.h"
 #include "gfx_band.h"
 #include "runtime_core.h"
@@ -76,18 +82,8 @@
 // for its own tap/tick sfx) and `update_camera` (gunship.c's own static
 // void update_camera(gs_t*, float), a different signature entirely from
 // golf.c's own static void update_camera(void) - a real conflicting-types
-// error, not just a duplicate symbol). Checked by grep across gunship.c/
-// slots.c/golf.c/golf_render.c/golf_cards.c that these three are the only
-// collisions, and that neither golf_render.c nor golf_cards.c reference any
-// of the three by name (so the rename only needs to wrap golf.c itself).
-// sfx_tap/sfx_tick rename the gos_sfx_t variable AND, separately,
-// sfx_tap_n/sfx_tick_n rename the backing note array the SFX() macro
-// pastes together (name##_n) - a ##-pasted use of a macro parameter is NOT
-// itself macro-expanded (C99 6.10.3.1), so `#define sfx_tap` alone would
-// rename golf.c's `sfx_tap` variable but leave its `sfx_tap_n` array still
-// colliding with slots.c's own; the pasted RESULT token IS rescanned for
-// further macro replacement afterward (6.10.3.4), which is what makes
-// defining sfx_tap_n/sfx_tick_n directly work.
+// error, not just a duplicate symbol). See NOTICE.md for the full argument,
+// including the sfx_tap_n/sfx_tick_n token-pasting note.
 #define sfx_tap golf_sfx_tap
 #define sfx_tap_n golf_sfx_tap_n
 #define sfx_tick golf_sfx_tick
@@ -105,194 +101,78 @@
 #undef snprintf
 #include "font565_shim.c"
 
-// This port's own launcher (not vendored - see launcher.c's own header
-// comment; byte-for-byte the same file as the rp2350 port's own).
-#include "launcher.c"
+// apps.c: the donor's own two harness apps, AIM TEST and DIAG - real,
+// unmodified, vendored with this task's shell work (previously not
+// vendored at all - see NOTICE.md's git history). Neither calls abs() or
+// snprintf() (checked by grep), so no redirect bracket is needed here.
+#include "../../reference/esp32-gameos/apps.c"
+
+// registry.c: the donor's own game table, real, unmodified. Decides the
+// grid's contents and order (gunship, golf, slots, aimtest, diag) - this
+// port does not restate that list anywhere else.
+#include "../../reference/esp32-gameos/registry.c"
+
+// shell.c: the donor's own real shell - launcher grid, settings, pause
+// overlay, calibration wizard, debug overlay, and the per-frame
+// orchestration of the running game. Real, unmodified. Only snprintf needs
+// redirecting here for the same libc-shape reason as every other file in
+// this unity build - but ONE more rename is needed, found by actually
+// attempting this build (not guessed): shell.c's own file-scope `static
+// bool tap` (its own release-tap flag, set by detect_tap()) collides with
+// slots.c's own file-scope `static void tap(gos_ctx_t*, int, int)` (LUCKY
+// 7's own lever-tap helper) - two independent, correctly-scoped `static`
+// declarations in the donor's own per-file CMake build, made a real
+// same-translation-unit symbol collision by this port's forced unity build,
+// the exact same class of problem golf.c's own sfx_tap/sfx_tick/
+// update_camera rename (above) already exists to solve - `tap` renamed to
+// `shell_tap` for the duration of this one include only (macro, not a
+// source edit - shell.c itself stays byte-for-byte vendored).
+#define tap shell_tap
+#define snprintf(buf, cap, ...) gosport_snprintf(buf, cap, __VA_ARGS__)
+#include "../../reference/esp32-gameos/shell.c"
+#undef snprintf
+#undef tap
 
 // ===========================================================================
-// Dispatcher: four screens (the launcher, and the three games), all inside
-// ONE puck app slot - the same shape this app's rp2350 port's own
-// gameos_port.c already uses, and for the identical reason: this pack's
-// arena (app_alloc()/APP_STATE, app.h) resets only on a real puck-level app
-// switch, and this port never performs one. Each game's state is a plain
-// static, zeroed by hand on every (re)launch to reproduce esp32-gameos's
-// own "launching a game is a calloc of its declared state" contract
-// (docs/game-contract.md) without a real per-launch allocator underneath.
+// app_t: this port's own dispatcher is now three calls deep, because the
+// real shell (just vendored above) already does everything this file's
+// former launcher.c/screen-switch dispatcher used to do by hand: own the
+// active game, allocate and free its state, decide when a tap launches or
+// exits it, and reset the palette/clip/direct565 state on return. Compare
+// this app_t to gameos_port.c's own git history before this task: what
+// used to be a ~120-line dispatcher (SCREEN_LAUNCHER/GUNSHIP/SLOTS/GOLF,
+// hand-managed static state per game, a bespoke swipe_exit()) is now three
+// thin forwarding calls into shell_init()/shell_frame(), because the real
+// shell already owns all of that - see NOTICE.md.
 // ===========================================================================
-typedef enum { SCREEN_LAUNCHER, SCREEN_GUNSHIP, SCREEN_SLOTS, SCREEN_GOLF } screen_t;
-
-static screen_t s_screen;
-static gs_t s_gunshipState;    // gs_t: gunship.c's own state struct, same TU
-static slots_t s_slotsState;   // slots_t: slots.c's own state struct, same TU
-// golf_t: golf.c's own state struct - several MB (three GRID_W*GRID_H float
-// grids, an 8BIT mottle map, two WORLD_W*WORLD_H uint16 canvases; see
-// golf_int.h). A plain module-static, same "zeroed by hand on every
-// (re)launch" pattern as the two states above - this port never performs a
-// real puck-level app switch, so app_alloc()'s 8KB arena (app.h) is not
-// involved for any of the three, and PSRAM-scale state living in the
-// module's own linear memory instead is exactly what packs/
-// esp32-s3-touch-amoled-18/docs/decisions/0003-... decided. See this
-// port's README, "GOLF's memory budget", for the module memory size this
-// requires and how it is set explicitly.
-static golf_t s_golfState;
-static gos_ctx_t s_gameCtx;
-
-static const gos_game_t *active_game(void) {
-    return s_screen == SCREEN_GUNSHIP ? &game_gunship
-         : s_screen == SCREEN_SLOTS   ? &game_slots
-         : s_screen == SCREEN_GOLF    ? &game_golf
-         : (const gos_game_t *)0;
-}
-
-static void enter_launcher(void) {
-    const gos_game_t *g = active_game();
-    if (g && g->teardown) g->teardown(&s_gameCtx);
-    s_screen = SCREEN_LAUNCHER;
-    // esp32-gameos's own shell "restores the default palette automatically
-    // when a game exits" (gos.h's own doc on GOS_BLACK..GOS_AMBER) -
-    // gunship's init() overwrites indices 0..15 with its own thermal ramp
-    // and turns scanlines on, neither of which its teardown() undoes (that
-    // is the shell's job in the donor, this dispatcher's job here, exactly
-    // like the rp2350 port's own enter_launcher()).
-    gos_gfx_set_default_palette();
-    gos_gfx_scanlines(false);
-    gos_gfx_clear_clip();
-    // GOLF's full-res direct565 mode does not turn itself off on exit
-    // (nothing in the vendored golf.c ever calls gos_gfx_direct565(false) -
-    // checked by grep; on real silicon this is components/gos_shell/
-    // shell.c:661-662's job, "gos_gfx_direct565(cur && mode==SH_RUNNING &&
-    // (cur->caps & GOS_CAP_FB565))", not vendored here - see NOTICE.md).
-    // Explicit off on every return to the launcher, unconditionally: the
-    // one thing this bundle's launcher-exactness invariants (invariants.ts)
-    // need true regardless of which game was just active.
-    gos_gfx_direct565(false);
-    gos_input_set_aim_mode(GOS_AIM_TILT_ABS); // re-arms the euro filter (see input.c)
-    launcher_reset();
-}
-
-static void enter_game(screen_t which, uint32_t nowMs) {
-    s_screen = which;
-    gos_input_set_aim_mode(GOS_AIM_TILT_ABS); // re-arms the euro filter (see input.c)
-    if (which == SCREEN_GUNSHIP) {
-        memset(&s_gunshipState, 0, sizeof s_gunshipState);
-        s_gameCtx.state = &s_gunshipState;
-        s_gameCtx.game = &game_gunship;
-    } else if (which == SCREEN_SLOTS) {
-        memset(&s_slotsState, 0, sizeof s_slotsState);
-        s_gameCtx.state = &s_slotsState;
-        s_gameCtx.game = &game_slots;
-    } else {
-        memset(&s_golfState, 0, sizeof s_golfState);
-        s_gameCtx.state = &s_golfState;
-        s_gameCtx.game = &game_golf;
-    }
-    // Mirrors shell.c:661-662's own caps-driven toggle (see enter_launcher's
-    // comment on the off side of this same call) - GOLF is the only game
-    // this port ships that declares GOS_CAP_FB565, so this is equivalent to
-    // `which == SCREEN_GOLF` today, but written against the cap so a future
-    // fourth FB565 game would not need this call site touched again.
-    gos_gfx_direct565((s_gameCtx.game->caps & GOS_CAP_FB565) != 0);
-    // Deterministic per-launch seed variety: a pure function of the trace's
-    // own clock (nowMs) and which screen, never a real entropy source -
-    // this ABI offers none, and none should be invented (a replay of the
-    // same trace must reproduce the same run - docs/harness.md). Same
-    // formula the rp2350 port already uses.
-    s_gameCtx.rng.s = 0x9E3779B9u ^ (nowMs * 2654435761u) ^ (uint32_t)(which + 1u);
-    s_gameCtx.game->init(&s_gameCtx);
-}
-
-// The "swipe down from the top edge" escape (docs/input-and-ux.md: press
-// y<14, drag >40, RENDER space - i.e. this engine's 184x224 game space,
-// which is exactly what gos_input_t.touch already is). The donor's own
-// OS-level pause gesture, repurposed as this show-phase port's only way
-// back to the launcher - same gesture, same thresholds, same destination
-// choice the rp2350 port already makes.
-static bool s_swipeArmed;
-static int s_swipeStartY;
-static bool s_swipeWasDown;
-
-static bool swipe_exit(const gos_input_t *in) {
-    int ry = in->touch.y;
-    bool exitNow = false;
-    if (in->touching) {
-        if (!s_swipeWasDown) {
-            s_swipeArmed = ry < 14;
-            s_swipeStartY = ry;
-        } else if (s_swipeArmed && ry - s_swipeStartY > 40) {
-            exitNow = true;
-            s_swipeArmed = false;
-        }
-    } else {
-        s_swipeArmed = false;
-    }
-    s_swipeWasDown = in->touching;
-    return exitNow;
-}
-
-// ---------------------------------------------------------------------------
-// app_t
-// ---------------------------------------------------------------------------
 
 static void esp32gameos_enter(void) {
+    // Mirrors main.c's own app_main() init order exactly (gos_gfx_init,
+    // gos_input_init, gos_mixer_init, shell_init) - main.c itself is not
+    // vendored (ESP-IDF/FreeRTOS task setup, bsp_i2c_init, per-HAL
+    // hal_*_init() calls with no equivalent on this ABI - see NOTICE.md),
+    // but this four-call sequence is not FreeRTOS-specific at all, so it is
+    // reproduced here by hand rather than skipped.
     gos_gfx_init();   // real engine: sin table, default palette, clears fb[2]
     gos_input_init(); // real engine: zeroes the input snapshot
-    // GOS_AIM_TILT_ABS: the donor's own default aim mode (descriptor.md's
-    // Interactions), unchanged - this pack publishes no fused gravity
-    // vector (unlike the RP2350 sibling), only a raw accelerometer sample
-    // stream, so gos_hal_shim.c's hal_imu_get() does the fusion into
-    // pitch/roll itself, the same job a real board's IMU task would have
-    // already done - see packs/esp32-s3-touch-amoled-18/docs/decisions/
-    // 0003-... for the full argument. GOS_AIM_GYRO_RATE has no signal on
-    // this ABI at all (no gyroscope); GOS_AIM_TOUCH_DRAG is the donor's own
-    // named fallback for a device with neither, not needed here.
-    gos_input_set_aim_mode(GOS_AIM_TILT_ABS);
-    s_screen = SCREEN_LAUNCHER;
-    launcher_reset();
-    launcher_render();
+    gos_mixer_init(); // stubbed (gos_hal_shim.c) - no sound HAL on this ABI
+    shell_init();     // real shell: loads settings (fails open, see
+                       // nvs.h), arms the first-run calibration wizard
+                       // (g_settings.calibrated starts 0 - see shell.c)
 }
 
 static void esp32gameos_tick(const app_frame_t *f) {
-    gosport_set_frame(f); // feeds gos_hal_shim.c's hal_touch_read/hal_button_down/hal_imu_get
+    gosport_set_frame(f); // feeds gos_hal_shim.c's hal_touch_read/hal_button_down/hal_imu_get/hal_power_get
     float dt = f->dtMs > 0 ? (float)f->dtMs / 1000.f : (1.f / 60.f);
     gos_input_update(dt); // real engine: builds this tick's gos_input_t from the HAL
-    const gos_input_t *in = gos_input_get();
-
-    // Caps masking (docs/input-and-ux.md: "the shell masks caps before
-    // handing the snapshot over" so a screen without GOS_CAP_TOUCH_FIRE
-    // never sees a stray FIRE bit): not needed on this port's own screen
-    // roster - neither this launcher nor LUCKY 7 (slots.c) ever reads
-    // GOS_BTN_FIRE at all, so an unmasked bit changes nothing either way.
-    // GUNSHIP is the only screen that reads it, and it always declares the
-    // cap. A future third screen without the cap would need this added.
-
-    if (s_screen == SCREEN_LAUNCHER) {
-        int pick = launcher_update(in);
-        if (pick == 0 || pick == 1 || pick == 2) {
-            enter_game(pick == 0 ? SCREEN_GUNSHIP : pick == 1 ? SCREEN_SLOTS : SCREEN_GOLF, f->nowMs);
-            // init() itself draws nothing (NOTICE.md); run one update+render
-            // immediately so the first tick after a launch shows the game's
-            // own first frame instead of a stale launcher one.
-            const gos_game_t *g = active_game();
-            g->update(&s_gameCtx, dt, in);
-            g->render(&s_gameCtx);
-        } else {
-            launcher_render();
-        }
-    } else {
-        const gos_game_t *g = active_game();
-        if (swipe_exit(in)) {
-            enter_launcher();
-            launcher_render();
-        } else {
-            g->update(&s_gameCtx, dt, in);
-            g->render(&s_gameCtx);
-        }
-    }
-
-    gos_gfx_present(); // real engine: hands this tick's finished indexed
-                        // buffer + palette to gos_hal_shim.c's
-                        // hal_display_present(), which just stashes the
-                        // pointers - see that file's header comment.
+    // n_updates=1: this port ticks once per emulator frame at the ABI's own
+    // nominal rate, the same "one logic step per tick" assumption this
+    // port's prior dispatcher already made (gos_loop_start(), not vendored,
+    // would otherwise decide n_updates from real elapsed wall time - see
+    // NOTICE.md - which this ABI's determinism rule forbids reading anyway,
+    // docs/harness.md). shell_frame() itself calls gos_gfx_present() as its
+    // very last line - no separate present() call is needed here.
+    shell_frame(gos_input_get(), 1);
 }
 
 static void esp32gameos_draw_band(int band, uint16_t *buf, int y0, int rows) {

@@ -62,7 +62,13 @@ function withVersion(url: string, hash: string): string {
 // ---- read the data that decides what gets built -------------------------
 interface Registry {
   packs: { name: string; path: string }[];
-  apps: { name: string; path: string }[];
+  // An app entry is EITHER local ({name,path}) or external, published in
+  // its own repository ({name,url} - docs/convention/app-bundle.md's own
+  // registry convention). `path` is therefore optional here, unlike the
+  // old (pre-existing, unrelated to this file's own gameos work) shape
+  // that assumed every entry had one and crashed reading
+  // registry.json's own "aliceisjustplaying/tinydraw" url-only entry.
+  apps: { name: string; path?: string; url?: string }[];
 }
 // Schema v0.2 (docs/convention/app-bundle.md): one "ports" entry per pack
 // this app is proven on, replacing 0.1's loose "provenPacks" array. Read
@@ -256,7 +262,17 @@ interface AppEntry {
   bundle: ChronoLikeBundle;
   proven: ProvenEntry[];
 }
-const apps: AppEntry[] = registry.apps.map((a) => {
+// External (url-only) entries have no local checkout for this generator to
+// read a bundle.json from - this site generator has no external-bundle
+// rendering path at all (unlike tools/verify-bundle.ts, which does clone
+// and verify them), so they are skipped here, not crashed on. Pre-existing
+// gap, unrelated to this file's own gameos work: registry.json's
+// "aliceisjustplaying/tinydraw" entry (url-only) has always been unreadable
+// by the line below as originally written - a plain `a.path` field access
+// with no existence check - found while rebuilding the site for this task,
+// fixed here since a broken `bun run site:build` blocks every future task
+// that needs it, not just this one.
+const apps: AppEntry[] = registry.apps.filter((a): a is { name: string; path: string; url?: string } => typeof a.path === "string").map((a) => {
   const bundle = readJson<ChronoLikeBundle>(join(REPO_ROOT, a.path, "bundle.json"));
   const proven: ProvenEntry[] = bundle.ports.map((entry) => ({
     pack: entry.pack,
@@ -332,7 +348,7 @@ const COMBO_BUILD: Record<string, ComboBuild> = {
     script: "packs/esp32-s3-touch-amoled-18/wasm/build.ts",
     args: ["--app", "apps/gameos/ports/esp32-s3-touch-amoled-18/gameos_port.c", "--wasm-memory-mb", "8"],
     portDoc: "apps/gameos/ports/esp32-s3-touch-amoled-18/README.md",
-    blurb: "gameos, born on this chip family, running its own real engine: core.c, gfx.c, input.c and all three games compiled unmodified against a thin compat shim (GOLF's own font and several-megabyte world state each got one declared substitution - see that port's own NOTICE.md), its indexed-framebuffer present pass repainted 28 rows at a time on a device with no framebuffer.",
+    blurb: "gameos, born on this chip family, running its own real engine AND its own real shell: core.c, gfx.c, input.c, all three games, and the donor's own launcher grid/settings/pause-overlay (registry.c/apps.c/shell.c) all compiled unmodified against a thin compat shim (GOLF's own font and several-megabyte world state each got one declared substitution - see that port's own NOTICE.md), its indexed-framebuffer present pass repainted 28 rows at a time on a device with no framebuffer.",
   },
   "gameos:rp2350-touch-amoled-18": {
     script: "packs/rp2350-touch-amoled-18/wasm/build.ts",
@@ -854,7 +870,7 @@ const APP_BLURB: Record<string, string> = {
   chrono: "A full-screen stopwatch: six seven-segment digits, two buttons, nothing else on screen.",
   fluidbox: "A particle liquid that sloshes and settles inside the device's own enclosure shape.",
   tinydraw: "A full-panel finger-drawing canvas: variable-width antialiased ink, two-level zoom, one-stroke undo.",
-  gameos: "A handheld game console shell: tap a card to launch a thermal gunner, a slot machine, or a swing-driven procedural golf course.",
+  gameos: "A handheld game console shell: pick a game to launch a thermal gunner, a slot machine, or a swing-driven procedural golf course.",
 };
 
 // ---- 3 & 4: generate every page --------------------------------------

@@ -377,48 +377,65 @@ const DEMOS: DemoSpec[] = [
     panelW: 368,
     panelH: 448,
     async play(ctx) {
-      // NO LONGER byte-for-byte the same choreography as "gameos-rp2350"
-      // below: this port's own launcher.c grew a third card (GOLF) and
-      // re-laid-out card geometry (CARD_GUN_Y0..Y1=36..80, CARD_SLOTS_Y0..
-      // Y1=92..136, CARD_GOLF_Y0..Y1=148..192, all render-space out of 224
-      // - see that file's own header comment), so the GUNSHIP/LUCKY 7 tap
-      // fractions below differ from the rp2350 entry's even where the two
-      // games' own on-screen behavior is identical. Neither demo drives a
-      // tilt/accel gesture through the live page for GUNSHIP - both ports'
-      // aim starts centered and this choreography never asks it to move.
-      await sleep(500); // idle on the launcher: three cards, GUNSHIP/LUCKY 7/GOLF
-      await ctx.tap(0.5, 58 / 224, 120); // the GUNSHIP card
+      // REWRITTEN for this task: this port's own entry point is now the
+      // donor's REAL, vendored shell (registry.c/apps.c/shell.c - see
+      // NOTICE.md), not the port-authored three-card launcher.c this
+      // choreography used to drive (deleted). A five-tile Wii-menu grid
+      // (GUNSHIP, GOLF, LUCKY 7, AIM TEST, DIAG, in that registry order -
+      // two columns, cx=4+col*92, cy=10+row*64, 84x58 tiles) replaces the
+      // old three cards, and exiting a game now goes through the real
+      // shell's own pause overlay (RESUME/RESTART/CALIBRATE/QUIT) instead
+      // of one swipe returning straight to the picker - QUIT is what
+      // actually returns here. Neither demo drives a tilt/accel gesture
+      // through the live page for GUNSHIP - both ports' aim starts
+      // centered and this choreography never asks it to move.
+      await sleep(400); // let the module boot
+      // First-run calibration wizard dismissal (shell_init() lands here
+      // every session on this port - its NVS always fails open, so
+      // g_settings.calibrated never persists - see NOTICE.md's "No NVS
+      // persistence" note): any tap sets the neutral pose and moves on to
+      // the grid, unconditionally, no zone to aim for.
+      await ctx.tap(0.5, 150 / 224, 100);
+      await sleep(300);
+      await sleep(500); // idle on the grid: five tiles, GUNSHIP/GOLF/LUCKY 7/AIM TEST/DIAG
+      await ctx.tap(46 / 184, 39 / 224, 120); // the GUNSHIP tile (grid slot 0, col0/row0)
       await sleep(700); // briefing screen
       await ctx.tap(0.5, 0.7, 900); // lower two-thirds: starts the mission, then holds to fire (GOS_CAP_TOUCH_FIRE)
       await sleep(900); // watch the wave in progress
-      // Swipe down from the top strip - the always-available exit gesture,
-      // back to the launcher. Ends well past render y=192 (below every
-      // card, into the hint-text strip): a swipe_exit() (gameos_port.c)
-      // fires exitNow the INSTANT the drag crosses its own +40 threshold,
-      // mid-touch, so the launcher's own launcher_update() can end up
-      // observing the tail of this same touch on the very next tick - an
-      // endpoint still over a card reads as a tap on it (reproduced while
-      // building this port's own invariants trace, scripts/
-      // record-gameos-golf-trace.ts's swipeExit() header comment has the
-      // full account).
+      // Swipe down from the top strip pauses into the real shell's own
+      // overlay (shell.c's shell_frame(), press y<30 render-space, drag
+      // past +30) - ends well past render y=192 for comfortable margin,
+      // same swipe shape this port's own prior choreography already used.
       await ctx.stroke([[0.5, 0.03], [0.5, 0.3], [0.5, 0.6], [0.5, 0.95]], 90);
+      await sleep(400); // the pause overlay: RESUME/RESTART/CALIBRATE/QUIT
+      // QUIT (row index 3, y=34+3*40=154, render-space): the real shell's
+      // pt_in() subtracts a 12px touch-Y bias before hit-testing, and
+      // adjacent overlay rows' zones overlap by 4px, so a tap too close to
+      // QUIT's own top edge lands on CALIBRATE instead (checked ahead of
+      // time here, not just in this bundle's own invariants trace -
+      // scripts/record-gameos-shell-trace.ts's own tapQuit() header
+      // comment has the full account) - render y=185 sits safely inside
+      // QUIT's zone only.
+      await ctx.tap(0.5, 185 / 224, 120);
       await sleep(500);
-      await ctx.tap(0.5, 114 / 224, 120); // the LUCKY 7 card
+      await ctx.tap(46 / 184, 103 / 224, 120); // the LUCKY 7 tile (grid slot 2, col0/row1)
       await sleep(700); // idle reels
       await ctx.stroke([[0.5, 0.35], [0.5, 0.55], [0.5, 0.75], [0.5, 0.9]], 70); // drag down on the reel unit: pulls the lever, the drag's own length sets the spin strength
       await sleep(2200); // watch the spin resolve
-      await ctx.stroke([[0.5, 0.03], [0.5, 0.3], [0.5, 0.6], [0.5, 0.95]], 90); // exit back to the launcher
+      await ctx.stroke([[0.5, 0.03], [0.5, 0.3], [0.5, 0.6], [0.5, 0.95]], 90); // swipe: pause overlay
+      await sleep(400);
+      await ctx.tap(0.5, 185 / 224, 120); // QUIT
       await sleep(500);
 
-      // GOLF: tap the card, then repeatedly tap the "1 PLAYER" zone (full-
+      // GOLF: tap the tile, then repeatedly tap the "1 PLAYER" zone (full-
       // res tx<184,ty>=280 -> render tx<92,ty>=140 -> fraction (0.25,0.625))
       // until it lands - a no-op while GOLF is still generating its own
       // course art behind a static GST_LOADING screen (golf_render()'s own
       // comment: "canvas holds"), and harmless once it lands during the
       // GST_INTRO pan that follows (golf.c: any tap there just forces the
-      // pan to finish early). Same reasoning scripts/record-gameos-golf-
+      // pan to finish early). Same reasoning scripts/record-gameos-shell-
       // trace.ts's own "1 PLAYER" loop documents at length.
-      await ctx.tap(0.5, 170 / 224, 120); // the GOLF card
+      await ctx.tap(138 / 184, 39 / 224, 120); // the GOLF tile (grid slot 1, col1/row0)
       for (let i = 0; i < 14; i++) {
         await ctx.tap(0.25, 0.625, 90);
         await sleep(700);
