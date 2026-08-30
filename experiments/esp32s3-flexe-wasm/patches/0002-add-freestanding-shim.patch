@@ -1,0 +1,203 @@
+diff --git a/src/wasm_compat/include/string.h b/src/wasm_compat/include/string.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/src/wasm_compat/include/string.h
+@@ -0,0 +1,9 @@
++#ifndef FLEXE_WASM_STRING_H
++#define FLEXE_WASM_STRING_H
++
++#include <stddef.h>
++
++void *memcpy(void *restrict destination, const void *restrict source, size_t count);
++void *memset(void *destination, int value, size_t count);
++
++#endif
+diff --git a/src/wasm_compat/include/stdio.h b/src/wasm_compat/include/stdio.h
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/src/wasm_compat/include/stdio.h
+@@ -0,0 +1,12 @@
++#ifndef FLEXE_WASM_STDIO_H
++#define FLEXE_WASM_STDIO_H
++
++#include <stddef.h>
++
++typedef struct flexe_file FILE;
++extern FILE *stderr;
++
++int fprintf(FILE *stream, const char *format, ...);
++int fputc(int character, FILE *stream);
++
++#endif
+diff --git a/src/wasm_compat/include/stdlib.h b/src/wasm_compat/include/stdlib.h
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/src/wasm_compat/include/stdlib.h
+@@ -0,0 +1,16 @@
++#ifndef FLEXE_WASM_STDLIB_H
++#define FLEXE_WASM_STDLIB_H
++
++#include <stddef.h>
++
++void *calloc(size_t count, size_t size);
++void free(void *pointer);
++char *getenv(const char *name);
++unsigned long strtoul(const char *text, char **end, int base);
++int atoi(const char *text);
++
++_Noreturn void abort(void);
++
++#define NULL ((void *)0)
++
++#endif
+diff --git a/src/wasm_compat/include/math.h b/src/wasm_compat/include/math.h
+new file mode 100644
+index 0000000..4444444
+--- /dev/null
++++ b/src/wasm_compat/include/math.h
+@@ -0,0 +1,13 @@
++#ifndef FLEXE_WASM_MATH_H
++#define FLEXE_WASM_MATH_H
++
++float roundf(float value);
++float truncf(float value);
++float floorf(float value);
++float ceilf(float value);
++float fabsf(float value);
++float sqrtf(float value);
++
++#define isnan(value) __builtin_isnan(value)
++
++#endif
+diff --git a/src/wasm_compat.c b/src/wasm_compat.c
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/src/wasm_compat.c
+@@ -0,0 +1,118 @@
++/*
++ * Minimal hosted-C boundary for the flexe interpreter feasibility probe.
++ * This is not a general libc. It supports only the pinned source closure.
++ */
++#include <stddef.h>
++#include <stdint.h>
++#include <math.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#define FLEXE_HEAP_BYTES (20u * 1024u * 1024u)
++
++static unsigned char flexe_heap[FLEXE_HEAP_BYTES];
++static size_t flexe_heap_used;
++
++struct flexe_file {
++    int unused;
++};
++
++static struct flexe_file flexe_stderr;
++FILE *stderr = &flexe_stderr;
++
++__attribute__((import_module("env"), import_name("js_log")))
++static void js_log(const char *text, size_t length);
++
++static size_t align16(size_t value) {
++    return (value + 15u) & ~(size_t)15u;
++}
++
++void *memcpy(void *restrict destination, const void *restrict source, size_t count) {
++    unsigned char *out = destination;
++    const unsigned char *in = source;
++    for (size_t i = 0; i < count; i++) out[i] = in[i];
++    return destination;
++}
++
++void *memset(void *destination, int value, size_t count) {
++    unsigned char *out = destination;
++    for (size_t i = 0; i < count; i++) out[i] = (unsigned char)value;
++    return destination;
++}
++
++void *calloc(size_t count, size_t size) {
++    if (size != 0 && count > (size_t)-1 / size) return NULL;
++    size_t bytes = count * size;
++    size_t start = align16(flexe_heap_used);
++    if (start > FLEXE_HEAP_BYTES || bytes > FLEXE_HEAP_BYTES - start) return NULL;
++    void *result = &flexe_heap[start];
++    flexe_heap_used = start + bytes;
++    memset(result, 0, bytes);
++    return result;
++}
++
++void free(void *pointer) {
++    (void)pointer;
++}
++
++char *getenv(const char *name) {
++    (void)name;
++    return NULL;
++}
++
++unsigned long strtoul(const char *text, char **end, int base) {
++    (void)text;
++    (void)end;
++    (void)base;
++    return 0;
++}
++
++int atoi(const char *text) {
++    (void)text;
++    return 0;
++}
++
++static size_t string_length(const char *text) {
++    size_t length = 0;
++    while (text[length] != '\0') length++;
++    return length;
++}
++
++int fprintf(FILE *stream, const char *format, ...) {
++    (void)stream;
++    size_t length = string_length(format);
++    js_log(format, length);
++    return (int)length;
++}
++
++int fputc(int character, FILE *stream) {
++    (void)stream;
++    char byte = (char)character;
++    js_log(&byte, 1);
++    return character;
++}
++
++_Noreturn void abort(void) {
++    __builtin_trap();
++}
++
++float floorf(float value) {
++    return __builtin_floorf(value);
++}
++
++float ceilf(float value) {
++    return __builtin_ceilf(value);
++}
++
++float truncf(float value) {
++    return __builtin_truncf(value);
++}
++
++float fabsf(float value) {
++    return __builtin_fabsf(value);
++}
++
++float sqrtf(float value) {
++    return __builtin_sqrtf(value);
++}
++
++float roundf(float value) {
++    if (__builtin_isnan(value)) return value;
++    return value < 0.0f ? __builtin_ceilf(value - 0.5f) : __builtin_floorf(value + 0.5f);
++}

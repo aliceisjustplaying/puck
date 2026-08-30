@@ -1,0 +1,62 @@
+diff --git a/src/wasm_probe.c b/src/wasm_probe.c
+new file mode 100644
+index 0000000..e342e31
+--- /dev/null
++++ b/src/wasm_probe.c
+@@ -0,0 +1,56 @@
++/*
++ * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
++ * This file is applied to a temporary copy of the pinned upstream sources.
++ */
++#include "xtensa.h"
++#include "memory.h"
++#include <stdint.h>
++
++#ifdef FLEXE_PROBE_NATIVE
++#include <stdio.h>
++#define FLEXE_WASM_EXPORT
++#else
++#define FLEXE_WASM_EXPORT __attribute__((export_name("flexe_wasm_probe")))
++#endif
++
++#define FIXTURE_PC 0x40070000u
++
++static xtensa_cpu_t cpu;
++static xtensa_mem_t *mem;
++
++FLEXE_WASM_EXPORT
++uint32_t flexe_wasm_probe(void) {
++    /*
++     * movi a3, 40
++     * addi a3, a3, 2
++     *
++     * Encodings come from flexe's test_alu.c RRI8 builders. The probe loads
++     * bytes through memory.c, fetches and decodes them in xtensa.c, executes
++     * both, and observes the architectural register state.
++     */
++    static const uint8_t fixture[] = {
++        0x32, 0xa0, 0x28,
++        0x32, 0xc3, 0x02,
++    };
++
++    if (!mem) mem = mem_create();
++    if (!mem) return 0xdead0001u;
++    mem_reset(mem);
++    xtensa_cpu_init(&cpu);
++    cpu.mem = mem;
++    cpu.pc = FIXTURE_PC;
++    cpu.running = true;
++    if (mem_load(mem, FIXTURE_PC, fixture, sizeof(fixture)) != 0) return 0xdead0002u;
++    if (xtensa_step(&cpu) != 0) return 0xdead0003u;
++    if (xtensa_step(&cpu) != 0) return 0xdead0004u;
++    if (cpu.pc != FIXTURE_PC + sizeof(fixture)) return 0xdead0005u;
++    return ar_read(&cpu, 3);
++}
++
++#ifdef FLEXE_PROBE_NATIVE
++int main(void) {
++    uint32_t result = flexe_wasm_probe();
++    printf("%u\n", result);
++    return result == 42u ? 0 : 1;
++}
++#endif
