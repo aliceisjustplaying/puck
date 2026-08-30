@@ -52,3 +52,6 @@ jobs:
       # added above) is what actually runs here.
       - name: verify every registry.json entry
         run: bun run tools/ci-verify-registry.ts
+
+      - name: verify ESP32-S3 pack and timing model
+        run: bun run pack:esp32:gate
