@@ -8,6 +8,17 @@ import type {
 
 export type CacheKind = "instruction" | "data";
 export type ReplacementPolicy = "least-recently-used" | "round-robin";
+export type CacheBankSharing = "per-core" | "shared";
+
+export interface CacheBankTopology {
+  readonly instruction: CacheBankSharing;
+  readonly data: CacheBankSharing;
+}
+
+export const ESP32_S3_CACHE_BANK_TOPOLOGY: Readonly<CacheBankTopology> = Object.freeze({
+  instruction: "per-core",
+  data: "shared",
+});
 
 export type CacheLatency =
   | Readonly<{
@@ -35,6 +46,7 @@ export interface CacheConfiguration {
     readonly architectureCalibration: "uncalibrated";
     readonly source: string;
   }>;
+  readonly topology: Readonly<CacheBankTopology>;
   readonly instruction: CacheGeometry &
     Readonly<{
       writePolicy: "read-only";
@@ -206,6 +218,12 @@ function validateGeometry(geometry: CacheGeometry, path: string): void {
   }
 }
 
+function validateBankSharing(value: unknown, path: string): asserts value is CacheBankSharing {
+  if (value !== "per-core" && value !== "shared") {
+    throw new Error(`${path} must be per-core or shared`);
+  }
+}
+
 function validateConfiguration(config: CacheConfiguration): void {
   if (typeof config !== "object" || config === null) throw new Error("cache configuration is required");
   const addressBits = requirePositiveSafeInteger(config.addressBits, "config.addressBits");
@@ -217,6 +235,11 @@ function validateConfiguration(config: CacheConfiguration): void {
     throw new Error("config.metadata.architectureCalibration must remain uncalibrated");
   }
   requireNonEmpty(config.metadata.source, "config.metadata.source");
+  if (typeof config.topology !== "object" || config.topology === null) {
+    throw new Error("config.topology is required");
+  }
+  validateBankSharing(config.topology.instruction, "config.topology.instruction");
+  validateBankSharing(config.topology.data, "config.topology.data");
   validateGeometry(config.instruction, "config.instruction");
   validateGeometry(config.data, "config.data");
   if (config.instruction.writePolicy !== "read-only") {
@@ -272,8 +295,8 @@ function createBank(geometry: CacheGeometry): CacheBank {
   };
 }
 
-function bankKey(core: CoreId, cache: CacheKind): string {
-  return `${core}:${cache}`;
+function bankKey(core: CoreId, cache: CacheKind, sharing: CacheBankSharing): string {
+  return sharing === "shared" ? `shared:${cache}` : `core:${core}:${cache}`;
 }
 
 function toExecutionLatency(cost: CacheLatency): EventLatency {
@@ -318,8 +341,10 @@ export class CacheStateMachine {
     this.#config = config;
     this.#addressLimit = 1n << BigInt(config.addressBits);
     for (const core of [0, 1] as const) {
-      this.#banks.set(bankKey(core, "instruction"), createBank(config.instruction));
-      this.#banks.set(bankKey(core, "data"), createBank(config.data));
+      for (const cache of CACHE_KINDS) {
+        const key = bankKey(core, cache, config.topology[cache]);
+        if (!this.#banks.has(key)) this.#banks.set(key, createBank(this.#geometry(cache)));
+      }
     }
   }
 
@@ -328,7 +353,7 @@ export class CacheStateMachine {
   }
 
   #bank(core: CoreId, cache: CacheKind): CacheBank {
-    return this.#banks.get(bankKey(core, cache))!;
+    return this.#banks.get(bankKey(core, cache, this.#config.topology[cache]))!;
   }
 
   #validateRange(address: unknown, bytes: unknown, path: string): { address: bigint; bytes: number } {

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { CacheStateMachine, type CacheConfiguration, type CacheLatency } from "./cache";
+import {
+  CacheStateMachine,
+  ESP32_S3_CACHE_BANK_TOPOLOGY,
+  type CacheConfiguration,
+  type CacheLatency,
+} from "./cache";
 import { scheduleExecution, type ExecutionEvent } from "./execution";
 
 const measured = (cycles: bigint): CacheLatency => ({
@@ -17,6 +22,8 @@ function configuration(
     dirtyInvalidate: "writeback" | "discard";
     lineFill: CacheLatency;
     ways: number;
+    instructionSharing: "per-core" | "shared";
+    dataSharing: "per-core" | "shared";
   }> = {},
 ): CacheConfiguration {
   return {
@@ -24,6 +31,10 @@ function configuration(
     metadata: {
       architectureCalibration: "uncalibrated",
       source: "schema-only-cache-architecture",
+    },
+    topology: {
+      instruction: overrides.instructionSharing ?? ESP32_S3_CACHE_BANK_TOPOLOGY.instruction,
+      data: overrides.dataSharing ?? ESP32_S3_CACHE_BANK_TOPOLOGY.data,
     },
     instruction: {
       lineSizeBytes: 16,
@@ -87,6 +98,20 @@ describe("configuration and address boundaries", () => {
       "lineFill is required; the cache model has no default latency",
     );
 
+    const noTopology = configuration() as unknown as { topology?: CacheConfiguration["topology"] };
+    delete noTopology.topology;
+    expect(() => new CacheStateMachine(noTopology as unknown as CacheConfiguration)).toThrow(
+      "config.topology is required",
+    );
+
+    const invalidTopology = configuration() as unknown as {
+      topology: { instruction: string; data: string };
+    };
+    invalidTopology.topology.data = "clustered";
+    expect(() => new CacheStateMachine(invalidTopology as unknown as CacheConfiguration)).toThrow(
+      "config.topology.data must be per-core or shared",
+    );
+
     const architectureOverclaim = configuration() as unknown as {
       metadata: { architectureCalibration: string };
     };
@@ -135,7 +160,7 @@ describe("configuration and address boundaries", () => {
   });
 });
 
-describe("line boundaries and private L1 state", () => {
+describe("line boundaries and bank topology", () => {
   test("splits a cross-line instruction fetch exactly and fills both lines", () => {
     const machine = new CacheStateMachine(configuration());
     const first = machine.process({
@@ -171,21 +196,49 @@ describe("line boundaries and private L1 state", () => {
     expect(kinds(second)).toEqual(["hit", "hit"]);
   });
 
-  test("keeps core 0/1 and instruction/data cache contents separate", () => {
+  test("models per-core instruction banks and one shared data bank", () => {
     const machine = new CacheStateMachine(configuration());
     const traces = [
       machine.process({ id: "c0d", kind: "load", core: 0, memory: "psram", address: 0n, bytes: 4, cacheability: "cached" }),
       machine.process({ id: "c1d", kind: "load", core: 1, memory: "psram", address: 0n, bytes: 4, cacheability: "cached" }),
       machine.process({ id: "c0i", kind: "instruction-fetch", core: 0, memory: "flash", address: 0n, bytes: 4, cacheability: "cached" }),
+      machine.process({ id: "c1i", kind: "instruction-fetch", core: 1, memory: "flash", address: 0n, bytes: 4, cacheability: "cached" }),
     ];
     expect(traces.map(kinds)).toEqual([
       ["line-fill", "hit"],
+      ["hit"],
       ["line-fill", "hit"],
       ["line-fill", "hit"],
     ]);
     expect(
       kinds(machine.process({ id: "c0d-hit", kind: "load", core: 0, memory: "psram", address: 0n, bytes: 4, cacheability: "cached" })),
     ).toEqual(["hit"]);
+  });
+
+  test("keeps bank sharing configurable for non-board experiments", () => {
+    const machine = new CacheStateMachine(configuration({ dataSharing: "per-core" }));
+    const core0 = machine.process({
+      id: "private-c0",
+      kind: "load",
+      core: 0,
+      memory: "psram",
+      address: 0n,
+      bytes: 4,
+      cacheability: "cached",
+    });
+    const core1 = machine.process({
+      id: "private-c1",
+      kind: "load",
+      core: 1,
+      memory: "psram",
+      address: 0n,
+      bytes: 4,
+      cacheability: "cached",
+    });
+    expect([kinds(core0), kinds(core1)]).toEqual([
+      ["line-fill", "hit"],
+      ["line-fill", "hit"],
+    ]);
   });
 
   test("keeps flash and PSRAM lines with the same address distinct in one data cache", () => {
