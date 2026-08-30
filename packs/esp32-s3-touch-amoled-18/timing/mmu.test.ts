@@ -7,6 +7,7 @@ import {
   ESP32_S3_MMU_PAGE_SIZE_BYTES,
   ESP32_S3_MMU_TARGET_BIT,
   Esp32S3ExternalMmu,
+  adaptExternalMmuSnapshotToAddressMap,
   adaptExternalMmuTranslation,
   type ExternalMmuAccess,
   type ExternalMmuConfiguration,
@@ -289,6 +290,62 @@ describe("aliases, target bit, and invalid entries", () => {
       ],
     });
     expect("latency" in (adapted.status === "translated" ? adapted.traces[0]! : {})).toBe(false);
+  });
+});
+
+describe("address-map adapter", () => {
+  test("emits deterministic target-specific DROM and IROM regions and omits invalid entries", () => {
+    const snapshot = new Esp32S3ExternalMmu(
+      configuration(
+        entries(
+          { index: 0, target: "psram", physicalPage: 3 },
+          { index: 1, target: "flash", physicalPage: 7 },
+        ),
+      ),
+    ).snapshot();
+    const adapted = adaptExternalMmuSnapshotToAddressMap(snapshot);
+    const reversed = adaptExternalMmuSnapshotToAddressMap({
+      ...snapshot,
+      entries: [...snapshot.entries].reverse(),
+    });
+
+    expect(reversed).toEqual(adapted);
+    expect(adapted.regions.map((region) => region.id)).toEqual([
+      "mmu:drom:0:psram",
+      "mmu:drom:1:flash",
+      "mmu:irom:0:psram",
+      "mmu:irom:1:flash",
+    ]);
+    expect(adapted.regions).toHaveLength(4);
+    expect(adapted.regions[0]).toMatchObject({
+      base: 0x3c00_0000n,
+      size: 0x1_0000n,
+      kind: "psram",
+      permissions: { read: true, write: true, execute: false },
+      cacheability: "cached",
+      physical: { backingId: "esp32-s3-mspi-psram", offset: 0x3_0000n },
+    });
+    expect(adapted.regions[1]).toMatchObject({
+      kind: "flash",
+      permissions: { read: true, write: false, execute: false },
+      physical: { backingId: "esp32-s3-mspi-flash", offset: 0x7_0000n },
+    });
+    expect(adapted.regions[2]).toMatchObject({
+      base: 0x4200_0000n,
+      kind: "psram",
+      permissions: { read: false, write: false, execute: true },
+      physical: { backingId: "esp32-s3-mspi-psram", offset: 0x3_0000n },
+    });
+    expect(adapted.regions[3]).toMatchObject({
+      kind: "flash",
+      permissions: { read: false, write: false, execute: true },
+      physical: { backingId: "esp32-s3-mspi-flash", offset: 0x7_0000n },
+    });
+    expect(adapted.metadata).toMatchObject({ architectureCalibration: "uncalibrated" });
+    expect(adapted.metadata.source).toContain(
+      "components/soc/esp32s3/include/soc/ext_mem_defs.h [SOC_IRAM0_CACHE_ADDRESS_LOW",
+    );
+    expect(adapted.mmuClaim).toBe(ESP32_S3_IDF_V6_0_2_MMU_METADATA);
   });
 });
 

@@ -7,6 +7,13 @@ import {
 } from "./cache";
 import type { DmaEvent } from "./execution";
 import {
+  ESP32_S3_IDF_V6_0_2_MMU_METADATA,
+  ESP32_S3_MMU_ENTRY_COUNT,
+  Esp32S3ExternalMmu,
+  adaptExternalMmuSnapshotToAddressMap,
+  type ExternalMmuEntryConfiguration,
+} from "./mmu";
+import {
   runTimingMachine,
   timingMachineJson,
   type TimingMachineConfiguration,
@@ -281,6 +288,52 @@ describe("two-core composition and shared resources", () => {
         source: "synthetic-dma-submit",
       },
     ]);
+  });
+
+  test("runs MMU-derived flash and PSRAM mappings through address, cache, and MSPI", () => {
+    const mmuEntries: ExternalMmuEntryConfiguration[] = Array.from(
+      { length: ESP32_S3_MMU_ENTRY_COUNT },
+      (_, index) => ({ index, state: "invalid" as const }),
+    );
+    mmuEntries[0] = { index: 0, state: "mapped", target: "flash", physicalPage: 2 };
+    mmuEntries[1] = { index: 1, state: "mapped", target: "psram", physicalPage: 3 };
+    const mmu = new Esp32S3ExternalMmu({
+      metadata: ESP32_S3_IDF_V6_0_2_MMU_METADATA,
+      entries: mmuEntries,
+    });
+    const mmuAddressMap = adaptExternalMmuSnapshotToAddressMap(mmu.snapshot());
+    const machineConfig = { ...configuration(), addressMap: mmuAddressMap };
+    const result = runTimingMachine(
+      machineConfig,
+      input(
+        [access("mmu-flash", 0, "instruction-fetch", 0x4200_0004n)],
+        [access("mmu-psram", 1, "load", 0x3c01_0008n)],
+        [],
+        ["mmu-flash", "mmu-psram"],
+      ),
+    );
+
+    const flash = result.cores[0].accesses[0];
+    const psram = result.cores[1].accesses[0];
+    expect(flash?.status).toBe("resolved");
+    expect(psram?.status).toBe("resolved");
+    if (flash?.status === "resolved" && psram?.status === "resolved") {
+      expect(flash.resolution.segments[0]).toMatchObject({
+        kind: "flash",
+        physicalBackingId: "esp32-s3-mspi-flash",
+        physicalOffset: 0x2_0004n,
+      });
+      expect(psram.resolution.segments[0]).toMatchObject({
+        kind: "psram",
+        physicalBackingId: "esp32-s3-mspi-psram",
+        physicalOffset: 0x3_0008n,
+      });
+    }
+    expect(completedWindow(result, "cache:mmu-flash:segment:0:cache:0:line-fill")).toEqual([0n, 10n]);
+    expect(completedWindow(result, "cache:mmu-psram:segment:0:cache:0:line-fill")).toEqual([10n, 20n]);
+    expect(result.execution.events.filter((event) => event.resource === "mspi")).toHaveLength(2);
+    expect(result.claim.architectureCalibration).toBe("uncalibrated");
+    expect(result.claim.architectureSources[0]?.source).toBe(mmuAddressMap.metadata.source);
   });
 });
 

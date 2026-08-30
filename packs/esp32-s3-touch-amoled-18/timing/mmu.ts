@@ -1,4 +1,5 @@
 import type { CacheAccessTrace } from "./cache";
+import type { AddressMapConfiguration, AddressRegion } from "./address-map";
 import type { CoreId } from "./execution";
 
 export const ESP32_S3_MMU_PAGE_SIZE_BYTES = 0x1_0000n;
@@ -117,6 +118,10 @@ export interface ExternalMmuSnapshot {
   readonly metadata: ExternalMmuMetadata;
   readonly pageSizeBytes: bigint;
   readonly entries: readonly ExternalMmuSnapshotEntry[];
+}
+
+export interface ExternalMmuAddressMapConfiguration extends AddressMapConfiguration {
+  readonly mmuClaim: ExternalMmuMetadata;
 }
 
 export interface ExternalMmuTranslationSegment {
@@ -461,4 +466,106 @@ export function adaptExternalMmuTranslation(
     }),
   );
   return Object.freeze({ status: "translated", traces: Object.freeze(traces) });
+}
+
+function addressMapSource(metadata: ExternalMmuMetadata): string {
+  return [
+    `ESP-IDF ${metadata.idfVersion} ESP32-S3 external MMU`,
+    ...metadata.sources.map(
+      (source) => `${source.path} [${source.symbols.join(", ")}]`,
+    ),
+  ].join("; ");
+}
+
+/**
+ * Convert one explicit MMU snapshot into the address-map surface consumed by
+ * the timing machine. Invalid entries are absent, not treated as reset maps.
+ */
+export function adaptExternalMmuSnapshotToAddressMap(
+  snapshot: ExternalMmuSnapshot,
+): ExternalMmuAddressMapConfiguration {
+  if (typeof snapshot !== "object" || snapshot === null) throw new Error("MMU snapshot is required");
+  validateMetadata(snapshot.metadata);
+  if (snapshot.pageSizeBytes !== ESP32_S3_MMU_PAGE_SIZE_BYTES) {
+    throw new Error(`snapshot.pageSizeBytes must be ${ESP32_S3_MMU_PAGE_SIZE_BYTES}`);
+  }
+  if (!Array.isArray(snapshot.entries) || snapshot.entries.length !== ESP32_S3_MMU_ENTRY_COUNT) {
+    throw new Error(`snapshot.entries must contain all ${ESP32_S3_MMU_ENTRY_COUNT} MMU entries`);
+  }
+
+  const sortedEntries = [...snapshot.entries].sort((left, right) => left.index - right.index);
+  const regions: AddressRegion[] = [];
+  for (const [expectedIndex, entry] of sortedEntries.entries()) {
+    if (typeof entry !== "object" || entry === null) {
+      throw new Error(`snapshot.entries[${expectedIndex}] must be an object`);
+    }
+    const index = requireIndex(entry.index, `snapshot.entries[${expectedIndex}].index`);
+    if (index !== expectedIndex) {
+      throw new Error(`snapshot.entries must contain each MMU entry index exactly once`);
+    }
+    if (entry.state === "invalid") {
+      if (
+        entry.target !== null ||
+        entry.physicalPage !== null ||
+        entry.rawValue !== ESP32_S3_MMU_INVALID_BIT
+      ) {
+        throw new Error(`snapshot MMU entry ${index} has an inconsistent invalid encoding`);
+      }
+      continue;
+    }
+    if (entry.state !== "mapped") {
+      throw new Error(`snapshot MMU entry ${index} state must be invalid or mapped`);
+    }
+    validateTarget(entry.target, `snapshot MMU entry ${index}.target`);
+    const physicalPage = requirePhysicalPage(
+      entry.physicalPage,
+      `snapshot MMU entry ${index}.physicalPage`,
+    );
+    const expectedRawValue = physicalPage | (entry.target === "psram" ? ESP32_S3_MMU_TARGET_BIT : 0);
+    if (entry.rawValue !== expectedRawValue) {
+      throw new Error(`snapshot MMU entry ${index} raw value is inconsistent with its target and physical page`);
+    }
+
+    const physicalOffset = BigInt(physicalPage) * ESP32_S3_MMU_PAGE_SIZE_BYTES;
+    const backingId = entry.target === "flash" ? "esp32-s3-mspi-flash" : "esp32-s3-mspi-psram";
+    const virtualOffset = BigInt(index) * ESP32_S3_MMU_PAGE_SIZE_BYTES;
+    regions.push(
+      Object.freeze({
+        id: `mmu:drom:${index}:${entry.target}`,
+        base: ESP32_S3_EXTERNAL_WINDOWS.drom.low + virtualOffset,
+        size: ESP32_S3_MMU_PAGE_SIZE_BYTES,
+        kind: entry.target,
+        permissions: Object.freeze({
+          read: true,
+          write: entry.target === "psram",
+          execute: false,
+        }),
+        cacheability: "cached",
+        physical: Object.freeze({ backingId, offset: physicalOffset }),
+      }),
+      Object.freeze({
+        id: `mmu:irom:${index}:${entry.target}`,
+        base: ESP32_S3_EXTERNAL_WINDOWS.irom.low + virtualOffset,
+        size: ESP32_S3_MMU_PAGE_SIZE_BYTES,
+        kind: entry.target,
+        permissions: Object.freeze({ read: false, write: false, execute: true }),
+        cacheability: "cached",
+        physical: Object.freeze({ backingId, offset: physicalOffset }),
+      }),
+    );
+  }
+  regions.sort((left, right) => {
+    if (left.base !== right.base) return left.base < right.base ? -1 : 1;
+    return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+  });
+
+  return Object.freeze({
+    addressBits: 32,
+    metadata: Object.freeze({
+      architectureCalibration: "uncalibrated",
+      source: addressMapSource(ESP32_S3_IDF_V6_0_2_MMU_METADATA),
+    }),
+    regions: Object.freeze(regions),
+    mmuClaim: ESP32_S3_IDF_V6_0_2_MMU_METADATA,
+  });
 }
