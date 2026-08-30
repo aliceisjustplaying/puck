@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "claimBoundary": {
+    "mode": "shadow-ledger",
+    "cycleAccurate": false,
+    "countsOnlyInstrumentedEvents": true,
+    "hostTraceTimeIsSimulatedTime": false
+  },
+  "cpu": {
+    "cores": 2,
+    "hz": 240000000,
+    "frequencyStatus": "configured"
+  },
+  "psram": {
+    "mode": "octal",
+    "dtr": true,
+    "busHz": 80000000,
+    "frequencyStatus": "configured",
+    "calibrated": false,
+    "throughputBytesPerSecond": null
+  },
+  "flash": {
+    "mode": "qio",
+    "hz": null,
+    "frequencyStatus": "unknown",
+    "calibrated": false,
+    "throughputBytesPerSecond": null
+  },
+  "panel": {
+    "interface": "qspi",
+    "lanes": 4,
+    "busHz": 40000000,
+    "frequencyStatus": "measured",
+    "frequencyCalibrated": true,
+    "bitsPerPixel": 16,
+    "payloadBytesPerSecond": 20000000,
+    "throughputCalibrated": false,
+    "payloadStatus": "derived-from-measured-frequency"
+  }
+}

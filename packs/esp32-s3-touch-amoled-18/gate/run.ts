@@ -22,8 +22,9 @@
 // it checks - see this pack's README.md, "The gate", for the exact
 // breakages and what each one printed.
 
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 const PACK = resolve(import.meta.dir, "..");
 const FIRMWARE = join(PACK, "firmware");
@@ -224,7 +225,81 @@ const noFramebuffer: Check = {
   },
 };
 
-const CHECKS: Check[] = [platformSeam, deviceDescriptorMatches, bandGeometry, noFramebuffer];
+/* ---------------------------------------------------------------------
+ * 5. timing.json pins the timing model's hardware profile and its claim
+ *    boundary.
+ *
+ * These are inputs to a model, not values the model is allowed to quietly
+ * infer. A changed clock, memory mode, or calibration status changes what a
+ * reported duration means, so drift must be a visible gate failure.
+ * ------------------------------------------------------------------- */
+const timingProfile: Check = {
+  name: "timing.json pins the ESP32-S3 timing profile and claim boundary",
+  run() {
+    const path = join(PACK, "timing.json");
+    if (!existsSync(path)) {
+      return "timing.json is missing; the timing model needs a checked-in hardware profile";
+    }
+
+    let profile: unknown;
+    try {
+      profile = JSON.parse(read(path));
+    } catch (err) {
+      return `timing.json is not valid JSON: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    if (typeof profile !== "object" || profile === null || Array.isArray(profile)) {
+      return "timing.json must contain one JSON object";
+    }
+
+    const expected = {
+      schemaVersion: 1,
+      claimBoundary: {
+        mode: "shadow-ledger",
+        cycleAccurate: false,
+        countsOnlyInstrumentedEvents: true,
+        hostTraceTimeIsSimulatedTime: false,
+      },
+      cpu: {
+        cores: 2,
+        hz: 240_000_000,
+        frequencyStatus: "configured",
+      },
+      psram: {
+        mode: "octal",
+        dtr: true,
+        busHz: 80_000_000,
+        frequencyStatus: "configured",
+        calibrated: false,
+        throughputBytesPerSecond: null,
+      },
+      flash: {
+        mode: "qio",
+        hz: null,
+        frequencyStatus: "unknown",
+        calibrated: false,
+        throughputBytesPerSecond: null,
+      },
+      panel: {
+        interface: "qspi",
+        lanes: 4,
+        busHz: 40_000_000,
+        frequencyStatus: "measured",
+        frequencyCalibrated: true,
+        bitsPerPixel: 16,
+        payloadBytesPerSecond: 20_000_000,
+        throughputCalibrated: false,
+        payloadStatus: "derived-from-measured-frequency",
+      },
+    };
+    if (isDeepStrictEqual(profile, expected)) return null;
+    return (
+      "timing.json differs from the pinned schema or values. " +
+      `expected ${JSON.stringify(expected)}, got ${JSON.stringify(profile)}`
+    );
+  },
+};
+
+const CHECKS: Check[] = [platformSeam, deviceDescriptorMatches, bandGeometry, noFramebuffer, timingProfile];
 
 let failed = 0;
 for (const check of CHECKS) {
