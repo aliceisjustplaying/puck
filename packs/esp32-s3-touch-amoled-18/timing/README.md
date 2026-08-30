@@ -55,7 +55,9 @@ The first hardware candidate is checked in as
 It contains 56 receipts from two independent clean boots, 28 measurement
 candidates, and 200 samples per candidate. It pins both boot IDs, receipt
 hashes, and raw boot-log hashes. The source board ran at 240 MHz with 80 MHz
-octal PSRAM and 80 MHz QIO flash. Its adoption status remains `unreviewed`.
+octal PSRAM and 80 MHz QIO flash. The exact input receipts are retained under
+[`evidence/receipts/`](evidence/receipts/), so the report can be regenerated
+byte for byte. Its adoption status remains `unreviewed`.
 
 ## What remains before a cycle-accurate claim
 
