@@ -1,9 +1,48 @@
+diff --git a/src/xtensa.c b/src/xtensa.c
+index 24c9792..4fd203e 100644
+--- a/src/xtensa.c
++++ b/src/xtensa.c
+@@ -2296,6 +2296,10 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
+ have_insn:
+ #endif
+ 
++    if (cpu->instruction_hook &&
++        cpu->instruction_hook(cpu, cpu->pc, insn, ilen, cpu->instruction_hook_ctx))
++        return -2;
++
+     cpu->_pc_written = false;
+     cpu->pc += (uint32_t)ilen;
+ 
+diff --git a/src/xtensa.h b/src/xtensa.h
+index 7f70ab1..3b94b65 100644
+--- a/src/xtensa.h
++++ b/src/xtensa.h
+@@ -12,6 +12,10 @@ typedef struct xtensa_cpu xtensa_cpu_t;
+ /* PC hook: return non-zero to skip normal fetch/execute for this cycle */
+ typedef int (*xtensa_pc_hook_fn)(xtensa_cpu_t *cpu, uint32_t pc, void *ctx);
+ 
++/* Instruction hook: return non-zero to stop before executing the instruction. */
++typedef int (*xtensa_instruction_hook_fn)(xtensa_cpu_t *cpu, uint32_t pc,
++                                          uint32_t insn, int length, void *ctx);
++
+ /* Pre-decoded instruction table: entire firmware decoded at load time.
+  * Direct-indexed by (pc - PREDECODE_BASE), no tags, no cache misses.
+  * Packed: bits 0-23 = instruction word, bits 24-25 = ilen (2 or 3).
+@@ -248,6 +252,8 @@ struct xtensa_cpu {
+     xtensa_pc_hook_fn pc_hook;          /* PC hook (for ROM stubs etc.) */
+     void             *pc_hook_ctx;
+     const uint64_t   *pc_hook_bitmap;   /* Fast-path bitmap: skip hook if bit not set */
++    xtensa_instruction_hook_fn instruction_hook;
++    void                       *instruction_hook_ctx;
+     uint32_t         *predecode;        /* Pre-decoded instruction table (heap, 20MB) */
+     /* AOT static-recompiled function table.
+      * `aot` is opaque to xtensa.c; xtensa_step_impl just calls
 diff --git a/src/wasm_probe.c b/src/wasm_probe.c
 new file mode 100644
-index 0000000..e342e31
+index 0000000..0df727b
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,204 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -11,52 +50,200 @@ index 0000000..e342e31
 +#include "xtensa.h"
 +#include "memory.h"
 +#include <stdint.h>
++#include <string.h>
 +
 +#ifdef FLEXE_PROBE_NATIVE
 +#include <stdio.h>
-+#define FLEXE_WASM_EXPORT
++#define FLEXE_EXPORT(name)
 +#else
-+#define FLEXE_WASM_EXPORT __attribute__((export_name("flexe_wasm_probe")))
++#define FLEXE_EXPORT(name) __attribute__((export_name(name)))
 +#endif
 +
 +#define FIXTURE_PC 0x40070000u
++#define INPUT_CAPACITY 4096u
++#define PAGE_BYTES 4096u
++#define NO_UNSUPPORTED_OFFSET UINT32_MAX
++#define INITIAL_STACK 0x3fcaffc0u
++#define INITIAL_SOURCE 0x3fca1000u
++#define INITIAL_DESTINATION 0x3fca2000u
++#define WINDOW_CALLINC 2u
++#define RESULT_ABI_VERSION 1u
++
++enum probe_stop_reason {
++    PROBE_STOP_RETURNED = 1,
++    PROBE_STOP_MAX_STEPS = 2,
++    PROBE_STOP_UNSUPPORTED = 3,
++    PROBE_STOP_STEP_ERROR = 4,
++    PROBE_STOP_INVALID_ARGUMENT = 5,
++    PROBE_STOP_ALLOCATION_FAILED = 6,
++    PROBE_STOP_CPU_STOPPED = 7,
++};
++
++struct probe_stop_record {
++    uint32_t abi_version;
++    uint32_t struct_bytes;
++    uint32_t reason;
++    uint32_t steps;
++    uint32_t start_pc;
++    uint32_t pc;
++    uint32_t return_pc;
++    uint32_t unsupported_pc;
++    uint32_t unsupported_encoding;
++    uint32_t unsupported_length;
++    uint32_t stack_pointer;
++    uint32_t registers[16];
++};
++
++struct unsupported_marker {
++    uint32_t pc;
++    uint32_t encoding;
++    uint32_t observed_pc;
++    uint32_t observed_encoding;
++    uint32_t observed_length;
++    int hit;
++};
 +
 +static xtensa_cpu_t cpu;
 +static xtensa_mem_t *mem;
++static uint8_t input[INPUT_CAPACITY];
++static uint8_t code_page[PAGE_BYTES];
++static struct probe_stop_record result;
 +
-+FLEXE_WASM_EXPORT
++static void finish_record(uint32_t reason, uint32_t steps, uint32_t start_pc,
++                          uint32_t return_pc, const struct unsupported_marker *marker) {
++    result.abi_version = RESULT_ABI_VERSION;
++    result.struct_bytes = (uint32_t)sizeof(result);
++    result.reason = reason;
++    result.steps = steps;
++    result.start_pc = start_pc;
++    result.pc = cpu.pc;
++    result.return_pc = return_pc;
++    result.unsupported_pc = marker ? marker->observed_pc : 0;
++    result.unsupported_encoding = marker ? marker->observed_encoding : 0;
++    result.unsupported_length = marker ? marker->observed_length : 0;
++    result.stack_pointer = ar_read(&cpu, 1);
++    for (int i = 0; i < 16; i++) result.registers[i] = ar_read(&cpu, i);
++}
++
++static int stop_unsupported(xtensa_cpu_t *unused_cpu, uint32_t pc, uint32_t insn,
++                            int length, void *context) {
++    (void)unused_cpu;
++    struct unsupported_marker *marker = context;
++    if (pc != marker->pc || insn != marker->encoding) return 0;
++    marker->hit = 1;
++    marker->observed_pc = pc;
++    marker->observed_encoding = insn;
++    marker->observed_length = (uint32_t)length;
++    return 1;
++}
++
++FLEXE_EXPORT("flexe_wasm_input")
++uint32_t flexe_wasm_input(void) {
++    return (uint32_t)(uintptr_t)input;
++}
++
++FLEXE_EXPORT("flexe_wasm_input_capacity")
++uint32_t flexe_wasm_input_capacity(void) {
++    return INPUT_CAPACITY;
++}
++
++FLEXE_EXPORT("flexe_wasm_run")
++uint32_t flexe_wasm_run(uint32_t pc, uint32_t code_length, uint32_t max_steps,
++                        uint32_t unsupported_offset, uint32_t unsupported_encoding) {
++    memset(&result, 0, sizeof(result));
++    memset(&cpu, 0, sizeof(cpu));
++    result.abi_version = RESULT_ABI_VERSION;
++    result.struct_bytes = (uint32_t)sizeof(result);
++    result.start_pc = pc;
++    result.pc = pc;
++    if (code_length == 0 || code_length > INPUT_CAPACITY || max_steps == 0 ||
++        (pc & (PAGE_BYTES - 1u)) + code_length > PAGE_BYTES ||
++        (unsupported_offset != NO_UNSUPPORTED_OFFSET && unsupported_offset >= code_length)) {
++        result.reason = PROBE_STOP_INVALID_ARGUMENT;
++        return (uint32_t)(uintptr_t)&result;
++    }
++
++    if (!mem) mem = mem_create();
++    if (!mem) {
++        result.reason = PROBE_STOP_ALLOCATION_FAILED;
++        return (uint32_t)(uintptr_t)&result;
++    }
++    mem_reset(mem);
++    memset(code_page, 0, sizeof(code_page));
++    memcpy(code_page + (pc & (PAGE_BYTES - 1u)), input, code_length);
++    mem->page_table[pc >> 12] = code_page;
++
++    xtensa_cpu_init(&cpu);
++    cpu.mem = mem;
++    cpu.pc = pc;
++    cpu.running = true;
++    cpu.ps = (1u << 18) | (WINDOW_CALLINC << 16);
++    cpu.windowbase = 0;
++    cpu.windowstart = 1;
++    cpu.window_callsize[0] = WINDOW_CALLINC;
++
++    uint32_t return_pc = (pc & ~(PAGE_BYTES - 1u)) + PAGE_BYTES;
++    ar_write(&cpu, 1, INITIAL_STACK);
++    ar_write(&cpu, 8, (WINDOW_CALLINC << 30) | (return_pc & 0x3fffffffu));
++    ar_write(&cpu, 10, INITIAL_SOURCE);
++    ar_write(&cpu, 11, INITIAL_DESTINATION);
++    ar_write(&cpu, 12, 1);
++
++    struct unsupported_marker marker = {
++        .pc = pc + unsupported_offset,
++        .encoding = unsupported_encoding,
++    };
++    if (unsupported_offset != NO_UNSUPPORTED_OFFSET) {
++        cpu.instruction_hook = stop_unsupported;
++        cpu.instruction_hook_ctx = &marker;
++    }
++
++    uint32_t steps = 0;
++    uint32_t reason = PROBE_STOP_MAX_STEPS;
++    while (1) {
++        if (cpu.pc == return_pc) {
++            reason = PROBE_STOP_RETURNED;
++            break;
++        }
++        if (steps >= max_steps) break;
++        int step_result = xtensa_step(&cpu);
++        if (marker.hit) {
++            reason = PROBE_STOP_UNSUPPORTED;
++            break;
++        }
++        if (step_result != 0) {
++            reason = PROBE_STOP_STEP_ERROR;
++            break;
++        }
++        steps++;
++        if (!cpu.running) {
++            reason = PROBE_STOP_CPU_STOPPED;
++            break;
++        }
++    }
++
++    finish_record(reason, steps, pc, return_pc, marker.hit ? &marker : NULL);
++    return (uint32_t)(uintptr_t)&result;
++}
++
++FLEXE_EXPORT("flexe_wasm_probe")
 +uint32_t flexe_wasm_probe(void) {
-+    /*
-+     * movi a3, 40
-+     * addi a3, a3, 2
-+     *
-+     * Encodings come from flexe's test_alu.c RRI8 builders. The probe loads
-+     * bytes through memory.c, fetches and decodes them in xtensa.c, executes
-+     * both, and observes the architectural register state.
-+     */
 +    static const uint8_t fixture[] = {
 +        0x32, 0xa0, 0x28,
 +        0x32, 0xc3, 0x02,
 +    };
-+
-+    if (!mem) mem = mem_create();
-+    if (!mem) return 0xdead0001u;
-+    mem_reset(mem);
-+    xtensa_cpu_init(&cpu);
-+    cpu.mem = mem;
-+    cpu.pc = FIXTURE_PC;
-+    cpu.running = true;
-+    if (mem_load(mem, FIXTURE_PC, fixture, sizeof(fixture)) != 0) return 0xdead0002u;
-+    if (xtensa_step(&cpu) != 0) return 0xdead0003u;
-+    if (xtensa_step(&cpu) != 0) return 0xdead0004u;
-+    if (cpu.pc != FIXTURE_PC + sizeof(fixture)) return 0xdead0005u;
-+    return ar_read(&cpu, 3);
++    memcpy(input, fixture, sizeof(fixture));
++    (void)flexe_wasm_run(FIXTURE_PC, (uint32_t)sizeof(fixture), 2,
++                         NO_UNSUPPORTED_OFFSET, 0);
++    if (result.reason != PROBE_STOP_MAX_STEPS || result.pc != FIXTURE_PC + sizeof(fixture))
++        return 0xdead0001u;
++    return result.registers[3];
 +}
 +
 +#ifdef FLEXE_PROBE_NATIVE
 +int main(void) {
-+    uint32_t result = flexe_wasm_probe();
-+    printf("%u\n", result);
-+    return result == 42u ? 0 : 1;
++    uint32_t probe_result = flexe_wasm_probe();
++    printf("%u\n", probe_result);
++    return probe_result == 42u ? 0 : 1;
 +}
 +#endif

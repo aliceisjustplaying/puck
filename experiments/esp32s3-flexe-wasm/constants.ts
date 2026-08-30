@@ -46,4 +46,10 @@ export const EXPECTED_WASI_IMPORTS = [
 export const PUCK_WASI_LITE_IMPORTS = ["clock_time_get", "fd_write", "proc_exit", "random_get"] as const;
 
 export const EXPECTED_FREESTANDING_IMPORTS = ["env.js_log"] as const;
-export const EXPECTED_FREESTANDING_EXPORTS = ["flexe_wasm_probe", "memory"] as const;
+export const EXPECTED_FREESTANDING_EXPORTS = [
+  "flexe_wasm_input",
+  "flexe_wasm_input_capacity",
+  "flexe_wasm_probe",
+  "flexe_wasm_run",
+  "memory"
+] as const;

@@ -12,6 +12,11 @@ a small hosted-C compatibility patch. A six-byte fixture executes `movi a3,
 from architectural register `a3`. The freestanding module is loaded by Puck's
 real `src/wasm.ts` `instantiate()` function in the executable test.
 
+The dynamic runner also executes an actual scalar function extracted from a
+current ESP32-S3 ELF at its original PC. It stops recoverably before the first
+known PIE gap in a second real ELF function and returns the complete visible
+register file, PC, step count, and stop reason through a versioned record.
+
 This does not demonstrate ESP32-S3 support, LX7 or PIE instructions, a browser
 page, timing, caches, dual-core scheduling, or an ESP-IDF boot. It proves that
 flexe's direct interpreter can cross Puck's current WebAssembly loader boundary
@@ -80,6 +85,45 @@ With `a4` nonzero, `tinydraw_stage_pixels_swapped_pie` executes flexe-supported
 `0x40377a54`: objdump encoding `830124`, `ee.vld.128.ip q0, a2, 16`. This is a
 real named TinyDraw PIE kernel, not a linear decode from a literal pool.
 
+## Dynamic ELF execution
+
+`elf-fixture.ts` extracts contiguous function bytes directly from Espressif
+objdump output and reverses each displayed encoding into target memory order.
+`dynamic-runner-test.ts` writes those caller-supplied bytes into the module's
+exported 4 KiB input buffer, then calls `flexe_wasm_run(pc, length, max_steps,
+unsupported_offset, unsupported_encoding)` through Puck's unchanged real
+`instantiate()` path. Every fixture runs in a fresh WebAssembly instance.
+
+The temporary flexe patch maps one 4 KiB code page at the supplied ESP32-S3
+IRAM PC. It establishes a deterministic call8 frame with stack pointer
+`0x3fcaffc0`, source `0x3fca1000`, destination `0x3fca2000`, and count 1. The
+versioned 108-byte stop record contains reason, steps, start, current and return
+PCs, unsupported instruction details, current stack pointer, and registers
+`a0` through `a15`. This does not add the ESP32-S3 data-memory map; the scalar
+fixture is deliberately a leaf that performs no data access.
+
+The scalar fixture is `tlsf_alloc_overhead` from the current panel-probe ELF,
+at `0x403808f4`. Its seven bytes have SHA-256
+`cebc5d75741ee728f371bf15e6f834d1cacd50ce35b264385313c30b542ee7b7` and
+decode as `entry`, `movi.n`, `retw.n`. flexe executes all three, returns to the
+synthetic caller, restores its stack, and exposes the return value 4 in caller
+register `a10`. A separate fresh run capped at two instructions stops at
+`0x403808f9` before `retw.n`, proving the bound is active.
+
+The PIE fixture has code SHA-256
+`f0503e09af131793fa0dfdf9077a9d433225c08962672d7f492f1496b15d1c75`.
+flexe executes the supported `entry`, `nop.n`, and `loopnez`, then its
+experiment-only instruction hook stops before `ee.vld.128.ip` at `0x40377a54`,
+objdump encoding `830124`. The hook is configured by the host from the pinned
+ISA inventory's exact offset and encoding. It is intentionally not presented
+as an automatic LX7 decoder. This prevents flexe from silently treating the
+colliding encoding as an LX6 MAC16 instruction.
+
+`esp32s3-dynamic-baseline.json` pins both ELF hashes, extracted-code hashes,
+patch hashes, objdump hash, module hash, and both stop results. The detailed
+generated record and toolchain provenance live in ignored
+`dist/dynamic-execution.json`.
+
 ## Minimal interpreter dependency closure
 
 The successful build copies six upstream implementation files and headers:
@@ -105,10 +149,12 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 37,946 bytes with Zig 0.16.0. It imports
-only `env.js_log` and exports only `memory` and `flexe_wasm_probe`. Those names
-are audited before `puck-loader-test.ts` passes the bytes to Puck's real loader
-and asserts architectural result 42. It has no WASI imports.
+The stripped freestanding module is 39,413 bytes with Zig 0.16.0, SHA-256
+`3dbef62f917380e3140b1c8da3173f7fce52091b63cd5525ff26b38d982d607e`.
+It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
+`flexe_wasm_input`, `flexe_wasm_input_capacity`, and `flexe_wasm_run`. Those
+names are audited before the tests pass the bytes to Puck's real loader. It has
+no WASI imports, and Puck's loader surface is unchanged.
 
 The WASI build remains as a comparison. Zig's WASI libc introduces six imports.
 Puck supports `fd_write` and `proc_exit`, but correctly rejects `environ_get`,

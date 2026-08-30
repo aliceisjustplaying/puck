@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "inputs": {
+    "flexeCommit": "34ea9eb6eef921b59a55e6a435c7fc55c5727835",
+    "runnerPatchSha256": "e6ac6b08a33505e976dd128d9ea6538646b7c24189499e7ce1f0ab9601eb5603",
+    "freestandingPatchSha256": "dbd2c623bfc9f9f33c4e4a98adcf06dec1d9034c659ad3c7afe94d373c48636d",
+    "moduleBytes": 39413,
+    "moduleSha256": "3dbef62f917380e3140b1c8da3173f7fce52091b63cd5525ff26b38d982d607e",
+    "objdumpSha256": "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466",
+    "scalarElfSha256": "87d6a00ffdf18c9bcb7dd3742658b5a1786212f939f5cbafe1b82562a350f70f",
+    "pieElfSha256": "2293fb3d35ba2f785e4dce5dfb35d2f33e452150167dc8d24f0e091cfa3e6d53"
+  },
+  "scalar": {
+    "symbol": "tlsf_alloc_overhead",
+    "pc": "0x403808f4",
+    "codeSha256": "cebc5d75741ee728f371bf15e6f834d1cacd50ce35b264385313c30b542ee7b7",
+    "mnemonics": ["entry", "movi.n", "retw.n"],
+    "reason": "returned",
+    "steps": 3,
+    "returnRegister": "a10",
+    "returnValue": 4,
+    "boundedReason": "maxSteps",
+    "boundedSteps": 2,
+    "boundedPc": "0x403808f9"
+  },
+  "pie": {
+    "symbol": "tinydraw_stage_pixels_swapped_pie",
+    "pc": "0x40377a4c",
+    "codeSha256": "f0503e09af131793fa0dfdf9077a9d433225c08962672d7f492f1496b15d1c75",
+    "reason": "unsupported",
+    "supportedSteps": 3,
+    "unsupportedPc": "0x40377a54",
+    "unsupportedObjdumpEncoding": "830124",
+    "unsupportedLength": 3
+  }
+}
