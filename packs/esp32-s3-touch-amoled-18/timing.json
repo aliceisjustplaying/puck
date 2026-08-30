@@ -21,8 +21,8 @@
   },
   "flash": {
     "mode": "qio",
-    "hz": null,
-    "frequencyStatus": "unknown",
+    "hz": 80000000,
+    "frequencyStatus": "configured",
     "calibrated": false,
     "throughputBytesPerSecond": null
   },

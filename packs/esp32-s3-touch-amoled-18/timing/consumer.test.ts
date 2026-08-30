@@ -33,8 +33,8 @@ function profileObject(): Record<string, unknown> {
     },
     flash: {
       mode: "qio",
-      hz: null,
-      frequencyStatus: "unknown",
+      hz: 80_000_000,
+      frequencyStatus: "configured",
       calibrated: false,
       throughputBytesPerSecond: null,
     },

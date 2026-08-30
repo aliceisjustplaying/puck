@@ -37,7 +37,7 @@ guesses:
 - two CPU cores configured for 240 MHz;
 - octal PSRAM configured for an 80 MHz interface, with no general throughput
   claim yet;
-- QIO flash, with its operating frequency and throughput explicitly unknown;
+- QIO flash at the firmware's configured 80 MHz, with throughput explicitly unknown;
 - the panel's measured 40 MHz quad-SPI line clock, whose four data lanes and
   16-bit pixels give a raw payload ceiling of 20 MB/s before transaction,
   staging, queueing, and scan-out costs.
