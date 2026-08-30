@@ -21,6 +21,12 @@ export const DEFAULT_TINYDRAW_ESP32S3_FIXTURE_ELF = join(
   "out/build/esp32-vector-v2-simd-probe/tinydraw_esp32.elf"
 );
 export const DEFAULT_TINYDRAW_ESP32S3_FIXTURE_SYMBOL = "tinydraw_stage_pixels_swapped_pie";
+export const DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF = join(
+  TINYDRAW_ROOT,
+  "out/build/esp32-vector-v2-gate-harness/tinydraw_esp32.elf"
+);
+export const DEFAULT_TINYDRAW_ESP32S3_STAGING_SYMBOL =
+  "_ZN8tinydraw5esp3212gate_harness12_GLOBAL__N_1L34stage_pixels_swapped_scalar_oracleEPKtPti";
 
 export const SOURCE_HASHES = {
   "LICENSE": "de21f9882681b9d0861b19ae9c822732536d3c73f6e736957411534d7291a5ac",
@@ -47,9 +53,13 @@ export const PUCK_WASI_LITE_IMPORTS = ["clock_time_get", "fd_write", "proc_exit"
 
 export const EXPECTED_FREESTANDING_IMPORTS = ["env.js_log"] as const;
 export const EXPECTED_FREESTANDING_EXPORTS = [
+  "flexe_wasm_data_capacity",
+  "flexe_wasm_data_input",
+  "flexe_wasm_data_output",
   "flexe_wasm_input",
   "flexe_wasm_input_capacity",
   "flexe_wasm_probe",
   "flexe_wasm_run",
+  "flexe_wasm_run_data",
   "memory"
 ] as const;

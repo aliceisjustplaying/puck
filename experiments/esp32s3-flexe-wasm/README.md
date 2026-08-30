@@ -16,6 +16,8 @@ The dynamic runner also executes an actual scalar function extracted from a
 current ESP32-S3 ELF at its original PC. It stops recoverably before the first
 known PIE gap in a second real ELF function and returns the complete visible
 register file, PC, step count, and stop reason through a versioned record.
+It injects data into S3-style source and destination pages and runs a real
+TinyDraw RGB565 scalar staging function over five pixels.
 
 This does not demonstrate ESP32-S3 support, LX7 or PIE instructions, a browser
 page, timing, caches, dual-core scheduling, or an ESP-IDF boot. It proves that
@@ -92,15 +94,20 @@ objdump output and reverses each displayed encoding into target memory order.
 `dynamic-runner-test.ts` writes those caller-supplied bytes into the module's
 exported 4 KiB input buffer, then calls `flexe_wasm_run(pc, length, max_steps,
 unsupported_offset, unsupported_encoding)` through Puck's unchanged real
-`instantiate()` path. Every fixture runs in a fresh WebAssembly instance.
+`instantiate()` path. `flexe_wasm_run_data` additionally copies caller bytes
+into an emulated source page and copies the destination page back to an
+exported output buffer. Every fixture runs in a fresh WebAssembly instance.
 
 The temporary flexe patch maps one 4 KiB code page at the supplied ESP32-S3
-IRAM PC. It establishes a deterministic call8 frame with stack pointer
-`0x3fcaffc0`, source `0x3fca1000`, destination `0x3fca2000`, and count 1. The
+executable PC, including IRAM and flash ranges. It establishes a deterministic
+call8 frame with stack pointer `0x3fcaffc0`, source `0x3fca1000`, destination
+`0x3fca2000`, and count 1 for code-only runs. The
 versioned 108-byte stop record contains reason, steps, start, current and return
 PCs, unsupported instruction details, current stack pointer, and registers
-`a0` through `a15`. This does not add the ESP32-S3 data-memory map; the scalar
-fixture is deliberately a leaf that performs no data access.
+`a0` through `a15`. Data runs map separate 4 KiB source and destination pages
+at those S3-style addresses and derive the pixel count from the even input byte
+length. This is a bounded experiment mapping, not a complete ESP32-S3 memory
+map.
 
 The scalar fixture is `tlsf_alloc_overhead` from the current panel-probe ELF,
 at `0x403808f4`. Its seven bytes have SHA-256
@@ -119,9 +126,23 @@ ISA inventory's exact offset and encoding. It is intentionally not presented
 as an automatic LX7 decoder. This prevents flexe from silently treating the
 colliding encoding as an LX6 MAC16 instruction.
 
-`esp32s3-dynamic-baseline.json` pins both ELF hashes, extracted-code hashes,
-patch hashes, objdump hash, module hash, and both stop results. The detailed
-generated record and toolchain provenance live in ignored
+The RGB565 fixture is the local
+`stage_pixels_swapped_scalar_oracle` function from
+`out/build/esp32-vector-v2-gate-harness/tinydraw_esp32.elf`, SHA-256
+`51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5`.
+Its 41 code bytes start at `0x420d4e10` and have SHA-256
+`a545acd197c5b75f0351256aa6a9c8a7028cb42f91e617c28317fa560d873877`.
+The fixture executes loads, stores, shifts, byte combination, pointer updates,
+and a zero-overhead loop over five pixels. Input bytes
+`3412cdabff001ff8e007` become `1234abcd00fff81f07e0` after 43 instructions;
+the output SHA-256 is
+`6d007b52dcec2b7b879b7a749e164e7991fd49e44d05edd26b2a3675805b7581`.
+Every mnemonic in this function is present in the pinned flexe decoder, and
+the execution returns normally, so its first recoverable ISA gap is `null`.
+
+`esp32s3-dynamic-baseline.json` pins all three ELF hashes, extracted-code and
+staging-output hashes, patch hashes, objdump hash, module hash, and stop results.
+The detailed generated record and toolchain provenance live in ignored
 `dist/dynamic-execution.json`.
 
 ## Minimal interpreter dependency closure
@@ -149,12 +170,13 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 39,413 bytes with Zig 0.16.0, SHA-256
-`3dbef62f917380e3140b1c8da3173f7fce52091b63cd5525ff26b38d982d607e`.
+The stripped freestanding module is 39,896 bytes with Zig 0.16.0, SHA-256
+`45707aef5e86e2d86c757ab041a062ac99903b1c793b93d4be09328362baaa5c`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
-`flexe_wasm_input`, `flexe_wasm_input_capacity`, and `flexe_wasm_run`. Those
-names are audited before the tests pass the bytes to Puck's real loader. It has
-no WASI imports, and Puck's loader surface is unchanged.
+the code input and capacity functions, `flexe_wasm_run`, the data input, output,
+and capacity functions, and `flexe_wasm_run_data`. Those names are audited
+before the tests pass the bytes to Puck's real loader. It has no WASI imports,
+and Puck's loader surface is unchanged.
 
 The WASI build remains as a comparison. Zig's WASI libc introduces six imports.
 Puck supports `fd_write` and `proc_exit`, but correctly rejects `environ_get`,

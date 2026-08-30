@@ -2,13 +2,14 @@
   "schemaVersion": 1,
   "inputs": {
     "flexeCommit": "34ea9eb6eef921b59a55e6a435c7fc55c5727835",
-    "runnerPatchSha256": "e6ac6b08a33505e976dd128d9ea6538646b7c24189499e7ce1f0ab9601eb5603",
+    "runnerPatchSha256": "e883532e2be6fd2ede57570e52bae19786ca696f6466ab13abe96fdbc2883168",
     "freestandingPatchSha256": "dbd2c623bfc9f9f33c4e4a98adcf06dec1d9034c659ad3c7afe94d373c48636d",
-    "moduleBytes": 39413,
-    "moduleSha256": "3dbef62f917380e3140b1c8da3173f7fce52091b63cd5525ff26b38d982d607e",
+    "moduleBytes": 39896,
+    "moduleSha256": "45707aef5e86e2d86c757ab041a062ac99903b1c793b93d4be09328362baaa5c",
     "objdumpSha256": "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466",
     "scalarElfSha256": "87d6a00ffdf18c9bcb7dd3742658b5a1786212f939f5cbafe1b82562a350f70f",
-    "pieElfSha256": "2293fb3d35ba2f785e4dce5dfb35d2f33e452150167dc8d24f0e091cfa3e6d53"
+    "pieElfSha256": "2293fb3d35ba2f785e4dce5dfb35d2f33e452150167dc8d24f0e091cfa3e6d53",
+    "stagingElfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5"
   },
   "scalar": {
     "symbol": "tlsf_alloc_overhead",
@@ -32,5 +33,33 @@
     "unsupportedPc": "0x40377a54",
     "unsupportedObjdumpEncoding": "830124",
     "unsupportedLength": 3
+  },
+  "staging": {
+    "symbol": "_ZN8tinydraw5esp3212gate_harness12_GLOBAL__N_1L34stage_pixels_swapped_scalar_oracleEPKtPti",
+    "pc": "0x420d4e10",
+    "codeSha256": "a545acd197c5b75f0351256aa6a9c8a7028cb42f91e617c28317fa560d873877",
+    "outputSha256": "6d007b52dcec2b7b879b7a749e164e7991fd49e44d05edd26b2a3675805b7581",
+    "mnemonics": [
+      "entry",
+      "blti",
+      "add.n",
+      "addi",
+      "srli",
+      "addi",
+      "loop",
+      "l16ui",
+      "addi.n",
+      "extui",
+      "slli",
+      "or",
+      "s16i",
+      "addi.n",
+      "retw.n"
+    ],
+    "inputHex": "3412cdabff001ff8e007",
+    "outputHex": "1234abcd00fff81f07e0",
+    "reason": "returned",
+    "steps": 43,
+    "firstUnsupported": null
   }
 }
