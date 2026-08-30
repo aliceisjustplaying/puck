@@ -4,9 +4,10 @@ Date: 2026-08-13
 Status: accepted
 
 Superseded in part by
-[`0006-opt-in-esp32s3-timing-lab.md`](0006-opt-in-esp32s3-timing-lab.md).
-Puck's default instrument remains behavioural, while that decision permits a
-separate, explicitly opt-in timing lab with narrower claims.
+[`0006-opt-in-esp32s3-timing-lab.md`](0006-opt-in-esp32s3-timing-lab.md) and
+[`0007-opt-in-esp32s3-full-system-cycle-model.md`](0007-opt-in-esp32s3-full-system-cycle-model.md).
+Puck's default instrument remains behavioural. Those decisions permit
+separate, explicitly opt-in timing paths with narrower claims.
 
 ## The question
 

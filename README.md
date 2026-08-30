@@ -165,12 +165,18 @@ between the two compilers is out of reach here. See
 for exactly why this distinction is real and worth stating plainly rather
 than letting a reader assume more.
 
-**Timing is never modeled, anywhere, on purpose.** The browser's clock
-drives the tick loop. Nothing here reproduces bus latency, real interrupt
-timing, or a second CPU core. Any question of the shape "is this
-responsive" or "does this feel laggy" is a question only real hardware can
-answer, always. See [`docs/requirements.md`](docs/requirements.md)'s "What
-this emulator does not model."
+**The default portable-C emulator does not model target hardware timing.**
+The browser's clock drives its tick loop. That path does not reproduce bus
+latency, real interrupt timing, or a second CPU core, so the board remains the
+authority for whether firmware is responsive.
+
+The ESP32-S3 pack also has a separate, opt-in
+[`timing lab`](packs/esp32-s3-touch-amoled-18/timing/README.md) and a bounded
+full-system experiment. Their current outputs are uncalibrated and explicitly
+`cycleAccurate: false`; they do not change the default emulator or turn a model
+result into a hardware performance claim. See
+[`docs/requirements.md`](docs/requirements.md)'s "What this emulator does not
+model."
 
 **The emulator must never deliver an input your hardware cannot produce.**
 Where the two disagree, the emulator's model changes to match the

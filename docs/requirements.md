@@ -52,7 +52,9 @@ assumption that "more fidelity is always better":
   show up around interrupt timing and real-time peripherals like the RTC.
   This lines up exactly with what
   [`docs/decisions/0003-differential-testing-not-cycle-accurate-emulation.md`](decisions/0003-differential-testing-not-cycle-accurate-emulation.md)
-  already concludes: timing is a question for the board, always.
+  concludes for the default portable-C instrument: the board is the authority
+  for timing claims. The separate ESP32-S3 timing lab can produce explicit,
+  uncalibrated hypotheses without changing that authority.
 - **CI-grade regression testing for emulators is done with framebuffer
   hashing against golden references**, not visual inspection: a per-frame
   hash written during the run, diffed against a checked-in golden hash,
@@ -193,22 +195,29 @@ calls that cross the ABI boundary.
 ## What this emulator does not model, and must say so
 
 Stated once, plainly, because everything above depends on nobody
-forgetting it: **timing is not modeled.** The browser's clock drives the
-tick; nothing here reproduces bus latency, panel push cost, or a second
-core. This is not a gap to be closed later, it is a category this tool
-does not claim, and
+forgetting it: **the default portable-C emulator does not model target
+hardware timing.** The browser's clock drives its tick; that path does not
+reproduce bus latency, panel push cost, or a second core. Timing remains a
+category the default tool does not claim, and
 [`docs/decisions/0003-differential-testing-not-cycle-accurate-emulation.md`](decisions/0003-differential-testing-not-cycle-accurate-emulation.md)
-records exactly why chasing it was rejected. An emulator and the real
-device are different failure modes, not degrees of the same one; a fast,
-faithful functional tool is not a substitute for the one question only
-real hardware can answer.
+records why. The ESP32-S3 pack's separate opt-in timing lab and full-system
+experiment are governed by
+[`0006`](decisions/0006-opt-in-esp32s3-timing-lab.md) and
+[`0007`](decisions/0007-opt-in-esp32s3-full-system-cycle-model.md). Their
+current outputs are uncalibrated and `cycleAccurate: false`; they neither drive
+the portable-C emulator's clock nor replace hardware validation. An emulator
+and the real device are different failure modes, not degrees of the same one;
+a fast, faithful functional tool is not a substitute for the board.
 
 ## What a good emulator refuses to do
 
 - **It never implies timing fidelity it does not have.** No frame-rate
   counter, no "cycles per tick," no UI element that looks like a
   performance measurement, because every one would be read as a claim
-  about the real device this tool cannot back.
+  about the real device this tool cannot back. An opt-in timing artifact may
+  expose a model result only with its claim boundary, evidence provenance,
+  calibration status, and unreviewed adoption status intact. It is not a
+  default emulator measurement.
 - **It never silently diverges from the real target.** A reimplementation
   of your firmware's logic in TypeScript would agree with your C exactly
   once, at the moment the second copy is written, and drift from then on
