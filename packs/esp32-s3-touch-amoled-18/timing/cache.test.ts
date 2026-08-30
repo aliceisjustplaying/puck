@@ -3,6 +3,7 @@ import {
   CacheStateMachine,
   ESP32_S3_CACHE_BANK_TOPOLOGY,
   type CacheConfiguration,
+  type CacheLineFillCost,
   type CacheLatency,
 } from "./cache";
 import { scheduleExecution, type ExecutionEvent } from "./execution";
@@ -20,7 +21,7 @@ function configuration(
     dataWritePolicy: "write-back" | "write-through";
     allocateOnStoreMiss: boolean;
     dirtyInvalidate: "writeback" | "discard";
-    lineFill: CacheLatency;
+    lineFill: CacheLineFillCost;
     ways: number;
     instructionSharing: "per-core" | "shared";
     dataSharing: "per-core" | "shared";
@@ -194,6 +195,34 @@ describe("line boundaries and bank topology", () => {
       cacheability: "cached",
     });
     expect(kinds(second)).toEqual(["hit", "hit"]);
+  });
+
+  test("selects line-fill cost by cache kind and external backing", () => {
+    const lineFill: CacheLineFillCost = {
+      instruction: { flash: measured(11n), psram: measured(12n) },
+      data: { flash: measured(21n), psram: measured(22n) },
+    };
+    const cases = [
+      { kind: "instruction-fetch" as const, memory: "flash" as const, cycles: 11n },
+      { kind: "instruction-fetch" as const, memory: "psram" as const, cycles: 12n },
+      { kind: "load" as const, memory: "flash" as const, cycles: 21n },
+      { kind: "load" as const, memory: "psram" as const, cycles: 22n },
+    ];
+    for (const [index, candidate] of cases.entries()) {
+      const step = new CacheStateMachine(configuration({ lineFill })).process({
+        id: `scoped-fill-${index}`,
+        core: 0,
+        kind: candidate.kind,
+        memory: candidate.memory,
+        address: 0n,
+        bytes: 4,
+        cacheability: "cached",
+      });
+      expect(step.emissions[0]).toMatchObject({
+        kind: "line-fill",
+        cost: { status: "known", cycles: candidate.cycles },
+      });
+    }
   });
 
   test("models per-core instruction banks and one shared data bank", () => {

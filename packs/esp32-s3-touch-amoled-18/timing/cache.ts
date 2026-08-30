@@ -33,6 +33,13 @@ export type CacheLatency =
       source: string;
     }>;
 
+export type ExternalCacheLineFillCosts = Readonly<{
+  instruction: Readonly<Record<"flash" | "psram", CacheLatency>>;
+  data: Readonly<Record<"flash" | "psram", CacheLatency>>;
+}>;
+
+export type CacheLineFillCost = CacheLatency | ExternalCacheLineFillCosts;
+
 export interface CacheGeometry {
   readonly lineSizeBytes: number;
   readonly sets: number;
@@ -63,7 +70,7 @@ export interface CacheConfiguration {
       load: CacheLatency;
       store: CacheLatency;
     }>;
-    lineFill: CacheLatency;
+    lineFill: CacheLineFillCost;
     dirtyWriteback: CacheLatency;
     writeThrough: CacheLatency;
     uncached: Readonly<{
@@ -208,6 +215,28 @@ function validateCost(cost: CacheLatency, path: string): void {
   throw new Error(`${path}.status must be known or unknown`);
 }
 
+function isCacheLatency(value: CacheLineFillCost): value is CacheLatency {
+  return "status" in value;
+}
+
+function validateLineFillCost(cost: CacheLineFillCost, path: string): void {
+  if (typeof cost !== "object" || cost === null) {
+    throw new Error(`${path} is required; the cache model has no default latency`);
+  }
+  if (isCacheLatency(cost)) {
+    validateCost(cost, path);
+    return;
+  }
+  for (const cache of CACHE_KINDS) {
+    const byMemory = cost[cache];
+    if (typeof byMemory !== "object" || byMemory === null) {
+      throw new Error(`${path}.${cache} is required`);
+    }
+    validateCost(byMemory.flash, `${path}.${cache}.flash`);
+    validateCost(byMemory.psram, `${path}.${cache}.psram`);
+  }
+}
+
 function validateGeometry(geometry: CacheGeometry, path: string): void {
   if (typeof geometry !== "object" || geometry === null) throw new Error(`${path} is required`);
   requirePositiveSafeInteger(geometry.lineSizeBytes, `${path}.lineSizeBytes`);
@@ -269,7 +298,7 @@ function validateConfiguration(config: CacheConfiguration): void {
   validateCost(config.costs.hit.instructionFetch, "config.costs.hit.instructionFetch");
   validateCost(config.costs.hit.load, "config.costs.hit.load");
   validateCost(config.costs.hit.store, "config.costs.hit.store");
-  validateCost(config.costs.lineFill, "config.costs.lineFill");
+  validateLineFillCost(config.costs.lineFill, "config.costs.lineFill");
   validateCost(config.costs.dirtyWriteback, "config.costs.dirtyWriteback");
   validateCost(config.costs.writeThrough, "config.costs.writeThrough");
   validateCost(config.costs.uncached.instructionFetch, "config.costs.uncached.instructionFetch");
@@ -496,6 +525,11 @@ export class CacheStateMachine {
     }
   }
 
+  #lineFillCost(cache: CacheKind, memory: "flash" | "psram"): CacheLatency {
+    const cost = this.#config.costs.lineFill;
+    return isCacheLatency(cost) ? cost : cost[cache][memory];
+  }
+
   #memoryEvent(
     trace: CacheAccessTrace,
     memory: MemoryRegion,
@@ -639,7 +673,7 @@ export class CacheStateMachine {
           segment.lineAddress,
           geometry.lineSizeBytes,
           segment.lineAddress,
-          this.#config.costs.lineFill,
+          this.#lineFillCost(cache, trace.memory),
           fillEvent,
         );
         Object.assign(victim, {
