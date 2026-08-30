@@ -22,9 +22,10 @@ result.
 | External-memory MMU | [`mmu.ts`](mmu.ts) | Translates explicit 512-entry, 64 KiB ESP32-S3 IROM/DROM page tables to flash or PSRAM without assuming reset mappings or adding latency. |
 | Cache model | [`cache.ts`](cache.ts) | Maintains per-core instruction caches and the ESP32-S3's shared data cache, and emits hits, misses, fills, writebacks, and maintenance work. Geometry, policies, and costs are supplied explicitly and remain uncalibrated unless evidence says otherwise. |
 | Timing machine | [`machine.ts`](machine.ts) | Composes an explicit two-core architectural interleave, address resolution, cache emissions, DMA, and resource scheduling into stable JSON with cost provenance and unknowns. It is not an instruction decoder or a full chip. |
+| Runtime trace seam | [`runtime-trace.ts`](runtime-trace.ts) | Converts ordered interpreter fetch, load, store, and explicit DMA callbacks into immutable timing-machine input without inventing missing events or costs. |
 | Hardware receipt adoption | [`calibration.ts`](calibration.ts) | Strictly parses clean ESP32-S3 hardware receipts, exact 32-bit CCOUNT wraparound samples, metadata, and matching multi-boot cohorts. It emits deterministic candidate statistics only. |
 | Evidence report CLI | [`calibration-report.ts`](calibration-report.ts) | Reads receipt JSON files or flat directories, retains receipt and boot-log hashes, and writes byte-stable candidate JSON with exact integers and rationals as decimal strings. Adoption stays `unreviewed`; cache and ISA calibration are not claimed. |
-| Xtensa WebAssembly experiment | [`../../../experiments/esp32s3-flexe-wasm/`](../../../experiments/esp32s3-flexe-wasm/) | Proves a pinned direct interpreter can cross Puck's loader boundary and execute a small real scalar ELF function. It does not provide ESP32-S3 support or timing. |
+| Xtensa WebAssembly experiment | [`../../../experiments/esp32s3-flexe-wasm/`](../../../experiments/esp32s3-flexe-wasm/) | Executes a real TinyDraw RGB565 kernel through Puck's loader with a bounded instruction and data-access trace, then replays it through this timing machine. |
 
 The ledger report consumes a built emulator:
 
@@ -48,6 +49,13 @@ boundary and rejects dirty builds, schema drift, mismatched toolchain or
 sdkconfig metadata, duplicate boots or measurements, and unequal per-boot
 sample counts. Candidate quantiles and cycles-per-byte ratios do not mutate
 `timing.json`.
+
+The first hardware candidate is checked in as
+[`evidence/esp32s3-rev02-tinydraw-d81e2ea-candidate.json`](evidence/esp32s3-rev02-tinydraw-d81e2ea-candidate.json).
+It contains 56 receipts from two independent clean boots, 28 measurement
+candidates, and 200 samples per candidate. It pins both boot IDs, receipt
+hashes, and raw boot-log hashes. The source board ran at 240 MHz with 80 MHz
+octal PSRAM and 80 MHz QIO flash. Its adoption status remains `unreviewed`.
 
 ## What remains before a cycle-accurate claim
 
