@@ -109,7 +109,7 @@ DEVLINK_PORT=<PORT> DEVLINK_DTR=0 bun run harness:hardware:esp32
 bun run pack:esp32:gate
 ```
 
-Four checks, no board and no toolchain needed, each one something this pack can
+Five checks, no board and no toolchain needed, each one something this pack can
 get wrong on its own. Every one of them was shown RED before it was shown
 green, by breaking the thing it checks:
 
@@ -119,9 +119,28 @@ green, by breaking the thing it checks:
 | `device.json` matches `emu_device()`'s JSON on every ABI field | changing `device.json`'s panel width to 369 | `"panel": device.json has {"w":369,"h":448,"format":"rgb565be"}, emu_device() has {"w":368,...}` (the geometry check catches it too, which is the point of having both) |
 | The band geometry in `runtime_core.h` is the one `device.json` declares | changing `BAND_ROWS` to 32 | `device.json says 28 rows per band, the C says 32; device.json says 16 bands, the C's geometry gives 14; device.json says a 20KB band buffer, the C's geometry gives 23KB` |
 | No full-panel pixel buffer exists in the firmware | adding `static uint16_t g_fb[PANEL_W * PANEL_H];` to `main/display.c` | `a full-panel buffer of pixel-sized elements exists, which is the one thing this pack is built not to have` |
+| The timing profile keeps its shadow-ledger claim boundary | changing `claimBoundary.cycleAccurate` to `true` | `timing.json differs from the pinned schema or values` |
 
 The first of those is the check that would have caught the defect
 `docs/decisions/0001` is about, with no board involved at all.
+
+## Timing lab
+
+[`timing.json`](timing.json) is the hardware profile and claim boundary.
+[`timing/model.ts`](timing/model.ts) schedules CPU production and panel DMA on
+separate clocks, while [`timing/consumer.ts`](timing/consumer.ts) strictly
+decodes the optional `emu_timing_*` ledger exports. The report remains labeled
+uncalibrated anywhere the profile or cycle costs are not measurements.
+
+```
+bun run pack:esp32:timing:test
+bun run pack:esp32:gate
+bun run packs/esp32-s3-touch-amoled-18/timing/report.ts <emu.wasm>
+```
+
+The last command emits stable JSON containing the accounted ledger and the
+deterministic schedule. A module without timing exports produces an explicit
+`"timingExports": "absent"` report and exits successfully.
 
 ## Layout
 
@@ -137,7 +156,9 @@ firmware/
                        display.c (band DMA + the screenshot capture),
                        touch.c, button.c, imu.c
   sdkconfig.defaults  the only configuration input the board build takes
-gate/run.ts           the checks above
+gate/run.ts           the pack checks above; gate/all.ts also runs timing tests
+timing.json           hardware timing profile and claim boundary
+timing/               deterministic scheduler, ledger consumer, CLI and tests
 wasm/                 build.ts and emu_shim.c: the browser side
 docs/decisions/       why
 gotchas.md            what bites, and which claims are measured on this board
