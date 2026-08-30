@@ -2,7 +2,7 @@ import type { CacheAccessTrace } from "./cache";
 import type { CoreId, EventLatency, MemoryRegion, MmioEvent } from "./execution";
 
 export type AddressRegionKind = MemoryRegion | "mmio";
-export type AccessKind = "instruction-fetch" | "load" | "store";
+export type AccessKind = "instruction-fetch" | "literal-load" | "load" | "store";
 
 export interface AddressRegion {
   readonly id: string;
@@ -149,6 +149,7 @@ function validatePermission(value: unknown, path: string): asserts value is bool
 function operationPermission(kind: AccessKind): "read" | "write" | "execute" {
   switch (kind) {
     case "instruction-fetch":
+    case "literal-load":
       return "execute";
     case "load":
       return "read";
@@ -158,8 +159,13 @@ function operationPermission(kind: AccessKind): "read" | "write" | "execute" {
 }
 
 function validateAccessKind(value: unknown, path: string): asserts value is AccessKind {
-  if (value !== "instruction-fetch" && value !== "load" && value !== "store") {
-    throw new Error(`${path} must be instruction-fetch, load, or store`);
+  if (
+    value !== "instruction-fetch" &&
+    value !== "literal-load" &&
+    value !== "load" &&
+    value !== "store"
+  ) {
+    throw new Error(`${path} must be instruction-fetch, literal-load, load, or store`);
   }
 }
 

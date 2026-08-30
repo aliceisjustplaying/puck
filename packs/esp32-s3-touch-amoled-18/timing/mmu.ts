@@ -100,7 +100,7 @@ export interface ExternalMmuConfiguration {
 
 export interface ExternalMmuAccess {
   readonly id: string;
-  readonly kind: "instruction-fetch" | "load" | "store";
+  readonly kind: "instruction-fetch" | "literal-load" | "load" | "store";
   readonly core: CoreId;
   readonly address: bigint;
   readonly bytes: number;
@@ -268,12 +268,17 @@ function rawValue(entry: ExternalMmuEntryConfiguration): number {
 }
 
 function expectedWindow(kind: ExternalMmuAccess["kind"]): ExternalWindow {
-  return kind === "instruction-fetch" ? "irom" : "drom";
+  return kind === "instruction-fetch" || kind === "literal-load" ? "irom" : "drom";
 }
 
 function validateAccessKind(value: unknown): asserts value is ExternalMmuAccess["kind"] {
-  if (value !== "instruction-fetch" && value !== "load" && value !== "store") {
-    throw new Error("access.kind must be instruction-fetch, load, or store");
+  if (
+    value !== "instruction-fetch" &&
+    value !== "literal-load" &&
+    value !== "load" &&
+    value !== "store"
+  ) {
+    throw new Error("access.kind must be instruction-fetch, literal-load, load, or store");
   }
 }
 

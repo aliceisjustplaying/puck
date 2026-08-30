@@ -32,6 +32,10 @@ export interface TimingMachineConfiguration {
   ) => CacheLatency;
 }
 
+export type TimingMachineIssue =
+  | Readonly<{ kind: "memory"; accessId: string }>
+  | Readonly<{ kind: "dma"; eventId: string }>;
+
 export interface TimingMachineInput {
   readonly cores: readonly [
     readonly VirtualMemoryAccess[],
@@ -39,6 +43,8 @@ export interface TimingMachineInput {
   ];
   readonly architecturalInterleave: readonly string[];
   readonly dma: readonly DmaEvent[];
+  /** Optional total issue order. Omission retains the legacy memory-then-DMA behavior. */
+  readonly issueOrder?: readonly TimingMachineIssue[];
 }
 
 export interface ResolvedMachineAccess {
@@ -226,7 +232,17 @@ interface OrderedArchitecturalAccess {
   readonly access: VirtualMemoryAccess;
 }
 
-function validateInput(input: TimingMachineInput): readonly OrderedArchitecturalAccess[] {
+type OrderedMachineIssue =
+  | Readonly<{ kind: "memory"; entry: OrderedArchitecturalAccess }>
+  | Readonly<{ kind: "dma"; dmaIndex: number; event: DmaEvent }>;
+
+interface ValidatedMachineInput {
+  readonly architecturalOrder: readonly OrderedArchitecturalAccess[];
+  readonly issueOrder: readonly OrderedMachineIssue[];
+  readonly hasExplicitIssueOrder: boolean;
+}
+
+function validateInput(input: TimingMachineInput): ValidatedMachineInput {
   if (typeof input !== "object" || input === null) throw new Error("machine input is required");
   if (!Array.isArray(input.cores) || input.cores.length !== 2) {
     throw new Error("input.cores must contain exactly two ordered core streams");
@@ -279,7 +295,83 @@ function validateInput(input: TimingMachineInput): readonly OrderedArchitectural
   if (omitted.length > 0) {
     throw new Error(`input.architecturalInterleave omits access ids: ${omitted.join(", ")}`);
   }
-  return Object.freeze(ordered);
+
+  const dmaById = new Map<string, Readonly<{ dmaIndex: number; event: DmaEvent }>>();
+  for (const [dmaIndex, event] of input.dma.entries()) {
+    if (typeof event !== "object" || event === null) {
+      throw new Error(`input.dma[${dmaIndex}] must be a DMA event`);
+    }
+    const id = requireNonEmpty(event.id, `input.dma[${dmaIndex}].id`);
+    if (ids.has(id) || dmaById.has(id)) throw new Error(`duplicate machine issue id ${id}`);
+    dmaById.set(id, Object.freeze({ dmaIndex, event }));
+  }
+
+  if (input.issueOrder === undefined) {
+    return Object.freeze({
+      architecturalOrder: Object.freeze(ordered),
+      issueOrder: Object.freeze([
+        ...ordered.map((entry) => Object.freeze({ kind: "memory" as const, entry })),
+        ...input.dma.map((event, dmaIndex) =>
+          Object.freeze({ kind: "dma" as const, dmaIndex, event }),
+        ),
+      ]),
+      hasExplicitIssueOrder: false,
+    });
+  }
+  if (!Array.isArray(input.issueOrder)) throw new Error("input.issueOrder must be an array when supplied");
+
+  const issueOrder: OrderedMachineIssue[] = [];
+  const issueIds = new Set<string>();
+  let memoryIndex = 0;
+  let dmaIndex = 0;
+  for (const [issueIndex, issue] of input.issueOrder.entries()) {
+    if (typeof issue !== "object" || issue === null) {
+      throw new Error(`input.issueOrder[${issueIndex}] must be a memory or DMA issue`);
+    }
+    if (issue.kind === "memory") {
+      const id = requireNonEmpty(issue.accessId, `input.issueOrder[${issueIndex}].accessId`);
+      if (issueIds.has(id)) throw new Error(`input.issueOrder duplicates issue id ${id}`);
+      const entry = byId.get(id);
+      if (!entry) throw new Error(`input.issueOrder contains unknown memory access id ${id}`);
+      const expected = ordered[memoryIndex]?.access.id;
+      if (id !== expected) {
+        throw new Error(
+          `input.issueOrder memory access ${id} disagrees with architecturalInterleave at index ${memoryIndex}`,
+        );
+      }
+      memoryIndex += 1;
+      issueIds.add(id);
+      issueOrder.push(Object.freeze({ kind: "memory", entry }));
+      continue;
+    }
+    if (issue.kind === "dma") {
+      const id = requireNonEmpty(issue.eventId, `input.issueOrder[${issueIndex}].eventId`);
+      if (issueIds.has(id)) throw new Error(`input.issueOrder duplicates issue id ${id}`);
+      const entry = dmaById.get(id);
+      if (!entry) throw new Error(`input.issueOrder contains unknown DMA event id ${id}`);
+      const expected = input.dma[dmaIndex]?.id;
+      if (id !== expected) {
+        throw new Error(`input.issueOrder DMA event ${id} disagrees with input.dma at index ${dmaIndex}`);
+      }
+      dmaIndex += 1;
+      issueIds.add(id);
+      issueOrder.push(Object.freeze({ kind: "dma", ...entry }));
+      continue;
+    }
+    throw new Error(`input.issueOrder[${issueIndex}].kind must be memory or dma`);
+  }
+  if (memoryIndex !== ordered.length || dmaIndex !== input.dma.length) {
+    const missing = [
+      ...ordered.slice(memoryIndex).map((entry) => entry.access.id),
+      ...input.dma.slice(dmaIndex).map((event) => event.id),
+    ];
+    throw new Error(`input.issueOrder omits issue ids: ${missing.join(", ")}`);
+  }
+  return Object.freeze({
+    architecturalOrder: Object.freeze(ordered),
+    issueOrder: Object.freeze(issueOrder),
+    hasExplicitIssueOrder: true,
+  });
 }
 
 function freezeCoreResult(
@@ -324,7 +416,8 @@ export function runTimingMachine(
   if (config.addressMap.addressBits !== config.cache.addressBits) {
     throw new Error("address-map and cache address widths must match");
   }
-  const architecturalOrder = validateInput(input);
+  const validatedInput = validateInput(input);
+  const architecturalOrder = validatedInput.architecturalOrder;
 
   const resolver = new AddressSpaceResolver(config.addressMap);
   const cache = new CacheStateMachine(config.cache);
@@ -332,7 +425,23 @@ export function runTimingMachine(
   const accessResults: [MachineAccessResult[], MachineAccessResult[]] = [[], []];
   const faultedByAccessId: [string | null, string | null] = [null, null];
 
-  for (const { core, programIndex, access } of architecturalOrder) {
+  for (const issue of validatedInput.issueOrder) {
+      if (issue.kind === "dma") {
+        issued.push(
+          Object.freeze({
+            issueIndex: issued.length,
+            event: issue.event,
+            origin: Object.freeze({
+              kind: "dma",
+              dmaIndex: issue.dmaIndex,
+              channel: issue.event.channel,
+            }),
+            cost: provenance(issue.event, null),
+          }),
+        );
+        continue;
+      }
+      const { core, programIndex, access } = issue.entry;
       if (faultedByAccessId[core] !== null) {
         accessResults[core].push(
           Object.freeze({
@@ -439,18 +548,10 @@ export function runTimingMachine(
     freezeCoreResult(1, accessResults[1], faultedByAccessId[1]),
   ];
 
-  for (const [dmaIndex, dma] of input.dma.entries()) {
-    issued.push(
-      Object.freeze({
-        issueIndex: issued.length,
-        event: dma,
-        origin: Object.freeze({ kind: "dma", dmaIndex, channel: dma.channel }),
-        cost: provenance(dma, null),
-      }),
-    );
-  }
-
-  const execution = scheduleExecution(issued.map((record) => record.event));
+  const execution = scheduleExecution(
+    issued.map((record) => record.event),
+    validatedInput.hasExplicitIssueOrder ? { sameCycleTieBreak: "input-order" } : undefined,
+  );
   const costProvenance = Object.freeze(issued.map((record) => record.cost));
   const directUncalibratedEventIds = Object.freeze(
     costProvenance

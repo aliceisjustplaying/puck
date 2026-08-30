@@ -30,6 +30,10 @@ export interface InstructionFetchEvent extends MemoryEventBase {
   readonly kind: "instruction-fetch";
 }
 
+export interface LiteralLoadEvent extends MemoryEventBase {
+  readonly kind: "literal-load";
+}
+
 export interface LoadEvent extends MemoryEventBase {
   readonly kind: "load";
 }
@@ -77,6 +81,7 @@ export interface DmaEvent {
 
 export type ExecutionEvent =
   | InstructionFetchEvent
+  | LiteralLoadEvent
   | LoadEvent
   | StoreEvent
   | AtomicEvent
@@ -260,6 +265,7 @@ function validateEvent(event: ExecutionEvent, inputIndex: number): void {
   validateLatency(event.latency, `events[${inputIndex}].latency`);
   switch (event.kind) {
     case "instruction-fetch":
+    case "literal-load":
     case "load":
     case "store":
       if (event.core !== 0 && event.core !== 1) throw new Error(`events[${inputIndex}].core must be 0 or 1`);
@@ -340,6 +346,7 @@ function endpointUsesMspi(endpoint: DmaEndpoint): boolean {
 export function eventUsesMspi(event: ExecutionEvent): boolean {
   switch (event.kind) {
     case "instruction-fetch":
+    case "literal-load":
     case "load":
     case "store":
     case "atomic":
@@ -407,8 +414,15 @@ function candidateFor(
   };
 }
 
-function candidateCompare(left: Candidate, right: Candidate): number {
+function candidateCompare(
+  left: Candidate,
+  right: Candidate,
+  sameCycleTieBreak: "actor" | "input-order",
+): number {
   if (left.startCycle !== right.startCycle) return left.startCycle < right.startCycle ? -1 : 1;
+  if (sameCycleTieBreak === "input-order") {
+    return left.queued.inputIndex - right.queued.inputIndex;
+  }
   const byActor = actorCompare(left.actor, right.actor);
   return byActor !== 0 ? byActor : left.queued.inputIndex - right.queued.inputIndex;
 }
@@ -458,7 +472,18 @@ function blockedResult(
  * Every known duration is supplied by the caller in one common cycle domain.
  * The scheduler contains no ESP32-S3 latency table and supplies no fallback.
  */
-export function scheduleExecution(input: readonly ExecutionEvent[]): ExecutionSchedule {
+export interface ScheduleExecutionOptions {
+  readonly sameCycleTieBreak?: "actor" | "input-order";
+}
+
+export function scheduleExecution(
+  input: readonly ExecutionEvent[],
+  options: ScheduleExecutionOptions = {},
+): ExecutionSchedule {
+  const sameCycleTieBreak = options.sameCycleTieBreak ?? "actor";
+  if (sameCycleTieBreak !== "actor" && sameCycleTieBreak !== "input-order") {
+    throw new Error("options.sameCycleTieBreak must be actor or input-order");
+  }
   const ids = new Set<string>();
   const queues = new Map<string, QueuedEvent[]>();
   const actors = new Map<string, ExecutionActor>();
@@ -491,7 +516,7 @@ export function scheduleExecution(input: readonly ExecutionEvent[]): ExecutionSc
       candidates.push(candidateFor(queue[0]!, key, clock, mspiClock));
     }
     if (candidates.length === 0) break;
-    candidates.sort(candidateCompare);
+    candidates.sort((left, right) => candidateCompare(left, right, sameCycleTieBreak));
     const candidate = candidates[0]!;
     const queue = queues.get(candidate.actorKey)!;
     queue.shift();

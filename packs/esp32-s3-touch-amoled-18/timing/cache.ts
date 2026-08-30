@@ -89,7 +89,7 @@ export interface CacheConfiguration {
 
 export interface CacheAccessTrace {
   readonly id: string;
-  readonly kind: "instruction-fetch" | "load" | "store";
+  readonly kind: "instruction-fetch" | "literal-load" | "load" | "store";
   readonly core: CoreId;
   readonly memory: MemoryRegion;
   readonly address: bigint;
@@ -352,7 +352,7 @@ function combineCostCalibration(costs: readonly CacheLatency[]): CalibrationStat
 }
 
 function cacheForAccess(trace: CacheAccessTrace): CacheKind {
-  return trace.kind === "instruction-fetch" ? "instruction" : "data";
+  return trace.kind === "instruction-fetch" || trace.kind === "literal-load" ? "instruction" : "data";
 }
 
 function assertNever(value: never): never {
@@ -489,6 +489,7 @@ export class CacheStateMachine {
   #hitCost(kind: CacheAccessTrace["kind"]): CacheLatency {
     switch (kind) {
       case "instruction-fetch":
+      case "literal-load":
         return this.#config.costs.hit.instructionFetch;
       case "load":
         return this.#config.costs.hit.load;
@@ -502,6 +503,7 @@ export class CacheStateMachine {
   #uncachedCost(kind: CacheAccessTrace["kind"]): CacheLatency {
     switch (kind) {
       case "instruction-fetch":
+      case "literal-load":
         return this.#config.costs.uncached.instructionFetch;
       case "load":
         return this.#config.costs.uncached.load;
@@ -515,6 +517,7 @@ export class CacheStateMachine {
   #sramCost(kind: CacheAccessTrace["kind"]): CacheLatency {
     switch (kind) {
       case "instruction-fetch":
+      case "literal-load":
         return this.#config.costs.sram.instructionFetch;
       case "load":
         return this.#config.costs.sram.load;
@@ -651,9 +654,9 @@ export class CacheStateMachine {
         const victim = ways[way]!;
         if (victim.valid && victim.dirty) this.#writeback(emissions, trace, cache, victim);
         const fillEvent =
-          trace.kind === "instruction-fetch"
+          trace.kind === "instruction-fetch" || trace.kind === "literal-load"
             ? ({
-                kind: "instruction-fetch",
+                kind: trace.kind,
                 core: trace.core,
                 memory: trace.memory,
                 bytes: geometry.lineSizeBytes,
@@ -788,6 +791,7 @@ export class CacheStateMachine {
     let emissions: readonly CacheEmission[];
     switch (trace.kind) {
       case "instruction-fetch":
+      case "literal-load":
       case "load":
       case "store":
         emissions = this.#processAccess(trace);

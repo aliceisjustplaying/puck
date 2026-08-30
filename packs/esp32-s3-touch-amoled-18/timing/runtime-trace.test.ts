@@ -9,6 +9,7 @@ import type { DmaEvent } from "./execution";
 import type { TimingMachineConfiguration } from "./machine";
 import {
   RuntimeTimingTraceRecorder,
+  runtimeTimingResultJson,
   runRuntimeTimingTrace,
   type RuntimeMemoryObservation,
   type RuntimeTimingTrace,
@@ -148,6 +149,9 @@ describe("runtime observation seam", () => {
       architectureCalibration: "uncalibrated",
       coverage: "caller-reported-events-only",
       source: "synthetic-interpreter-callbacks",
+      cycleAccurate: false,
+      countsOnlyInstrumentedEvents: true,
+      hostTraceTimeIsSimulatedTime: false,
     });
     expect(trace.input.cores.map((core) => core.map((access) => access.id))).toEqual([
       ["runtime-access:1"],
@@ -157,6 +161,12 @@ describe("runtime observation seam", () => {
       "runtime-access:0",
       "runtime-access:1",
       "runtime-access:2",
+    ]);
+    expect(trace.input.issueOrder).toEqual([
+      { kind: "memory", accessId: "runtime-access:0" },
+      { kind: "dma", eventId: "panel-dma" },
+      { kind: "memory", accessId: "runtime-access:1" },
+      { kind: "memory", accessId: "runtime-access:2" },
     ]);
     expect(trace.observationOrder).toEqual([
       { sequence: 0, kind: "memory", accessId: "runtime-access:0" },
@@ -195,6 +205,42 @@ describe("runtime observation seam", () => {
     });
     expect(result.claim.architectureCalibration).toBe("uncalibrated");
     expect(result.claim.costCalibration).toBe("uncalibrated");
+    expect(result.claim).toMatchObject({
+      coverage: "caller-reported-events-only",
+      source: "synthetic-interpreter-callbacks",
+      cycleAccurate: false,
+      countsOnlyInstrumentedEvents: true,
+      hostTraceTimeIsSimulatedTime: false,
+    });
+    expect(JSON.parse(runtimeTimingResultJson(result)).claim).toMatchObject({
+      coverage: "caller-reported-events-only",
+      source: "synthetic-interpreter-callbacks",
+      cycleAccurate: false,
+    });
+  });
+
+  test("issues DMA between the memory callbacks that surround its submission", () => {
+    const recorder = new RuntimeTimingTraceRecorder("ordered-dma-callbacks");
+    recorder.recordMemory({ core: 0, kind: "load", address: 0x2000n, bytes: 4 });
+    recorder.recordDma(dma());
+    recorder.recordMemory({ core: 1, kind: "load", address: 0x2010n, bytes: 4 });
+
+    const result = runRuntimeTimingTrace(configuration(), recorder.snapshot());
+    expect(result.issuedEvents.map((issued) =>
+      issued.origin.kind === "dma" ? issued.event.id : issued.origin.accessId,
+    )).toEqual([
+      "runtime-access:0",
+      "runtime-access:0",
+      "panel-dma",
+      "runtime-access:1",
+      "runtime-access:1",
+    ]);
+    const dmaResult = result.execution.events.find((event) => event.eventId === "panel-dma");
+    const laterFill = result.execution.events.find((event) =>
+      event.eventId === "cache:runtime-access:1:segment:0:cache:0:line-fill"
+    );
+    expect(dmaResult).toMatchObject({ status: "completed", startCycle: 5n, endCycle: 9n });
+    expect(laterFill).toMatchObject({ status: "completed", startCycle: 9n, endCycle: 14n });
   });
 
   test("returns immutable repeatable snapshots while recording can continue", () => {
@@ -249,7 +295,24 @@ describe("runtime trace refusal boundary", () => {
       claim: { ...trace.claim, architectureCalibration: "calibrated" },
     } as unknown as RuntimeTimingTrace;
     expect(() => runRuntimeTimingTrace(configuration(), overclaim)).toThrow(
-      "runtime timing trace claim must remain uncalibrated and caller-reported-events-only",
+      "runtime timing trace claim must remain partial, uncalibrated, and cycleAccurate false",
+    );
+  });
+
+  test("rejects observation order drift from the machine issue order", () => {
+    const recorder = new RuntimeTimingTraceRecorder("order-refusal");
+    recorder.recordMemory({ core: 0, kind: "load", address: 0x1000n, bytes: 4 });
+    recorder.recordDma(dma());
+    const trace = recorder.snapshot();
+    const drift = {
+      ...trace,
+      input: {
+        ...trace.input,
+        issueOrder: [trace.input.issueOrder![1]!, trace.input.issueOrder![0]!],
+      },
+    } as RuntimeTimingTrace;
+    expect(() => runRuntimeTimingTrace(configuration(), drift)).toThrow(
+      "runtime timing trace observationOrder[0] disagrees with input.issueOrder",
     );
   });
 });

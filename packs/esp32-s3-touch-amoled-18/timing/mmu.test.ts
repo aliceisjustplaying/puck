@@ -233,6 +233,31 @@ describe("aliases, target bit, and invalid entries", () => {
     }
   });
 
+  test("routes an Xtensa literal load through the IROM view without calling it a fetch", () => {
+    const mmu = new Esp32S3ExternalMmu(
+      configuration(entries({ index: 3, target: "flash", physicalPage: 7 })),
+    );
+    const literal = mmu.translate(access("literal", "literal-load", 0x4203_1234n));
+    expect(literal.status).toBe("translated");
+    if (literal.status === "translated") {
+      expect(literal.window).toBe("irom");
+      expect(literal.access.kind).toBe("literal-load");
+      expect(literal.segments[0]).toMatchObject({
+        entryIndex: 3,
+        target: "flash",
+        physicalAddress: 0x7_1234n,
+      });
+      const adapted = adaptExternalMmuTranslation(literal);
+      expect(adapted.status).toBe("translated");
+      if (adapted.status === "translated") {
+        expect(adapted.traces[0]).toMatchObject({
+          kind: "literal-load",
+          memory: "flash",
+        });
+      }
+    }
+  });
+
   test("returns an atomic fault for an explicitly invalid entry", () => {
     const mmu = new Esp32S3ExternalMmu(configuration(entries()));
     const result = mmu.translate(access("invalid", "load", 0x3c05_0010n, 4));

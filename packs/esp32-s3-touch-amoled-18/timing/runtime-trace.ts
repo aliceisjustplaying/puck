@@ -2,8 +2,10 @@ import type { VirtualMemoryAccess } from "./address-map";
 import { scheduleExecution, type DmaEvent } from "./execution";
 import {
   runTimingMachine,
+  timingMachineJson,
   type TimingMachineConfiguration,
   type TimingMachineInput,
+  type TimingMachineClaim,
   type TimingMachineResult,
 } from "./machine";
 
@@ -26,15 +28,25 @@ export type RuntimeTraceObservation =
       eventId: string;
     }>;
 
+export interface RuntimeTimingClaim {
+  readonly architectureCalibration: "uncalibrated";
+  readonly coverage: "caller-reported-events-only";
+  readonly source: string;
+  readonly cycleAccurate: false;
+  readonly countsOnlyInstrumentedEvents: true;
+  readonly hostTraceTimeIsSimulatedTime: false;
+}
+
 export interface RuntimeTimingTrace {
   readonly schemaVersion: 1;
-  readonly claim: Readonly<{
-    architectureCalibration: "uncalibrated";
-    coverage: "caller-reported-events-only";
-    source: string;
-  }>;
+  readonly claim: Readonly<RuntimeTimingClaim>;
   readonly observationOrder: readonly RuntimeTraceObservation[];
   readonly input: TimingMachineInput;
+}
+
+export interface RuntimeTimingResult extends Omit<TimingMachineResult, "claim"> {
+  readonly claim: TimingMachineClaim & RuntimeTimingClaim;
+  readonly observationOrder: readonly RuntimeTraceObservation[];
 }
 
 function requireNonEmpty(value: unknown, path: string): string {
@@ -46,8 +58,15 @@ function requireNonEmpty(value: unknown, path: string): string {
 
 function validateMemoryObservation(value: RuntimeMemoryObservation): void {
   if (typeof value !== "object" || value === null) throw new Error("runtime memory observation is required");
-  if (value.kind !== "instruction-fetch" && value.kind !== "load" && value.kind !== "store") {
-    throw new Error("runtime memory observation kind must be instruction-fetch, load, or store");
+  if (
+    value.kind !== "instruction-fetch" &&
+    value.kind !== "literal-load" &&
+    value.kind !== "load" &&
+    value.kind !== "store"
+  ) {
+    throw new Error(
+      "runtime memory observation kind must be instruction-fetch, literal-load, load, or store",
+    );
   }
   if (value.core !== 0 && value.core !== 1) throw new Error("runtime memory observation core must be 0 or 1");
   if (typeof value.address !== "bigint" || value.address < 0n) {
@@ -104,6 +123,9 @@ export class RuntimeTimingTraceRecorder {
       architectureCalibration: "uncalibrated",
       coverage: "caller-reported-events-only",
       source: requireNonEmpty(source, "runtime trace source"),
+      cycleAccurate: false,
+      countsOnlyInstrumentedEvents: true,
+      hostTraceTimeIsSimulatedTime: false,
     });
   }
 
@@ -148,6 +170,13 @@ export class RuntimeTimingTraceRecorder {
       ]) as TimingMachineInput["cores"],
       architecturalInterleave: Object.freeze([...this.#interleave]),
       dma: Object.freeze([...this.#dma]),
+      issueOrder: Object.freeze(
+        this.#observations.map((observation) =>
+          observation.kind === "memory"
+            ? Object.freeze({ kind: "memory" as const, accessId: observation.accessId })
+            : Object.freeze({ kind: "dma" as const, eventId: observation.eventId }),
+        ),
+      ),
     });
     return Object.freeze({
       schemaVersion: 1,
@@ -161,15 +190,78 @@ export class RuntimeTimingTraceRecorder {
 export function runRuntimeTimingTrace(
   config: TimingMachineConfiguration,
   trace: RuntimeTimingTrace,
-): TimingMachineResult {
+): RuntimeTimingResult {
   if (typeof trace !== "object" || trace === null) throw new Error("runtime timing trace is required");
   if (trace.schemaVersion !== 1) throw new Error("runtime timing trace schemaVersion must be 1");
+  if (typeof trace.claim !== "object" || trace.claim === null) {
+    throw new Error("runtime timing trace claim is required");
+  }
   if (
     trace.claim.architectureCalibration !== "uncalibrated" ||
-    trace.claim.coverage !== "caller-reported-events-only"
+    trace.claim.coverage !== "caller-reported-events-only" ||
+    trace.claim.cycleAccurate !== false ||
+    trace.claim.countsOnlyInstrumentedEvents !== true ||
+    trace.claim.hostTraceTimeIsSimulatedTime !== false
   ) {
-    throw new Error("runtime timing trace claim must remain uncalibrated and caller-reported-events-only");
+    throw new Error(
+      "runtime timing trace claim must remain partial, uncalibrated, and cycleAccurate false",
+    );
   }
   requireNonEmpty(trace.claim.source, "runtime timing trace claim.source");
-  return runTimingMachine(config, trace.input);
+  if (typeof trace.input !== "object" || trace.input === null) {
+    throw new Error("runtime timing trace input is required");
+  }
+  if (!Array.isArray(trace.observationOrder)) {
+    throw new Error("runtime timing trace observationOrder must be an array");
+  }
+  if (!Array.isArray(trace.input.issueOrder)) {
+    throw new Error("runtime timing trace input.issueOrder is required");
+  }
+  if (trace.observationOrder.length !== trace.input.issueOrder.length) {
+    throw new Error("runtime timing trace observationOrder and input.issueOrder lengths must match");
+  }
+  for (const [index, observation] of trace.observationOrder.entries()) {
+    if (typeof observation !== "object" || observation === null) {
+      throw new Error(`runtime timing trace observationOrder[${index}] must be an observation`);
+    }
+    if (observation.sequence !== index) {
+      throw new Error(`runtime timing trace observationOrder[${index}].sequence must be ${index}`);
+    }
+    const issue = trace.input.issueOrder[index]!;
+    if (observation.kind === "memory") {
+      const accessId = requireNonEmpty(
+        observation.accessId,
+        `runtime timing trace observationOrder[${index}].accessId`,
+      );
+      if (issue.kind !== "memory" || issue.accessId !== accessId) {
+        throw new Error(`runtime timing trace observationOrder[${index}] disagrees with input.issueOrder`);
+      }
+      continue;
+    }
+    if (observation.kind === "dma") {
+      const eventId = requireNonEmpty(
+        observation.eventId,
+        `runtime timing trace observationOrder[${index}].eventId`,
+      );
+      if (issue.kind !== "dma" || issue.eventId !== eventId) {
+        throw new Error(`runtime timing trace observationOrder[${index}] disagrees with input.issueOrder`);
+      }
+      continue;
+    }
+    throw new Error(`runtime timing trace observationOrder[${index}].kind must be memory or dma`);
+  }
+
+  const machine = runTimingMachine(config, trace.input);
+  const claim = Object.freeze({ ...machine.claim, ...trace.claim });
+  return Object.freeze({
+    ...machine,
+    claim,
+    observationOrder: Object.freeze(
+      trace.observationOrder.map((observation) => Object.freeze({ ...observation })),
+    ),
+  });
+}
+
+export function runtimeTimingResultJson(result: RuntimeTimingResult): string {
+  return timingMachineJson(result);
 }

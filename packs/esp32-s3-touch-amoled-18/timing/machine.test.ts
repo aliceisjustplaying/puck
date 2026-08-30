@@ -254,6 +254,34 @@ describe("two-core composition and shared resources", () => {
     expect(resolved.map((item) => item.resolution.segments[0]?.physicalOffset)).toEqual([0x14n, 0x14n]);
   });
 
+  test("uses the instruction cache for IROM literal loads without relabeling them as fetches", () => {
+    const result = runTimingMachine(
+      configuration(),
+      input(
+        [
+          access("literal", 0, "literal-load", 0x4014n),
+          access("fetch-after-literal", 0, "instruction-fetch", 0x4018n),
+        ],
+        [],
+      ),
+    );
+    const literal = result.cores[0].accesses[0];
+    const fetch = result.cores[0].accesses[1];
+    expect(literal?.status).toBe("resolved");
+    expect(fetch?.status).toBe("resolved");
+    if (literal?.status === "resolved" && fetch?.status === "resolved") {
+      expect(literal.cacheSteps[0]?.emissions.map((emission) => [
+        emission.kind,
+        emission.cache,
+        emission.event.kind,
+      ])).toEqual([
+        ["line-fill", "instruction", "literal-load"],
+        ["hit", "instruction", "literal-load"],
+      ]);
+      expect(fetch.cacheSteps[0]?.emissions.map((emission) => emission.kind)).toEqual(["hit"]);
+    }
+  });
+
   test("keeps MMIO local and records its explicit cost source", () => {
     const result = runTimingMachine(
       configuration(),
@@ -403,6 +431,40 @@ describe("explicit architectural interleave", () => {
       ),
     ).toThrow(
       "input.architecturalInterleave places core0-second before core0-first; core 0 program order must be preserved",
+    );
+  });
+
+  test("validates and retains a total memory and DMA issue order", () => {
+    const core0 = [access("memory-before", 0, "load", 0x1000n)];
+    const core1 = [access("memory-after", 1, "load", 0x1004n)];
+    const transfer = dma("dma-middle", 4n);
+    const ordered: TimingMachineInput = {
+      ...input(core0, core1, [transfer], ["memory-before", "memory-after"]),
+      issueOrder: [
+        { kind: "memory", accessId: "memory-before" },
+        { kind: "dma", eventId: "dma-middle" },
+        { kind: "memory", accessId: "memory-after" },
+      ],
+    };
+    const result = runTimingMachine(configuration(), ordered);
+    expect(result.issuedEvents.map((issued) =>
+      issued.origin.kind === "dma" ? issued.event.id : issued.origin.accessId,
+    )).toEqual(["memory-before", "dma-middle", "memory-after"]);
+
+    const omitted: TimingMachineInput = { ...ordered, issueOrder: ordered.issueOrder!.slice(0, -1) };
+    expect(() => runTimingMachine(configuration(), omitted)).toThrow(
+      "input.issueOrder omits issue ids: memory-after",
+    );
+    const drift: TimingMachineInput = {
+      ...ordered,
+      issueOrder: [
+        { kind: "memory", accessId: "memory-after" },
+        { kind: "dma", eventId: "dma-middle" },
+        { kind: "memory", accessId: "memory-before" },
+      ],
+    };
+    expect(() => runTimingMachine(configuration(), drift)).toThrow(
+      "input.issueOrder memory access memory-after disagrees with architecturalInterleave at index 0",
     );
   });
 });
