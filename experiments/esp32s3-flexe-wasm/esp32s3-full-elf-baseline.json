@@ -9,10 +9,10 @@
     "inheritedPages": 3,
     "initialStack": "0x3fce9700",
     "initialStackProvenance": "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
-    "runnerPatchSha256": "46f8a00daec9d27ffb5e35aeaa164a8fa81aca651ae092f62c71d11af9c182f9",
+    "runnerPatchSha256": "81f3b9fdee85443ae556a5b9bd9c3e9c137c72db978f1d307f4915d8913d2259",
     "esp32s3PatchSha256": "815f8ac67279aaa55775e470b66c7954c895d41d5388fa8de9c6b035e91fea0c",
-    "moduleBytes": 53444,
-    "moduleSha256": "c6503ad2fbb2bb93853d5fdace7e67d64a5d460db54628cd5188d938cced3104"
+    "moduleBytes": 54175,
+    "moduleSha256": "462a9b15d2efc97bb5b85720995f42e7675e02fad9aed4de4387c8ef525db8a9"
   },
   "bounded": {
     "reason": "maxSteps",
@@ -85,21 +85,21 @@
   },
   "cacheProgress": {
     "reason": "unloadedPage",
-    "steps": 199,
-    "pc": "0x400018b4",
-    "traceSha256": "61c23ff4ff7f9a0b48012b53d6975bf8df8bcc0538b9957af417075c57983a17",
-    "stackPointer": "0x3fce96a0",
+    "steps": 213,
+    "pc": "0x40001a28",
+    "traceSha256": "d4a6ab338a01c9db320cbaecf2033d55938b092949ddd4669683d24548b7258e",
+    "stackPointer": "0x3fce96c0",
     "registers": [
-      "0x80375d1b", "0x3fce96a0", "0x00000000", "0x00000008",
-      "0x00000020", "0x600c4064", "0x600c4004", "0x00000000",
-      "0x80380fb5", "0x00000002", "0x00000002", "0x00000000",
-      "0x00000000", "0x00000002", "0xfffffffd", "0xfffffffe"
+      "0x00000000", "0x3fce96c0", "0x00000000", "0x00000000",
+      "0x00000000", "0x00000000", "0x00000002", "0x00000000",
+      "0x80375d29", "0x3fce96a0", "0x00008000", "0x00000008",
+      "0x00000040", "0x600c4064", "0x600c4004", "0x00000000"
     ],
     "cacheBootstrap": {
       "sequenceIndex": 6,
       "complete": true,
       "registers": {
-        "dataControl1": 0,
+        "dataControl1": 3,
         "dataAutoloadControl": 8,
         "instructionControl1": 0,
         "instructionAutoloadControl": 8,
@@ -109,7 +109,8 @@
         "sizeBytes": 16384,
         "ways": 8,
         "lineBytes": 32
-      }
+      },
+      "dataSuspended": true
     },
     "events": [
       { "kind": "resetReason", "pc": "0x4000057c", "core": 0, "result": 1 },
@@ -122,7 +123,8 @@
       { "kind": "cache", "pc": "0x40001890", "sequenceIndex": 3, "argument": 0, "returnValue": null },
       { "kind": "cache", "pc": "0x40001878", "sequenceIndex": 4, "argument": 0, "returnValue": null },
       { "kind": "cache", "pc": "0x40001890", "sequenceIndex": 5, "argument": 0, "returnValue": null },
-      { "kind": "cacheMode", "pc": "0x40001a1c", "sizeBytes": 16384, "ways": 8, "lineBytes": 32 }
+      { "kind": "cacheMode", "pc": "0x40001a1c", "sizeBytes": 16384, "ways": 8, "lineBytes": 32 },
+      { "kind": "cacheSuspend", "pc": "0x400018b4", "cache": "data", "returnValue": 0 }
     ]
   },
   "unsupportedRefusal": {
