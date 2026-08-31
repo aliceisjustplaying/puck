@@ -175,8 +175,8 @@ The ESP32-S3 pack also has a separate, opt-in
 full-system experiment. Their current outputs are uncalibrated and explicitly
 `cycleAccurate: false`; they do not change the default emulator or turn a model
 result into a hardware performance claim. The pinned 376-instruction boot
-replay currently adopts exact costs for 909 of 948 issued events, including
-21 address-, operation-, width-, and peripheral-matched MMIO reads. The 23
+replay currently adopts exact costs for 914 of 948 issued events, including
+26 address-, operation-, width-, and peripheral-matched MMIO reads. The 18
 remaining MMIO costs and 16 ROM callback durations keep its total blocked. See
 [`docs/requirements.md`](docs/requirements.md)'s "What this emulator does not
 model."

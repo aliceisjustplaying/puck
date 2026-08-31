@@ -4,7 +4,7 @@
     "traceSha256": "5de26fe4432e5af5c95d99d32ee0d3d68260e712bb5dd20c60eb1315f295c4eb",
     "stagingElfSha256": "522b33cb491bbc9c8a61a364b3c986c7f1d013bcdf228f79791981f7fcad1491",
     "sdkconfigSha256": "ac1749b0f5b9c54e3e8e5ffc045b37a434d6b289420a8f9cf0f37fe8a3173d9b",
-    "timingProfileSha256": "78b53486bf6fe1df89ca2fe65c5156cae4bb127bc057c1e4041123c8dd02cf06",
+    "timingProfileSha256": "8a8412efd11029c4fa183756a27215b64b462c9d89dcadaacc931156a2dd86ca",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
     "mmuSha256": "fe55f294fceb898337299c46d1400e576e65ad7216462b5b4da0b46ecfed9448",
     "cacheSha256": "1545e87b17e7efdc908fd8fa6be4fe81a9b7c6876229693824fe5463b323bb00"
@@ -65,6 +65,6 @@
     "mspiEvents": 2,
     "totalCycles": "451",
     "totalCyclesReason": "complete for caller-reported events; the observed one-cycle dependent load-use hazard is not represented by this trace",
-    "perRecordSha256": "feb31910eeab836deb134b9e26a1bc7fa27332822e6671c767fcc11c578ba8cd"
+    "perRecordSha256": "236e23d94b34ca8eaafdff4fff93d0bcddf960566375cdfdde245f9a45741806"
   }
 }

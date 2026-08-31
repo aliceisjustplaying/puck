@@ -424,11 +424,11 @@ Exact three-byte `L32R` encodings classify their owned reads as instruction-side
 literal loads. The 524 records issue 948 timing events: 483 memory-system
 events, 44 MMIO accesses, 376 calibrated CPU issue events, and 29 calibrated
 dependent load-use events, plus 16 configured ROM callback boundaries with
-explicitly unknown CPU durations. Exactly 909 events have adopted costs, including
-21 exact MMIO reads, three exact not-taken `beqz` paths, three flash line
+explicitly unknown CPU durations. Exactly 914 events have adopted costs, including
+26 exact MMIO reads, three exact not-taken `beqz` paths, three flash line
 fills, and every zero-miss cache hit. The baseline pins the branch classifier,
 hazard count, and a projection hash of their schedule, consumer IDs, registers,
-and producer/consumer PCs, plus the ROM callback boundary provenance. The 23
+and producer/consumer PCs, plus the ROM callback boundary provenance. The 18
 controller MMIO costs and 16 ROM callback durations keep the replay blocked
 with no total cycle claim. The baseline also pins the exact
 address, direction, width, peripheral, and count of all observed MMIO access

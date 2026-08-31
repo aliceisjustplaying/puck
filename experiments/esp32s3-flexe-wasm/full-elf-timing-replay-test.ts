@@ -390,9 +390,9 @@ assert.equal(exactBeqzNotTaken.length, 3);
 assert.equal(exactBeqzTaken.length, 0);
 assert.equal(romCallbackCpuEvents.length, 16);
 assert.equal(machine.issuedEvents.length, 948);
-assert.equal(exactMmioEvents.length, 21);
-assert.equal(machine.claim.unknownCostEventIds.length, 39);
-assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 909);
+assert.equal(exactMmioEvents.length, 26);
+assert.equal(machine.claim.unknownCostEventIds.length, 34);
+assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 914);
 assert([...instructionCpuEvents, ...loadUseHazards].every((event) =>
   event.cost.status === "known" && event.cost.cycles === 1n && event.cost.calibration === "calibrated"
 ));
@@ -412,7 +412,7 @@ assert.equal(machine.issuedEvents.filter((event) =>
 ).length, 0);
 assert.equal(machine.issuedEvents.filter((event) =>
   event.origin.kind === "mmio" && event.cost.status === "unknown"
-).length, 23);
+).length, 18);
 const cacheEvents = machine.issuedEvents.filter((event) => event.origin.kind === "cache");
 assert(cacheEvents.every((event) => event.cost.status === "known"));
 const mmioBreakdownByKey = new Map<string, {

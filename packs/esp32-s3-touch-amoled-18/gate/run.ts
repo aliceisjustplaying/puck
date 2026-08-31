@@ -338,6 +338,13 @@ const timingProfile: Check = {
             cycles: 8,
           },
           {
+            address: "0x600c0060",
+            operation: "read",
+            bytes: 4,
+            peripheral: "system-controller",
+            cycles: 8,
+          },
+          {
             address: "0x600c4004",
             operation: "read",
             bytes: 4,

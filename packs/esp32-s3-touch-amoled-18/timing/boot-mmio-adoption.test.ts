@@ -138,6 +138,7 @@ describe("boot-register ESP32-S3 MMIO adoption", () => {
     );
     expect(value.adoptedAccesses).toEqual([
       { address: "0x600c0010", operation: "read", bytes: 4, peripheral: "system-controller", cycles: 8 },
+      { address: "0x600c0060", operation: "read", bytes: 4, peripheral: "system-controller", cycles: 8 },
       { address: "0x600c4004", operation: "read", bytes: 4, peripheral: "cache-controller", cycles: 8 },
       { address: "0x600c404c", operation: "read", bytes: 4, peripheral: "cache-controller", cycles: 8 },
       { address: "0x600c4064", operation: "read", bytes: 4, peripheral: "cache-controller", cycles: 8 },

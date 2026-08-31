@@ -153,9 +153,10 @@ because it is not an integral per-access cost.
 
 The boot-register extension is checked in as
 [`evidence/esp32s3-rev02-tinydraw-545f823-mmio-adoption.json`](evidence/esp32s3-rev02-tinydraw-545f823-mmio-adoption.json).
-Two further complete boots and twenty strict receipts reproduce the exact
-8-cycle read delta for SYSTEM `0x600c0010` and extend it to the exact 32-bit
-EXTMEM reads at `0x600c4004`, `0x600c404c`, `0x600c4064`, and `0x600c40a0`.
+Two further complete boots and twenty strict receipts establish the exact
+8-cycle read delta for SYSTEM `0x600c0060` and the exact 32-bit EXTMEM reads at
+`0x600c4004`, `0x600c404c`, `0x600c4064`, and `0x600c40a0`. The earlier exact
+SYSTEM `0x600c0010` and EXTMEM `0x600c4130` classes remain adopted.
 The stable same-value write aggregate remains excluded because `12280 / 4096`
 is not an integer scalar. AUTOLOAD writes remain excluded after an exploratory
 write left the following cache preparation in an invalid state.
@@ -167,7 +168,7 @@ write left the following cache preparation in an invalid state.
   Static inventory is not whole-program execution coverage.
 - The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 376 real
   instructions. Its current timing replay emits 948 events and adopts exact
-  costs for 909, including 21 matched MMIO reads. The remaining 23 MMIO
+  costs for 914, including 26 matched MMIO reads. The remaining 18 MMIO
   costs and 16 ROM callback durations block a total. It does not provide the complete
   ESP32-S3 data map, interrupt matrix,
   peripherals, ESP-IDF boot, or real dual-core execution.
