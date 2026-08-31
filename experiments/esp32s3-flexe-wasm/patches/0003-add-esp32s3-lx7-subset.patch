@@ -199,7 +199,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2165,370 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2165,383 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -387,6 +387,19 @@ index 67dca18..e72666d 100644
 +        for (unsigned i = 0; i < 16; i++) cpu->qr[destination][i] = ~cpu->qr[source][i];
 +        return 1;
 +    }
++    if ((insn & 0xcf20ffu) == 0x8e0094u) {
++        unsigned destination = esp32s3_qr(insn);
++        unsigned source_x = (insn >> 8) & 7u;
++        unsigned source_y = ((insn >> 11) & 3u) | (((insn >> 14) & 1u) << 2);
++        for (unsigned lane = 0; lane < 8; lane++) {
++            uint16_t x, y, result;
++            memcpy(&x, cpu->qr[source_x] + lane * 2, 2);
++            memcpy(&y, cpu->qr[source_y] + lane * 2, 2);
++            result = x == y ? 0xffffu : 0u;
++            memcpy(cpu->qr[destination] + lane * 2, &result, 2);
++        }
++        return 1;
++    }
 +    uint32_t logical_opcode = insn & 0xcf730fu;
 +    if (logical_opcode == 0xcd3004u || logical_opcode == 0xcd7004u ||
 +        logical_opcode == 0xcd3104u) {
@@ -570,7 +583,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2768,8 @@ have_insn:
+@@ -2319,6 +2781,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -579,7 +592,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +2796,16 @@ have_insn:
+@@ -2345,14 +2809,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -600,7 +613,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +2819,8 @@ have_insn:
+@@ -2366,6 +2832,8 @@ have_insn:
          }
      }
 

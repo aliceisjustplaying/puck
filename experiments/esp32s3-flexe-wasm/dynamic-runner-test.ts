@@ -464,6 +464,47 @@ assert(
 assert(qrBitwiseRun.record.registers[10] === INITIAL_SOURCE + 32, "QR bitwise loads applied the wrong postincrements");
 assert(qrBitwiseRun.record.registers[11] === INITIAL_DESTINATION + 64, "QR bitwise stores applied the wrong postincrements");
 
+const qrCompareInput = Uint8Array.from([
+  0x00, 0x00, 0x01, 0x00, 0xff, 0xff, 0x00, 0x80,
+  0x34, 0x12, 0xcd, 0xab, 0x55, 0x55, 0xaa, 0xaa,
+  0x00, 0x00, 0x02, 0x00, 0xff, 0xff, 0xff, 0x7f,
+  0x34, 0x12, 0xba, 0xdc, 0x55, 0x55, 0x11, 0x11
+]);
+const qrCompareFixture = conformanceFixture("esp32s3_qr_compare_eq_s16", [
+  0xa4, 0x01, 0x93,
+  0xa4, 0x81, 0x93,
+  0x94, 0x1a, 0xae,
+  0xb4, 0x01, 0xaa
+]);
+const qrCompareExpected = Uint8Array.from([
+  0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00,
+  0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+]);
+const qrCompareRun = await runFresh(moduleBytes, qrCompareFixture, { data: qrCompareInput, maxSteps: 4 });
+assert(qrCompareRun.record.reason === STOP_REASONS.maxSteps, "QR comparison fixture did not finish");
+assert(qrCompareRun.record.steps === 4, "QR comparison fixture executed the wrong instruction count");
+assert(
+  qrCompareRun.dataOutput.every((byte, index) => byte === qrCompareExpected[index]),
+  `QR comparison fixture output changed: ${Buffer.from(qrCompareRun.dataOutput).toString("hex")}`
+);
+
+const unsupportedQrCompareFixture = conformanceFixture("esp32s3_unsupported_vcmp_lt_s16", [0xf4, 0x1a, 0xae]);
+const unsupportedQrCompareRun = await runFresh(moduleBytes, unsupportedQrCompareFixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0xae1af4 }
+});
+assert(unsupportedQrCompareRun.record.reason === STOP_REASONS.unsupported, "adjacent QR comparison did not fail closed");
+assert(unsupportedQrCompareRun.record.steps === 0, "adjacent QR comparison was counted as executed");
+assert(unsupportedQrCompareRun.trace.count === 0, "adjacent QR comparison leaked a trace record");
+assert(
+  unsupportedQrCompareRun.record.registers.every(
+    (value, index) => value === initialRegisters(unsupportedQrCompareRun.record.returnPc)[index]
+  ),
+  "adjacent QR comparison changed registers"
+);
+
 const unsupportedQrNeighborFixture = conformanceFixture("esp32s3_unsupported_zero_qacc", [0x44, 0x08, 0x25]);
 const unsupportedQrNeighborRun = await runFresh(moduleBytes, unsupportedQrNeighborFixture, {
   maxSteps: 1,
@@ -1215,6 +1256,15 @@ const actualBaseline = {
     sourceAfter: `0x${qrBitwiseRun.record.registers[10].toString(16)}`,
     destinationAfter: `0x${qrBitwiseRun.record.registers[11].toString(16)}`
   },
+  qrCompareIsa: {
+    codeSha256: qrCompareFixture.codeSha256,
+    outputHex: Buffer.from(qrCompareRun.dataOutput).toString("hex"),
+    reason: qrCompareRun.record.reasonName,
+    steps: qrCompareRun.record.steps,
+    unsupportedCodeSha256: unsupportedQrCompareFixture.codeSha256,
+    unsupportedReason: unsupportedQrCompareRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedQrCompareRun.record.unsupportedEncoding.toString(16)}`
+  },
   qrXpIsa: {
     codeSha256: qrXpFixture.codeSha256,
     outputHex: Buffer.from(qrXpRun.dataOutput).toString("hex"),
@@ -1449,6 +1499,7 @@ assert(
     qrIsa: baseline.qrIsa,
     qrScalarIsa: baseline.qrScalarIsa,
     qrBitwiseIsa: baseline.qrBitwiseIsa,
+    qrCompareIsa: baseline.qrCompareIsa,
     qrXpIsa: baseline.qrXpIsa,
     halfQrIsa: baseline.halfQrIsa,
     halfQrXpIsa: baseline.halfQrXpIsa,
