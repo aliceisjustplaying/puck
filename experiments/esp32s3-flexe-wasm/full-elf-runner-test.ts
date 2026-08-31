@@ -602,9 +602,9 @@ const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   maxSteps: 512,
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true, cpuTicksPerUs: 40 },
 });
-assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.readPermission);
-assert(cacheProgress.record.steps > 331, "clock-adjust SYSTEM_SYSCLK_CONF write did not advance the real ELF");
-assert.notEqual(cacheProgress.record.pc, 0x4037_72a5);
+assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.writePermission);
+assert(cacheProgress.record.steps > 333, "post-adjust SYSTEM_SYSCLK_CONF read did not advance the real ELF");
+assert.notEqual(cacheProgress.record.pc, 0x4037_72aa);
 assert.deepEqual(cacheProgress.cacheBootstrap, {
   sequenceIndex: 6,
   complete: true,
@@ -663,6 +663,7 @@ assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "syste
   { kind: "systemMmioRead", pc: 0x4037_71ff, address: 0x600c_0010, width: 4, value: 0x4 },
   { kind: "systemMmioRead", pc: 0x4037_7275, address: 0x600c_0060, width: 4, value: 0x400 },
   { kind: "systemMmioRead", pc: 0x4037_7294, address: 0x600c_0060, width: 4, value: 0x400 },
+  { kind: "systemMmioRead", pc: 0x4037_72aa, address: 0x600c_0060, width: 4, value: 0x400 },
 ]);
 assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "systemMmioWrite"), [
   { kind: "systemMmioWrite", pc: 0x4037_727d, address: 0x600c_0060, width: 4, value: 0x400 },
@@ -670,8 +671,8 @@ assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "syste
 ]);
 assert.deepEqual(cacheProgress.systemMmio, {
   sysclkConf: 0x400,
-  readCount: 4,
-  lastReadPc: 0x4037_7294,
+  readCount: 5,
+  lastReadPc: 0x4037_72aa,
   cpuPerConf: 0x4,
   cpuPerReadCount: 4,
   cpuPerLastReadPc: 0x4037_71ff,
@@ -697,10 +698,10 @@ assert.deepEqual(cacheProgress.cpuTicks, {
 assert.deepEqual(cacheProgress.memoryFault, {
   abiVersion: 1,
   structBytes: 40,
-  pc: 0x4037_72aa,
+  pc: 0x4037_72b8,
   address: 0x600c_0060,
   width: 4,
-  isWrite: false,
+  isWrite: true,
   deniedAddress: 0x600c_0060,
   deniedPage: 0x600c_0000,
   deniedFlags: 0,

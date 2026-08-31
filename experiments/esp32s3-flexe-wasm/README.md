@@ -327,17 +327,17 @@ PLL source value `0x400` at `0x600c0060`, read from PC `0x403771a5` before and
 after the crystal-frequency query, and
 the 80 MHz CPU period value `0x4` at `0x600c0010`, read in order from PCs
 `0x403771d6` and `0x403771ff`. All are aligned 32-bit reads after MMU setup.
-Other registers, access shapes, readers, orderings, duplicates, and a third
-clock-source read are refused. After the first SYSTEM sequence, the runner exposes one
+Other registers, access shapes, readers, orderings, and additional accesses are
+refused. After the first SYSTEM sequence, the runner exposes one
 ordered 32-bit read of RTCCNTL `RTC_XTAL_FREQ_REG` at `0x600080c0` from PC
 `0x40377159`. TinyDraw configures a 40 MHz crystal and keeps ROM logging on, so
 the bootloader-persisted duplicated-half value is `0x00280028`. Other RTCCNTL
-addresses, access shapes, readers, orderings, and repeats are refused. The real
-The next exact ROM callback, `esp_rom_set_cpu_ticks_per_us` at `0x40001a4c`,
+addresses, access shapes, readers, orderings, and repeats are refused. The next
+exact ROM callback, `esp_rom_set_cpu_ticks_per_us` at `0x40001a4c`,
 accepts argument 40 with CALLINC 2 only after both clock-query cycles. The real
-image now executes 333 instructions and stops on the following
-`SYSTEM_SYSCLK_CONF` read at PC `0x403772aa`; the typed event log contains the
-CPU-ticks callback, eight SYSTEM reads, two SYSTEM writes, and one RTCCNTL read.
+image now executes 338 instructions and stops on the following
+`SYSTEM_SYSCLK_CONF` write at PC `0x403772b8`; the typed event log contains the
+CPU-ticks callback, nine SYSTEM reads, two SYSTEM writes, and one RTCCNTL read.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
@@ -364,8 +364,8 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 333-step
-cache-bootstrap boundary produces 462 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 338-step
+cache-bootstrap boundary produces 470 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
@@ -375,13 +375,13 @@ MMIO pages observed in the trace, with their ELF or inherited permissions.
 Those eight exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 462 records issue 824 timing events: 427 memory-system
-events, 38 MMIO accesses, 333 calibrated CPU issue events, and 26 calibrated
-dependent load-use events. Exactly 791 events have adopted costs, including
+literal loads. The 470 records issue 838 timing events: 434 memory-system
+events, 39 MMIO accesses, 338 calibrated CPU issue events, and 27 calibrated
+dependent load-use events. Exactly 804 events have adopted costs, including
 five exact MMIO reads, three exact not-taken `beqz` paths, three flash line
 fills, and every zero-miss cache hit. The baseline pins the branch classifier,
 hazard count, and a projection hash of their schedule, consumer IDs, registers,
-and producer/consumer PCs. The remaining 33 controller MMIO events keep the
+and producer/consumer PCs. The remaining 34 controller MMIO events keep the
 replay blocked with no total cycle claim. The baseline also pins the exact
 address, direction, width, peripheral, and count of all observed MMIO access
 classes so hardware-adopted costs cannot silently broaden their scope.

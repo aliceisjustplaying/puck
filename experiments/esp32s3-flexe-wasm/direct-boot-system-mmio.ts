@@ -6,6 +6,7 @@ export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_READ_PC = 0x4037_7275;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_WRITE_PC = 0x4037_727d;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_READ_PC = 0x4037_7294;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_WRITE_PC = 0x4037_72a5;
+export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_ADJUST_READ_PC = 0x4037_72aa;
 export const ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC = 0x4037_71d6;
 export const ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC = 0x4037_71ff;
 
@@ -156,15 +157,17 @@ export function readEsp32S3DirectBootSystemMmio(
   if (access.width !== 4 || access.isWrite) {
     return refuse(state, "SYSTEM_SYSCLK_CONF permits only the observed aligned 32-bit read");
   }
-  const expectedPc = state.readCount === 3
-    ? ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_READ_PC
-    : state.readCount === 2
-      ? ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_READ_PC
-      : ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC;
+  if (state.readCount >= 5) return refuse(state, "SYSTEM_SYSCLK_CONF direct-boot reads already occurred");
+  const expectedPc = state.readCount === 4
+    ? ESP32S3_DIRECT_BOOT_SYSCLK_POST_ADJUST_READ_PC
+    : state.readCount === 3
+      ? ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_READ_PC
+      : state.readCount === 2
+        ? ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_READ_PC
+        : ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC;
   if (access.pc !== expectedPc) {
     return refuse(state, `unexpected SYSTEM_SYSCLK_CONF reader 0x${access.pc.toString(16)}`);
   }
-  if (state.readCount >= 4) return refuse(state, "SYSTEM_SYSCLK_CONF direct-boot reads already occurred");
   if (state.readCount === 0 && (access.rtcMmioComplete || access.cpuTicksConfigured)) {
     return refuse(state, "initial SYSTEM_SYSCLK_CONF read followed RTC_XTAL_FREQ");
   }
@@ -180,6 +183,11 @@ export function readEsp32S3DirectBootSystemMmio(
       (!access.rtcMmioComplete || !access.cpuTicksConfigured || state.cpuPerReadCount !== 4 ||
        state.writeCount !== 1)) {
     return refuse(state, "clock-adjust SYSTEM_SYSCLK_CONF read preceded the post-ticks write");
+  }
+  if (state.readCount === 4 &&
+      (!access.rtcMmioComplete || !access.cpuTicksConfigured || state.cpuPerReadCount !== 4 ||
+       state.writeCount !== 2)) {
+    return refuse(state, "post-adjust SYSTEM_SYSCLK_CONF read preceded the second clock write");
   }
   return Object.freeze({
     handled: true,

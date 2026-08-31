@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..55a269c
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1577 @@
+@@ -0,0 +1,1582 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -226,6 +226,7 @@ index 0000000..55a269c
 +#define ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_WRITE_PC 0x4037727du
 +#define ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_READ_PC 0x40377294u
 +#define ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_WRITE_PC 0x403772a5u
++#define ESP32S3_DIRECT_BOOT_SYSCLK_POST_ADJUST_READ_PC 0x403772aau
 +#define ESP32S3_RTC_CNTL_MMIO_PAGE 0x60008000u
 +#define ESP32S3_RTC_XTAL_FREQ_REG 0x600080c0u
 +#define ESP32S3_DIRECT_BOOT_RTC_XTAL_FREQ 0x00280028u
@@ -672,7 +673,11 @@ index 0000000..55a269c
 +            (sysclk_reads == 3u && g_dbg_pc == ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_READ_PC &&
 +             elf_rtc_mmio_read_count() == 1u && elf_cpu_ticks_event_count() == 1u &&
 +             elf_system_mmio_read_count(ESP32S3_SYSTEM_CPU_PER_CONF) == 4u &&
-+             elf_system_mmio_write_count(address) == 1u);
++             elf_system_mmio_write_count(address) == 1u) ||
++            (sysclk_reads == 4u && g_dbg_pc == ESP32S3_DIRECT_BOOT_SYSCLK_POST_ADJUST_READ_PC &&
++             elf_rtc_mmio_read_count() == 1u && elf_cpu_ticks_event_count() == 1u &&
++             elf_system_mmio_read_count(ESP32S3_SYSTEM_CPU_PER_CONF) == 4u &&
++             elf_system_mmio_write_count(address) == 2u);
 +        if (!expected_reader) return -1;
 +        value = ESP32S3_DIRECT_BOOT_SYSCLK_CONF;
 +    } else if (address == ESP32S3_SYSTEM_CPU_PER_CONF) {
