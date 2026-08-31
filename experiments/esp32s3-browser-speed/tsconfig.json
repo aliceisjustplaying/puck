@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["*.ts", "../esp32s3-flexe-wasm/constants.ts", "../esp32s3-flexe-wasm/lib.ts", "../esp32s3-flexe-wasm/elf-fixture.ts", "../esp32s3-flexe-wasm/isa-inventory.ts"]
+}
