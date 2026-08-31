@@ -145,7 +145,8 @@ The THREADPTR fixture executes the real reset-path `l32r` and
 `wur.threadptr a8` encoding at `0x40375ce4`, reads UR231 back with
 `rur.threadptr`, and returns the pinned CPU0 value `0x3fcabf20`. A separate
 fixture writes distinct values through `wur.accx_0` and `wur.accx_1`, then
-reads them back unchanged. A `wur.qacc_h_0` fixture stops with `stepError`
+reads back the 32-bit ACCX_0 and architecturally masked 8-bit ACCX_1 values.
+A `wur.qacc_h_0` fixture stops with `stepError`
 before counting the instruction, so unimplemented user registers cannot
 silently become no-ops.
 
