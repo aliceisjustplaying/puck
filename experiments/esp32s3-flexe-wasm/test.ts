@@ -20,6 +20,7 @@ requireSuccess(run([process.execPath, join(here, "elf-image-test.ts")], here));
 requireSuccess(run([process.execPath, join(here, "trace-abi-test.ts")], here));
 requireSuccess(run([process.execPath, join(here, "dynamic-runner-test.ts")], here));
 requireSuccess(run([process.execPath, join(here, "timing-replay-test.ts")], here));
+requireSuccess(run([process.execPath, join(here, "full-elf-runner-test.ts")], here));
 requireSuccess(run([process.execPath, join(here, "freestanding-blocker.ts")], here));
 requireSuccess(run([process.execPath, join(here, "isa-inventory-test.ts")], here));
 
