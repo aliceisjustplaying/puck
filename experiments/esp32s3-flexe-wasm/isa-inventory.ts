@@ -79,6 +79,12 @@ export interface InventoryReport {
     rawMnemonicCount: number;
     supportedRawMnemonicCount: number;
     unsupportedRawMnemonicCount: number;
+    unsupportedInstructionMarkers: Array<{
+      pc: number;
+      encoding: number;
+      objdumpEncoding: string;
+      rawMnemonic: string;
+    }>;
     opcodeMnemonicPairs: Array<{
       normalizedMnemonic: string;
       rawMnemonic: string;
@@ -335,6 +341,18 @@ function summarizeInventory(instructions: InstructionRow[], supported: Set<strin
       uniqueObjdumpEncodings: encodings.size
     }));
   const supportedRows = instructions.filter((row) => supported.has(row.normalizedMnemonic)).length;
+  const unsupportedInstructionMarkers = instructions
+    .filter((row) => row.rawMnemonic !== ".byte" && !supported.has(row.normalizedMnemonic))
+    .map((row) => {
+      const objdumpEncoding = Number.parseInt(row.objdumpEncoding, 16);
+      const decoderLength = (objdumpEncoding & 8) !== 0 ? 2 : 3;
+      return {
+        pc: row.addressValue,
+        encoding: objdumpEncoding & (decoderLength === 2 ? 0xffff : 0xff_ffff),
+        objdumpEncoding: row.objdumpEncoding,
+        rawMnemonic: row.rawMnemonic
+      };
+    });
   return {
     instructionRows: instructions.length,
     supportedInstructionRows: supportedRows,
@@ -342,6 +360,7 @@ function summarizeInventory(instructions: InstructionRow[], supported: Set<strin
     rawMnemonicCount: mnemonicRows.length,
     supportedRawMnemonicCount: mnemonicRows.filter((row) => row.supportedByFlexeDecoder).length,
     unsupportedRawMnemonicCount: mnemonicRows.filter((row) => !row.supportedByFlexeDecoder).length,
+    unsupportedInstructionMarkers,
     opcodeMnemonicPairs: pairRows,
     mnemonicInventory: mnemonicRows
   };

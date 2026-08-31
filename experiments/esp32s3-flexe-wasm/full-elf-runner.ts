@@ -1,5 +1,6 @@
 import { instantiate } from "../../src/wasm";
 import type { Elf32XtensaImage } from "./elf-image";
+import { ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY } from "./esp32s3-full-elf-unsupported";
 
 const PAGE_BYTES = 4096;
 const RESULT_WORDS = 27;
@@ -278,7 +279,11 @@ export async function runSparseXtensaElf(
     );
   }
 
-  const unsupported = [...(options.unsupported ?? [])].sort((left, right) => left.pc - right.pc);
+  const inventoryUnsupported = image.elfSha256 === ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY.elfSha256
+    ? ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY.markers.map(([pc, encoding]) => ({ pc, encoding }))
+    : [];
+  const unsupported = [...inventoryUnsupported, ...(options.unsupported ?? [])]
+    .sort((left, right) => left.pc - right.pc);
   const unsupportedCapacity = exports.flexe_wasm_elf_unsupported_capacity() >>> 0;
   assert(unsupported.length <= unsupportedCapacity, `ELF has more than ${unsupportedCapacity} unsupported markers`);
   for (let index = 0; index < unsupported.length; index++) {

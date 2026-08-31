@@ -7,8 +7,10 @@ import {
   DEFAULT_TINYDRAW_ESP32S3_ELF,
   DEFAULT_TINYDRAW_ESP32S3_FIXTURE_ELF,
   DEFAULT_TINYDRAW_ESP32S3_FIXTURE_SYMBOL,
+  DEFAULT_TINYDRAW_ESP32S3_FULL_ELF,
   FLEXE_DISASSEMBLER_SHA256
 } from "./constants";
+import { ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY } from "./esp32s3-full-elf-unsupported";
 import { buildInventoryReport, normalizeMnemonic, parseDisassembly, parseFlexeDecoderSurface } from "./isa-inventory";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -68,6 +70,43 @@ assert(
   "fixture covered path changed"
 );
 assert(report.fixturePath.firstUnsupported === null, "PIE fixture still has an unsupported instruction");
+const fullElfReport = buildInventoryReport({
+  elf: DEFAULT_TINYDRAW_ESP32S3_FULL_ELF,
+  fixtureElf: DEFAULT_TINYDRAW_ESP32S3_FIXTURE_ELF,
+  fixtureSymbol: DEFAULT_TINYDRAW_ESP32S3_FIXTURE_SYMBOL,
+  objdump: DEFAULT_ESP32S3_OBJDUMP,
+  flexeSource: DEFAULT_FLEXE_SOURCE,
+  output: join(import.meta.dir, "dist/test-full-elf-inventory.json")
+});
+assert(
+  fullElfReport.inputs.elf.sha256 === ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY.elfSha256,
+  "tracked full-ELF unsupported inventory belongs to a different image"
+);
+assert(
+  fullElfReport.inputs.objdump.sha256 === ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY.objdumpSha256,
+  "tracked full-ELF unsupported inventory belongs to a different objdump"
+);
+assert(
+  fullElfReport.inputs.flexe.decoderSha256 === ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY.flexeDecoderSha256,
+  "tracked full-ELF unsupported inventory belongs to a different decoder"
+);
+assert(
+  fullElfReport.staticExecutableSectionInventory.unsupportedInstructionRows ===
+    ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY.unsupportedRows,
+  "tracked full-ELF unsupported row count changed"
+);
+const fullElfByteRows = fullElfReport.staticExecutableSectionInventory.mnemonicInventory
+  .find((row) => row.rawMnemonic === ".byte")?.count ?? 0;
+assert(
+  fullElfByteRows === ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY.excludedByteRows,
+  "tracked full-ELF undecodable byte count changed"
+);
+assert(
+  JSON.stringify(fullElfReport.staticExecutableSectionInventory.unsupportedInstructionMarkers
+    .map(({ pc, encoding }) => [pc, encoding])) ===
+    JSON.stringify(ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY.markers),
+  "tracked full-ELF unsupported marker set changed"
+);
 const actualBaseline = {
   inputs: {
     elfSha256: report.inputs.elf.sha256,
