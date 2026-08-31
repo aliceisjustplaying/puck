@@ -538,10 +538,35 @@ assert(
   "QACC high-word load used the wrong aligned source address"
 );
 
-const unsupportedUsarMemoryFixture = conformanceFixture("esp32s3_unsupported_ld_128_usar_ip", [0xa4, 0x01, 0x81]);
+const alignedLoadFixture = conformanceFixture("esp32s3_usar_and_broadcast_loads", [
+  0x3b, 0xaa,
+  0xa4, 0x7f, 0xd1,
+  0xd0, 0x20, 0xe3,
+  0xb4, 0x00, 0x9a,
+  0xb2, 0xcb, 0x10,
+  0xa2, 0xca, 0x13,
+  0xa4, 0xff, 0xd2,
+  0xb4, 0x80, 0x9a
+]);
+const alignedLoadInput = Uint8Array.from({ length: 32 }, (_, index) => (index * 11 + 5) & 0xff);
+const alignedLoadExpected = new Uint8Array(32);
+alignedLoadExpected.set(alignedLoadInput.slice(0, 16), 0);
+for (let index = 16; index < 32; index++) alignedLoadExpected[index] = alignedLoadInput[4 + ((index - 16) & 3)]!;
+const alignedLoadRun = await runFresh(moduleBytes, alignedLoadFixture, { data: alignedLoadInput, maxSteps: 8 });
+assert(alignedLoadRun.record.reason === STOP_REASONS.maxSteps, `aligned-load fixture stopped with ${alignedLoadRun.record.reasonName}`);
+assert(alignedLoadRun.record.steps === 8, `aligned-load fixture executed ${alignedLoadRun.record.steps} instructions`);
+assert(
+  alignedLoadRun.dataOutput.every((byte, index) => byte === alignedLoadExpected[index]),
+  `aligned-load fixture output changed: ${Buffer.from(alignedLoadRun.dataOutput).toString("hex")}`
+);
+assert(alignedLoadRun.record.registers[2] === 3, "USAR load did not preserve the unaligned address nibble in SAR_BYTE");
+assert(alignedLoadRun.record.registers[10] === INITIAL_SOURCE + 2, "aligned loads applied the wrong signed immediates");
+assert(alignedLoadRun.record.registers[11] === INITIAL_DESTINATION + 16, "aligned-load stores used the wrong destination");
+
+const unsupportedUsarMemoryFixture = conformanceFixture("esp32s3_unsupported_ld_128_usar_xp", [0xa4, 0x0c, 0x8d]);
 const unsupportedUsarMemoryRun = await runFresh(moduleBytes, unsupportedUsarMemoryFixture, {
   maxSteps: 1,
-  unsupported: { offset: 0, encoding: 0x8101a4 }
+  unsupported: { offset: 0, encoding: 0x8d0ca4 }
 });
 assert(unsupportedUsarMemoryRun.record.reason === STOP_REASONS.unsupported, "adjacent USAR memory form did not fail closed");
 assert(unsupportedUsarMemoryRun.record.steps === 0, "adjacent USAR memory form was counted as executed");
@@ -990,6 +1015,15 @@ const actualBaseline = {
     destinationAfter: `0x${qaccMemoryRun.record.registers[11].toString(16)}`,
     highValue: `0x${qaccMemoryRun.record.registers[2].toString(16)}`
   },
+  alignedLoadIsa: {
+    codeSha256: alignedLoadFixture.codeSha256,
+    outputHex: Buffer.from(alignedLoadRun.dataOutput).toString("hex"),
+    reason: alignedLoadRun.record.reasonName,
+    steps: alignedLoadRun.record.steps,
+    sourceAfter: `0x${alignedLoadRun.record.registers[10].toString(16)}`,
+    destinationAfter: `0x${alignedLoadRun.record.registers[11].toString(16)}`,
+    sarByte: alignedLoadRun.record.registers[2]
+  },
   threadptrIsa: {
     codeSha256: threadptrFixture.codeSha256,
     literalPageSha256: threadptrLiterals.sha256,
@@ -1122,6 +1156,7 @@ assert(
     float64XpIsa: baseline.float64XpIsa,
     accxMemoryIsa: baseline.accxMemoryIsa,
     qaccMemoryIsa: baseline.qaccMemoryIsa,
+    alignedLoadIsa: baseline.alignedLoadIsa,
     threadptrIsa: baseline.threadptrIsa,
     accxIsa: baseline.accxIsa,
     qaccIsa: baseline.qaccIsa,
