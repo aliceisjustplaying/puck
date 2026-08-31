@@ -20,7 +20,8 @@ function assert(condition: unknown, message: string): asserts condition {
 assert(normalizeMnemonic("rsr.ccount") === "rsr", "special-register aliases must normalize");
 assert(normalizeMnemonic("wur.threadptr") === "wur", "implemented user-register aliases must normalize");
 assert(normalizeMnemonic("rur.accx_1") === "rur", "implemented ACCX aliases must normalize");
-assert(normalizeMnemonic("rur.qacc_h_0") === "rur.qacc_h_0", "unknown user registers must remain explicit gaps");
+assert(normalizeMnemonic("rur.qacc_h_0") === "rur", "implemented QACC aliases must normalize");
+assert(normalizeMnemonic("rur.sar_byte") === "rur.sar_byte", "unknown user registers must remain explicit gaps");
 assert(normalizeMnemonic("ee.vld.128.ip") === "ee.vld.128.ip", "PIE mnemonics must stay exact");
 
 const parsed = parseDisassembly(`Disassembly of section .iram0.text:
