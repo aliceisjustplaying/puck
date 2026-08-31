@@ -9,10 +9,10 @@
     "inheritedPages": 3,
     "initialStack": "0x3fce9700",
     "initialStackProvenance": "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
-    "runnerPatchSha256": "4e379e4d20523a2a838d8c91bba821f12891e40126125c3a0f0a38b01f224264",
+    "runnerPatchSha256": "0ea741cb46c3c9f118069937e6d8aac968079c5aa3b5aff7f97af2da84b0c1e2",
     "esp32s3PatchSha256": "815f8ac67279aaa55775e470b66c7954c895d41d5388fa8de9c6b035e91fea0c",
-    "moduleBytes": 57420,
-    "moduleSha256": "e4059ec9d0350699999e516a160ae437ba501a2163f2cabc9cbe8c6e5b87ec73"
+    "moduleBytes": 58520,
+    "moduleSha256": "66dafc7f59ff23e36997c661d6e9f39f9dfccbd97c5ee4f80abb8eb0537784c3"
   },
   "bounded": {
     "reason": "maxSteps",
@@ -85,15 +85,15 @@
   },
   "cacheProgress": {
     "reason": "readPermission",
-    "steps": 271,
-    "pc": "0x40377159",
-    "traceSha256": "789ec767be9410582fea89c99bb17b5e7b34d78d50f44f335f2a11fe9f115f51",
-    "stackPointer": "0x3fce95f0",
+    "steps": 290,
+    "pc": "0x403771a5",
+    "traceSha256": "d971f25dcb9386e8b3e7e4c4a3e9f2636cea8bf70107bebebed89068eb2ea469",
+    "stackPointer": "0x3fce95b0",
     "registers": [
-      "0x8037731a", "0x3fce95f0", "0x00000000", "0x00000000",
+      "0x80377264", "0x3fce95b0", "0x3fce95e0", "0x00000000",
       "0x00000000", "0x00000000", "0x00000000", "0x00000000",
-      "0x600080c0", "0x3fce9700", "0x00000000", "0x00000000",
-      "0x00000000", "0x00000000", "0x00000000", "0x00000000"
+      "0x00000000", "0x600c0060", "0x00000000", "0x00000000",
+      "0x00000000", "0x00000000", "0x00000002", "0x00000000"
     ],
     "cacheBootstrap": {
       "sequenceIndex": 6,
@@ -140,7 +140,8 @@
       { "kind": "cacheMmuSizes", "pc": "0x40001914", "instructionBytes": 60, "dataBytes": 964 },
       { "kind": "systemMmioRead", "pc": "0x403771a5", "address": "0x600c0060", "width": 4, "value": "0x400" },
       { "kind": "systemMmioRead", "pc": "0x403771d6", "address": "0x600c0010", "width": 4, "value": "0x4" },
-      { "kind": "systemMmioRead", "pc": "0x403771ff", "address": "0x600c0010", "width": 4, "value": "0x4" }
+      { "kind": "systemMmioRead", "pc": "0x403771ff", "address": "0x600c0010", "width": 4, "value": "0x4" },
+      { "kind": "rtcMmioRead", "pc": "0x40377159", "address": "0x600080c0", "width": 4, "value": "0x280028" }
     ],
     "systemMmio": {
       "sysclkConf": 1024,
@@ -149,6 +150,11 @@
       "cpuPerConf": 4,
       "cpuPerReadCount": 2,
       "cpuPerLastReadPc": 1077375487
+    },
+    "rtcMmio": {
+      "xtalFreqReg": 2621480,
+      "readCount": 1,
+      "lastReadPc": 1077375321
     }
   },
   "unsupportedRefusal": {

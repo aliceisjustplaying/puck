@@ -285,9 +285,14 @@ PLL source value `0x400` at `0x600c0060`, read once from PC `0x403771a5`, and
 the 80 MHz CPU period value `0x4` at `0x600c0010`, read in order from PCs
 `0x403771d6` and `0x403771ff`. All are aligned 32-bit reads after MMU setup.
 Other registers, access shapes, readers, orderings, duplicates, and a third
-CPU-period read are refused. The real image now executes 271 instructions and
-stops at PC `0x40377159` on the first undeclared RTCCNTL read, address
-`0x600080c0`; the typed event log contains exactly the three SYSTEM reads.
+CPU-period read are refused. After those SYSTEM reads, the runner exposes one
+ordered 32-bit read of RTCCNTL `RTC_XTAL_FREQ_REG` at `0x600080c0` from PC
+`0x40377159`. TinyDraw configures a 40 MHz crystal and keeps ROM logging on, so
+the bootloader-persisted duplicated-half value is `0x00280028`. Other RTCCNTL
+addresses, access shapes, readers, orderings, and repeats are refused. The real
+image now executes 290 instructions and stops at PC `0x403771a5` on its next
+SYSTEM clock-source read; the typed event log contains three SYSTEM reads and
+one RTCCNTL read.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
