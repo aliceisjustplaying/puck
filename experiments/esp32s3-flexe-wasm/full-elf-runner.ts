@@ -4,6 +4,7 @@ import { ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY } from "./esp32s3-full-elf-unsup
 import {
   ESP32S3_ROM_CACHE_CALLINC,
   advanceEsp32S3DirectAppCacheBootstrap,
+  configureEsp32S3DirectAppInstructionCache,
   createEsp32S3DirectAppCacheBootstrap,
   type Esp32S3DirectAppCacheBootstrapState,
 } from "./rom-cache-bootstrap";
@@ -99,6 +100,13 @@ export type FullElfRomEvent = Readonly<
       sequenceIndex: number;
       argument: number | null;
       returnValue: number | null;
+    }
+  | {
+      kind: "cacheMode";
+      pc: number;
+      sizeBytes: number;
+      ways: number;
+      lineBytes: number;
     }
 >;
 
@@ -389,12 +397,31 @@ export async function runSparseXtensaElf(
         argument: words[3] === 0xffff_ffff ? null : words[3],
         returnValue: words[4] === 0xffff_ffff ? null : words[4],
       }));
+    } else if (words[0] === 4) {
+      romEvents.push(Object.freeze({
+        kind: "cacheMode",
+        pc: words[1],
+        sizeBytes: words[2],
+        ways: words[3],
+        lineBytes: words[4],
+      }));
     } else throw new Error(`unknown full ELF ROM event ${words[0]}`);
   }
   let cacheBootstrap = options.rom?.cacheBootstrap
     ? createEsp32S3DirectAppCacheBootstrap()
     : null;
   for (const event of romEvents) {
+    if (event.kind === "cacheMode") {
+      assert(cacheBootstrap !== null, "full ELF module returned an unconfigured cache mode event");
+      const configured = configureEsp32S3DirectAppInstructionCache(cacheBootstrap, {
+        pc: event.pc,
+        callinc: ESP32S3_ROM_CACHE_CALLINC,
+        arguments: [event.sizeBytes, event.ways, event.lineBytes],
+      });
+      assert(configured.handled && configured.status === "accepted", "full ELF module violated instruction cache mode contract");
+      cacheBootstrap = configured.state;
+      continue;
+    }
     if (event.kind !== "cache") continue;
     assert(cacheBootstrap !== null, "full ELF module returned an unconfigured cache event");
     assert(event.sequenceIndex === cacheBootstrap.sequenceIndex, "cache event sequence index differs");
@@ -408,14 +435,18 @@ export async function runSparseXtensaElf(
     cacheBootstrap = advanced.state;
   }
   if (cacheBootstrap) {
-    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_cache_state(), 24, "ELF cache state");
-    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 6);
+    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_cache_state(), 40, "ELF cache state");
+    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 10);
     assert(stateWords[0] === cacheBootstrap.sequenceIndex, "cache callback sequence state differs");
     assert(stateWords[1] === cacheBootstrap.registers.dataControl1, "DCache CTRL1 state differs");
     assert(stateWords[2] === cacheBootstrap.registers.dataAutoloadControl, "DCache autoload state differs");
     assert(stateWords[3] === cacheBootstrap.registers.instructionControl1, "ICache CTRL1 state differs");
     assert(stateWords[4] === cacheBootstrap.registers.instructionAutoloadControl, "ICache autoload state differs");
     assert(stateWords[5] === cacheBootstrap.registers.cacheState, "cache idle state differs");
+    assert(stateWords[6] === (cacheBootstrap.instructionMode ? 1 : 0), "instruction cache mode state differs");
+    assert(stateWords[7] === (cacheBootstrap.instructionMode?.sizeBytes ?? 0), "instruction cache size differs");
+    assert(stateWords[8] === (cacheBootstrap.instructionMode?.ways ?? 0), "instruction cache ways differ");
+    assert(stateWords[9] === (cacheBootstrap.instructionMode?.lineBytes ?? 0), "instruction cache line size differs");
   }
   const captureAddresses = [...(options.capturePages ?? [])];
   assert(new Set(captureAddresses).size === captureAddresses.length, "captured ELF pages must be unique");

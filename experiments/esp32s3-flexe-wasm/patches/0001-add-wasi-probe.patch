@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..232766d
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1052 @@
+@@ -0,0 +1,1092 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -201,6 +201,7 @@ index 0000000..232766d
 +#define ESP32S3_ROM_CACHE_ENABLE_I 0x40001878u
 +#define ESP32S3_ROM_CACHE_DISABLE_D 0x40001884u
 +#define ESP32S3_ROM_CACHE_ENABLE_D 0x40001890u
++#define ESP32S3_ROM_CONFIG_ICACHE_MODE 0x40001a1cu
 +#define ESP32S3_CACHE_MMIO_PAGE 0x600c4000u
 +#define ESP32S3_DCACHE_CTRL1 0x600c4004u
 +#define ESP32S3_DCACHE_AUTOLOAD 0x600c404cu
@@ -213,6 +214,7 @@ index 0000000..232766d
 +#define ELF_ROM_EVENT_RESET_REASON 1u
 +#define ELF_ROM_EVENT_MEMSET 2u
 +#define ELF_ROM_EVENT_CACHE 3u
++#define ELF_ROM_EVENT_CACHE_MODE 4u
 +#define NO_UNSUPPORTED_OFFSET UINT32_MAX
 +#define INITIAL_STACK 0x3fcaffc0u
 +#define INITIAL_SOURCE 0x3fca1000u
@@ -351,8 +353,9 @@ index 0000000..232766d
 +static int elf_rom_memset_enabled;
 +static int elf_rom_cache_enabled;
 +static uint32_t elf_rom_cache_sequence;
++static uint32_t elf_rom_instruction_cache_mode[4];
 +static uint8_t elf_rom_cache_mmio[PAGE_BYTES];
-+static uint32_t elf_rom_cache_state[6];
++static uint32_t elf_rom_cache_state[10];
 +static int elf_rom_refused;
 +static struct elf_memory_fault_record elf_memory_fault;
 +static struct probe_stop_record result;
@@ -615,15 +618,47 @@ index 0000000..232766d
 +    elf_cache_write(ESP32S3_ICACHE_AUTOLOAD, ESP32S3_CACHE_AUTOLOAD_BASE);
 +    elf_cache_write(ESP32S3_CACHE_STATE, ESP32S3_CACHE_IDLE);
 +    elf_rom_cache_sequence = 0;
++    memset(elf_rom_instruction_cache_mode, 0, sizeof(elf_rom_instruction_cache_mode));
 +    mem->page_table[ESP32S3_CACHE_MMIO_PAGE >> 12] = elf_rom_cache_mmio;
 +}
 +
 +static int elf_cache_is_callback(uint32_t pc) {
 +    return pc == ESP32S3_ROM_CACHE_DISABLE_I || pc == ESP32S3_ROM_CACHE_ENABLE_I ||
-+           pc == ESP32S3_ROM_CACHE_DISABLE_D || pc == ESP32S3_ROM_CACHE_ENABLE_D;
++           pc == ESP32S3_ROM_CACHE_DISABLE_D || pc == ESP32S3_ROM_CACHE_ENABLE_D ||
++           pc == ESP32S3_ROM_CONFIG_ICACHE_MODE;
++}
++
++static int elf_rom_instruction_cache_mode_dispatch(xtensa_cpu_t *target_cpu, uint32_t pc) {
++    if (pc != ESP32S3_ROM_CONFIG_ICACHE_MODE ||
++        elf_rom_event_count >= ELF_ROM_EVENT_CAPACITY ||
++        XT_PS_CALLINC(target_cpu->ps) != WINDOW_CALLINC ||
++        elf_rom_cache_sequence != 6u || elf_rom_instruction_cache_mode[0] != 0u ||
++        elf_cache_read(ESP32S3_ICACHE_CTRL1) != 0u ||
++        elf_cache_read(ESP32S3_DCACHE_CTRL1) != 0u ||
++        elf_cache_read(ESP32S3_ICACHE_AUTOLOAD) != ESP32S3_CACHE_AUTOLOAD_BASE ||
++        elf_cache_read(ESP32S3_DCACHE_AUTOLOAD) != ESP32S3_CACHE_AUTOLOAD_BASE ||
++        elf_cache_read(ESP32S3_CACHE_STATE) != ESP32S3_CACHE_IDLE) {
++        return 0;
++    }
++    uint32_t size_bytes = elf_rom_arg(target_cpu, 0);
++    uint32_t ways = elf_rom_arg(target_cpu, 1);
++    uint32_t line_bytes = elf_rom_arg(target_cpu, 2);
++    if (size_bytes != 0x4000u || ways != 8u || line_bytes != 32u ||
++        !elf_rom_record(ELF_ROM_EVENT_CACHE_MODE, pc, size_bytes, ways, line_bytes)) {
++        return 0;
++    }
++    elf_rom_instruction_cache_mode[0] = 1u;
++    elf_rom_instruction_cache_mode[1] = size_bytes;
++    elf_rom_instruction_cache_mode[2] = ways;
++    elf_rom_instruction_cache_mode[3] = line_bytes;
++    elf_rom_return(target_cpu, 0);
++    return 1;
 +}
 +
 +static int elf_rom_cache_dispatch(xtensa_cpu_t *target_cpu, uint32_t pc) {
++    if (pc == ESP32S3_ROM_CONFIG_ICACHE_MODE) {
++        return elf_rom_instruction_cache_mode_dispatch(target_cpu, pc);
++    }
 +    static const uint32_t expected_pc[6] = {
 +        ESP32S3_ROM_CACHE_DISABLE_I, ESP32S3_ROM_CACHE_DISABLE_D,
 +        ESP32S3_ROM_CACHE_ENABLE_I, ESP32S3_ROM_CACHE_ENABLE_D,
@@ -844,6 +879,10 @@ index 0000000..232766d
 +    elf_rom_cache_state[3] = elf_cache_read(ESP32S3_ICACHE_CTRL1);
 +    elf_rom_cache_state[4] = elf_cache_read(ESP32S3_ICACHE_AUTOLOAD);
 +    elf_rom_cache_state[5] = elf_cache_read(ESP32S3_CACHE_STATE);
++    elf_rom_cache_state[6] = elf_rom_instruction_cache_mode[0];
++    elf_rom_cache_state[7] = elf_rom_instruction_cache_mode[1];
++    elf_rom_cache_state[8] = elf_rom_instruction_cache_mode[2];
++    elf_rom_cache_state[9] = elf_rom_instruction_cache_mode[3];
 +    return (uint32_t)(uintptr_t)elf_rom_cache_state;
 +}
 +
@@ -875,6 +914,7 @@ index 0000000..232766d
 +    elf_rom_memset_enabled = 0;
 +    elf_rom_cache_enabled = 0;
 +    elf_rom_cache_sequence = 0;
++    memset(elf_rom_instruction_cache_mode, 0, sizeof(elf_rom_instruction_cache_mode));
 +    elf_rom_refused = 0;
 +    memset(&elf_memory_fault, 0, sizeof(elf_memory_fault));
 +    mem->permission_hook = NULL;
