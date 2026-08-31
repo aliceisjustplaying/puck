@@ -45,6 +45,7 @@ assert(surface.normalizedMnemonics.includes("entry"), "literal decoder surface l
 assert(surface.normalizedMnemonics.includes("rsr"), "literal decoder surface lost rsr");
 assert(surface.normalizedMnemonics.includes("s32nb"), "ESP32-S3 scalar patch surface lost s32nb");
 assert(surface.normalizedMnemonics.includes("ee.vld.128.ip"), "ESP32-S3 PIE patch surface lost vector load");
+assert(surface.normalizedMnemonics.includes("ee.vld.128.xp"), "ESP32-S3 PIE patch surface lost register-postincrement load");
 assert(surface.normalizedMnemonics.includes("ee.vld.l.64.ip"), "ESP32-S3 PIE patch surface lost half vector load");
 assert(!surface.normalizedMnemonics.includes("??gap"), "unknown decoder diagnostics are not instructions");
 
