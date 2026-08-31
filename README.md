@@ -177,7 +177,7 @@ full-system experiment. Their current outputs are uncalibrated and explicitly
 result into a hardware performance claim. The pinned 704-instruction boot
 replay currently adopts exact costs for 1,696 of 1,729 issued events, including
 40 address-, operation-, width-, peripheral-, and write-effect-matched MMIO
-accesses and four exact ROM callbacks. The 14 remaining MMIO costs and 19 ROM
+accesses and four exact ROM callbacks. The 14 remaining MMIO costs and 18 ROM
 callback durations keep its total blocked. See
 [`docs/requirements.md`](docs/requirements.md)'s "What this emulator does not
 model."
