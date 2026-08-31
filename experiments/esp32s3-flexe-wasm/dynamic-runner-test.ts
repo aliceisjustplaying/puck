@@ -547,6 +547,27 @@ assert(qaccMemoryRun.record.registers[11] === INITIAL_DESTINATION + 17, "QACC me
 assert(qaccMemoryRun.record.registers[2] === 0x463d342b, "QACC_L high-word load used the wrong aligned source address");
 assert(qaccMemoryRun.record.registers[3] === 0xd6cdc4bb, "QACC_H high-word load used the wrong aligned source address");
 
+const uaMemoryFixture = conformanceFixture("esp32s3_ua_state_memory_roundtrip", [
+  0x3b, 0xaa,
+  0xa4, 0x7f, 0x50,
+  0x3b, 0xbb,
+  0xb4, 0x7f, 0x5c,
+  0xf0, 0x20, 0xe3,
+  0x20, 0x31, 0xe3
+]);
+const uaMemoryInput = Uint8Array.from({ length: 16 }, (_, index) => (index * 13 + 2) & 0xff);
+const uaMemoryRun = await runFresh(moduleBytes, uaMemoryFixture, { data: uaMemoryInput, maxSteps: 6 });
+assert(uaMemoryRun.record.reason === STOP_REASONS.maxSteps, `UA_STATE memory fixture stopped with ${uaMemoryRun.record.reasonName}`);
+assert(uaMemoryRun.record.steps === 6, `UA_STATE memory fixture executed ${uaMemoryRun.record.steps} instructions`);
+assert(
+  uaMemoryRun.dataOutput.every((byte, index) => byte === uaMemoryInput[index]),
+  `UA_STATE memory fixture changed payload bits: ${Buffer.from(uaMemoryRun.dataOutput).toString("hex")}`
+);
+assert(uaMemoryRun.record.registers[10] === (INITIAL_SOURCE - 13) >>> 0, "UA_STATE load applied the wrong signed immediate");
+assert(uaMemoryRun.record.registers[11] === (INITIAL_DESTINATION - 13) >>> 0, "UA_STATE store applied the wrong signed immediate");
+assert(uaMemoryRun.record.registers[2] === 0x291c0f02, "UA_STATE load changed its low word");
+assert(uaMemoryRun.record.registers[3] === 0xc5b8ab9e, "UA_STATE load changed its high word");
+
 const alignedLoadFixture = conformanceFixture("esp32s3_usar_and_broadcast_loads", [
   0x3b, 0xaa,
   0xa4, 0x7f, 0xd1,
@@ -1060,6 +1081,16 @@ const actualBaseline = {
     lowHighValue: `0x${qaccMemoryRun.record.registers[2].toString(16)}`,
     highHighValue: `0x${qaccMemoryRun.record.registers[3].toString(16)}`
   },
+  uaMemoryIsa: {
+    codeSha256: uaMemoryFixture.codeSha256,
+    outputHex: Buffer.from(uaMemoryRun.dataOutput).toString("hex"),
+    reason: uaMemoryRun.record.reasonName,
+    steps: uaMemoryRun.record.steps,
+    sourceAfter: `0x${uaMemoryRun.record.registers[10].toString(16)}`,
+    destinationAfter: `0x${uaMemoryRun.record.registers[11].toString(16)}`,
+    lowValue: `0x${uaMemoryRun.record.registers[2].toString(16)}`,
+    highValue: `0x${uaMemoryRun.record.registers[3].toString(16)}`
+  },
   alignedLoadIsa: {
     codeSha256: alignedLoadFixture.codeSha256,
     outputHex: Buffer.from(alignedLoadRun.dataOutput).toString("hex"),
@@ -1209,6 +1240,7 @@ assert(
     float64XpIsa: baseline.float64XpIsa,
     accxMemoryIsa: baseline.accxMemoryIsa,
     qaccMemoryIsa: baseline.qaccMemoryIsa,
+    uaMemoryIsa: baseline.uaMemoryIsa,
     alignedLoadIsa: baseline.alignedLoadIsa,
     signedQaccLoadIsa: baseline.signedQaccLoadIsa,
     threadptrIsa: baseline.threadptrIsa,
