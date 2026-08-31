@@ -83,15 +83,17 @@ ready offline. Lane E has not accessed the board and may begin identity-bundle
 validation or JTAG only after the coordinator explicitly transfers ownership
 from lane 0.
 
-Lane 0's first three ESP-IDF 6.1 raw runs reached all 210 measurement-group
-starts, but strict recovery currently gives two receipts for 204 groups, none
-for three contended RTC or reset groups, and one for three groups. Boot 4 is in
-progress. The long-window PSRAM cells appear complete in the raw logs; lane E
-will reuse them only after strict assembly confirms at least two eligible
-boots. Arbitration discrimination and cache store or writeback captures remain
-blocked on reviewed probe code. CCOUNT comparison remains blocked on lane B's
-measured mode. A-01 panel and touch capture still requires the external logic
-analyzer and physical landmark evidence. No lane C request is currently filed.
+Lane 0's four ESP-IDF 6.1 raw runs reached all 210 measurement-group starts.
+Strict recovery gives at least two receipts to 204 groups: 186 have four and
+18 have three. Contended `rtc_xtal_freq` and core1 reset-reason groups have
+none. Contended `rtc_date`, single-core `rtc_date`, contended `rtc_store1`,
+and contended core0 reset-reason groups have one each. The long-window PSRAM
+cells appear complete in the raw logs; lane E will reuse them only after
+strict assembly confirms at least two eligible boots. Arbitration
+discrimination and cache store or writeback captures remain blocked on
+reviewed probe code. CCOUNT comparison remains blocked on lane B's measured
+mode. A-01 panel and touch capture still requires the external logic analyzer
+and physical landmark evidence. No lane C request is currently filed.
 
 ## Integrated checkpoint
 

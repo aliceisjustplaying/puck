@@ -29,14 +29,16 @@ that all metadata says ESP-IDF 6.1, confirm chip revision 2 and 16 MB flash,
 and verify that the raw reset-state file covers the register ranges required
 by A-01. A capacity mismatch or mixed toolchain stops the batch.
 
-The first three lane 0 raw runs reached all 210 measurement-group starts at
-ESP-IDF 6.1, but they are not complete strict cohorts. After recovery through
-boot 3, 204 of 210 groups have two receipts, three contended RTC or reset
-groups have none, and three groups have one. Boot 4 is still in progress. The
-raw logs appear to contain complete `psram_cold_sequential` and
-`psram_cold_random` cells in both `single_core` and `core1_contended` modes,
-but strict receipt assembly must confirm that coverage. Reuse confirmed cells
-and repeat them only if assembly leaves fewer than two eligible boots.
+The four lane 0 raw runs reached all 210 measurement-group starts at ESP-IDF
+6.1, but they are not complete strict cohorts. Recovery gives at least two
+receipts to 204 groups: 186 have four receipts and 18 have three. Contended
+`rtc_xtal_freq` and core1 reset-reason groups have none. Contended `rtc_date`,
+single-core `rtc_date`, contended `rtc_store1`, and contended core0
+reset-reason groups have one each. The raw logs appear to contain complete
+`psram_cold_sequential` and `psram_cold_random` cells in both `single_core`
+and `core1_contended` modes, but strict receipt assembly must confirm that
+coverage. Reuse confirmed cells and repeat them only if assembly leaves fewer
+than two eligible boots.
 
 ## Readiness by work item
 
