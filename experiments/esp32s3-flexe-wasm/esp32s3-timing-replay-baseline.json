@@ -5,9 +5,9 @@
     "stagingElfSha256": "522b33cb491bbc9c8a61a364b3c986c7f1d013bcdf228f79791981f7fcad1491",
     "sdkconfigSha256": "ac1749b0f5b9c54e3e8e5ffc045b37a434d6b289420a8f9cf0f37fe8a3173d9b",
     "timingProfileSha256": "58a8a3662953c5c00dadb3636bff05328829e006fe4ea0726011e7c042ef5d03",
-    "timingMachineSha256": "963a4106588cc0ba36cf3d19d1392363c106daf9812e5e328cf6d499aa92ded0",
+    "timingMachineSha256": "9d48f95da1da91064a99b3a6c771081a47835cd65ed832e45552849eb5a23fd1",
     "mmuSha256": "fe55f294fceb898337299c46d1400e576e65ad7216462b5b4da0b46ecfed9448",
-    "cacheSha256": "785fefde2aaff0b97c497b68dc6da3e5efa337f7b0a443028f3f279a3b756a70"
+    "cacheSha256": "1545e87b17e7efdc908fd8fa6be4fe81a9b7c6876229693824fe5463b323bb00"
   },
   "configuration": {
     "iromMmuEntry": 5,
@@ -44,6 +44,6 @@
     "mspiEvents": 2,
     "totalCycles": null,
     "totalCyclesReason": "CPU, cache-hit, and SRAM latency costs remain unadopted; cache line fills are calibrated",
-    "perRecordSha256": "583e18674aa69a0a7d47f5f084294929c4081d5dab4131ebb661b18e397b0278"
+    "perRecordSha256": "c588bd3610a35d1c20d9ea8f572f29046ae23acaa3f5d9041c143a1eabde8ce3"
   }
 }
