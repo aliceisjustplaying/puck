@@ -25,7 +25,7 @@ interrupts, peripherals, or the whole-machine result.
 | Timing machine | [`machine.ts`](machine.ts) | Composes an explicit two-core architectural interleave, address resolution, cache emissions, DMA, and resource scheduling into stable JSON with cost provenance and unknowns. It is not an instruction decoder or a full chip. |
 | Runtime trace seam | [`runtime-trace.ts`](runtime-trace.ts) | Converts ordered interpreter fetch, load, store, and explicit DMA callbacks into immutable timing-machine input without inventing missing events or costs. |
 | Neutral trace adapter | [`trace-adapter.ts`](trace-adapter.ts) | Converts a bounded, provenance-carrying instruction/read/write trace with explicit cores and total order into the runtime trace seam. Each instruction group gets one local CPU event with caller-owned or explicitly unknown cost. Literal loads and DMA remain explicit extensions. |
-| Runtime replay CLI | [`runtime-report.ts`](runtime-report.ts) | Replays a strict JSON artifact of runtime instruction/read/write callbacks over exact caller-declared SRAM regions. It adopts only the profile's measured issue and independent SRAM costs, retains instruction-fetch costs as unknown, and emits the timing machine's partial claim. |
+| Runtime replay CLI | [`runtime-report.ts`](runtime-report.ts) | Replays a strict JSON artifact of runtime instruction/read/write callbacks over exact caller-declared SRAM regions. It adopts only the profile's measured issue and independent SRAM costs, and emits the timing machine's scoped claim. |
 | Hardware receipt adoption | [`calibration.ts`](calibration.ts) | Strictly parses clean ESP32-S3 hardware receipts, exact 32-bit CCOUNT wraparound samples, metadata, and matching multi-boot cohorts. It emits deterministic candidate statistics only. |
 | Evidence report CLI | [`calibration-report.ts`](calibration-report.ts) | Reads receipt JSON files or flat directories, retains receipt and boot-log hashes, and writes byte-stable candidate JSON with exact integers and rationals as decimal strings. Adoption stays `unreviewed`; cache and ISA calibration are not claimed. |
 | Xtensa WebAssembly experiment | [`../../../experiments/esp32s3-flexe-wasm/`](../../../experiments/esp32s3-flexe-wasm/) | Executes a real TinyDraw RGB565 kernel through Puck's loader with a bounded instruction and data-access trace, then replays it through this timing machine. |
@@ -97,9 +97,10 @@ instruction, read, and write observations. Addresses are canonical lowercase
 hexadecimal strings. The interface intentionally does not describe flash,
 PSRAM, MMIO, DMA, literal loads, store buffers, or pipeline dependencies.
 Those facts are refused as schema drift until the runtime artifact can report
-them exactly. A valid trace still reports internal-SRAM instruction-fetch cost
-as unknown, so it emits no total cycle value and its claim remains partial,
-uncalibrated, and `cycleAccurate: false`.
+them exactly. The profile now supplies zero additive cost for internal-SRAM
+instruction fetch, load, and store, so a trace confined to declared SRAM can
+complete. Completion applies only to those caller-reported events. The claim
+remains partial, architecture-uncalibrated, and `cycleAccurate: false`.
 
 The calibration report accepts receipt files and flat directories. At least
 two distinct boot IDs with matching cohort metadata are required for a

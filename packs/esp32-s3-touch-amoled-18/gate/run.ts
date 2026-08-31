@@ -270,6 +270,7 @@ const timingProfile: Check = {
           "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-bf169bc-counters-candidate.json",
         instructionIssueCycles: 1,
         independentSramAccessAdditiveCycles: {
+          instructionFetch: 0,
           load: 0,
           store: 0,
         },
@@ -306,6 +307,14 @@ const timingProfile: Check = {
           flash: { firstLineCycles: 115, subsequentLineCycles: 473 },
           psram: { firstLineCycles: 82, subsequentLineCycles: 170 },
         },
+      },
+      cacheHitAdditiveCycles: {
+        status: "partially-calibrated",
+        evidence:
+          "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-1ddd64b-4a2c659-hot-hit-adoption.json",
+        instructionFetch: 0,
+        load: 0,
+        store: null,
       },
       panel: {
         interface: "qspi",

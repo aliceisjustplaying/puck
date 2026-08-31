@@ -216,7 +216,12 @@ function replayArtifact(rawBytes: Uint8Array, profile: TimingProfileV1, profileS
       writeThrough: unknown,
       uncached: Object.freeze({ instructionFetch: unknown, load: unknown, store: unknown }),
       sram: Object.freeze({
-        instructionFetch: unknownCost("internal SRAM instruction fetch", profileSource),
+        instructionFetch: knownCost(
+          profile.coreSteadyStateCycles.independentSramAccessAdditiveCycles.instructionFetch,
+          "internal SRAM instruction-fetch additive cost",
+          profile,
+          profileSource,
+        ),
         load: knownCost(
           profile.coreSteadyStateCycles.independentSramAccessAdditiveCycles.load,
           "independent internal SRAM load additive cost",

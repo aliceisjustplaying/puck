@@ -143,7 +143,8 @@ The emulator report emits stable JSON containing the accounted ledger and the
 deterministic schedule. A module without timing exports produces an explicit
 `"timingExports": "absent"` report and exits successfully.
 The runtime replay command accepts the timing lab's strict SRAM-only callback
-artifact and emits the timing machine's partial claim with unknown costs intact.
+artifact and emits a scoped result for caller-reported events. A complete
+scoped result remains architecture-uncalibrated and `cycleAccurate: false`.
 
 ## Layout
 

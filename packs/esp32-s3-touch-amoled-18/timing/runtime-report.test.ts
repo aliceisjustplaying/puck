@@ -7,12 +7,12 @@ import { runRuntimeTimingReport } from "./runtime-report";
 const fixturePath = join(import.meta.dir, "fixtures", "runtime-sram-trace.json");
 
 describe("pack runtime timing report", () => {
-  test("replays bounded runtime callbacks through the timing machine without hiding unknown costs", async () => {
+  test("replays the scoped SRAM fixture to a complete non-cycle-accurate result", async () => {
     const json = await runRuntimeTimingReport(fixturePath);
     expect(await runRuntimeTimingReport(fixturePath)).toBe(json);
     const result = JSON.parse(json);
 
-    expect(result.status).toBe("blocked");
+    expect(result.status).toBe("complete");
     expect(result.claim).toMatchObject({
       architectureCalibration: "uncalibrated",
       coverage: "caller-reported-events-only",
@@ -27,14 +27,26 @@ describe("pack runtime timing report", () => {
     });
     expect(result.provenance.digest.value).toMatch(/^[0-9a-f]{64}$/);
     expect(result.issuedEvents).toHaveLength(6);
-    expect(result.claim.unknownCostEventIds).toEqual([
-      "cache:runtime:fetch:0:segment:0:cache:0:sram-bypass",
-      "cache:runtime:fetch:1:segment:0:cache:0:sram-bypass",
-    ]);
+    expect(result.claim.costCalibration).toBe("calibrated");
+    expect(result.claim.unknownCostEventIds).toEqual([]);
     expect(result.claim.directUncalibratedEventIds).toEqual([]);
-    expect(result.execution.status).toBe("blocked");
+    expect(result.execution.status).toBe("complete");
+    expect(result.execution.finalClocks.cores[0]).toEqual({
+      status: "known",
+      cycle: "2",
+      calibration: "calibrated",
+    });
     expect(result.issuedEvents.filter((event: { cost: { status: string } }) => event.cost.status === "known"))
-      .toHaveLength(4);
+      .toHaveLength(6);
+    expect(result.issuedEvents.filter((event: { event: { kind: string } }) =>
+      event.event.kind === "instruction-fetch"
+    ).map((event: { cost: { cycles: string; source: string } }) => ({
+      cycles: event.cost.cycles,
+      source: event.cost.source.includes("internal SRAM instruction-fetch additive cost"),
+    }))).toEqual([
+      { cycles: "0", source: true },
+      { cycles: "0", source: true },
+    ]);
   });
 
   test("rejects schema drift before constructing a replay", async () => {
@@ -58,7 +70,7 @@ describe("pack runtime timing report", () => {
       artifact.observations[1].address = "0x3fcc0000";
       writeFileSync(path, `${JSON.stringify(artifact)}\n`);
       const result = JSON.parse(await runRuntimeTimingReport(path));
-      expect(result.status).toBe("faulted-and-blocked");
+      expect(result.status).toBe("faulted");
       expect(result.cores[0].accesses[1].fault).toMatchObject({
         kind: "unmapped",
         atAddress: "1070333952",
