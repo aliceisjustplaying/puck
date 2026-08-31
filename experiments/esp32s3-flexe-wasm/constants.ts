@@ -54,9 +54,13 @@ export const PUCK_WASI_LITE_IMPORTS = ["clock_time_get", "fd_write", "proc_exit"
 export const EXPECTED_FREESTANDING_IMPORTS = ["env.js_log"] as const;
 export const EXPECTED_FREESTANDING_EXPORTS = [
   "flexe_wasm_elf_begin",
+  "flexe_wasm_elf_configure_rom",
   "flexe_wasm_elf_load_page",
   "flexe_wasm_elf_page_capacity",
   "flexe_wasm_elf_page_input",
+  "flexe_wasm_elf_rom_event_capacity",
+  "flexe_wasm_elf_rom_event_count",
+  "flexe_wasm_elf_rom_events",
   "flexe_wasm_elf_set_unsupported",
   "flexe_wasm_elf_trace",
   "flexe_wasm_elf_trace_capacity",

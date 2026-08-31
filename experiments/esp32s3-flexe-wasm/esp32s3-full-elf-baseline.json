@@ -6,9 +6,9 @@
     "entryPoint": "0x40375c9c",
     "loadSegments": 8,
     "sparsePages": 625,
-    "runnerPatchSha256": "1d93a1f1e03f0fdd8190510d2f7386ae5d8ed87740f58278f7ede6675fc35508",
-    "moduleBytes": 42210,
-    "moduleSha256": "99ae868419a6c6868bd5ecb6f93a0abd39c1664f33b9ae17d234ce7cbb96ced2"
+    "runnerPatchSha256": "7c9149045bca11c75b5068c58646b8547e01e68d0dccd178ed2f5f7260022c97",
+    "moduleBytes": 43901,
+    "moduleSha256": "46f7e2e0a927b4f78732be4ea6aded00d324c9986a375af08f5b930e6cefac66"
   },
   "bounded": {
     "reason": "maxSteps",
@@ -34,6 +34,26 @@
       "0x00000000", "0x00000000", "0x00000000", "0x00000000",
       "0x80375cad", "0x00000000", "0x00000000", "0x00000000",
       "0x00000000", "0x00000000", "0x00000000", "0x00000000"
+    ]
+  },
+  "romProgress": {
+    "resetReasons": [1, 1],
+    "reason": "unloadedPage",
+    "steps": 57,
+    "pc": "0x4000186c",
+    "traceSha256": "1b9775de8f100224f6a90d9d453d60383df9692b3ac9e9b8eca74da33ddeeee3",
+    "stackPointer": "0x3fcaff40",
+    "registers": [
+      "0x80375c68", "0x3fcaff40", "0x00000001", "0x00000002",
+      "0x00000000", "0x00000000", "0x00000000", "0x00000000",
+      "0x80382ae6", "0x00000000", "0x00000000", "0x00000000",
+      "0x00000000", "0x00000000", "0x00000000", "0x00000000"
+    ],
+    "events": [
+      { "kind": "resetReason", "pc": "0x4000057c", "core": 0, "result": 1 },
+      { "kind": "resetReason", "pc": "0x4000057c", "core": 1, "result": 1 },
+      { "kind": "memset", "pc": "0x400011e8", "destination": "0x3fcabe60", "value": 0, "length": 21216 },
+      { "kind": "memset", "pc": "0x400011e8", "destination": "0x50000000", "value": 0, "length": 0 }
     ]
   },
   "unsupportedRefusal": {

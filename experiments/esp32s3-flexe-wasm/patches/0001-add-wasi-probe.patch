@@ -102,7 +102,7 @@ new file mode 100644
 index 0000000..0c17432
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,632 @@
+@@ -0,0 +1,772 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -126,6 +126,13 @@ index 0000000..0c17432
 +#define ELF_PAGE_CAPACITY 768u
 +#define ELF_TRACE_CAPACITY 256u
 +#define ELF_UNSUPPORTED_CAPACITY 2048u
++#define ELF_ROM_EVENT_CAPACITY 64u
++#define ELF_ROM_EVENT_WORDS 5u
++#define ELF_ROM_MEMSET_MAX_BYTES 65536u
++#define ESP32S3_ROM_RESET_REASON 0x4000057cu
++#define ESP32S3_ROM_MEMSET 0x400011e8u
++#define ELF_ROM_EVENT_RESET_REASON 1u
++#define ELF_ROM_EVENT_MEMSET 2u
 +#define NO_UNSUPPORTED_OFFSET UINT32_MAX
 +#define INITIAL_STACK 0x3fcaffc0u
 +#define INITIAL_SOURCE 0x3fca1000u
@@ -147,6 +154,7 @@ index 0000000..0c17432
 +    PROBE_STOP_UNMAPPED_ACCESS = 9,
 +    PROBE_STOP_UNLOADED_PAGE = 10,
 +    PROBE_STOP_NON_EXECUTABLE_PAGE = 11,
++    PROBE_STOP_ROM_REFUSED = 12,
 +};
 +
 +enum probe_trace_kind {
@@ -240,6 +248,12 @@ index 0000000..0c17432
 +static struct unsupported_entry elf_unsupported[ELF_UNSUPPORTED_CAPACITY];
 +static uint32_t elf_unsupported_count;
 +static struct unsupported_marker elf_unsupported_hit;
++static uint32_t elf_rom_events[ELF_ROM_EVENT_CAPACITY][ELF_ROM_EVENT_WORDS];
++static uint32_t elf_rom_event_count;
++static uint32_t elf_rom_reset_reasons[2];
++static int elf_rom_reset_reason_enabled;
++static int elf_rom_memset_enabled;
++static int elf_rom_refused;
 +static struct probe_stop_record result;
 +static struct probe_trace_buffer trace_buffer;
 +static struct probe_step_transaction step_transaction;
@@ -381,6 +395,86 @@ index 0000000..0c17432
 +    return low < elf_page_count && elf_page_addresses[low] == page ? (int)low : -1;
 +}
 +
++static uint32_t elf_rom_arg(xtensa_cpu_t *target_cpu, int argument) {
++    int callinc = XT_PS_CALLINC(target_cpu->ps);
++    int reg = callinc * 4 + 2 + argument;
++    if (reg < 16) return ar_read(target_cpu, reg);
++    return mem_read32(target_cpu->mem, ar_read(target_cpu, 1) + (uint32_t)(reg - 16) * 4u);
++}
++
++static void elf_rom_return(xtensa_cpu_t *target_cpu, uint32_t value) {
++    int callinc = XT_PS_CALLINC(target_cpu->ps);
++    if (callinc > 0) {
++        ar_write(target_cpu, callinc * 4 + 2, value);
++        target_cpu->pc = 0x40000000u | (ar_read(target_cpu, callinc * 4) & 0x3fffffffu);
++        XT_PS_SET_CALLINC(target_cpu->ps, 0);
++    } else {
++        ar_write(target_cpu, 2, value);
++        target_cpu->pc = 0x40000000u | (ar_read(target_cpu, 0) & 0x3fffffffu);
++    }
++}
++
++static int elf_rom_record(uint32_t kind, uint32_t pc, uint32_t arg0,
++                          uint32_t arg1, uint32_t arg2) {
++    if (elf_rom_event_count >= ELF_ROM_EVENT_CAPACITY) return 0;
++    uint32_t *event = elf_rom_events[elf_rom_event_count++];
++    event[0] = kind;
++    event[1] = pc;
++    event[2] = arg0;
++    event[3] = arg1;
++    event[4] = arg2;
++    return 1;
++}
++
++static int elf_rom_pc_hook(xtensa_cpu_t *target_cpu, uint32_t pc, void *unused_context) {
++    (void)unused_context;
++    if (pc == ESP32S3_ROM_RESET_REASON && elf_rom_reset_reason_enabled) {
++        uint32_t core = elf_rom_arg(target_cpu, 0);
++        if (core > 1u || !elf_rom_record(ELF_ROM_EVENT_RESET_REASON, pc, core,
++                                        elf_rom_reset_reasons[core <= 1u ? core : 0u], 0)) {
++            elf_rom_refused = 1;
++            return 1;
++        }
++        elf_rom_return(target_cpu, elf_rom_reset_reasons[core]);
++        return 1;
++    }
++    if (pc == ESP32S3_ROM_MEMSET && elf_rom_memset_enabled) {
++        uint32_t destination = elf_rom_arg(target_cpu, 0);
++        uint32_t value = elf_rom_arg(target_cpu, 1) & 0xffu;
++        uint32_t length = elf_rom_arg(target_cpu, 2);
++        if (length > ELF_ROM_MEMSET_MAX_BYTES || destination + length < destination) {
++            elf_rom_refused = 1;
++            return 1;
++        }
++        for (uint32_t offset = 0; offset < length;) {
++            uint32_t address = destination + offset;
++            int page = elf_page_index(address);
++            if (page < 0 || (elf_page_flags[page] & 2u) == 0) {
++                elf_rom_refused = 1;
++                return 1;
++            }
++            uint32_t chunk = PAGE_BYTES - (address & (PAGE_BYTES - 1u));
++            if (chunk > length - offset) chunk = length - offset;
++            offset += chunk;
++        }
++        if (!elf_rom_record(ELF_ROM_EVENT_MEMSET, pc, destination, value, length)) {
++            elf_rom_refused = 1;
++            return 1;
++        }
++        for (uint32_t offset = 0; offset < length;) {
++            uint32_t address = destination + offset;
++            uint32_t chunk = PAGE_BYTES - (address & (PAGE_BYTES - 1u));
++            if (chunk > length - offset) chunk = length - offset;
++            memset(mem->page_table[address >> 12] + (address & (PAGE_BYTES - 1u)),
++                   (int)value, chunk);
++            offset += chunk;
++        }
++        elf_rom_return(target_cpu, destination);
++        return 1;
++    }
++    return 0;
++}
++
 +FLEXE_EXPORT("flexe_wasm_input")
 +uint32_t flexe_wasm_input(void) {
 +    return (uint32_t)(uintptr_t)input;
@@ -457,6 +551,33 @@ index 0000000..0c17432
 +    return ELF_UNSUPPORTED_CAPACITY;
 +}
 +
++FLEXE_EXPORT("flexe_wasm_elf_rom_events")
++uint32_t flexe_wasm_elf_rom_events(void) {
++    return (uint32_t)(uintptr_t)elf_rom_events;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_rom_event_count")
++uint32_t flexe_wasm_elf_rom_event_count(void) {
++    return elf_rom_event_count;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_rom_event_capacity")
++uint32_t flexe_wasm_elf_rom_event_capacity(void) {
++    return ELF_ROM_EVENT_CAPACITY;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_configure_rom")
++uint32_t flexe_wasm_elf_configure_rom(uint32_t reset_reason_core0,
++                                       uint32_t reset_reason_core1,
++                                       uint32_t enable_memset) {
++    if (!mem || enable_memset > 1u) return 0;
++    elf_rom_reset_reasons[0] = reset_reason_core0;
++    elf_rom_reset_reasons[1] = reset_reason_core1;
++    elf_rom_reset_reason_enabled = 1;
++    elf_rom_memset_enabled = (int)enable_memset;
++    return 1;
++}
++
 +FLEXE_EXPORT("flexe_wasm_elf_begin")
 +uint32_t flexe_wasm_elf_begin(void) {
 +    if (!mem) mem = mem_create();
@@ -466,6 +587,10 @@ index 0000000..0c17432
 +    elf_page_count = 0;
 +    elf_trace_count = 0;
 +    elf_unsupported_count = 0;
++    elf_rom_event_count = 0;
++    elf_rom_reset_reason_enabled = 0;
++    elf_rom_memset_enabled = 0;
++    elf_rom_refused = 0;
 +    memset(&elf_unsupported_hit, 0, sizeof(elf_unsupported_hit));
 +    return 1;
 +}
@@ -638,6 +763,8 @@ index 0000000..0c17432
 +    memset(&cpu, 0, sizeof(cpu));
 +    memset(&elf_unsupported_hit, 0, sizeof(elf_unsupported_hit));
 +    elf_trace_count = 0;
++    elf_rom_event_count = 0;
++    elf_rom_refused = 0;
 +    result.abi_version = RESULT_ABI_VERSION;
 +    result.struct_bytes = (uint32_t)sizeof(result);
 +    result.start_pc = entry;
@@ -666,6 +793,10 @@ index 0000000..0c17432
 +    cpu.windowstart = 1;
 +    cpu.window_callsize[0] = WINDOW_CALLINC;
 +    ar_write(&cpu, 1, INITIAL_STACK);
++    if (elf_rom_reset_reason_enabled || elf_rom_memset_enabled) {
++        cpu.pc_hook = elf_rom_pc_hook;
++        cpu.pc_hook_ctx = NULL;
++    }
 +    if (elf_unsupported_count > 0) {
 +        cpu.instruction_hook = stop_elf_unsupported;
 +        cpu.instruction_hook_ctx = NULL;
@@ -674,25 +805,34 @@ index 0000000..0c17432
 +    uint32_t steps = 0;
 +    uint32_t reason = PROBE_STOP_MAX_STEPS;
 +    while (steps < max_steps) {
-+        int page = elf_page_index(cpu.pc);
-+        if (page < 0 || mem->page_table[cpu.pc >> 12] == NULL) {
-+            reason = PROBE_STOP_UNLOADED_PAGE;
-+            break;
-+        }
-+        if ((elf_page_flags[page] & 1u) == 0) {
-+            reason = PROBE_STOP_NON_EXECUTABLE_PAGE;
-+            break;
-+        }
-+        uint8_t first = mem->page_table[cpu.pc >> 12][cpu.pc & (PAGE_BYTES - 1u)];
-+        uint32_t instruction_length = (first & 8u) != 0 ? 2u : 3u;
-+        if ((cpu.pc & (PAGE_BYTES - 1u)) + instruction_length > PAGE_BYTES &&
-+            elf_page_index(cpu.pc + instruction_length - 1u) < 0) {
-+            reason = PROBE_STOP_UNLOADED_PAGE;
-+            break;
++        int configured_rom =
++            (cpu.pc == ESP32S3_ROM_RESET_REASON && elf_rom_reset_reason_enabled) ||
++            (cpu.pc == ESP32S3_ROM_MEMSET && elf_rom_memset_enabled);
++        if (!configured_rom) {
++            int page = elf_page_index(cpu.pc);
++            if (page < 0 || mem->page_table[cpu.pc >> 12] == NULL) {
++                reason = PROBE_STOP_UNLOADED_PAGE;
++                break;
++            }
++            if ((elf_page_flags[page] & 1u) == 0) {
++                reason = PROBE_STOP_NON_EXECUTABLE_PAGE;
++                break;
++            }
++            uint8_t first = mem->page_table[cpu.pc >> 12][cpu.pc & (PAGE_BYTES - 1u)];
++            uint32_t instruction_length = (first & 8u) != 0 ? 2u : 3u;
++            if ((cpu.pc & (PAGE_BYTES - 1u)) + instruction_length > PAGE_BYTES &&
++                elf_page_index(cpu.pc + instruction_length - 1u) < 0) {
++                reason = PROBE_STOP_UNLOADED_PAGE;
++                break;
++            }
 +        }
 +
 +        uint32_t executed_pc = cpu.pc;
 +        int step_result = xtensa_step(&cpu);
++        if (elf_rom_refused) {
++            reason = PROBE_STOP_ROM_REFUSED;
++            break;
++        }
 +        if (elf_unsupported_hit.hit) {
 +            reason = PROBE_STOP_UNSUPPORTED;
 +            break;
