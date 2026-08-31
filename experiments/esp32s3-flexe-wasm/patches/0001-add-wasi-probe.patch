@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..8550176
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,884 @@
+@@ -0,0 +1,906 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -464,7 +464,6 @@ index 0000000..8550176
 +        else high = middle;
 +    }
 +    if (low >= elf_unsupported_count || elf_unsupported[low].pc != pc) return 0;
-+    if (elf_unsupported[low].encoding != insn) return 0;
 +    elf_unsupported_hit.hit = 1;
 +    elf_unsupported_hit.observed_pc = pc;
 +    elf_unsupported_hit.observed_encoding = insn;
@@ -761,6 +760,26 @@ index 0000000..8550176
 +    return 1;
 +}
 +
++static int elf_bound_instruction_encoding(uint32_t pc, uint32_t *encoding) {
++    int page = elf_page_index(pc);
++    if (page < 0 || mem->page_table[pc >> 12] == NULL ||
++        (elf_page_flags[page] & 1u) == 0) return 0;
++    uint8_t first = mem->page_table[pc >> 12][pc & (PAGE_BYTES - 1u)];
++    uint32_t length = (first & 8u) != 0 ? 2u : 3u;
++    if (pc > UINT32_MAX - (length - 1u)) return 0;
++    uint32_t value = 0;
++    for (uint32_t offset = 0; offset < length; offset++) {
++        uint32_t address = pc + offset;
++        int current_page = elf_page_index(address);
++        if (current_page < 0 || mem->page_table[address >> 12] == NULL ||
++            (elf_page_flags[current_page] & 1u) == 0) return 0;
++        value |= (uint32_t)mem->page_table[address >> 12]
++                     [address & (PAGE_BYTES - 1u)] << (offset * 8u);
++    }
++    *encoding = value;
++    return 1;
++}
++
 +FLEXE_EXPORT("flexe_wasm_elf_set_unsupported")
 +uint32_t flexe_wasm_elf_set_unsupported(uint32_t count) {
 +    if (!mem) return 0;
@@ -768,6 +787,9 @@ index 0000000..8550176
 +    for (uint32_t i = 0; i < count; i++) {
 +        if (elf_unsupported[i].encoding > 0xffffffu) return 3;
 +        if (i > 0 && elf_unsupported[i - 1u].pc >= elf_unsupported[i].pc) return 4;
++        uint32_t loaded_encoding = 0;
++        if (!elf_bound_instruction_encoding(elf_unsupported[i].pc, &loaded_encoding) ||
++            elf_unsupported[i].encoding != loaded_encoding) return 5;
 +    }
 +    elf_unsupported_count = count;
 +    return 1;

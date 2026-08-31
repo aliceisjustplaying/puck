@@ -4,6 +4,7 @@ import { readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { DEFAULT_TINYDRAW_ESP32S3_FULL_ELF } from "./constants";
 import { parseXtensaElf32, type Elf32LoadSegment, type Elf32XtensaImage } from "./elf-image";
+import { ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY } from "./esp32s3-full-elf-unsupported";
 import { FULL_ELF_STOP_REASONS, buildSparseElfPages, runSparseXtensaElf } from "./full-elf-runner";
 
 const modulePath = resolve(
@@ -180,6 +181,41 @@ await assertPermissionRefusal(permissionCode.write8, 1, true);
 await assertPermissionRefusal(permissionCode.write16, 2, true);
 await assertPermissionRefusal(permissionCode.write32, 4, true);
 
+const collidingEeInventoryPc = 0x4037_5399;
+assert.deepEqual(
+  ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY.markers.find(([pc]) => pc === collidingEeInventoryPc),
+  [collidingEeInventoryPc, 0x003f],
+  "ee.vmulas.u16.qacc.ld.ip.qup collision left the tracked gap inventory",
+);
+const collidingEeEntry = 0x4037_3000;
+const collidingEeImage: Elf32XtensaImage = Object.freeze({
+  schemaVersion: 1,
+  entryPoint: collidingEeEntry,
+  elfBytes: 4,
+  elfSha256: "synthetic-colliding-ee-vmulas",
+  loadSegments: Object.freeze([
+    syntheticSegment(0, collidingEeEntry, [0x3f, 0x00, 0x00, 0x5f], 4, {
+      read: true,
+      write: false,
+      execute: true,
+    }),
+    syntheticSegment(1, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
+  ]),
+  totalFileBytes: 4,
+  totalMemoryBytes: 0x1004,
+});
+const collidingEeRun = await runSparseXtensaElf(moduleBytes, collidingEeImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 1,
+  unsupported: [{ pc: collidingEeEntry, encoding: 0x003f }],
+});
+assert.equal(collidingEeRun.record.reason, FULL_ELF_STOP_REASONS.unsupported);
+assert.equal(collidingEeRun.record.steps, 0);
+assert.equal(collidingEeRun.record.unsupportedPc, collidingEeEntry);
+assert.equal(collidingEeRun.record.unsupportedEncoding, 0x003f);
+assert.equal(collidingEeRun.record.unsupportedLength, 2);
+assert.deepEqual(collidingEeRun.trace, []);
+
 assert.equal(image.entryPoint, 0x4037_5c9c);
 assert.equal(image.elfSha256, "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5");
 assert.equal(pages.length, 625);
@@ -255,13 +291,14 @@ assert.equal(refusedInstruction.record.unsupportedPc, image.entryPoint);
 assert.equal(refusedInstruction.record.unsupportedEncoding, 0x00_8136);
 assert.equal(refusedInstruction.record.unsupportedLength, 3);
 assert.deepEqual(refusedInstruction.trace, []);
-const mismatchedMarker = await runSparseXtensaElf(moduleBytes, image, {
-  ...runnerMemory,
-  maxSteps: 64,
-  unsupported: [{ pc: image.entryPoint, encoding: 0 }],
-});
-assert.equal(mismatchedMarker.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
-assert.equal(mismatchedMarker.record.steps, 6);
+await assert.rejects(
+  runSparseXtensaElf(moduleBytes, image, {
+    ...runnerMemory,
+    maxSteps: 64,
+    unsupported: [{ pc: image.entryPoint, encoding: 0 }],
+  }),
+  /refused unsupported markers with status 5/,
+);
 
 const unloadedEntry = await runSparseXtensaElf(moduleBytes, { ...image, entryPoint: 0x4000_057c }, { ...runnerMemory, maxSteps: 1 });
 assert.equal(unloadedEntry.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
