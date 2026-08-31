@@ -401,6 +401,37 @@ assert(
   `QR ISA fixture output changed: ${Buffer.from(qrIsaRun.dataOutput).toString("hex")}`
 );
 
+const qrScalarFixture = conformanceFixture("esp32s3_qr_scalar_lane_writes", [
+  0x28, 0x0a,
+  0x38, 0x1a,
+  0x48, 0x2a,
+  0x58, 0x3a,
+  0xa4, 0x7f, 0xfd,
+  0x54, 0x3e, 0xfd,
+  0x24, 0x32, 0xfd,
+  0x44, 0x3a, 0xfd,
+  0x34, 0x36, 0xfd,
+  0xb4, 0x00, 0xba
+]);
+const qrScalarInput = Uint8Array.from({ length: 16 }, (_, index) => (index * 17 + 1) & 0xff);
+const qrScalarRun = await runFresh(moduleBytes, qrScalarFixture, { data: qrScalarInput, maxSteps: 10 });
+assert(qrScalarRun.record.reason === STOP_REASONS.maxSteps, `QR scalar fixture stopped with ${qrScalarRun.record.reasonName}`);
+assert(qrScalarRun.record.steps === 10, `QR scalar fixture executed ${qrScalarRun.record.steps} instructions`);
+assert(
+  qrScalarRun.dataOutput.every((byte, index) => byte === qrScalarInput[index]),
+  `QR scalar fixture output changed: ${Buffer.from(qrScalarRun.dataOutput).toString("hex")}`
+);
+
+const unsupportedQrNeighborFixture = conformanceFixture("esp32s3_unsupported_zero_qacc", [0x44, 0x08, 0x25]);
+const unsupportedQrNeighborRun = await runFresh(moduleBytes, unsupportedQrNeighborFixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0x250844 }
+});
+assert(unsupportedQrNeighborRun.record.reason === STOP_REASONS.unsupported, "adjacent QACC zero did not fail closed");
+assert(unsupportedQrNeighborRun.record.steps === 0, "adjacent QACC zero was counted as executed");
+assert(unsupportedQrNeighborRun.trace.count === 0, "adjacent QACC zero leaked a trace record");
+assert(unsupportedQrNeighborRun.dataOutput.length === 0, "adjacent QACC zero exposed data output");
+
 const qrXpFixture = conformanceFixture("esp32s3_qr_register_postincrement_load", [
   0x3b, 0xaa,
   0xa4, 0xac, 0xbd,
@@ -1028,6 +1059,15 @@ const actualBaseline = {
     reason: qrIsaRun.record.reasonName,
     steps: qrIsaRun.record.steps
   },
+  qrScalarIsa: {
+    codeSha256: qrScalarFixture.codeSha256,
+    outputHex: Buffer.from(qrScalarRun.dataOutput).toString("hex"),
+    reason: qrScalarRun.record.reasonName,
+    steps: qrScalarRun.record.steps,
+    unsupportedCodeSha256: unsupportedQrNeighborFixture.codeSha256,
+    unsupportedReason: unsupportedQrNeighborRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedQrNeighborRun.record.unsupportedEncoding.toString(16)}`
+  },
   qrXpIsa: {
     codeSha256: qrXpFixture.codeSha256,
     outputHex: Buffer.from(qrXpRun.dataOutput).toString("hex"),
@@ -1235,6 +1275,7 @@ assert(
     scalar: baseline.scalar,
     scalarIsa: baseline.scalarIsa,
     qrIsa: baseline.qrIsa,
+    qrScalarIsa: baseline.qrScalarIsa,
     qrXpIsa: baseline.qrXpIsa,
     halfQrIsa: baseline.halfQrIsa,
     float64XpIsa: baseline.float64XpIsa,

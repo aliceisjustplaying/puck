@@ -199,7 +199,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2165,251 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2165,264 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -315,6 +315,19 @@ index 67dca18..e72666d 100644
 +            mem_write32(cpu->mem, address + 4, float_to_bits(cpu->fr[high_float_register]));
 +        }
 +        ar_write(cpu, base_register, base + increment);
++        return 1;
++    }
++
++    if ((insn & 0xcf7fffu) == 0xcd7fa4u) {
++        unsigned q = esp32s3_qr(insn);
++        memset(cpu->qr[q], 0, 16);
++        return 1;
++    }
++    if ((insn & 0xcf730fu) == 0xcd3204u) {
++        unsigned q = esp32s3_qr(insn);
++        uint32_t value = ar_read(cpu, XT_T(insn));
++        unsigned selector = (insn >> 10) & 3u;
++        memcpy(cpu->qr[q] + selector * 4, &value, 4);
 +        return 1;
 +    }
 +
@@ -451,7 +464,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2649,8 @@ have_insn:
+@@ -2319,6 +2662,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -460,7 +473,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +2677,16 @@ have_insn:
+@@ -2345,14 +2690,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -481,7 +494,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +2700,8 @@ have_insn:
+@@ -2366,6 +2713,8 @@ have_insn:
          }
      }
 

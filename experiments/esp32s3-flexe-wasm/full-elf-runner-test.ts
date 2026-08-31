@@ -500,6 +500,41 @@ assert.deepEqual(
   "adjacent unsigned QACC load changed full-ELF registers",
 );
 
+const unsupportedQrNeighborEntry = 0x4037_2300;
+const unsupportedQrNeighborImage: Elf32XtensaImage = Object.freeze({
+  schemaVersion: 1,
+  entryPoint: unsupportedQrNeighborEntry,
+  elfBytes: 3,
+  elfSha256: "synthetic-unsupported-ee-zero-qacc",
+  loadSegments: Object.freeze([
+    syntheticSegment(0, unsupportedQrNeighborEntry, [0x44, 0x08, 0x25], 3, {
+      read: true,
+      write: false,
+      execute: true,
+    }),
+    syntheticSegment(1, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
+  ]),
+  totalFileBytes: 3,
+  totalMemoryBytes: 0x1003,
+});
+const unsupportedQrNeighborRun = await runSparseXtensaElf(moduleBytes, unsupportedQrNeighborImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 1,
+  unsupported: [{ pc: unsupportedQrNeighborEntry, encoding: 0x250844 }],
+});
+assert.equal(unsupportedQrNeighborRun.record.reason, FULL_ELF_STOP_REASONS.unsupported);
+assert.equal(unsupportedQrNeighborRun.record.steps, 0);
+assert.equal(unsupportedQrNeighborRun.record.unsupportedPc, unsupportedQrNeighborEntry);
+assert.equal(unsupportedQrNeighborRun.record.unsupportedEncoding, 0x250844);
+assert.equal(unsupportedQrNeighborRun.record.unsupportedLength, 3);
+assert.deepEqual(unsupportedQrNeighborRun.trace, []);
+assert.deepEqual(unsupportedQrNeighborRun.memoryTrace.records, []);
+assert.deepEqual(
+  unsupportedQrNeighborRun.record.registers,
+  [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "adjacent QACC zero changed full-ELF registers",
+);
+
 const cacheMmioProbeEntry = 0x4037_5c3b;
 const cacheMmioProbeImage: Elf32XtensaImage = Object.freeze({
   schemaVersion: 1,
