@@ -16,6 +16,7 @@ describe("ESP32-S3 direct-boot interrupt-level restore", () => {
       restorePs: ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS,
       regi2cCalibrationStarted: true,
       bbpllModeWritten: false,
+      bbpllReferenceDividerWritten: false,
     });
     expect(restored).toEqual({
       handled: true,
@@ -33,6 +34,7 @@ describe("ESP32-S3 direct-boot interrupt-level restore", () => {
       restorePs: ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS,
       regi2cCalibrationStarted: true,
       bbpllModeWritten: false,
+      bbpllReferenceDividerWritten: false,
     } as const;
     for (const invalid of [
       { ...access, pc: 0x4000_1c34 },
@@ -74,5 +76,18 @@ describe("ESP32-S3 direct-boot interrupt-level restore", () => {
     });
     if (fourth.status !== "accepted") throw new Error("fourth intlevel restore refused");
     expect(restoreEsp32S3DirectBootIntlevel(fourth.state, thirdAccess).status).toBe("refused");
+    const fifthAccess = {
+      ...secondAccess,
+      bbpllReferenceDividerWritten: true,
+    };
+    const fifth = restoreEsp32S3DirectBootIntlevel(fourth.state, fifthAccess);
+    expect(fifth).toEqual({
+      handled: true,
+      status: "accepted",
+      returnValue: ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS,
+      state: { intlevel: 3, restoreCount: 5, lastPc: ESP32S3_ROM_SET_INTLEVEL },
+    });
+    if (fifth.status !== "accepted") throw new Error("fifth intlevel restore refused");
+    expect(restoreEsp32S3DirectBootIntlevel(fifth.state, fifthAccess).status).toBe("refused");
   });
 });

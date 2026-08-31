@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..55a269c
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1911 @@
+@@ -0,0 +1,1914 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -1383,15 +1383,18 @@ index 0000000..55a269c
 +        uint32_t restore_ps = elf_rom_arg(target_cpu, 0);
 +        uint32_t previous_ps = target_cpu->ps & ~(3u << 16);
 +        uint32_t restore_count = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_INTLEVEL_RESTORE);
-+        uint32_t expected_restore_ps = restore_count == 1u
++        uint32_t bbpll_writes = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_BBPLL_ROM_WRITE);
++        uint32_t expected_bbpll_writes = restore_count == 0u ? 0u : (restore_count < 4u ? 1u : 2u);
++        uint32_t expected_restore_ps = restore_count == 1u || restore_count == 4u
 +                                           ? ESP32S3_DIRECT_BOOT_INTLEVEL_PRESERVE_PS
 +                                           : ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS;
-+        if (callinc != 2u || restore_count >= 4u || restore_ps != expected_restore_ps ||
++        if (callinc != 2u || restore_count >= 5u || restore_ps != expected_restore_ps ||
 +            previous_ps != ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS ||
 +            XT_PS_INTLEVEL(target_cpu->ps) != 3u ||
 +            elf_regi2c_mmio_event_count(ELF_ROM_EVENT_REGI2C_MMIO_READ) != 2u ||
 +            elf_regi2c_mmio_event_count(ELF_ROM_EVENT_REGI2C_MMIO_WRITE) != 2u ||
-+            (restore_count > 0u && !elf_bbpll_rom_event_accepted()) ||
++            bbpll_writes != expected_bbpll_writes ||
++            (bbpll_writes > 0u && !elf_bbpll_rom_event_accepted()) ||
 +            !elf_rom_record(ELF_ROM_EVENT_INTLEVEL_RESTORE, pc, restore_ps,
 +                            previous_ps, callinc)) {
 +            elf_rom_refused = 1;
