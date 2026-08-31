@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AddressMapConfiguration, AddressRegion } from "../../packs/esp32-s3-touch-amoled-18/timing/address-map";
+import type { AddressRegion } from "../../packs/esp32-s3-touch-amoled-18/timing/address-map";
 import {
   ESP32_S3_CACHE_BANK_TOPOLOGY,
   type CacheConfiguration,
@@ -14,6 +14,16 @@ import {
   type RomCallbackProfileCost,
 } from "../../packs/esp32-s3-touch-amoled-18/timing/consumer";
 import { runRuntimeTimingTrace } from "../../packs/esp32-s3-touch-amoled-18/timing/runtime-trace";
+import {
+  ESP32_S3_EXTERNAL_WINDOWS,
+  ESP32_S3_IDF_V6_0_2_MMU_METADATA,
+  ESP32_S3_MMU_ENTRY_COUNT,
+  ESP32_S3_MMU_PAGE_SIZE_BYTES,
+  Esp32S3ExternalMmu,
+  adaptExternalMmuSnapshotToAddressMap,
+  type ExternalMmuAddressMapConfiguration,
+  type ExternalMmuEntryConfiguration,
+} from "../../packs/esp32-s3-touch-amoled-18/timing/mmu";
 import { DEFAULT_TINYDRAW_ESP32S3_FULL_ELF } from "./constants";
 import { parseXtensaElf32 } from "./elf-image";
 import {
@@ -47,6 +57,7 @@ const EXPECTED_SRAM_PAGES = Object.freeze([
   0x4038_2000,
 ]);
 const EXPECTED_FLASH_PAGES = Object.freeze([0x4200_0000, 0x4200_3000]);
+const FULL_ELF_REPLAY_FLASH_PHYSICAL_PAGE = 0;
 
 function unknownCost(component: string, source: string): CacheLatency {
   return Object.freeze({
@@ -155,6 +166,8 @@ const modulePath = join(here, "dist/flexe-probe-freestanding.wasm");
 const baselinePath = join(here, "esp32s3-full-elf-timing-replay-baseline.json");
 const timingProfilePath = join(here, "../../packs/esp32-s3-touch-amoled-18/timing.json");
 const timingMachinePath = join(here, "../../packs/esp32-s3-touch-amoled-18/timing/machine.ts");
+const mmuPath = join(here, "../../packs/esp32-s3-touch-amoled-18/timing/mmu.ts");
+const cachePath = join(here, "../../packs/esp32-s3-touch-amoled-18/timing/cache.ts");
 const neutralAdapterPath = join(here, "../../packs/esp32-s3-touch-amoled-18/timing/trace-adapter.ts");
 const adapterPath = join(here, "trace-timing-adapter.ts");
 const loadUseClassifierPath = join(here, "flexe-load-use.ts");
@@ -194,7 +207,69 @@ assert.deepEqual(
     .sort((left, right) => left - right),
 );
 
-const addressRegions: AddressRegion[] = tracePages.map((address) => {
+const observedExternalEntries = [...new Set(EXPECTED_FLASH_PAGES.map((address) =>
+  Number((BigInt(address) - ESP32_S3_EXTERNAL_WINDOWS.irom.low) / ESP32_S3_MMU_PAGE_SIZE_BYTES)
+))];
+assert.deepEqual(observedExternalEntries, [0]);
+const mmuEntries: ExternalMmuEntryConfiguration[] = Array.from(
+  { length: ESP32_S3_MMU_ENTRY_COUNT },
+  (_, index) => ({ index, state: "invalid" as const }),
+);
+mmuEntries[observedExternalEntries[0]!] = {
+  index: observedExternalEntries[0]!,
+  state: "mapped",
+  target: "flash",
+  physicalPage: FULL_ELF_REPLAY_FLASH_PHYSICAL_PAGE,
+};
+const mmu = new Esp32S3ExternalMmu({
+  metadata: ESP32_S3_IDF_V6_0_2_MMU_METADATA,
+  entries: mmuEntries,
+});
+const mmuSnapshot = mmu.snapshot();
+const externalMap = adaptExternalMmuSnapshotToAddressMap(mmuSnapshot);
+const externalMmuProjection = {
+  pageSizeBytes: mmuSnapshot.pageSizeBytes.toString(),
+  mappedEntries: mmuSnapshot.entries.filter((entry) => entry.state === "mapped").map((entry) => ({
+    index: entry.index,
+    target: entry.target,
+    physicalPage: entry.physicalPage,
+    rawValue: entry.rawValue,
+  })),
+  regions: externalMap.regions.map((region) => ({
+    id: region.id,
+    base: `0x${region.base.toString(16)}`,
+    size: `0x${region.size.toString(16)}`,
+    kind: region.kind,
+    backingId: region.physical.backingId,
+    physicalOffset: `0x${region.physical.offset.toString(16)}`,
+  })),
+};
+assert.deepEqual(externalMmuProjection, {
+  pageSizeBytes: "65536",
+  mappedEntries: [{ index: 0, target: "flash", physicalPage: 0, rawValue: 0 }],
+  regions: [
+    {
+      id: "mmu:drom:0:flash",
+      base: "0x3c000000",
+      size: "0x10000",
+      kind: "flash",
+      backingId: "esp32-s3-mspi-flash",
+      physicalOffset: "0x0",
+    },
+    {
+      id: "mmu:irom:0:flash",
+      base: "0x42000000",
+      size: "0x10000",
+      kind: "flash",
+      backingId: "esp32-s3-mspi-flash",
+      physicalOffset: "0x0",
+    },
+  ],
+});
+
+const addressRegions: AddressRegion[] = tracePages.filter(
+  (address) => !EXPECTED_FLASH_PAGES.includes(address),
+).map((address) => {
   if (address === RTC_MMIO_PAGE || address === REGI2C_MMIO_PAGE ||
       address === SYSTEM_MMIO_PAGE || address === CACHE_MMIO_PAGE) {
     const rtc = address === RTC_MMIO_PAGE;
@@ -228,20 +303,6 @@ const addressRegions: AddressRegion[] = tracePages.map((address) => {
   }
   const page = sparsePageByAddress.get(address) ?? inheritedPageByAddress.get(address);
   assert(page !== undefined, `observed page 0x${address.toString(16)} was not loaded by the full ELF runner`);
-  if (EXPECTED_FLASH_PAGES.includes(address)) {
-    return Object.freeze({
-      id: `full-elf:flash-page:${address.toString(16)}`,
-      base: BigInt(address),
-      size: BigInt(PAGE_BYTES),
-      kind: "flash",
-      permissions: pageFlags(page),
-      cacheability: "cached",
-      physical: Object.freeze({
-        backingId: "full-elf:irom-flash",
-        offset: BigInt(address - EXPECTED_FLASH_PAGES[0]!),
-      }),
-    });
-  }
   assert(EXPECTED_SRAM_PAGES.includes(address), `observed page 0x${address.toString(16)} lacks an SRAM classification`);
   return Object.freeze({
     id: `full-elf:sram-page:${address.toString(16)}`,
@@ -253,13 +314,20 @@ const addressRegions: AddressRegion[] = tracePages.map((address) => {
     physical: Object.freeze({ backingId: `full-elf-loaded-page:${address.toString(16)}`, offset: 0n }),
   });
 });
-const addressMap: AddressMapConfiguration = Object.freeze({
+const addressMap: ExternalMmuAddressMapConfiguration = Object.freeze({
   addressBits: 32,
   metadata: Object.freeze({
     architectureCalibration: "uncalibrated",
-    source: "full ELF trace observed pages, PT_LOAD permissions, inherited stack range, and explicit controller ROM models",
+    source:
+      `${externalMap.metadata.source}; full ELF replay input explicitly maps IROM entry 0 to flash physical page 0; ` +
+      "this is an uncalibrated replay mapping, not an observed hardware MMU snapshot; observed SRAM pages use PT_LOAD " +
+      "or inherited permissions and controller pages use explicit ROM models",
   }),
-  regions: Object.freeze(addressRegions),
+  regions: Object.freeze([...externalMap.regions, ...addressRegions].sort((left, right) => {
+    if (left.base !== right.base) return left.base < right.base ? -1 : 1;
+    return left.id.localeCompare(right.id);
+  })),
+  mmuClaim: externalMap.mmuClaim,
 });
 
 const timingProfile = parseTimingProfile(JSON.parse(readFileSync(timingProfilePath, "utf8")));
@@ -438,10 +506,45 @@ const machine = runRuntimeTimingTrace({
   },
 }, runtimeTrace);
 assert.equal(machine.status, "blocked");
+assert.equal(machine.claim.coverage, "caller-reported-events-only");
+assert.equal(machine.claim.architectureCalibration, "uncalibrated");
+assert.equal(machine.claim.costCalibration, "unknown");
+assert.equal(machine.claim.cycleAccurate, false);
+assert.equal(machine.claim.countsOnlyInstrumentedEvents, true);
+assert.equal(machine.claim.hostTraceTimeIsSimulatedTime, false);
 assert.equal(machine.cores[0].status, "complete");
 assert.equal(machine.cores[0].accesses.length, 1_105);
 assert(machine.cores[0].accesses.every((access) => access.status === "resolved"));
 assert.equal(machine.cores[1].accesses.length, 0);
+const tracedExternalAccesses = runtimeTrace.input.cores[0].filter((access) =>
+  access.address >= ESP32_S3_EXTERNAL_WINDOWS.irom.low &&
+  access.address < ESP32_S3_EXTERNAL_WINDOWS.irom.high
+);
+const externalResolutionProjection = machine.cores[0].accesses.flatMap((access) =>
+  access.status !== "resolved"
+    ? []
+    : access.resolution.segments.filter((segment) => segment.regionId === "mmu:irom:0:flash").map((segment) => ({
+        accessId: access.access.id,
+        accessKind: access.access.kind,
+        virtualAddress: segment.virtualAddress,
+        bytes: segment.bytes,
+        regionId: segment.regionId,
+        physicalBackingId: segment.physicalBackingId,
+        physicalOffset: segment.physicalOffset,
+      }))
+);
+assert.equal(externalResolutionProjection.length, tracedExternalAccesses.length);
+assert(externalResolutionProjection.length > 0);
+assert(externalResolutionProjection.every((segment) =>
+  segment.physicalBackingId === "esp32-s3-mspi-flash" &&
+  segment.physicalOffset === segment.virtualAddress - ESP32_S3_EXTERNAL_WINDOWS.irom.low
+));
+assert.deepEqual(
+  [...new Set(externalResolutionProjection.map((segment) =>
+    Number(segment.virtualAddress & ~BigInt(PAGE_BYTES - 1))
+  ))].sort((left, right) => left - right),
+  EXPECTED_FLASH_PAGES,
+);
 assert.equal(runtimeTrace.input.cpu?.length, 941);
 assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "cache").length, 1_054);
 assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "mmio").length, 54);
@@ -474,6 +577,20 @@ assert.equal(machine.issuedEvents.length, 2049);
 assert.equal(exactMmioEvents.length, 40);
 assert.equal(machine.claim.unknownCostEventIds.length, 32);
 assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 2017);
+const unknownIssuedEvents = machine.issuedEvents.filter((event) => event.cost.status === "unknown");
+assert.deepEqual(machine.claim.unknownCostEventIds, unknownIssuedEvents.map((event) => event.event.id));
+assert.deepEqual(
+  unknownIssuedEvents.reduce((counts, event) => {
+    counts[event.origin.kind] = (counts[event.origin.kind] ?? 0) + 1;
+    return counts;
+  }, {} as Record<string, number>),
+  { mmio: 14, cpu: 18 },
+);
+assert(unknownIssuedEvents.every((event) => event.cost.source !== null));
+const unknownMmioEvents = unknownIssuedEvents.filter((event) => event.origin.kind === "mmio");
+const unknownCpuEvents = unknownIssuedEvents.filter((event) => event.origin.kind === "cpu");
+assert(unknownMmioEvents.every((event) => event.cost.source === costSource));
+assert(unknownCpuEvents.every((event) => event.event.id.includes(":rom-callback:")));
 assert(machine.issuedEvents.every((event) => !event.cost.source?.includes(here)),
   "full ELF timing evidence source leaked an absolute worktree path");
 assert([...instructionCpuEvents, ...loadUseHazards].every((event) =>
@@ -532,17 +649,20 @@ const mmioAccessBreakdown = [...mmioBreakdownByKey.values()].sort((left, right) 
 );
 assert.equal(mmioAccessBreakdown.reduce((sum, entry) => sum + entry.count, 0), 54);
 const flashLineFills = machine.issuedEvents.filter((event) =>
-  event.origin.kind === "cache" && event.origin.regionId.startsWith("full-elf:flash-page:") &&
+  event.origin.kind === "cache" && event.origin.regionId === "mmu:irom:0:flash" &&
   event.event.id.endsWith(":line-fill")
 );
 const flashHits = machine.issuedEvents.filter((event) =>
-  event.origin.kind === "cache" && event.origin.regionId.startsWith("full-elf:flash-page:") &&
+  event.origin.kind === "cache" && event.origin.regionId === "mmu:irom:0:flash" &&
   event.event.id.endsWith(":hit")
 );
 assert.equal(flashLineFills.length, 3);
 assert(flashLineFills.every((event) => event.cost.status === "known" && event.cost.cycles === 204n));
 assert.equal(flashHits.length, 6);
 assert(flashHits.every((event) => event.cost.status === "known" && event.cost.cycles === 0n));
+const executionByEventId = new Map(machine.execution.events.map((event) => [event.eventId, event]));
+assert(flashLineFills.every((event) => executionByEventId.get(event.event.id)?.resource === "mspi"));
+assert(flashHits.every((event) => executionByEventId.get(event.event.id)?.resource === null));
 assert.equal(cacheEvents.filter((event) => event.cost.status === "known" && event.cost.cycles === 0n).length, 1_051);
 
 const issuedProjection = machine.issuedEvents.map((issued) => ({
@@ -579,6 +699,8 @@ const actualBaseline = {
     traceRecordSha256: FULL_TRACE_RECORD_SHA256,
     timingProfileSha256: sha256(timingProfilePath),
     timingMachineSha256: sha256(timingMachinePath),
+    mmuSha256: sha256(mmuPath),
+    cacheSha256: sha256(cachePath),
     neutralAdapterSha256: sha256(neutralAdapterPath),
     adapterSha256: sha256(adapterPath),
     loadUseClassifierSha256: sha256(loadUseClassifierPath),
@@ -593,6 +715,7 @@ const actualBaseline = {
     observedFlashPages: EXPECTED_FLASH_PAGES.map((address) => `0x${address.toString(16)}`),
     observedMmioPages: [RTC_MMIO_PAGE, REGI2C_MMIO_PAGE, SYSTEM_MMIO_PAGE, CACHE_MMIO_PAGE]
       .map((address) => `0x${address.toString(16)}`),
+    externalMmu: externalMmuProjection,
   },
   replay: {
     status: machine.status,

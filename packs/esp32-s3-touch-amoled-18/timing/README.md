@@ -29,7 +29,7 @@ whole-machine result.
 | Runtime replay CLI | [`runtime-report.ts`](runtime-report.ts) | Replays a strict JSON artifact of runtime instruction/read/write callbacks over exact caller-declared SRAM regions. It adopts only the profile's measured issue and independent SRAM costs, and emits the timing machine's scoped claim. |
 | Hardware receipt adoption | [`calibration.ts`](calibration.ts) | Strictly parses clean ESP32-S3 hardware receipts, exact 32-bit CCOUNT wraparound samples, metadata, and matching multi-boot cohorts. It emits deterministic candidate statistics only. |
 | Evidence report CLI | [`calibration-report.ts`](calibration-report.ts) | Reads receipt JSON files or flat directories, retains receipt and boot-log hashes, and writes byte-stable candidate JSON with exact integers and rationals as decimal strings. Adoption stays `unreviewed`; cache and ISA calibration are not claimed. |
-| Xtensa WebAssembly experiment | [`../../../experiments/esp32s3-flexe-wasm/`](../../../experiments/esp32s3-flexe-wasm/) | Executes a real TinyDraw RGB565 kernel through Puck's loader with a bounded instruction and data-access trace, then replays it through this timing machine. |
+| Xtensa WebAssembly experiment | [`../../../experiments/esp32s3-flexe-wasm/`](../../../experiments/esp32s3-flexe-wasm/) | Executes real TinyDraw instruction and data-access traces, including a bounded full-ELF boot trace routed through an explicit ESP32-S3 MMU snapshot, cache state, and shared MSPI scheduling. |
 
 The neutral adapter's optional `cpuCost` is an additive local-core duration
 after that instruction's fetch and data group. Its caller must exclude memory
@@ -206,7 +206,10 @@ PC `0x40001c38`, saved PS `0x00040c00`, previous PS `0x00040c03`, and CALLINC2.
 - The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 837 real
   instructions. Its current timing replay emits 2,049 events and adopts exact
   costs for 2,017, including 40 matched MMIO accesses and nine exact ROM
-  callbacks. The remaining 14 MMIO costs and 18 ROM callback durations block a total. It does not provide the complete
+  callbacks. Its observed IROM accesses route through one explicit replay MMU
+  entry into flash cache and MSPI events. That mapping is not an observed
+  hardware MMU snapshot. The remaining 14 MMIO costs and 18 ROM callback
+  durations block a total. It does not provide the complete
   ESP32-S3 data map, interrupt matrix,
   peripherals, ESP-IDF boot, or real dual-core execution.
 - Cache-store hits, dependent load-use modeling, dirty writeback, DMA ordering,

@@ -498,8 +498,12 @@ cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
 same neutral adapter and `TimingMachine` used by the RGB565 replay. Its address
-map contains only the twelve SRAM pages, two flash pages, and four controller
-MMIO pages observed in the trace, with their ELF or inherited permissions.
+map contains the twelve SRAM pages and four controller MMIO pages observed in
+the trace, plus one explicit 512-entry ESP32-S3 MMU snapshot. Entry 0 maps the
+observed IROM window to replay flash physical page 0, matching the earlier
+direct physical offsets. This replay input is not claimed as an observed
+hardware MMU snapshot. The two observed flash pages then resolve through the
+MMU-derived address map into the instruction cache and shared MSPI scheduler.
 Those twelve exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
@@ -509,8 +513,8 @@ dependent load-use events, plus 27 configured ROM callback boundaries. The
 replay adopts nine exact not-taken `beqz` paths, 40 exact MMIO accesses, and
 nine exact ROM callback events. Exactly 2,017 events have adopted costs; 14
 controller MMIO costs and 18 ROM callback durations remain unknown, so no total
-cycle claim is made. The baseline pins exact branch, MMIO, load-use, and
-callback evidence projections.
+cycle claim is made. The baseline pins the explicit MMU mapping plus exact
+issue-order, branch, MMIO, load-use, and callback evidence projections.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
 page count, bounded trace, unsupported-instruction refusal, and first stop,

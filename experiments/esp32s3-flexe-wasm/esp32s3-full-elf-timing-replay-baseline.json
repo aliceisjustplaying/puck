@@ -6,6 +6,8 @@
     "traceRecordSha256": "4fb70bf4056d01acb004a4683cb668e687ccf574752f561166f4ab7a6a24553c",
     "timingProfileSha256": "31a83ab4fe2253ef7ff5a0bcc944aa5c9ca38f90eef485f48f8f725fd790402a",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
+    "mmuSha256": "fe55f294fceb898337299c46d1400e576e65ad7216462b5b4da0b46ecfed9448",
+    "cacheSha256": "1545e87b17e7efdc908fd8fa6be4fe81a9b7c6876229693824fe5463b323bb00",
     "neutralAdapterSha256": "187ad825414c070dc160fc682311bbf9d69d1af47d67ca7ee4097239a7c69f94",
     "adapterSha256": "977d80cb6f04ef8e87c58ac0e591b00f004ec36e51fd3f9eed53d3b711133fcb",
     "loadUseClassifierSha256": "02c61b0f81aad04221a52b3cc2b84b466daac6c6e8430e1b12457e3184c14b77",
@@ -31,7 +33,31 @@
       "0x40382000"
     ],
     "observedFlashPages": ["0x42000000", "0x42003000"],
-    "observedMmioPages": ["0x60008000", "0x6000e000", "0x600c0000", "0x600c4000"]
+    "observedMmioPages": ["0x60008000", "0x6000e000", "0x600c0000", "0x600c4000"],
+    "externalMmu": {
+      "pageSizeBytes": "65536",
+      "mappedEntries": [
+        { "index": 0, "target": "flash", "physicalPage": 0, "rawValue": 0 }
+      ],
+      "regions": [
+        {
+          "id": "mmu:drom:0:flash",
+          "base": "0x3c000000",
+          "size": "0x10000",
+          "kind": "flash",
+          "backingId": "esp32-s3-mspi-flash",
+          "physicalOffset": "0x0"
+        },
+        {
+          "id": "mmu:irom:0:flash",
+          "base": "0x42000000",
+          "size": "0x10000",
+          "kind": "flash",
+          "backingId": "esp32-s3-mspi-flash",
+          "physicalOffset": "0x0"
+        }
+      ]
+    }
   },
   "replay": {
     "status": "blocked",
