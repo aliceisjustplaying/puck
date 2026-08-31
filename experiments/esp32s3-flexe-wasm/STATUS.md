@@ -64,6 +64,16 @@ real-ROM loading; ISA lane adds a silicon-oracle fixture corpus (the board
 is the referee, one owner at a time); timing lane implements decision
 0008's tiers.
 
+## Lane A handoff
+
+The exact-board capture request
+[`A-01`](../../docs/lanes/requests/A-01-v2-controller-and-identity.md) is
+specified and executable. Its identity capture is accepted for the current
+lane 0 device window. A logic-analyzer capture that resolves the approximately
+40 MHz QSPI bus, TE, I2C, and touch interrupt remains required before panel or
+touch controller modeling begins. The synchronous GP-SPI board-response hook
+is an unmerged, upstream-shaped esp32sim candidate at commit `246c699`.
+
 ## Integrated checkpoint
 
 - Baseline commit: `c1b91b23` (QACC, ROM/REGI2C, and browser runner integrated).
