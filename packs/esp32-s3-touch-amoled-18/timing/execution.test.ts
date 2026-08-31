@@ -21,6 +21,32 @@ function coreLoad(
   return { id, kind: "load", core, memory, bytes: 4, latency };
 }
 
+function bufferedStore(
+  id: string,
+  core: 0 | 1,
+  latency: EventLatency,
+  retirementLatency: EventLatency = known(1n),
+  memory: "sram" | "psram" | "flash" = "psram",
+): ExecutionEvent {
+  return {
+    id,
+    kind: "store",
+    core,
+    memory,
+    bytes: 4,
+    latency,
+    storeBuffer: { retirementLatency },
+  };
+}
+
+function cpu(id: string, core: 0 | 1, cycles: bigint): ExecutionEvent {
+  return { id, kind: "cpu", core, instructionAccessId: `${id}:instruction`, latency: known(cycles) };
+}
+
+function fence(id: string, core: 0 | 1, cycles: bigint = 2n): ExecutionEvent {
+  return { id, kind: "fence", core, operation: "memw", latency: known(cycles) };
+}
+
 function dma(
   id: string,
   channel: string,
@@ -190,6 +216,95 @@ describe("resource arbitration", () => {
   });
 });
 
+describe("one-entry store buffers", () => {
+  test("retires an opted-in store while preserving legacy blocking stores", () => {
+    const legacy = scheduleExecution([
+      { id: "write", kind: "store", core: 0, memory: "psram", bytes: 4, latency: known(10n) },
+      cpu("cpu-after", 0, 3n),
+    ]);
+    expect(projection(legacy.events)).toEqual([
+      "0:write:completed:0-10:mspi",
+      "1:cpu-after:completed:10-13:local",
+    ]);
+    expect(legacy.finalClocks.storeBuffers).toBeUndefined();
+
+    const buffered = scheduleExecution([
+      bufferedStore("write", 0, known(10n)),
+      cpu("cpu-after", 0, 3n),
+    ]);
+    expect(projection(buffered.events)).toEqual([
+      "0:write:completed:0-1:local",
+      "1:cpu-after:completed:1-4:local",
+      "2:write:drain:completed:1-11:mspi",
+    ]);
+    expect(buffered.events[2]?.actor).toEqual({ kind: "store-buffer", core: 0 });
+    expect(buffered.finalClocks.storeBuffers?.[0]).toEqual({
+      status: "known",
+      cycle: 11n,
+      calibration: "calibrated",
+    });
+  });
+
+  test("holds a memw fence until the prior store drains", () => {
+    const result = scheduleExecution([
+      bufferedStore("write", 0, known(10n)),
+      fence("fence", 0),
+    ]);
+    expect(projection(result.events)).toEqual([
+      "0:write:completed:0-1:local",
+      "1:write:drain:completed:1-11:mspi",
+      "2:fence:completed:11-13:local",
+    ]);
+  });
+
+  test("blocks a second same-core store while the one entry is full", () => {
+    const result = scheduleExecution([
+      bufferedStore("first", 0, known(10n)),
+      bufferedStore("second", 0, known(4n)),
+    ]);
+    expect(projection(result.events)).toEqual([
+      "0:first:completed:0-1:local",
+      "1:first:drain:completed:1-11:mspi",
+      "2:second:completed:11-12:local",
+      "3:second:drain:completed:12-16:mspi",
+    ]);
+  });
+
+  test("gives each core an independent buffer", () => {
+    const result = scheduleExecution([
+      bufferedStore("core0", 0, known(10n)),
+      bufferedStore("core1", 1, known(5n)),
+    ]);
+    expect(projection(result.events)).toEqual([
+      "0:core0:completed:0-1:local",
+      "1:core1:completed:0-1:local",
+      "2:core0:drain:completed:1-11:mspi",
+      "3:core1:drain:completed:11-16:mspi",
+    ]);
+  });
+
+  test("keeps an unknown drain explicit while independent CPU work progresses", () => {
+    const result = scheduleExecution([
+      bufferedStore("write", 0, { status: "unknown", reason: "no store drain receipt" }),
+      cpu("cpu-after", 0, 3n),
+      fence("fence", 0),
+    ]);
+    expect(projection(result.events)).toEqual([
+      "0:write:completed:0-1:local",
+      "1:cpu-after:completed:1-4:local",
+      "2:write:drain:started-unknown-duration:1-?:mspi",
+      "3:fence:blocked:?-?:local",
+    ]);
+    expect(result.finalClocks.storeBuffers?.[0]).toEqual({
+      status: "blocked",
+      atCycle: 1n,
+      blockedBy: "write:drain",
+      reason: "no store drain receipt",
+    });
+    expect(result.calibration.unknownEventIds).toEqual(["write:drain", "fence"]);
+  });
+});
+
 describe("unknown latency blocking", () => {
   test("blocks its core and shared MSPI without stopping independent SRAM on the other core", () => {
     const result = scheduleExecution([
@@ -260,6 +375,7 @@ describe("typed event surface", () => {
       { id: "cache", kind: "cache-op", core: 1, operation: "invalidate", backing: "flash", latency: known(1n) },
       { id: "mmio", kind: "mmio", core: 1, peripheral: "gpio", operation: "read", bytes: 4, latency: known(1n) },
       { id: "cpu", kind: "cpu", core: 1, instructionAccessId: "fetch", latency: known(1n) },
+      { id: "fence", kind: "fence", core: 1, operation: "memw", latency: known(1n) },
       dma("dma", "panel", 0n, "psram", known(1n)),
     ];
     expect(events.map((event) => [event.kind, eventUsesMspi(event)])).toEqual([
@@ -270,6 +386,7 @@ describe("typed event surface", () => {
       ["cache-op", true],
       ["mmio", false],
       ["cpu", false],
+      ["fence", false],
       ["dma", true],
     ]);
     const expectedKinds: Array<ExecutionEvent["kind"]> = [
@@ -280,6 +397,7 @@ describe("typed event surface", () => {
       "cache-op",
       "mmio",
       "cpu",
+      "fence",
       "dma",
     ];
     expect(scheduleExecution(events).events.map((event) => event.kind).sort()).toEqual(expectedKinds.sort());

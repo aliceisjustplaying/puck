@@ -34,6 +34,17 @@ work already modeled by those events. Omission becomes an explicit unknown
 cost; the adapter does not decode an instruction or choose a fallback cycle
 count.
 
+## Store buffer boundary
+
+An execution `store` remains blocking by default. A caller can opt it into the
+one-entry buffer for its core by supplying `storeBuffer.retirementLatency`.
+That explicit latency retires the store locally, while the store's ordinary
+`latency` drains the entry through its normal SRAM or shared MSPI resource.
+Independent work on the same core may proceed after retirement. A later
+store and an explicit `memw` fence wait for the entry to drain. The fence also
+carries a caller-supplied latency, and unknown retirement, drain, or fence costs
+remain unknown.
+
 ## Line-fill burst boundary
 
 `costs.lineFill` still accepts one known or unknown scalar cost, and still
