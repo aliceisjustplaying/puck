@@ -10,6 +10,10 @@ export const ESP32S3_ROM_CACHE_CALLBACKS = Object.freeze({
   enableData: 0x4000_1890,
 });
 
+export const ESP32S3_ROM_CACHE_MODE_CALLBACKS = Object.freeze({
+  configureInstruction: 0x4000_1a1c,
+});
+
 export const ESP32S3_CACHE_REGISTER_ADDRESSES = Object.freeze({
   dataControl1: 0x600c_4004,
   dataAutoloadControl: 0x600c_404c,
@@ -26,6 +30,12 @@ export const ESP32S3_DIRECT_APP_CACHE_REGISTERS = Object.freeze({
   cacheState: 0x0010_01,
 });
 
+export const ESP32S3_DIRECT_APP_INSTRUCTION_CACHE_MODE = Object.freeze({
+  sizeBytes: 0x4000,
+  ways: 8,
+  lineBytes: 32,
+});
+
 const CACHE_IDLE_STATE = 0x0010_01;
 const AUTOLOAD_ENABLE = 1 << 2;
 const CORE0_INSTRUCTION_SHUT = 1 << 0;
@@ -37,7 +47,8 @@ export type Esp32S3RomCacheOperation =
   | "disable-instruction"
   | "disable-data"
   | "enable-instruction"
-  | "enable-data";
+  | "enable-data"
+  | "configure-instruction";
 
 export interface Esp32S3RomCacheCall {
   readonly pc: number;
@@ -91,6 +102,13 @@ export interface Esp32S3DirectAppCacheBootstrapState {
   readonly sequenceIndex: number;
   readonly complete: boolean;
   readonly registers: Esp32S3DirectAppCacheRegisters;
+  readonly instructionMode: Esp32S3InstructionCacheMode | null;
+}
+
+export interface Esp32S3InstructionCacheMode {
+  readonly sizeBytes: number;
+  readonly ways: number;
+  readonly lineBytes: number;
 }
 
 export interface Esp32S3RomCacheInvocation {
@@ -118,11 +136,13 @@ export type Esp32S3RomCacheDispatch =
 function freezeState(
   sequenceIndex: number,
   registers: Esp32S3DirectAppCacheRegisters,
+  instructionMode: Esp32S3InstructionCacheMode | null = null,
 ): Esp32S3DirectAppCacheBootstrapState {
   return Object.freeze({
     sequenceIndex,
     complete: sequenceIndex === ESP32S3_DIRECT_APP_CACHE_BOOTSTRAP_SEQUENCE.length,
     registers: Object.freeze({ ...registers }),
+    instructionMode: instructionMode ? Object.freeze({ ...instructionMode }) : null,
   });
 }
 
@@ -204,6 +224,40 @@ export function advanceEsp32S3DirectAppCacheBootstrap(
     status: "accepted",
     operation: expected.operation,
     returnValue,
-    state: freezeState(state.sequenceIndex + 1, registers),
+    state: freezeState(state.sequenceIndex + 1, registers, state.instructionMode),
+  });
+}
+
+function directAppCacheRegistersMatch(registers: Esp32S3DirectAppCacheRegisters): boolean {
+  return Object.entries(ESP32S3_DIRECT_APP_CACHE_REGISTERS).every(
+    ([name, value]) => registers[name as keyof Esp32S3DirectAppCacheRegisters] === value,
+  );
+}
+
+export function configureEsp32S3DirectAppInstructionCache(
+  state: Esp32S3DirectAppCacheBootstrapState,
+  invocation: Esp32S3RomCacheInvocation,
+): Esp32S3RomCacheDispatch {
+  if (invocation.pc !== ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureInstruction) {
+    return Object.freeze({ handled: false });
+  }
+  if (invocation.callinc !== ESP32S3_ROM_CACHE_CALLINC) {
+    return refuse(state, `cache callback CALLINC must be ${ESP32S3_ROM_CACHE_CALLINC}`);
+  }
+  if (!state.complete) return refuse(state, "instruction cache mode requires completed cache bootstrap");
+  if (state.instructionMode) return refuse(state, "instruction cache mode is already configured");
+  if (!directAppCacheRegistersMatch(state.registers)) {
+    return refuse(state, "instruction cache mode requires direct app cache register state");
+  }
+  const expected = Object.values(ESP32S3_DIRECT_APP_INSTRUCTION_CACHE_MODE);
+  if (!sameArguments(invocation.arguments, expected)) {
+    return refuse(state, `unexpected instruction cache mode arguments: expected ${expected.join(",")}`);
+  }
+  return Object.freeze({
+    handled: true,
+    status: "accepted",
+    operation: "configure-instruction",
+    returnValue: null,
+    state: freezeState(state.sequenceIndex, state.registers, ESP32S3_DIRECT_APP_INSTRUCTION_CACHE_MODE),
   });
 }

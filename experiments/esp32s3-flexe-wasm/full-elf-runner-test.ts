@@ -460,8 +460,8 @@ const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true },
 });
 assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
-assert.equal(cacheProgress.record.steps, 195);
-assert.equal(cacheProgress.record.pc, 0x4000_1a1c);
+assert.equal(cacheProgress.record.steps, 199);
+assert.equal(cacheProgress.record.pc, 0x4000_18b4);
 assert.deepEqual(cacheProgress.cacheBootstrap, {
   sequenceIndex: 6,
   complete: true,
@@ -472,6 +472,11 @@ assert.deepEqual(cacheProgress.cacheBootstrap, {
     instructionAutoloadControl: 8,
     cacheState: 0x0010_01,
   },
+  instructionMode: {
+    sizeBytes: 0x4000,
+    ways: 8,
+    lineBytes: 32,
+  },
 });
 const cacheEvents = cacheProgress.romEvents.filter((event) => event.kind === "cache");
 assert.deepEqual(cacheEvents, [
@@ -481,6 +486,9 @@ assert.deepEqual(cacheEvents, [
   { kind: "cache", pc: 0x4000_1890, sequenceIndex: 3, argument: 0, returnValue: null },
   { kind: "cache", pc: 0x4000_1878, sequenceIndex: 4, argument: 0, returnValue: null },
   { kind: "cache", pc: 0x4000_1890, sequenceIndex: 5, argument: 0, returnValue: null },
+]);
+assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "cacheMode"), [
+  { kind: "cacheMode", pc: 0x4000_1a1c, sizeBytes: 0x4000, ways: 8, lineBytes: 32 },
 ]);
 assert.deepEqual(
   cacheProgress.trace.filter((pc) => cacheEvents.some((event) => event.pc === pc)),
@@ -540,6 +548,15 @@ const baselineRomEvent = (event: FullElfRomEvent) => {
       destination: hex(event.destination),
       value: event.value,
       length: event.length,
+    };
+  }
+  if (event.kind === "cacheMode") {
+    return {
+      kind: event.kind,
+      pc: hex(event.pc),
+      sizeBytes: event.sizeBytes,
+      ways: event.ways,
+      lineBytes: event.lineBytes,
     };
   }
   return {

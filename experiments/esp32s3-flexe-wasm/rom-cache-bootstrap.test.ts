@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   ESP32S3_DIRECT_APP_CACHE_BOOTSTRAP_SEQUENCE,
   ESP32S3_DIRECT_APP_CACHE_REGISTERS,
+  ESP32S3_DIRECT_APP_INSTRUCTION_CACHE_MODE,
   ESP32S3_CACHE_REGISTER_ADDRESSES,
   ESP32S3_ROM_CACHE_CALLBACKS,
   ESP32S3_ROM_CACHE_CALLINC,
+  ESP32S3_ROM_CACHE_MODE_CALLBACKS,
   advanceEsp32S3DirectAppCacheBootstrap,
+  configureEsp32S3DirectAppInstructionCache,
   createEsp32S3DirectAppCacheBootstrap,
   type Esp32S3DirectAppCacheBootstrapState,
 } from "./rom-cache-bootstrap";
@@ -167,5 +170,63 @@ describe("ESP32-S3 direct app cache bootstrap", () => {
       expect(result.state).toBe(busy);
       expect(result.status === "refused" ? result.reason : "").toContain("not idle");
     }
+  });
+
+  test("pins the instruction cache mode ROM contract", () => {
+    expect(ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureInstruction).toBe(0x4000_1a1c);
+    expect(ESP32S3_DIRECT_APP_INSTRUCTION_CACHE_MODE).toEqual({
+      sizeBytes: 0x4000,
+      ways: 8,
+      lineBytes: 32,
+    });
+  });
+
+  test("configures instruction cache geometry only after bootstrap completes", () => {
+    let state = createEsp32S3DirectAppCacheBootstrap();
+    for (const call of ESP32S3_DIRECT_APP_CACHE_BOOTSTRAP_SEQUENCE) {
+      state = accepted(state, call.pc, call.arguments).state;
+    }
+    const configured = configureEsp32S3DirectAppInstructionCache(state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureInstruction,
+      callinc: ESP32S3_ROM_CACHE_CALLINC,
+      arguments: [0x4000, 8, 32],
+    });
+    expect(configured.handled).toBe(true);
+    expect(configured.status).toBe("accepted");
+    if (configured.handled && configured.status === "accepted") {
+      expect(configured.returnValue).toBeNull();
+      expect(configured.state.instructionMode).toEqual(ESP32S3_DIRECT_APP_INSTRUCTION_CACHE_MODE);
+      expect(configured.state.registers).toEqual(ESP32S3_DIRECT_APP_CACHE_REGISTERS);
+    }
+  });
+
+  test("refuses early, repeated, or malformed instruction cache mode calls", () => {
+    const initial = createEsp32S3DirectAppCacheBootstrap();
+    const invocation = {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureInstruction,
+      callinc: ESP32S3_ROM_CACHE_CALLINC,
+      arguments: [0x4000, 8, 32],
+    } as const;
+    expect(configureEsp32S3DirectAppInstructionCache(initial, invocation).status).toBe("refused");
+
+    let complete = initial;
+    for (const call of ESP32S3_DIRECT_APP_CACHE_BOOTSTRAP_SEQUENCE) {
+      complete = accepted(complete, call.pc, call.arguments).state;
+    }
+    for (const malformed of [
+      { ...invocation, callinc: 1 },
+      { ...invocation, arguments: [0x8000, 8, 32] },
+      { ...invocation, arguments: [0x4000, 4, 32] },
+      { ...invocation, arguments: [0x4000, 8, 64] },
+    ]) {
+      const refused = configureEsp32S3DirectAppInstructionCache(complete, malformed);
+      expect(refused.handled).toBe(true);
+      expect(refused.status).toBe("refused");
+      if (refused.handled) expect(refused.state).toBe(complete);
+    }
+
+    const configured = configureEsp32S3DirectAppInstructionCache(complete, invocation);
+    if (!configured.handled || configured.status !== "accepted") throw new Error("mode was refused");
+    expect(configureEsp32S3DirectAppInstructionCache(configured.state, invocation).status).toBe("refused");
   });
 });
