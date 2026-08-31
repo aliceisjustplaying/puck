@@ -5,6 +5,7 @@ export const ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC = 0x4037_71a5;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_READ_PC = 0x4037_7275;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_WRITE_PC = 0x4037_727d;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_READ_PC = 0x4037_7294;
+export const ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_WRITE_PC = 0x4037_72a5;
 export const ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC = 0x4037_71d6;
 export const ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC = 0x4037_71ff;
 
@@ -84,16 +85,21 @@ export function writeEsp32S3DirectBootSystemMmio(
   if (access.address !== ESP32S3_SYSTEM_SYSCLK_CONF_REG || access.width !== 4 || !access.isWrite) {
     return refuse(state, "only the observed aligned SYSTEM_SYSCLK_CONF write is declared");
   }
-  if (access.pc !== ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_WRITE_PC ||
-      access.value !== state.sysclkConf || !access.rtcMmioComplete || !access.cpuTicksConfigured ||
-      state.readCount !== 3 || state.cpuPerReadCount !== 4 || state.writeCount !== 0) {
+  if (state.writeCount >= 2) return refuse(state, "SYSTEM_SYSCLK_CONF direct-boot writes already occurred");
+  const expectedPc = state.writeCount === 0
+    ? ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_WRITE_PC
+    : ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_WRITE_PC;
+  const expectedReadCount = state.writeCount === 0 ? 3 : 4;
+  if (access.pc !== expectedPc || access.value !== state.sysclkConf ||
+      !access.rtcMmioComplete || !access.cpuTicksConfigured ||
+      state.readCount !== expectedReadCount || state.cpuPerReadCount !== 4) {
     return refuse(state, "SYSTEM_SYSCLK_CONF write violated the observed post-ticks contract");
   }
   return Object.freeze({
     handled: true,
     status: "accepted",
     value: access.value,
-    state: Object.freeze({ ...state, writeCount: 1, lastWritePc: access.pc }),
+    state: Object.freeze({ ...state, writeCount: state.writeCount + 1, lastWritePc: access.pc }),
   });
 }
 
