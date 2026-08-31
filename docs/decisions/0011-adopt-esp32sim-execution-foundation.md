@@ -110,6 +110,13 @@ replacing one another.
 
 ## The role of puck
 
+Amended 2026-08-31 by decision
+[0013](0013-product-identity-fork-owns-the-product.md): the question
+this section left open is now answered. The product is the fork's
+browser emulator; puck is the donor, evidence, and decision repository
+and does not carry an execution engine. The original text follows for
+the record.
+
 Puck remains the UI and verification layer for this effort: the panel
 page, input recording and replay, the freeze bundle, the differential
 harness, and the regression check can all wrap the esp32sim machine. How

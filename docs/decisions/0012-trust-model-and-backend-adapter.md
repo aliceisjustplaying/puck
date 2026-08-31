@@ -39,7 +39,15 @@ external-bundle execution.
 
 ## The backend adapter contract
 
-All product code reaches esp32sim through one Puck-owned adapter; nothing
+Amended 2026-08-31 by decisions
+[0013](0013-product-identity-fork-owns-the-product.md) and
+[0014](0014-measured-scheduler-and-adapter-contract.md): the adapter is
+owned by our esp32sim fork as a versioned Rust interface, not by puck;
+the fork's thin web UI TypeScript is a transport client that
+schema-checks already-owned events as defense in depth. Everything else
+in this section stands with "Puck-owned" read as "fork-owned".
+
+All product code reaches esp32sim through one fork-owned adapter; nothing
 outside it imports upstream internals (machine, bus, peripheral, JIT, or
 web types). The starting interface is the external review's recommended
 contract: create with validated deterministic config, load with hashed
@@ -59,7 +67,7 @@ code, cross-page access) before any measured-mode claim rides on it.
 
 ## Consequences
 
-Lane B builds the adapter and the observation contract before peripheral
-grafting. The boundary and CI lanes implement the accepted review
+Lane B builds the adapter and the observation contract, in the fork per
+decisions 0013 and 0014, before peripheral grafting. The boundary and CI lanes implement the accepted review
 findings under this model's scoping. Release-gate items deferred by the
 review response are checked against this decision when lane F opens.
