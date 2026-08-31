@@ -1,6 +1,12 @@
 import { instantiate } from "../../src/wasm";
 import type { Elf32XtensaImage } from "./elf-image";
 import { ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY } from "./esp32s3-full-elf-unsupported";
+import {
+  ESP32S3_ROM_CACHE_CALLINC,
+  advanceEsp32S3DirectAppCacheBootstrap,
+  createEsp32S3DirectAppCacheBootstrap,
+  type Esp32S3DirectAppCacheBootstrapState,
+} from "./rom-cache-bootstrap";
 
 const PAGE_BYTES = 4096;
 const RESULT_WORDS = 27;
@@ -62,6 +68,7 @@ export interface FullElfRunResult {
   readonly loadedPages: number;
   readonly logs: readonly string[];
   readonly romEvents: readonly FullElfRomEvent[];
+  readonly cacheBootstrap: Esp32S3DirectAppCacheBootstrapState | null;
   readonly memoryFault: FullElfMemoryFault | null;
   readonly capturedPages: readonly CapturedElfPage[];
 }
@@ -86,12 +93,25 @@ export interface CapturedElfPage {
 export type FullElfRomEvent = Readonly<
   | { kind: "resetReason"; pc: number; core: number; result: number }
   | { kind: "memset"; pc: number; destination: number; value: number; length: number }
+  | {
+      kind: "cache";
+      pc: number;
+      sequenceIndex: number;
+      argument: number | null;
+      returnValue: number | null;
+    }
 >;
 
 interface FullElfExports {
   memory: WebAssembly.Memory;
   flexe_wasm_elf_begin(): number;
-  flexe_wasm_elf_configure_rom(resetReasonCore0: number, resetReasonCore1: number, enableMemset: number): number;
+  flexe_wasm_elf_cache_state(): number;
+  flexe_wasm_elf_configure_rom(
+    resetReasonCore0: number,
+    resetReasonCore1: number,
+    enableMemset: number,
+    enableCacheBootstrap: number,
+  ): number;
   flexe_wasm_elf_copy_page(address: number): number;
   flexe_wasm_elf_load_page(address: number, flags: number): number;
   flexe_wasm_elf_memory_fault(): number;
@@ -201,7 +221,11 @@ export async function runSparseXtensaElf(
     capturePages?: readonly number[];
     maxSteps?: number;
     unsupported?: readonly UnsupportedInstruction[];
-    rom?: Readonly<{ resetReasons: readonly [number, number]; memset?: boolean }>;
+    rom?: Readonly<{
+      resetReasons: readonly [number, number];
+      memset?: boolean;
+      cacheBootstrap?: boolean;
+    }>;
   }>,
 ): Promise<FullElfRunResult> {
   const logs: string[] = [];
@@ -210,6 +234,7 @@ export async function runSparseXtensaElf(
   assert(exports.memory instanceof WebAssembly.Memory, "full ELF module memory export is missing");
   for (const name of [
     "flexe_wasm_elf_begin",
+    "flexe_wasm_elf_cache_state",
     "flexe_wasm_elf_configure_rom",
     "flexe_wasm_elf_copy_page",
     "flexe_wasm_elf_load_page",
@@ -274,6 +299,7 @@ export async function runSparseXtensaElf(
         options.rom.resetReasons[0],
         options.rom.resetReasons[1],
         options.rom.memset ? 1 : 0,
+        options.rom.cacheBootstrap ? 1 : 0,
       ) === 1,
       "full ELF module refused ROM configuration",
     );
@@ -355,7 +381,41 @@ export async function runSparseXtensaElf(
         value: words[3],
         length: words[4],
       }));
+    } else if (words[0] === 3) {
+      romEvents.push(Object.freeze({
+        kind: "cache",
+        pc: words[1],
+        sequenceIndex: words[2],
+        argument: words[3] === 0xffff_ffff ? null : words[3],
+        returnValue: words[4] === 0xffff_ffff ? null : words[4],
+      }));
     } else throw new Error(`unknown full ELF ROM event ${words[0]}`);
+  }
+  let cacheBootstrap = options.rom?.cacheBootstrap
+    ? createEsp32S3DirectAppCacheBootstrap()
+    : null;
+  for (const event of romEvents) {
+    if (event.kind !== "cache") continue;
+    assert(cacheBootstrap !== null, "full ELF module returned an unconfigured cache event");
+    assert(event.sequenceIndex === cacheBootstrap.sequenceIndex, "cache event sequence index differs");
+    const advanced = advanceEsp32S3DirectAppCacheBootstrap(cacheBootstrap, {
+      pc: event.pc,
+      callinc: ESP32S3_ROM_CACHE_CALLINC,
+      arguments: event.argument === null ? [] : [event.argument],
+    });
+    assert(advanced.handled && advanced.status === "accepted", "full ELF module violated cache bootstrap order");
+    assert(advanced.returnValue === event.returnValue, "cache callback return value differs");
+    cacheBootstrap = advanced.state;
+  }
+  if (cacheBootstrap) {
+    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_cache_state(), 24, "ELF cache state");
+    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 6);
+    assert(stateWords[0] === cacheBootstrap.sequenceIndex, "cache callback sequence state differs");
+    assert(stateWords[1] === cacheBootstrap.registers.dataControl1, "DCache CTRL1 state differs");
+    assert(stateWords[2] === cacheBootstrap.registers.dataAutoloadControl, "DCache autoload state differs");
+    assert(stateWords[3] === cacheBootstrap.registers.instructionControl1, "ICache CTRL1 state differs");
+    assert(stateWords[4] === cacheBootstrap.registers.instructionAutoloadControl, "ICache autoload state differs");
+    assert(stateWords[5] === cacheBootstrap.registers.cacheState, "cache idle state differs");
   }
   const captureAddresses = [...(options.capturePages ?? [])];
   assert(new Set(captureAddresses).size === captureAddresses.length, "captured ELF pages must be unique");
@@ -374,6 +434,7 @@ export async function runSparseXtensaElf(
     loadedPages: pages.length,
     logs: Object.freeze(logs),
     romEvents: Object.freeze(romEvents),
+    cacheBootstrap,
     memoryFault,
     capturedPages: Object.freeze(capturedPages),
   });

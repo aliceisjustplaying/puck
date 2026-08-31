@@ -56,6 +56,7 @@ export const PUCK_WASI_LITE_IMPORTS = ["clock_time_get", "fd_write", "proc_exit"
 export const EXPECTED_FREESTANDING_IMPORTS = ["env.js_log"] as const;
 export const EXPECTED_FREESTANDING_EXPORTS = [
   "flexe_wasm_elf_begin",
+  "flexe_wasm_elf_cache_state",
   "flexe_wasm_elf_configure_rom",
   "flexe_wasm_elf_copy_page",
   "flexe_wasm_elf_load_page",

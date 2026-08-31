@@ -5,7 +5,12 @@ import { join, resolve } from "node:path";
 import { DEFAULT_TINYDRAW_ESP32S3_FULL_ELF } from "./constants";
 import { parseXtensaElf32, type Elf32LoadSegment, type Elf32XtensaImage } from "./elf-image";
 import { ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY } from "./esp32s3-full-elf-unsupported";
-import { FULL_ELF_STOP_REASONS, buildSparseElfPages, runSparseXtensaElf } from "./full-elf-runner";
+import {
+  FULL_ELF_STOP_REASONS,
+  buildSparseElfPages,
+  runSparseXtensaElf,
+  type FullElfRomEvent,
+} from "./full-elf-runner";
 
 const modulePath = resolve(
   process.env.FLEXE_WASM_DIST ?? join(import.meta.dir, "dist"),
@@ -324,6 +329,54 @@ assert.equal(collidingEeRun.record.unsupportedEncoding, 0x003f);
 assert.equal(collidingEeRun.record.unsupportedLength, 2);
 assert.deepEqual(collidingEeRun.trace, []);
 
+const cacheMmioProbeEntry = 0x4037_5c3b;
+const cacheMmioProbeImage: Elf32XtensaImage = Object.freeze({
+  schemaVersion: 1,
+  entryPoint: cacheMmioProbeEntry,
+  elfBytes: 10,
+  elfSha256: "synthetic-cache-mmio-read",
+  loadSegments: Object.freeze([
+    syntheticSegment(0, cacheMmioProbeEntry, [0x51, 0x36, 0xfa, 0x82, 0x25, 0x00], 6, {
+      read: true,
+      write: false,
+      execute: true,
+    }),
+    syntheticSegment(1, 0x4037_4514, [0x04, 0x40, 0x0c, 0x60], 4, {
+      read: true,
+      write: false,
+      execute: false,
+    }),
+    syntheticSegment(2, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
+  ]),
+  totalFileBytes: 10,
+  totalMemoryBytes: 0x100a,
+});
+const explicitCacheMmio = await runSparseXtensaElf(moduleBytes, cacheMmioProbeImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 2,
+  rom: { resetReasons: [1, 1], cacheBootstrap: true },
+});
+assert.equal(explicitCacheMmio.record.reason, FULL_ELF_STOP_REASONS.maxSteps);
+assert.equal(explicitCacheMmio.record.registers[8], 0);
+assert.equal(explicitCacheMmio.cacheBootstrap?.sequenceIndex, 0);
+const genericCacheMmio = await runSparseXtensaElf(moduleBytes, cacheMmioProbeImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 2,
+});
+assert.equal(genericCacheMmio.record.reason, FULL_ELF_STOP_REASONS.readPermission);
+assert.equal(genericCacheMmio.record.steps, 1);
+assert.deepEqual(genericCacheMmio.memoryFault, {
+  abiVersion: 1,
+  structBytes: 40,
+  pc: cacheMmioProbeEntry + 3,
+  address: 0x600c_4004,
+  width: 4,
+  isWrite: false,
+  deniedAddress: 0x600c_4004,
+  deniedPage: 0x600c_4000,
+  deniedFlags: 0,
+});
+
 assert.equal(image.entryPoint, 0x4037_5c9c);
 assert.equal(image.elfSha256, "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5");
 assert.equal(pages.length, 625);
@@ -401,6 +454,40 @@ assert.deepEqual(lx7Progress.memoryFault, {
   deniedFlags: 0,
 });
 
+const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
+  ...runnerMemory,
+  maxSteps: 256,
+  rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true },
+});
+assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
+assert.equal(cacheProgress.record.steps, 195);
+assert.equal(cacheProgress.record.pc, 0x4000_1a1c);
+assert.deepEqual(cacheProgress.cacheBootstrap, {
+  sequenceIndex: 6,
+  complete: true,
+  registers: {
+    dataControl1: 0,
+    dataAutoloadControl: 8,
+    instructionControl1: 0,
+    instructionAutoloadControl: 8,
+    cacheState: 0x0010_01,
+  },
+});
+const cacheEvents = cacheProgress.romEvents.filter((event) => event.kind === "cache");
+assert.deepEqual(cacheEvents, [
+  { kind: "cache", pc: 0x4000_186c, sequenceIndex: 0, argument: null, returnValue: 0 },
+  { kind: "cache", pc: 0x4000_1884, sequenceIndex: 1, argument: null, returnValue: 0 },
+  { kind: "cache", pc: 0x4000_1878, sequenceIndex: 2, argument: 0, returnValue: null },
+  { kind: "cache", pc: 0x4000_1890, sequenceIndex: 3, argument: 0, returnValue: null },
+  { kind: "cache", pc: 0x4000_1878, sequenceIndex: 4, argument: 0, returnValue: null },
+  { kind: "cache", pc: 0x4000_1890, sequenceIndex: 5, argument: 0, returnValue: null },
+]);
+assert.deepEqual(
+  cacheProgress.trace.filter((pc) => cacheEvents.some((event) => event.pc === pc)),
+  [],
+  "cache callback leaked into the instruction trace",
+);
+
 const refusedInstruction = await runSparseXtensaElf(moduleBytes, image, {
   ...runnerMemory,
   maxSteps: 64,
@@ -441,6 +528,27 @@ const traceSha256 = (trace: readonly number[]): string => {
   const view = new DataView(bytes.buffer);
   trace.forEach((pc, index) => view.setUint32(index * 4, pc, true));
   return createHash("sha256").update(bytes).digest("hex");
+};
+const baselineRomEvent = (event: FullElfRomEvent) => {
+  if (event.kind === "resetReason") {
+    return { kind: event.kind, pc: hex(event.pc), core: event.core, result: event.result };
+  }
+  if (event.kind === "memset") {
+    return {
+      kind: event.kind,
+      pc: hex(event.pc),
+      destination: hex(event.destination),
+      value: event.value,
+      length: event.length,
+    };
+  }
+  return {
+    kind: event.kind,
+    pc: hex(event.pc),
+    sequenceIndex: event.sequenceIndex,
+    argument: event.argument,
+    returnValue: event.returnValue,
+  };
 };
 const instructionAt = (pc: number): { pc: string; encoding: string } => {
   const pageAddress = Math.floor(pc / 4096) * 4096;
@@ -495,15 +603,7 @@ const actualBaseline = {
     traceSha256: traceSha256(romProgress.trace),
     stackPointer: hex(romProgress.record.stackPointer),
     registers: romProgress.record.registers.map(paddedHex),
-    events: romProgress.romEvents.map((event) => event.kind === "resetReason"
-      ? { kind: event.kind, pc: hex(event.pc), core: event.core, result: event.result }
-      : {
-          kind: event.kind,
-          pc: hex(event.pc),
-          destination: hex(event.destination),
-          value: event.value,
-          length: event.length,
-        }),
+    events: romProgress.romEvents.map(baselineRomEvent),
   },
   lx7Progress: {
     reason: lx7Progress.record.reasonName,
@@ -521,6 +621,16 @@ const actualBaseline = {
       deniedPage: hex(lx7Progress.memoryFault.deniedPage),
       deniedFlags: lx7Progress.memoryFault.deniedFlags,
     },
+  },
+  cacheProgress: {
+    reason: cacheProgress.record.reasonName,
+    steps: cacheProgress.record.steps,
+    pc: hex(cacheProgress.record.pc),
+    traceSha256: traceSha256(cacheProgress.trace),
+    stackPointer: hex(cacheProgress.record.stackPointer),
+    registers: cacheProgress.record.registers.map(paddedHex),
+    cacheBootstrap: cacheProgress.cacheBootstrap,
+    events: cacheProgress.romEvents.map(baselineRomEvent),
   },
   unsupportedRefusal: {
     reason: refusedInstruction.record.reasonName,
@@ -557,5 +667,11 @@ console.log(JSON.stringify({
     reason: lx7Progress.record.reasonName,
     steps: lx7Progress.record.steps,
     pc: `0x${lx7Progress.record.pc.toString(16)}`,
+  },
+  cacheProgress: {
+    reason: cacheProgress.record.reasonName,
+    steps: cacheProgress.record.steps,
+    pc: `0x${cacheProgress.record.pc.toString(16)}`,
+    events: cacheProgress.romEvents.length,
   },
 }, null, 2));
