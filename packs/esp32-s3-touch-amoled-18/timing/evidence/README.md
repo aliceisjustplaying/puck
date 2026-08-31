@@ -30,9 +30,12 @@ flash remains context-dependent and instruction PSRAM is unmeasured.
 
 The SRAM assembly probes measure one instruction per cycle steady-state issue,
 8 independent loads or stores per 9-cycle body, and a 3-cycle dependent
-`addx4` plus `l32i` recurrence. The current scalar timing algebra cannot express
-both throughput and the load-use bubble, so the SRAM instruction, load, and
-store costs remain unknown.
+`addx4` plus `l32i` recurrence. The profile adopts a one-cycle steady-state
+instruction issue cost and zero additive SRAM load or store cycles at
+independent throughput. The recurrence has one additional dependent load-use
+cycle beyond its two issued instructions. That hazard remains an explicit
+unmodeled claim-boundary value because runtime traces do not identify register
+dependencies. These values are not per-opcode latency claims.
 
 `captures-a91d1d7/` contains three raw boot logs from TinyDraw commit
 `a91d1d74af0ff4c1b55aebc3ed584e9074821394`, built with ESP-IDF 6.0.2 for an
@@ -56,8 +59,8 @@ the first line and 473 cycles for each subsequent line, with a maximum rounded
 fit residual of two cycles. The PSRAM ladder measured 82, 252, 590, 1271, and
 2631 cycles and adopts 82 plus 170 cycles, also with a maximum residual of two
 cycles. These burst ladders supersede the earlier long-sequential and random
-estimates. Instruction PSRAM, cache-hit latency, writeback latency, and scalar
-SRAM costs remain uncalibrated.
+estimates. Instruction PSRAM, cache-hit latency, writeback latency, and the
+dependent SRAM load-use hazard remain uncalibrated or unmodeled.
 
 `esp32s3-rev02-tinydraw-a91d1d7-cache-burst-adoption.json` records the adopted
 values and claim boundaries. The adjacent instruction-cache and data-cache

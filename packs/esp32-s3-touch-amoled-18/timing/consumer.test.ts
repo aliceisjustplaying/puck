@@ -23,6 +23,17 @@ function profileObject(): Record<string, unknown> {
       hostTraceTimeIsSimulatedTime: false,
     },
     cpu: { cores: 2, hz: 240_000_000, frequencyStatus: "configured" },
+    coreSteadyStateCycles: {
+      status: "partially-calibrated",
+      evidence: "timing/evidence/synthetic-sram-evidence.json",
+      instructionIssueCycles: 1,
+      independentSramAccessAdditiveCycles: { load: 0, store: 0 },
+      dependentLoadUseHazard: {
+        status: "unmodeled",
+        observedAdditionalCycles: 1,
+        reason: "synthetic traces have no register dependencies",
+      },
+    },
     psram: {
       mode: "octal",
       dtr: true,
@@ -200,6 +211,18 @@ describe("timing profile claim boundary", () => {
       firstLineCycles: 115,
       subsequentLineCycles: 473,
     });
+    expect(profile.coreSteadyStateCycles).toEqual({
+      status: "partially-calibrated",
+      evidence:
+        "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-bf169bc-counters-candidate.json",
+      instructionIssueCycles: 1,
+      independentSramAccessAdditiveCycles: { load: 0, store: 0 },
+      dependentLoadUseHazard: {
+        status: "unmodeled",
+        observedAdditionalCycles: 1,
+        reason: "runtime traces do not identify register dependencies",
+      },
+    });
   });
 
   test("rejects cycle, host-time, memory, and panel-throughput overclaims", () => {
@@ -223,6 +246,36 @@ describe("timing profile claim boundary", () => {
     (incompleteCache.cacheLineFillCycles as Record<string, unknown>).status = "candidate";
     expect(() => parseTimingProfile(incompleteCache)).toThrow(
       'cacheLineFillCycles.status must be "calibrated"',
+    );
+
+    const changedIssue = clone(profileObject());
+    (changedIssue.coreSteadyStateCycles as Record<string, unknown>).instructionIssueCycles = 2;
+    expect(() => parseTimingProfile(changedIssue)).toThrow(
+      "coreSteadyStateCycles.instructionIssueCycles must be 1",
+    );
+
+    const additiveLoad = clone(profileObject());
+    const additive = (additiveLoad.coreSteadyStateCycles as Record<string, unknown>)
+      .independentSramAccessAdditiveCycles as Record<string, unknown>;
+    additive.load = 1;
+    expect(() => parseTimingProfile(additiveLoad)).toThrow(
+      "independentSramAccessAdditiveCycles.load must be 0",
+    );
+
+    const modeledHazard = clone(profileObject());
+    const hazard = (modeledHazard.coreSteadyStateCycles as Record<string, unknown>)
+      .dependentLoadUseHazard as Record<string, unknown>;
+    hazard.status = "calibrated";
+    expect(() => parseTimingProfile(modeledHazard)).toThrow(
+      'dependentLoadUseHazard.status must be "unmodeled"',
+    );
+
+    const changedHazard = clone(profileObject());
+    const changedHazardValue = (changedHazard.coreSteadyStateCycles as Record<string, unknown>)
+      .dependentLoadUseHazard as Record<string, unknown>;
+    changedHazardValue.observedAdditionalCycles = 2;
+    expect(() => parseTimingProfile(changedHazard)).toThrow(
+      "dependentLoadUseHazard.observedAdditionalCycles must be 1",
     );
   });
 });

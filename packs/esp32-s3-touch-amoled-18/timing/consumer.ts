@@ -71,6 +71,20 @@ export interface TimingProfileV1 {
     hz: number;
     frequencyStatus: string;
   }>;
+  readonly coreSteadyStateCycles: Readonly<{
+    status: "partially-calibrated";
+    evidence: string;
+    instructionIssueCycles: 1;
+    independentSramAccessAdditiveCycles: Readonly<{
+      load: 0;
+      store: 0;
+    }>;
+    dependentLoadUseHazard: Readonly<{
+      status: "unmodeled";
+      observedAdditionalCycles: 1;
+      reason: string;
+    }>;
+  }>;
   readonly psram: Readonly<{
     mode: string;
     dtr: boolean;
@@ -342,7 +356,16 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
   const profile = objectAt(value, "timing profile");
   exactKeys(
     profile,
-    ["schemaVersion", "claimBoundary", "cpu", "psram", "flash", "cacheLineFillCycles", "panel"],
+    [
+      "schemaVersion",
+      "claimBoundary",
+      "cpu",
+      "coreSteadyStateCycles",
+      "psram",
+      "flash",
+      "cacheLineFillCycles",
+      "panel",
+    ],
     "timing profile",
   );
   literal(profile.schemaVersion, 1, "timing profile.schemaVersion");
@@ -371,6 +394,78 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
   const cores = positiveSafeInteger(cpu.cores, "timing profile.cpu.cores");
   const cpuHz = positiveSafeInteger(cpu.hz, "timing profile.cpu.hz");
   const cpuFrequencyStatus = stringAt(cpu.frequencyStatus, "timing profile.cpu.frequencyStatus");
+
+  const coreCycles = objectAt(
+    profile.coreSteadyStateCycles,
+    "timing profile.coreSteadyStateCycles",
+  );
+  exactKeys(
+    coreCycles,
+    [
+      "status",
+      "evidence",
+      "instructionIssueCycles",
+      "independentSramAccessAdditiveCycles",
+      "dependentLoadUseHazard",
+    ],
+    "timing profile.coreSteadyStateCycles",
+  );
+  literal(
+    coreCycles.status,
+    "partially-calibrated",
+    "timing profile.coreSteadyStateCycles.status",
+  );
+  const coreCyclesEvidence = stringAt(
+    coreCycles.evidence,
+    "timing profile.coreSteadyStateCycles.evidence",
+  );
+  literal(
+    coreCycles.instructionIssueCycles,
+    1,
+    "timing profile.coreSteadyStateCycles.instructionIssueCycles",
+  );
+  const sramAdditive = objectAt(
+    coreCycles.independentSramAccessAdditiveCycles,
+    "timing profile.coreSteadyStateCycles.independentSramAccessAdditiveCycles",
+  );
+  exactKeys(
+    sramAdditive,
+    ["load", "store"],
+    "timing profile.coreSteadyStateCycles.independentSramAccessAdditiveCycles",
+  );
+  literal(
+    sramAdditive.load,
+    0,
+    "timing profile.coreSteadyStateCycles.independentSramAccessAdditiveCycles.load",
+  );
+  literal(
+    sramAdditive.store,
+    0,
+    "timing profile.coreSteadyStateCycles.independentSramAccessAdditiveCycles.store",
+  );
+  const loadUseHazard = objectAt(
+    coreCycles.dependentLoadUseHazard,
+    "timing profile.coreSteadyStateCycles.dependentLoadUseHazard",
+  );
+  exactKeys(
+    loadUseHazard,
+    ["status", "observedAdditionalCycles", "reason"],
+    "timing profile.coreSteadyStateCycles.dependentLoadUseHazard",
+  );
+  literal(
+    loadUseHazard.status,
+    "unmodeled",
+    "timing profile.coreSteadyStateCycles.dependentLoadUseHazard.status",
+  );
+  literal(
+    loadUseHazard.observedAdditionalCycles,
+    1,
+    "timing profile.coreSteadyStateCycles.dependentLoadUseHazard.observedAdditionalCycles",
+  );
+  const loadUseHazardReason = stringAt(
+    loadUseHazard.reason,
+    "timing profile.coreSteadyStateCycles.dependentLoadUseHazard.reason",
+  );
 
   const psram = objectAt(profile.psram, "timing profile.psram");
   exactKeys(
@@ -489,6 +584,17 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
       hostTraceTimeIsSimulatedTime: false,
     }),
     cpu: Object.freeze({ cores, hz: cpuHz, frequencyStatus: cpuFrequencyStatus }),
+    coreSteadyStateCycles: Object.freeze({
+      status: "partially-calibrated",
+      evidence: coreCyclesEvidence,
+      instructionIssueCycles: 1,
+      independentSramAccessAdditiveCycles: Object.freeze({ load: 0, store: 0 }),
+      dependentLoadUseHazard: Object.freeze({
+        status: "unmodeled",
+        observedAdditionalCycles: 1,
+        reason: loadUseHazardReason,
+      }),
+    }),
     psram: Object.freeze({
       mode: psramMode,
       dtr: psramDtr,

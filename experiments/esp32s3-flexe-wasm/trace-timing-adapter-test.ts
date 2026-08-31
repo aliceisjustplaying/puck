@@ -29,11 +29,22 @@ const trace = adaptFlexeTraceToRuntimeTiming(decoded, {
   source: "synthetic flexe trace",
   sha256,
   core: 1,
+}, {
+  instructionCpuCost: {
+    status: "known",
+    cycles: 1n,
+    calibration: "calibrated",
+    source: "synthetic steady-state issue evidence",
+  },
 });
 const accesses = trace.input.cores[1];
 assert(trace.input.cores[0].length === 0, "flexe bridge invented core 0 activity");
 assert(accesses.length === 3, "flexe bridge omitted a trace record");
 assert(trace.input.cpu?.length === 1, "flexe bridge omitted the instruction CPU event");
+assert(
+  trace.input.cpu[0]?.latency.status === "known" && trace.input.cpu[0].latency.cycles === 1n,
+  "flexe bridge lost the caller-supplied steady-state issue cost",
+);
 assert(
   JSON.stringify(trace.input.issueOrder) === JSON.stringify([
     { kind: "memory", accessId: "trace:00:instruction-fetch" },
