@@ -4,9 +4,9 @@
     "flexeCommit": "34ea9eb6eef921b59a55e6a435c7fc55c5727835",
     "runnerPatchSha256": "9b842bb0a1391d5be816da0eedd19cac4b1123a1ee42c4b35600356c6ab2c3a0",
     "freestandingPatchSha256": "dbd2c623bfc9f9f33c4e4a98adcf06dec1d9034c659ad3c7afe94d373c48636d",
-    "esp32s3PatchSha256": "2a99c562c328e5deecc4b7809d8d8c9ba934d7bcf9ec8e4e862bf93230b3ea5c",
-    "moduleBytes": 91180,
-    "moduleSha256": "965d830a79e908a6bf99f02f1922de543f635cfe7f08685bdd3d83fb4b553469",
+    "esp32s3PatchSha256": "09ed1e84f1bf9a216c4b31054b285ffb1361920156f98dc5ec274878d3bfdb88",
+    "moduleBytes": 91354,
+    "moduleSha256": "f3191c0d08ed40f8597857c0960af9d23acdd28a9ee61d8c399b2a75c89a4a5a",
     "objdumpSha256": "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466",
     "scalarElfSha256": "a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644",
     "pieElfSha256": "591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742",
@@ -124,7 +124,7 @@
     "steps": 6,
     "sourceAfter": "0x3fca1023",
     "destinationAfter": "0x3fca2023",
-    "unsupportedCodeSha256": "e7f74dcf6959d6b39c44610516eb935526c67404a3f94e2331d9d384528af65f",
+    "unsupportedCodeSha256": "03367a9a4fe098b9367e11699446def2f377abd443611a348f4506535cbb14cc",
     "unsupportedReason": "unsupported",
     "unsupportedEncoding": "0xf8be"
   },
@@ -175,6 +175,38 @@
     "unsignedSourceAfter": "0x3fca1068",
     "unsignedAccxLow": "0xffffffff",
     "unsignedAccxHigh": "0xff",
+    "registerVariants": [
+      {
+        "name": "s16",
+        "codeSha256": "297467a13222c45f8bdb1b179c3a05546501713dea30293dfced0630bbf196dd",
+        "outputHex": "22232425262728292a2b2c2d2e2f303100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 13,
+        "sourceAfter": "0x3fca1068",
+        "accxLow": "0x7be56a7",
+        "accxHigh": "0x0"
+      },
+      {
+        "name": "s8",
+        "codeSha256": "ddbaa0b4e1c1459602d102022d157adff9500d13f35d8c520ff070e6b30f1f36",
+        "outputHex": "22232425262728292a2b2c2d2e2f303100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 13,
+        "sourceAfter": "0x3fca1068",
+        "accxLow": "0xe57",
+        "accxHigh": "0x0"
+      },
+      {
+        "name": "u16",
+        "codeSha256": "9675575a94c7788aea9a749a68b059b983cded8d906e63e59008d39ecd0e34cf",
+        "outputHex": "22232425262728292a2b2c2d2e2f303100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 13,
+        "sourceAfter": "0x3fca1068",
+        "accxLow": "0xffffffff",
+        "accxHigh": "0xff"
+      }
+    ],
     "unsupportedCodeSha256": "35381891509900330b278ed3797f43acfaf64ff079bcb7c9a9ffa1055a862b4c",
     "unsupportedReason": "unsupported",
     "unsupportedEncoding": "0x5fae"

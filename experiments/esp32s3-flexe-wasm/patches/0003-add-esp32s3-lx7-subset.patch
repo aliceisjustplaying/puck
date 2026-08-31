@@ -97,7 +97,7 @@ diff --git a/src/xtensa.c b/src/xtensa.c
 index 67dca18..e72666d 100644
 --- a/src/xtensa.c
 +++ b/src/xtensa.c
-@@ -138,23 +138,50 @@ static inline __attribute__((always_inline))
+@@ -138,23 +138,51 @@ static inline __attribute__((always_inline))
  int xtensa_fetch_inline(const xtensa_cpu_t *cpu, uint32_t addr, uint32_t *insn_out) {
      uint8_t *page = cpu->mem->page_table[addr >> 12];
      if (__builtin_expect(!page, 0)) return 0;
@@ -123,7 +123,8 @@ index 67dca18..e72666d 100644
 +            if (opcode == 0x8000000eu || opcode == 0x8800000eu ||
 +                opcode == 0x9000000eu || opcode == 0x9800000eu ||
 +                (candidate & 0x9000000eu) == 0x0000000eu ||
-+                (candidate & 0xfc00000eu) == 0xc800000eu ||
++                (candidate & 0xf700000eu) == 0xb000000eu ||
++                (candidate & 0xf700000eu) == 0xc000000eu ||
 +                ((float64_ip_opcode == 0xe000040eu || float64_ip_opcode == 0xe000060eu) &&
 +                 (float64_ip_sign == 0u || float64_ip_sign == 3u))) length = 4u;
 +        }
@@ -156,7 +157,7 @@ index 67dca18..e72666d 100644
  }
 
  /* External version for disasm/trace callers (not performance-critical) */
-@@ -178,6 +199,6 @@ void xtensa_predecode_build(xtensa_cpu_t *cpu) {
+@@ -178,6 +200,6 @@ void xtensa_predecode_build(xtensa_cpu_t *cpu) {
          uint32_t insn;
          int ilen = xtensa_fetch_inline(cpu, addr, &insn);
 -        if (ilen > 0) {
@@ -164,7 +165,7 @@ index 67dca18..e72666d 100644
              cpu->predecode[addr - PREDECODE_BASE] = PREDECODE_PACK(insn, (uint32_t)ilen);
              count++;
          }
-@@ -1552,19 +1573,100 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -1552,19 +1574,100 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
                  ar_write(cpu, r, ar_read(cpu, s));
              break;
          case 14: /* RUR */
@@ -271,7 +272,7 @@ index 67dca18..e72666d 100644
                }
              } break;
          default: break;
-@@ -1615,6 +1717,10 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -1615,6 +1718,10 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
              uint32_t addr = ar_read(cpu, s) + (uint32_t)((int32_t)(r << 2) - 64);
              mem_write32(cpu->mem, addr, ar_read(cpu, t));
          } break;
@@ -282,7 +283,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2192,568 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2193,575 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -472,10 +473,11 @@ index 67dca18..e72666d 100644
 +    }
 +
 +    uint32_t float64_opcode = insn & 0x0f000fu;
-+    uint32_t vmulas_opcode = insn & 0xfc00000eu;
++    uint32_t vmulas_xp_opcode = insn & 0xf700000eu;
 +    bool vmulas_accx_ip_qup = (insn & 0x9000000eu) == 0x0000000eu;
-+    bool vmulas_u8_xp_qup = vmulas_opcode == 0xc800000eu;
-+    if (vmulas_accx_ip_qup || vmulas_u8_xp_qup) {
++    bool vmulas_accx_xp_qup = vmulas_xp_opcode == 0xb000000eu ||
++                               vmulas_xp_opcode == 0xc000000eu;
++    if (vmulas_accx_ip_qup || vmulas_accx_xp_qup) {
 +        unsigned load_q = (((insn >> 24) & 3u) << 1) | ((insn >> 19) & 1u);
 +        unsigned source_x = ((insn >> 14) & 3u) | ((insn & 1u) << 2);
 +        unsigned source_y = (((insn >> 12) & 3u) << 1) | ((insn >> 23) & 1u);
@@ -488,7 +490,13 @@ index 67dca18..e72666d 100644
 +        memcpy(source_y_value, cpu->qr[source_y], 16);
 +        memcpy(shift_low_value, cpu->qr[shift_low_q], 16);
 +        memcpy(shift_high_value, cpu->qr[shift_high_q], 16);
-+        unsigned vmulas_kind = vmulas_accx_ip_qup ? ((insn >> 29) & 3u) : 3u;
++        unsigned vmulas_kind;
++        if (vmulas_accx_ip_qup) {
++            vmulas_kind = (insn >> 29) & 3u;
++        } else {
++            bool unsigned_lanes = vmulas_xp_opcode == 0xc000000eu;
++            vmulas_kind = (unsigned_lanes ? 2u : 0u) | ((insn >> 27) & 1u);
++        }
 +        bool vmulas_halfword_lanes = vmulas_kind == 0u || vmulas_kind == 2u;
 +        bool vmulas_signed_lanes = vmulas_kind < 2u;
 +        if (vmulas_signed_lanes) {
@@ -851,7 +859,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2993,8 @@ have_insn:
+@@ -2319,6 +3001,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -860,7 +868,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +3021,16 @@ have_insn:
+@@ -2345,14 +3029,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -881,7 +889,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +3044,8 @@ have_insn:
+@@ -2366,6 +3052,8 @@ have_insn:
          }
      }
 

@@ -688,22 +688,22 @@ assert(
 assert(float128Run.record.registers[10] === INITIAL_SOURCE + 35, "float-quad loads applied the wrong postincrements");
 assert(float128Run.record.registers[11] === INITIAL_DESTINATION + 35, "float-quad stores applied the wrong postincrements");
 
-const unsupportedFloatMacFixture = conformanceFixture("esp32s3_unsupported_vmulas_s16_accx_ld_xp_qup", [
-  0xbe, 0xf8, 0xa1, 0xc0
+const unsupportedQaccXpFixture = conformanceFixture("esp32s3_unsupported_vmulas_s16_qacc_ld_xp_qup", [
+  0xbe, 0xf8, 0xa1, 0xb4
 ]);
-const unsupportedFloatMacRun = await runFresh(moduleBytes, unsupportedFloatMacFixture, {
+const unsupportedQaccXpRun = await runFresh(moduleBytes, unsupportedQaccXpFixture, {
   maxSteps: 1,
   unsupported: { offset: 0, encoding: 0xf8be }
 });
-assert(unsupportedFloatMacRun.record.reason === STOP_REASONS.unsupported, "adjacent float MAC form did not fail closed");
-assert(unsupportedFloatMacRun.record.steps === 0, "adjacent float MAC form was counted as executed");
-assert(unsupportedFloatMacRun.trace.count === 0, "adjacent float MAC refusal leaked a trace record");
-assert(unsupportedFloatMacRun.dataOutput.length === 0, "adjacent float MAC refusal exposed data output");
+assert(unsupportedQaccXpRun.record.reason === STOP_REASONS.unsupported, "adjacent QACC XP MAC form did not fail closed");
+assert(unsupportedQaccXpRun.record.steps === 0, "adjacent QACC XP MAC form was counted as executed");
+assert(unsupportedQaccXpRun.trace.count === 0, "adjacent QACC XP MAC refusal leaked a trace record");
+assert(unsupportedQaccXpRun.dataOutput.length === 0, "adjacent QACC XP MAC refusal exposed data output");
 assert(
-  unsupportedFloatMacRun.record.registers.every(
-    (value, index) => value === initialRegisters(unsupportedFloatMacRun.record.returnPc)[index]
+  unsupportedQaccXpRun.record.registers.every(
+    (value, index) => value === initialRegisters(unsupportedQaccXpRun.record.returnPc)[index]
   ),
-  "adjacent float MAC refusal changed registers"
+  "adjacent QACC XP MAC refusal changed registers"
 );
 
 const signedVmulasQupFixture = conformanceFixture("esp32s3_vmulas_s16_accx_ld_ip_qup", [
@@ -805,6 +805,41 @@ assert(
 assert(unsignedVmulasRun.record.registers[10] === INITIAL_SOURCE + 104, "unsigned VMULAS QUP applied the wrong register increment");
 assert(unsignedVmulasRun.record.registers[12] === 0xffff_ffff, "unsigned VMULAS QUP did not saturate ACCX low");
 assert(unsignedVmulasRun.record.registers[13] === 0xff, "unsigned VMULAS QUP did not saturate ACCX high");
+
+const registerVmulasCases = [
+  { name: "s16", opcodeHigh: 0xb0, accxLow: 0x07be_56a7, accxHigh: 0 },
+  { name: "s8", opcodeHigh: 0xb8, accxLow: 0x0000_0e57, accxHigh: 0 },
+  { name: "u16", opcodeHigh: 0xc0, accxLow: 0xffff_ffff, accxHigh: 0xff }
+] as const;
+const registerVmulasRuns = [];
+for (const vmulasCase of registerVmulasCases) {
+  const fixture = conformanceFixture(`esp32s3_vmulas_${vmulasCase.name}_accx_ld_xp_qup`, [
+    0xa4, 0x81, 0x83,
+    0xa4, 0x01, 0x93,
+    0xa4, 0x81, 0x93,
+    0xa4, 0x01, 0xa3,
+    0x7c, 0xf9,
+    0x90, 0x00, 0xf3,
+    0x90, 0x01, 0xf3,
+    0x0c, 0x19,
+    0x90, 0x0d, 0xf3,
+    0xae, 0x5c, 0x34, vmulasCase.opcodeHigh,
+    0x00, 0xc0, 0xe3,
+    0x10, 0xd0, 0xe3,
+    0xb4, 0x81, 0x9a
+  ]);
+  const run = await runFresh(moduleBytes, fixture, { data: unsignedVmulasInput, maxSteps: 13 });
+  assert(run.record.reason === STOP_REASONS.maxSteps, `${vmulasCase.name} ACCX register VMULAS QUP stopped with ${run.record.reasonName}`);
+  assert(run.record.steps === 13, `${vmulasCase.name} ACCX register VMULAS QUP executed ${run.record.steps} instructions`);
+  assert(
+    run.dataOutput.every((byte, index) => byte === unsignedVmulasExpected[index]),
+    `${vmulasCase.name} ACCX register VMULAS QUP output changed: ${Buffer.from(run.dataOutput).toString("hex")}`
+  );
+  assert(run.record.registers[10] === INITIAL_SOURCE + 104, `${vmulasCase.name} ACCX register VMULAS QUP applied the wrong increment`);
+  assert(run.record.registers[12] === vmulasCase.accxLow, `${vmulasCase.name} ACCX register VMULAS QUP produced the wrong low word`);
+  assert(run.record.registers[13] === vmulasCase.accxHigh, `${vmulasCase.name} ACCX register VMULAS QUP produced the wrong high byte`);
+  registerVmulasRuns.push({ vmulasCase, fixture, run });
+}
 
 const unsupportedVmulasQupFixture = conformanceFixture("esp32s3_unsupported_vmulas_s16_qacc_ld_ip_qup", [
   0xae, 0x5f, 0x34, 0x1c
@@ -1541,9 +1576,9 @@ const actualBaseline = {
     steps: float128Run.record.steps,
     sourceAfter: `0x${float128Run.record.registers[10].toString(16)}`,
     destinationAfter: `0x${float128Run.record.registers[11].toString(16)}`,
-    unsupportedCodeSha256: unsupportedFloatMacFixture.codeSha256,
-    unsupportedReason: unsupportedFloatMacRun.record.reasonName,
-    unsupportedEncoding: `0x${unsupportedFloatMacRun.record.unsupportedEncoding.toString(16)}`
+    unsupportedCodeSha256: unsupportedQaccXpFixture.codeSha256,
+    unsupportedReason: unsupportedQaccXpRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedQaccXpRun.record.unsupportedEncoding.toString(16)}`
   },
   vmulasQupIsa: {
     signedCodeSha256: signedVmulasQupFixture.codeSha256,
@@ -1570,6 +1605,16 @@ const actualBaseline = {
     unsignedSourceAfter: `0x${unsignedVmulasRun.record.registers[10].toString(16)}`,
     unsignedAccxLow: `0x${unsignedVmulasRun.record.registers[12].toString(16)}`,
     unsignedAccxHigh: `0x${unsignedVmulasRun.record.registers[13].toString(16)}`,
+    registerVariants: registerVmulasRuns.map(({ vmulasCase, fixture, run }) => ({
+      name: vmulasCase.name,
+      codeSha256: fixture.codeSha256,
+      outputHex: Buffer.from(run.dataOutput).toString("hex"),
+      reason: run.record.reasonName,
+      steps: run.record.steps,
+      sourceAfter: `0x${run.record.registers[10].toString(16)}`,
+      accxLow: `0x${run.record.registers[12].toString(16)}`,
+      accxHigh: `0x${run.record.registers[13].toString(16)}`
+    })),
     unsupportedCodeSha256: unsupportedVmulasQupFixture.codeSha256,
     unsupportedReason: unsupportedVmulasQupRun.record.reasonName,
     unsupportedEncoding: `0x${unsupportedVmulasQupRun.record.unsupportedEncoding.toString(16)}`
