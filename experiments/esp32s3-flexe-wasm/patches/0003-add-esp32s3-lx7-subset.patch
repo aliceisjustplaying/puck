@@ -1,9 +1,9 @@
 diff --git a/src/wasm_probe.c b/src/wasm_probe.c
-index a750870..86b0f3d 100644
+index 423d97c..031635c 100644
 --- a/src/wasm_probe.c
 +++ b/src/wasm_probe.c
-@@ -604,7 +604,8 @@ uint32_t flexe_wasm_elf_set_unsupported(uint32_t count) {
-
+@@ -1595,7 +1595,8 @@ uint32_t flexe_wasm_elf_set_unsupported(uint32_t count) {
+ 
  static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_steps,
                               uint32_t unsupported_offset, uint32_t unsupported_encoding,
 -                             uint32_t data_length) {
@@ -12,7 +12,7 @@ index a750870..86b0f3d 100644
      memset(&result, 0, sizeof(result));
      memset(&cpu, 0, sizeof(cpu));
      memset(data_output, 0, sizeof(data_output));
-@@ -615,6 +616,12 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
+@@ -1606,6 +1607,12 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
      result.pc = pc;
      if (code_length == 0 || code_length > INPUT_CAPACITY || max_steps == 0 ||
          data_length > DATA_CAPACITY || (data_length & 1u) != 0 ||
@@ -25,7 +25,7 @@ index a750870..86b0f3d 100644
          (pc & (PAGE_BYTES - 1u)) + code_length > PAGE_BYTES ||
          (unsupported_offset != NO_UNSUPPORTED_OFFSET && unsupported_offset >= code_length)) {
          result.reason = PROBE_STOP_INVALID_ARGUMENT;
-@@ -645,6 +652,10 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
+@@ -1636,6 +1643,10 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
          memcpy(source_page, data_input, data_length);
          mem->page_table[INITIAL_SOURCE >> 12] = source_page;
          mem->page_table[INITIAL_DESTINATION >> 12] = destination_page;
@@ -34,26 +34,26 @@ index a750870..86b0f3d 100644
 +        memcpy(source_page, data_input, auxiliary_length);
 +        mem->page_table[auxiliary_address >> 12] = source_page;
      }
-
+ 
      xtensa_cpu_init(&cpu);
-@@ -655,6 +666,7 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
+@@ -1646,6 +1657,7 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
      cpu.windowbase = 0;
      cpu.windowstart = 1;
      cpu.window_callsize[0] = WINDOW_CALLINC;
 +    cpu.esp32s3_profile = true;
      cpu.external_exec_begin = pc & ~(PAGE_BYTES - 1u);
      cpu.external_exec_end = cpu.external_exec_begin + PAGE_BYTES;
-
-@@ -729,7 +741,7 @@ FLEXE_EXPORT("flexe_wasm_run")
+ 
+@@ -1721,7 +1733,7 @@ FLEXE_EXPORT("flexe_wasm_run")
  uint32_t flexe_wasm_run(uint32_t pc, uint32_t code_length, uint32_t max_steps,
                          uint32_t unsupported_offset, uint32_t unsupported_encoding) {
      return run_internal(pc, code_length, max_steps, unsupported_offset,
 -                        unsupported_encoding, 0);
 +                        unsupported_encoding, 0, 0, 0);
  }
-
+ 
  FLEXE_EXPORT("flexe_wasm_run_data")
-@@ -737,7 +749,14 @@ uint32_t flexe_wasm_run_data(uint32_t pc, uint32_t code_length, uint32_t max_ste
+@@ -1729,7 +1741,14 @@ uint32_t flexe_wasm_run_data(uint32_t pc, uint32_t code_length, uint32_t max_ste
                               uint32_t unsupported_offset, uint32_t unsupported_encoding,
                               uint32_t data_length) {
      return run_internal(pc, code_length, max_steps, unsupported_offset,
@@ -67,9 +67,9 @@ index a750870..86b0f3d 100644
 +    return run_internal(pc, code_length, max_steps, NO_UNSUPPORTED_OFFSET, 0,
 +                        0, auxiliary_address, auxiliary_length);
  }
-
+ 
  FLEXE_EXPORT("flexe_wasm_run_elf")
-@@ -777,6 +796,7 @@ uint32_t flexe_wasm_run_elf(uint32_t entry, uint32_t max_steps,
+@@ -1770,6 +1789,7 @@ uint32_t flexe_wasm_run_elf(uint32_t entry, uint32_t max_steps,
      cpu.windowbase = 0;
      cpu.windowstart = 1;
      cpu.window_callsize[0] = WINDOW_CALLINC;
@@ -77,7 +77,7 @@ index a750870..86b0f3d 100644
      ar_write(&cpu, 1, initial_stack);
      mem->permission_hook = elf_memory_permission;
      mem->permission_hook_ctx = NULL;
-@@ -1627,8 +1647,13 @@ uint32_t flexe_wasm_run_elf(uint32_t entry, uint32_t max_steps,
+@@ -1801,8 +1821,13 @@ uint32_t flexe_wasm_run_elf(uint32_t entry, uint32_t max_steps,
                  reason = PROBE_STOP_NON_EXECUTABLE_PAGE;
                  break;
              }
@@ -94,13 +94,10 @@ index a750870..86b0f3d 100644
                  reason = PROBE_STOP_UNLOADED_PAGE;
                  break;
 diff --git a/src/xtensa.c b/src/xtensa.c
-index 67dca18..e72666d 100644
+index 67dca18..b7430ef 100644
 --- a/src/xtensa.c
 +++ b/src/xtensa.c
-@@ -138,23 +138,50 @@ static inline __attribute__((always_inline))
- int xtensa_fetch_inline(const xtensa_cpu_t *cpu, uint32_t addr, uint32_t *insn_out) {
-     uint8_t *page = cpu->mem->page_table[addr >> 12];
-     if (__builtin_expect(!page, 0)) return 0;
+@@ -141,19 +141,49 @@ int xtensa_fetch_inline(const xtensa_cpu_t *cpu, uint32_t addr, uint32_t *insn_o
      uint32_t offset = addr & 0xFFF;
      uint8_t first = page[offset];
      uint32_t length = (first & 0x8) ? 2u : 3u;
@@ -122,6 +119,9 @@ index 67dca18..e72666d 100644
 +            uint32_t float64_ip_sign = (candidate >> 24) & 3u;
 +            if (opcode == 0x8000000eu || opcode == 0x8800000eu ||
 +                opcode == 0x9000000eu || opcode == 0x9800000eu ||
++                opcode == 0xd000000eu ||
++                opcode == 0xa000000eu || opcode == 0xa800000eu ||
++                (candidate & 0xfc00000eu) == 0xdc00000eu ||
 +                (candidate & 0xf000000eu) == 0x0000000eu ||
 +                (candidate & 0xfc00000eu) == 0xc800000eu ||
 +                ((float64_ip_opcode == 0xe000040eu || float64_ip_opcode == 0xe000060eu) &&
@@ -154,9 +154,9 @@ index 67dca18..e72666d 100644
 +    *insn_out = instruction;
      return (int)length;
  }
-
- /* External version for disasm/trace callers (not performance-critical) */
-@@ -178,6 +199,6 @@ void xtensa_predecode_build(xtensa_cpu_t *cpu) {
+ 
+@@ -185,7 +215,7 @@ void xtensa_predecode_build(xtensa_cpu_t *cpu) {
+     for (uint32_t addr = PREDECODE_BASE; addr < PREDECODE_END; addr++) {
          uint32_t insn;
          int ilen = xtensa_fetch_inline(cpu, addr, &insn);
 -        if (ilen > 0) {
@@ -164,7 +164,7 @@ index 67dca18..e72666d 100644
              cpu->predecode[addr - PREDECODE_BASE] = PREDECODE_PACK(insn, (uint32_t)ilen);
              count++;
          }
-@@ -1552,19 +1573,100 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -1552,19 +1582,100 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
                  ar_write(cpu, r, ar_read(cpu, s));
              break;
          case 14: /* RUR */
@@ -271,7 +271,7 @@ index 67dca18..e72666d 100644
                }
              } break;
          default: break;
-@@ -1615,6 +1717,10 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -1615,6 +1726,10 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
              uint32_t addr = ar_read(cpu, s) + (uint32_t)((int32_t)(r << 2) - 64);
              mem_write32(cpu->mem, addr, ar_read(cpu, t));
          } break;
@@ -282,10 +282,10 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2192,550 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2195,719 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
-
+ 
 +static inline unsigned esp32s3_qr(const uint32_t insn) {
 +    return (((insn >> 20) & 3u) << 1) | ((insn >> 15) & 1u);
 +}
@@ -345,6 +345,20 @@ index 67dca18..e72666d 100644
 +static inline void esp32s3_copy_to_memory(xtensa_cpu_t *cpu, uint32_t address,
 +                                          const uint8_t *input, unsigned length) {
 +    for (unsigned i = 0; i < length; i++) mem_write8(cpu->mem, address + i, input[i]);
++}
++
++static inline uint16_t esp32s3_qr_get_u16(const uint8_t input[16], unsigned lane) {
++    uint16_t value;
++    memcpy(&value, input + lane * 2u, sizeof(value));
++    return value;
++}
++
++static inline int16_t esp32s3_qr_get_s16(const uint8_t input[16], unsigned lane) {
++    return (int16_t)esp32s3_qr_get_u16(input, lane);
++}
++
++static inline void esp32s3_qr_set_u16(uint8_t output[16], unsigned lane, uint16_t value) {
++    memcpy(output + lane * 2u, &value, sizeof(value));
 +}
 +
 +static inline void esp32s3_pack_qacc_s16(xtensa_cpu_t *cpu, uint32_t output[5],
@@ -472,7 +486,162 @@ index 67dca18..e72666d 100644
 +    }
 +
 +    uint32_t float64_opcode = insn & 0x0f000fu;
++    uint32_t fft_opcode = insn & 0xf800000eu;
 +    uint32_t vmulas_opcode = insn & 0xfc00000eu;
++    if (fft_opcode == 0xd000000eu) {
++        xtensa_raise_exception(cpu, EXCCAUSE_ILLEGAL, cpu->pc - 4u, 0);
++        return 1;
++    }
++    if (fft_opcode == 0xa000000eu) {
++        unsigned qv = (insn >> 20) & 7u;
++        unsigned qz = (((insn >> 24) & 3u) << 1) | ((insn >> 19) & 1u);
++        unsigned as = (insn >> 8) & 15u;
++        unsigned at = (insn >> 4) & 15u;
++        unsigned qx = (insn >> 16) & 7u;
++        unsigned qy = ((insn >> 14) & 3u) | ((insn & 1u) << 2);
++        unsigned qm = (((insn >> 12) & 3u) << 1) | ((insn >> 23) & 1u);
++        unsigned sel = (insn >> 26) & 1u;
++        uint8_t qv_value[16], qx_value[16], qy_value[16], qm_value[16];
++        memcpy(qv_value, cpu->qr[qv], sizeof(qv_value));
++        memcpy(qx_value, cpu->qr[qx], sizeof(qx_value));
++        memcpy(qy_value, cpu->qr[qy], sizeof(qy_value));
++        memcpy(qm_value, cpu->qr[qm], sizeof(qm_value));
++        uint32_t as_base = ar_read(cpu, as);
++        uint32_t at_original = ar_read(cpu, at);
++        int16_t x6 = esp32s3_qr_get_s16(qx_value, 6);
++        int16_t x7 = esp32s3_qr_get_s16(qx_value, 7);
++        int16_t y6 = esp32s3_qr_get_s16(qy_value, 6);
++        int16_t y7 = esp32s3_qr_get_s16(qy_value, 7);
++        int16_t m6 = esp32s3_qr_get_s16(qm_value, 6);
++        int16_t m7 = esp32s3_qr_get_s16(qm_value, 7);
++        int32_t temp0 = (int32_t)x6 + y6;
++        int32_t temp1 = (int32_t)x7 - y7;
++        int32_t diff0 = (int32_t)x6 - y6;
++        int32_t sum1 = (int32_t)x7 + y7;
++        unsigned shift = cpu->sar & 63u;
++        int16_t temp2;
++        int16_t temp3;
++        if (sel == 0u) {
++            temp2 = (int16_t)esp32s3_asr64((int64_t)diff0 * m6 - (int64_t)sum1 * m7, shift);
++            temp3 = (int16_t)esp32s3_asr64((int64_t)diff0 * m7 + (int64_t)sum1 * m6, shift);
++        } else {
++            temp2 = (int16_t)esp32s3_asr64((int64_t)sum1 * m7 + (int64_t)diff0 * m6, shift);
++            temp3 = (int16_t)esp32s3_asr64((int64_t)sum1 * m6 - (int64_t)diff0 * m7, shift);
++        }
++        int16_t temp4 = (int16_t)(temp1 + temp3);
++        int16_t temp5 = (int16_t)(temp0 + temp2);
++        uint32_t at_value = (uint16_t)temp5 | ((uint32_t)(uint16_t)temp4 << 16);
++        esp32s3_qr_set_u16(cpu->qr[qz], 6, (uint16_t)(int16_t)(temp0 - temp2));
++        esp32s3_qr_set_u16(cpu->qr[qz], 7, (uint16_t)(int16_t)(temp3 - temp1));
++        uint32_t address = as_base & ~15u;
++        if (sel == 0u) {
++            mem_write16(cpu->mem, address + 0, (uint16_t)(((int16_t)at_original) >> 1));
++            mem_write16(cpu->mem, address + 2, (uint16_t)(((int16_t)(at_original >> 16)) >> 1));
++            for (unsigned lane = 0; lane < 6; lane++) {
++                int16_t value = esp32s3_qr_get_s16(qv_value, lane);
++                mem_write16(cpu->mem, address + 4 + lane * 2u, (uint16_t)(value >> 1));
++            }
++        } else {
++            mem_write32(cpu->mem, address, at_original);
++            for (unsigned i = 0; i < 12; i++) mem_write8(cpu->mem, address + 4 + i, qv_value[i]);
++        }
++        ar_write(cpu, at, at_value);
++        ar_write(cpu, as, as_base + 16u);
++        return 1;
++    }
++
++    if (vmulas_opcode == 0xdc00000eu) {
++        unsigned qu = (((insn >> 12) & 3u) << 1) | ((insn >> 23) & 1u);
++        unsigned as = (insn >> 4) & 15u;
++        unsigned ad = (insn >> 8) & 15u;
++        unsigned qy = (insn >> 20) & 7u;
++        unsigned qz = (insn >> 16) & 7u;
++        unsigned qx = ((insn >> 14) & 3u) | ((insn & 1u) << 2);
++        unsigned sel = (((insn >> 24) & 3u) << 1) | ((insn >> 19) & 1u);
++        if (sel > 5u) {
++            xtensa_raise_exception(cpu, EXCCAUSE_ILLEGAL, cpu->pc - 4u, 0);
++            return 1;
++        }
++        uint8_t qx_value[16], qy_value[16];
++        memcpy(qx_value, cpu->qr[qx], sizeof(qx_value));
++        memcpy(qy_value, cpu->qr[qy], sizeof(qy_value));
++        unsigned pair = sel >> 1;
++        int16_t xr = esp32s3_qr_get_s16(qx_value, pair * 2u);
++        int16_t xi = esp32s3_qr_get_s16(qx_value, pair * 2u + 1u);
++        int16_t yr = esp32s3_qr_get_s16(qy_value, pair * 2u);
++        int16_t yi = esp32s3_qr_get_s16(qy_value, pair * 2u + 1u);
++        int64_t real_product = (int64_t)xr * yr;
++        int64_t cross_product = (int64_t)xi * yi;
++        int16_t real = (sel & 1u) == 0u
++            ? (int16_t)esp32s3_asr64(real_product + cross_product, cpu->sar & 63u)
++            : (int16_t)esp32s3_asr64(real_product - cross_product, cpu->sar & 63u);
++        int16_t imag = (sel & 1u) == 0u
++            ? (int16_t)esp32s3_asr64((int64_t)xi * yr - (int64_t)xr * yi, cpu->sar & 63u)
++            : (int16_t)esp32s3_asr64((int64_t)xi * yr + (int64_t)xr * yi, cpu->sar & 63u);
++        esp32s3_qr_set_u16(cpu->qr[qz], pair * 2u, (uint16_t)real);
++        esp32s3_qr_set_u16(cpu->qr[qz], pair * 2u + 1u, (uint16_t)imag);
++        uint32_t as_base = ar_read(cpu, as);
++        esp32s3_copy_from_memory(cpu, cpu->qr[qu], as_base & ~15u, 16);
++        ar_write(cpu, as, as_base + ar_read(cpu, ad));
++        return 1;
++    }
++
++    if (fft_opcode == 0xa800000eu) {
++        unsigned sar4 = (insn >> 25) & 3u;
++        unsigned upd = (((insn >> 24) & 1u) << 1) | ((insn >> 19) & 1u);
++        unsigned sel = (((insn >> 12) & 3u) << 1) | ((insn >> 23) & 1u);
++        unsigned qy = (insn >> 20) & 7u;
++        unsigned qv = (insn >> 16) & 7u;
++        unsigned qx = ((insn >> 14) & 3u) | ((insn & 1u) << 2);
++        unsigned ad = (insn >> 8) & 15u;
++        unsigned as = (insn >> 4) & 15u;
++        if (upd > 2u || sel < 6u) {
++            xtensa_raise_exception(cpu, EXCCAUSE_ILLEGAL, cpu->pc - 4u, 0);
++            return 1;
++        }
++        uint8_t qx_value[16], qy_value[16], qv_value[16];
++        memcpy(qx_value, cpu->qr[qx], sizeof(qx_value));
++        memcpy(qy_value, cpu->qr[qy], sizeof(qy_value));
++        memcpy(qv_value, cpu->qr[qv], sizeof(qv_value));
++        int16_t xr = esp32s3_qr_get_s16(qx_value, 6);
++        int16_t xi = esp32s3_qr_get_s16(qx_value, 7);
++        int16_t yr = esp32s3_qr_get_s16(qy_value, 6);
++        int16_t yi = esp32s3_qr_get_s16(qy_value, 7);
++        int16_t real = (sel & 1u) == 0u
++            ? (int16_t)esp32s3_asr64((int64_t)xr * yr + (int64_t)xi * yi, cpu->sar & 63u)
++            : (int16_t)esp32s3_asr64((int64_t)xr * yr - (int64_t)xi * yi, cpu->sar & 63u);
++        int16_t imag = (sel & 1u) == 0u
++            ? (int16_t)esp32s3_asr64((int64_t)xi * yr - (int64_t)xr * yi, cpu->sar & 63u)
++            : (int16_t)esp32s3_asr64((int64_t)xi * yr + (int64_t)xr * yi, cpu->sar & 63u);
++        uint32_t as_base = ar_read(cpu, as);
++        uint32_t address = as_base & ~15u;
++        if (upd == 0u) {
++            for (unsigned i = 0; i < 12; i++) mem_write8(cpu->mem, address + i, qv_value[i]);
++            mem_write16(cpu->mem, address + 12, (uint16_t)real);
++            mem_write16(cpu->mem, address + 14, (uint16_t)imag);
++        } else if (upd == 1u) {
++            for (unsigned lane = 0; lane < 4; lane++) {
++                int16_t value = esp32s3_qr_get_s16(qx_value, lane);
++                mem_write16(cpu->mem, address + lane * 2u, (uint16_t)(value >> sar4));
++            }
++            mem_write16(cpu->mem, address + 8, esp32s3_qr_get_u16(qv_value, 4));
++            mem_write16(cpu->mem, address + 10, esp32s3_qr_get_u16(qv_value, 5));
++            mem_write16(cpu->mem, address + 12, (uint16_t)real);
++            mem_write16(cpu->mem, address + 14, (uint16_t)imag);
++        } else {
++            mem_write16(cpu->mem, address + 0, (uint16_t)(esp32s3_qr_get_s16(qx_value, 0) >> sar4));
++            mem_write16(cpu->mem, address + 2, (uint16_t)(esp32s3_qr_get_s16(qx_value, 1) >> sar4));
++            mem_write16(cpu->mem, address + 4, esp32s3_qr_get_u16(qv_value, 4));
++            mem_write16(cpu->mem, address + 6, esp32s3_qr_get_u16(qv_value, 5));
++            mem_write16(cpu->mem, address + 8, (uint16_t)(esp32s3_qr_get_s16(qx_value, 2) >> sar4));
++            mem_write16(cpu->mem, address + 10, (uint16_t)(esp32s3_qr_get_s16(qx_value, 3) >> sar4));
++            mem_write16(cpu->mem, address + 12, (uint16_t)real);
++            mem_write16(cpu->mem, address + 14, (uint16_t)imag);
++        }
++        ar_write(cpu, as, as_base + ar_read(cpu, ad));
++        return 1;
++    }
++
 +    bool vmulas_s16_ip_qup = (insn & 0xf000000eu) == 0x0000000eu;
 +    bool vmulas_u8_xp_qup = vmulas_opcode == 0xc800000eu;
 +    if (vmulas_s16_ip_qup || vmulas_u8_xp_qup) {
@@ -804,13 +973,13 @@ index 67dca18..e72666d 100644
 +        return 1;
 +    }
 +
-+    if ((insn & 0xcf7f0fu) == 0xcd2004u ||
-+        (insn & 0xcf7f0fu) == 0xcd6004u) {
++    if ((insn & 0xcf700fu) == 0xcd2004u ||
++        (insn & 0xcf700fu) == 0xcd6004u) {
 +        unsigned q = esp32s3_qr(insn);
 +        uint32_t base = ar_read(cpu, XT_T(insn)) & ~15u;
 +        int32_t offset = sign_extend((insn >> 8) & 15u, 4) * 16;
 +        uint32_t address = base + (uint32_t)offset;
-+        if ((insn & 0xcf7f0fu) == 0xcd2004u)
++        if ((insn & 0xcf700fu) == 0xcd2004u)
 +            esp32s3_copy_from_memory(cpu, cpu->qr[q], address, 16);
 +        else
 +            esp32s3_copy_to_memory(cpu, address, cpu->qr[q], 16);
@@ -830,11 +999,11 @@ index 67dca18..e72666d 100644
 +    return 0;
 +}
 +
-
-
+ 
+ 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2975,8 @@ have_insn:
-
+@@ -2319,6 +3147,8 @@ have_insn:
+ 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
 +    } else if (cpu->esp32s3_profile && exec_esp32s3(cpu, insn)) {
@@ -842,7 +1011,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +3003,16 @@ have_insn:
+@@ -2345,14 +3175,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -863,17 +1032,17 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +3026,8 @@ have_insn:
+@@ -2366,6 +3198,8 @@ have_insn:
          }
      }
-
+ 
 +    if (cpu->unsupported_user_register) return -1;
 +
      /* Zero-overhead loop */
      if (__builtin_expect(cpu->lcount > 0, 0) &&
          cpu->pc == cpu->lend && !cpu->_pc_written) {
 diff --git a/src/xtensa.h b/src/xtensa.h
-index 09e3182..60325a6 100644
+index 09e3182..de6bb42 100644
 --- a/src/xtensa.h
 +++ b/src/xtensa.h
 @@ -256,6 +256,16 @@ struct xtensa_cpu {

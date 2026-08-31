@@ -31,7 +31,7 @@ import { sha256 } from "./lib";
 import { TRACE_KINDS, decodeTraceBytes, type DecodedTrace } from "./trace-abi";
 import { adaptFlexeTraceToRuntimeTiming } from "./trace-timing-adapter";
 
-const TRACE_SHA256 = "5de26fe4432e5af5c95d99d32ee0d3d68260e712bb5dd20c60eb1315f295c4eb";
+const TRACE_SHA256 = "3a977c98d067f0fc9bb84b0f9d4f163ac34f29451d9c7c9af727bcc6bef8fecc";
 const TRACE_CAPACITY = 128;
 const SRAM_BASE = 0x3fca0000n;
 const SRAM_SIZE = 0x10000n;
@@ -380,7 +380,7 @@ const emissionKinds = machine.cores[0].accesses.flatMap((result) =>
   result.status === "resolved" ? result.cacheSteps.flatMap((step) => step.emissions.map((emission) => emission.kind)) : []
 );
 const counts = Object.fromEntries([...new Set(emissionKinds)].sort().map((kind) => [kind, emissionKinds.filter((value) => value === kind).length]));
-assert(JSON.stringify(counts) === JSON.stringify({ hit: 44, "line-fill": 2, "sram-bypass": 10 }), `unexpected replay emissions ${JSON.stringify(counts)}`);
+assert(JSON.stringify(counts) === JSON.stringify({ hit: 43, "line-fill": 2, "sram-bypass": 10 }), `unexpected replay emissions ${JSON.stringify(counts)}`);
 const cpuEvents = machine.issuedEvents.filter((issued) => issued.origin.kind === "cpu");
 assert(cpuEvents.length === 43, `expected 43 CPU events, got ${cpuEvents.length}`);
 assert(cpuEvents.every((event) =>
@@ -392,13 +392,13 @@ const dependentLoadUseEvents = cpuEvents.filter((event) =>
   event.cost.status === "known" && event.cost.cycles === 2n
 );
 assert(dependentLoadUseEvents.length === 0, "staging trace unexpectedly gained a dependent SRAM load-use pair");
-assert(machine.issuedEvents.length === 99, `expected 99 issued events, got ${machine.issuedEvents.length}`);
+assert(machine.issuedEvents.length === 98, `expected 98 issued events, got ${machine.issuedEvents.length}`);
 assert(machine.execution.events.filter((event) => event.resource === "mspi").length === 2, "instruction misses did not reach MSPI");
 assert(machine.claim.unknownCostEventIds.length === 0, "adopted hot-hit costs left an unknown event");
 const calibratedHits = perRecord.flatMap((record) =>
   record.timing.emissions.filter((emission) => emission.kind === "hit")
 );
-assert(calibratedHits.length === 44, "expected 44 calibrated instruction-cache hits");
+assert(calibratedHits.length === 43, "expected 43 calibrated instruction-cache hits");
 assert(calibratedHits.every((emission) =>
   emission.cost.status === "known" &&
   emission.cost.cycles === "0" &&
@@ -413,13 +413,20 @@ assert(calibratedLineFills.every((emission) =>
   emission.cost.calibration === "calibrated" &&
   (emission.cost.cycles === "204" || emission.cost.cycles === "266")
 ), "instruction-cache line fill did not use adopted hardware evidence");
-const crossingFetch = perRecord.find((record) => record.trace.pc === "0x4205823e");
-assert(crossingFetch !== undefined, "trace lost the cache-line crossing fetch");
+const crossingFetch = perRecord.find((record) => record.trace.pc === "0x4205825a");
+assert(crossingFetch !== undefined, "staging trace lost the calibrated cache-line follow-on fetch");
+assert(crossingFetch.access.kind === "instruction-fetch", "crossing fetch changed access kind");
+assert(crossingFetch.resolution.length === 1, "crossing fetch unexpectedly resolved into multiple segments");
+assert(crossingFetch.resolution[0]?.physicalOffset === "0x825a", "crossing fetch changed flash offset");
 assert(
-  JSON.stringify(crossingFetch.timing.emissions.map((emission) => [emission.kind, emission.lineAddress])) ===
-    JSON.stringify([["hit", "0x8220"], ["line-fill", "0x8240"], ["hit", "0x8240"]]),
-  "the three-byte fetch at 0x4205823e no longer spans two instruction-cache lines"
+  JSON.stringify(crossingFetch.timing.emissions.map((emission) => ({
+    kind: emission.kind,
+    lineAddress: emission.lineAddress,
+    cycles: emission.cost.status === "known" ? emission.cost.cycles : null
+  }))) === JSON.stringify([{ kind: "hit", lineAddress: "0x8240", cycles: "0" }]),
+  `crossing fetch changed timing ${JSON.stringify(crossingFetch.timing.emissions)}`
 );
+assert(crossingFetch.timing.totalCycles === "1", "crossing fetch changed total timing");
 for (const record of perRecord.filter((candidate) => candidate.trace.kind !== "instruction")) {
   assert(record.resolution[0]?.physicalBackingId === "esp32-s3-internal-sram", `${record.access.id} left SRAM`);
   assert(

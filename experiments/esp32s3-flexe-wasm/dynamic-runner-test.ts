@@ -157,6 +157,29 @@ function conformanceFixture(symbol: string, bytes: number[], pc = 0x4037f000): E
   };
 }
 
+function packS16Words(values: number[]): Uint8Array {
+  const bytes = new Uint8Array(values.length * 2);
+  const view = new DataView(bytes.buffer);
+  values.forEach((value, index) => view.setInt16(index * 2, value, true));
+  return bytes;
+}
+
+function loadL32rLiteralWord(fixture: RunnerFixture, instructionOffset: number, auxiliary: ExtractedElfRange): number {
+  const instructionPc = fixture.pc + instructionOffset;
+  const instruction = fixture.bytes[instructionOffset] |
+    (fixture.bytes[instructionOffset + 1] << 8) |
+    (fixture.bytes[instructionOffset + 2] << 16);
+  const immediate = ((instruction >> 8) << 16) >> 16;
+  const literalAddress = ((instructionPc & ~3) + immediate * 4) >>> 0;
+  const offset = literalAddress - auxiliary.address;
+  assert(offset >= 0 && offset + 4 <= auxiliary.bytes.length, `l32r literal 0x${literalAddress.toString(16)} is outside the auxiliary page`);
+  return new DataView(
+    auxiliary.bytes.buffer,
+    auxiliary.bytes.byteOffset + offset,
+    4
+  ).getUint32(0, true);
+}
+
 function reasonName(value: number): keyof typeof STOP_REASONS {
   const match = Object.entries(STOP_REASONS).find(([, number]) => number === value);
   if (!match) throw new Error(`unknown dynamic runner stop reason ${value}`);
@@ -360,7 +383,7 @@ const scalar = extractElfFunction(
   DEFAULT_TINYDRAW_ESP32S3_ELF,
   "tlsf_alloc_overhead"
 );
-assert(scalar.elfSha256 === "a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644", "scalar ELF changed");
+assert(scalar.elfSha256 === "e9681a8015728b95a9e948a56a0cbe4245b1abff812fa0b70b93c4ca1a29f044", "scalar ELF changed");
 assert(scalar.objdumpSha256 === "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466", "objdump changed");
 assert(scalar.pc === 0x403808f4, "scalar function PC changed");
 assert(scalar.codeSha256 === "cebc5d75741ee728f371bf15e6f834d1cacd50ce35b264385313c30b542ee7b7", "scalar code changed");
@@ -792,6 +815,198 @@ assert(
   "adjacent VMULAS QACC QUP refusal changed registers"
 );
 
+const fftAmsSel0Fixture = conformanceFixture("esp32s3_fft_ams_s16_st_incp_sel0", [
+  0x36, 0x21, 0x00,
+  0xc2, 0xc4, 0xdf,
+  0xc0, 0x03, 0x13,
+  0x24, 0x20, 0xdd,
+  0x24, 0xa1, 0xdd,
+  0x24, 0x22, 0xed,
+  0x24, 0x23, 0xcd,
+  0x22, 0x22, 0x10,
+  0x2e, 0xe3, 0x0a, 0xa0,
+  0x34, 0xe0, 0xcd,
+  0x29, 0x43,
+  0x1d, 0xf0
+]);
+const fftAmsSel1Fixture = conformanceFixture("esp32s3_fft_ams_s16_st_incp_sel1", [
+  0x36, 0x21, 0x00,
+  0xc2, 0xc4, 0xe1,
+  0xc0, 0x03, 0x13,
+  0x24, 0x20, 0xdd,
+  0x24, 0xa1, 0xdd,
+  0x24, 0x22, 0xed,
+  0x24, 0x23, 0xcd,
+  0x22, 0x22, 0x10,
+  0x2e, 0xe3, 0x0a, 0xa4,
+  0x34, 0xe0, 0xcd,
+  0x29, 0x43,
+  0x1d, 0xf0
+]);
+const fftAmsInput = Uint8Array.from([
+  ...packS16Words([100, -200, 300, -400, 500, -600, 700, -800]),
+  ...packS16Words([50, 20, -30, 40, -50, 60, -70, 80]),
+  ...packS16Words([1, 2, 3, 4, 5, 6, -7, 8]),
+  ...packS16Words([1000, -1100, 1200, -1300, 1400, -1500, 1600, -1700]),
+  0xdc, 0xfe, 0x34, 0x12
+]);
+const fftAmsSel0Expected = new Uint8Array(fftAmsInput.length);
+fftAmsSel0Expected.set(packS16Words([-146, 2330, 500, -550, 600, -650, 700, -750]));
+fftAmsSel0Expected.set(packS16Words([0, 0, 0, 0, 0, 0, 445, 6480]), 16);
+fftAmsSel0Expected.set(Uint8Array.from([0x2f, 0x03, 0x70, 0x12]), 32);
+const fftAmsSel0Run = await runFresh(moduleBytes, fftAmsSel0Fixture, { data: fftAmsInput, maxSteps: 12 });
+assert(fftAmsSel0Run.record.reason === STOP_REASONS.returned, `FFT AMS sel0 stopped with ${fftAmsSel0Run.record.reasonName}`);
+assert(fftAmsSel0Run.record.steps === 12, `FFT AMS sel0 executed ${fftAmsSel0Run.record.steps} instructions`);
+assert(
+  fftAmsSel0Run.dataOutput.every((byte, index) => byte === fftAmsSel0Expected[index]),
+  `FFT AMS sel0 output changed: ${Buffer.from(fftAmsSel0Run.dataOutput).toString("hex")}`
+);
+assert(fftAmsSel0Run.record.registers[10] === 0x1270032f, "FFT AMS sel0 produced the wrong AT value");
+assert(fftAmsSel0Run.record.registers[11] === INITIAL_DESTINATION + 16, "FFT AMS sel0 applied the wrong postincrement");
+const fftAmsSel1Expected = new Uint8Array(fftAmsInput.length);
+fftAmsSel1Expected.set(Uint8Array.from([
+  0xdc, 0xfe, 0x34, 0x12,
+  ...packS16Words([1000, -1100, 1200, -1300, 1400, -1500])
+]));
+fftAmsSel1Expected.set(packS16Words([0, 0, 0, 0, 0, 0, 2024, 740]), 16);
+fftAmsSel1Expected.set(Uint8Array.from([0x04, 0xfd, 0x04, 0xfc]), 32);
+const fftAmsSel1Run = await runFresh(moduleBytes, fftAmsSel1Fixture, { data: fftAmsInput, maxSteps: 12 });
+assert(fftAmsSel1Run.record.reason === STOP_REASONS.returned, `FFT AMS sel1 stopped with ${fftAmsSel1Run.record.reasonName}`);
+assert(fftAmsSel1Run.record.steps === 12, `FFT AMS sel1 executed ${fftAmsSel1Run.record.steps} instructions`);
+assert(
+  fftAmsSel1Run.dataOutput.every((byte, index) => byte === fftAmsSel1Expected[index]),
+  `FFT AMS sel1 output changed: ${Buffer.from(fftAmsSel1Run.dataOutput).toString("hex")}`
+);
+assert(fftAmsSel1Run.record.registers[10] === 0xfc04fd04, "FFT AMS sel1 produced the wrong AT value");
+assert(fftAmsSel1Run.record.registers[11] === INITIAL_DESTINATION + 16, "FFT AMS sel1 applied the wrong postincrement");
+const fftAmsUnsupportedFixture = conformanceFixture("esp32s3_fft_ams_s16_ld_incp_neighbor", [
+  0x8e, 0xc0, 0xcd, 0xd0
+]);
+const fftAmsUnsupportedRun = await runFresh(moduleBytes, fftAmsUnsupportedFixture, { maxSteps: 1 });
+assert(fftAmsUnsupportedRun.record.reason === STOP_REASONS.stepError, "adjacent FFT AMS form did not fail closed");
+assert(fftAmsUnsupportedRun.record.steps === 0, "adjacent FFT AMS form was counted as executed");
+assert(fftAmsUnsupportedRun.trace.count === 0, "adjacent FFT AMS refusal leaked a trace record");
+assert(
+  fftAmsUnsupportedRun.record.registers.every(
+    (value, index) => value === initialRegisters(fftAmsUnsupportedRun.record.returnPc)[index]
+  ),
+  "adjacent FFT AMS refusal changed registers"
+);
+
+const fftCmulLdSel0Fixture = conformanceFixture("esp32s3_fft_cmul_s16_ld_xp_sel0", [
+  0x36, 0x21, 0x00,
+  0xc2, 0xc4, 0xe2,
+  0xd2, 0xcc, 0x12,
+  0xc0, 0x03, 0x13,
+  0x24, 0x20, 0xdd,
+  0x24, 0xa1, 0xdd,
+  0x22, 0xc2, 0x30,
+  0x2e, 0x8d, 0x31, 0xdc,
+  0x34, 0x60, 0xcd,
+  0x34, 0xe1, 0xcd,
+  0x1d, 0xf0
+]);
+const fftCmulLdSel5Fixture = conformanceFixture("esp32s3_fft_cmul_s16_ld_xp_sel5", [
+  0x36, 0x21, 0x00,
+  0xc2, 0xc4, 0xe1,
+  0xd2, 0xcc, 0x1b,
+  0xc0, 0x03, 0x13,
+  0x24, 0x20, 0xdd,
+  0x24, 0xa1, 0xdd,
+  0x22, 0xc2, 0x30,
+  0x2e, 0x8d, 0x39, 0xde,
+  0x34, 0x60, 0xcd,
+  0x34, 0xe1, 0xcd,
+  0x1d, 0xf0
+]);
+const fftCmulLdInput = Uint8Array.from([
+  ...packS16Words([100, -200, 11, 22, 70, -80, 7, 8]),
+  ...packS16Words([30, 40, 33, 44, -90, 100, 9, 10]),
+  ...new Uint8Array(16),
+  0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,
+  0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf
+]);
+const fftCmulLdSel0Expected = new Uint8Array(fftCmulLdInput.length);
+fftCmulLdSel0Expected.set(Uint8Array.from([
+  0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,
+  0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf
+]));
+fftCmulLdSel0Expected.set(packS16Words([-1250, -2500, 0, 0, 0, 0, 0, 0]), 16);
+const fftCmulLdSel0Run = await runFresh(moduleBytes, fftCmulLdSel0Fixture, { data: fftCmulLdInput, maxSteps: 11 });
+assert(fftCmulLdSel0Run.record.reason === STOP_REASONS.returned, `FFT CMUL load sel0 stopped with ${fftCmulLdSel0Run.record.reasonName}`);
+assert(fftCmulLdSel0Run.record.steps === 11, `FFT CMUL load sel0 executed ${fftCmulLdSel0Run.record.steps} instructions`);
+assert(
+  fftCmulLdSel0Run.dataOutput.every((byte, index) => byte === fftCmulLdSel0Expected[index]),
+  `FFT CMUL load sel0 output changed: ${Buffer.from(fftCmulLdSel0Run.dataOutput).toString("hex")}`
+);
+assert(fftCmulLdSel0Run.record.registers[10] === INITIAL_SOURCE + 68, "FFT CMUL load sel0 applied the wrong register postincrement");
+const fftCmulLdSel5Expected = new Uint8Array(fftCmulLdInput.length);
+fftCmulLdSel5Expected.set(fftCmulLdSel0Expected.slice(0, 16));
+fftCmulLdSel5Expected.set(packS16Words([0, 0, 0, 0, 850, 7100, 0, 0]), 16);
+const fftCmulLdSel5Run = await runFresh(moduleBytes, fftCmulLdSel5Fixture, { data: fftCmulLdInput, maxSteps: 11 });
+assert(fftCmulLdSel5Run.record.reason === STOP_REASONS.returned, `FFT CMUL load sel5 stopped with ${fftCmulLdSel5Run.record.reasonName}`);
+assert(fftCmulLdSel5Run.record.steps === 11, `FFT CMUL load sel5 executed ${fftCmulLdSel5Run.record.steps} instructions`);
+assert(
+  fftCmulLdSel5Run.dataOutput.every((byte, index) => byte === fftCmulLdSel5Expected[index]),
+  `FFT CMUL load sel5 output changed: ${Buffer.from(fftCmulLdSel5Run.dataOutput).toString("hex")}`
+);
+assert(fftCmulLdSel5Run.record.registers[10] === INITIAL_SOURCE + 76, "FFT CMUL load sel5 applied the wrong register postincrement");
+const fftCmulLdUnsupportedFixture = conformanceFixture("esp32s3_fft_cmul_s16_ld_xp_neighbor", [
+  0xae, 0x8c, 0x31, 0xdf
+]);
+const fftCmulLdUnsupportedRun = await runFresh(moduleBytes, fftCmulLdUnsupportedFixture, { maxSteps: 1 });
+assert(fftCmulLdUnsupportedRun.record.reason === STOP_REASONS.stepError, "adjacent FFT CMUL load form did not fail closed");
+assert(fftCmulLdUnsupportedRun.record.steps === 0, "adjacent FFT CMUL load form was counted as executed");
+assert(fftCmulLdUnsupportedRun.trace.count === 0, "adjacent FFT CMUL load refusal leaked a trace record");
+assert(
+  fftCmulLdUnsupportedRun.record.registers.every(
+    (value, index) => value === initialRegisters(fftCmulLdUnsupportedRun.record.returnPc)[index]
+  ),
+  "adjacent FFT CMUL load refusal changed registers"
+);
+
+const fftCmulStFixture = conformanceFixture("esp32s3_fft_cmul_s16_st_xp_mix", [
+  0x36, 0x21, 0x00,
+  0xc2, 0xc4, 0xea,
+  0xeb, 0xdc,
+  0xc0, 0x03, 0x13,
+  0x24, 0x20, 0xdd,
+  0x24, 0xa1, 0xdd,
+  0x24, 0x22, 0xed,
+  0x3e, 0xbd, 0x34, 0xa8,
+  0x3e, 0xbd, 0xb4, 0xab,
+  0x1d, 0xf0
+]);
+const fftCmulStInput = Uint8Array.from([
+  ...packS16Words([10, -20, 30, -40, 1, 2, 70, -80]),
+  ...packS16Words([3, 4, 5, 6, 7, 8, 30, 40]),
+  ...packS16Words([1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700])
+]);
+const fftCmulStExpected = new Uint8Array(fftCmulStInput.length);
+fftCmulStExpected.set(packS16Words([1000, 1100, 1200, 1300, 1400, 1500, -275, -1300]));
+fftCmulStExpected.set(packS16Words([5, -10, 1400, 1500, 15, -20, 1325, 100]), 16);
+const fftCmulStRun = await runFresh(moduleBytes, fftCmulStFixture, { data: fftCmulStInput, maxSteps: 10 });
+assert(fftCmulStRun.record.reason === STOP_REASONS.returned, `FFT CMUL store stopped with ${fftCmulStRun.record.reasonName}`);
+assert(fftCmulStRun.record.steps === 10, `FFT CMUL store executed ${fftCmulStRun.record.steps} instructions`);
+assert(
+  fftCmulStRun.dataOutput.every((byte, index) => byte === fftCmulStExpected[index]),
+  `FFT CMUL store output changed: ${Buffer.from(fftCmulStRun.dataOutput).toString("hex")}`
+);
+assert(fftCmulStRun.record.registers[11] === INITIAL_DESTINATION + 32, "FFT CMUL store applied the wrong register postincrement");
+const fftCmulStUnsupportedFixture = conformanceFixture("esp32s3_fft_cmul_s16_st_xp_neighbor", [
+  0xbe, 0xbd, 0xbc, 0xab
+]);
+const fftCmulStUnsupportedRun = await runFresh(moduleBytes, fftCmulStUnsupportedFixture, { maxSteps: 1 });
+assert(fftCmulStUnsupportedRun.record.reason === STOP_REASONS.stepError, "adjacent FFT CMUL store form did not fail closed");
+assert(fftCmulStUnsupportedRun.record.steps === 0, "adjacent FFT CMUL store form was counted as executed");
+assert(fftCmulStUnsupportedRun.trace.count === 0, "adjacent FFT CMUL store refusal leaked a trace record");
+assert(
+  fftCmulStUnsupportedRun.record.registers.every(
+    (value, index) => value === initialRegisters(fftCmulStUnsupportedRun.record.returnPc)[index]
+  ),
+  "adjacent FFT CMUL store refusal changed registers"
+);
+
 const accxMemoryFixture = conformanceFixture("esp32s3_accx_memory_roundtrip", [
   0x3b, 0xaa,
   0xa4, 0x7f, 0x4e,
@@ -1051,12 +1266,13 @@ const threadptrFixture = conformanceFixture("esp32s3_threadptr_roundtrip", [
   0x1d, 0xf0
 ], 0x40375ce1);
 const threadptrLiterals = extractElfRange(DEFAULT_ESP32S3_OBJDUMP, DEFAULT_TINYDRAW_ESP32S3_FULL_ELF, 0x40374000, 4096);
+const expectedThreadptr = loadL32rLiteralWord(threadptrFixture, 3, threadptrLiterals);
 const threadptrRun = await runFresh(moduleBytes, threadptrFixture, { auxiliary: threadptrLiterals });
 assert(threadptrRun.record.reason === STOP_REASONS.returned, `THREADPTR fixture stopped with ${threadptrRun.record.reasonName}`);
 assert(threadptrRun.record.steps === 5, `THREADPTR fixture executed ${threadptrRun.record.steps} instructions`);
 assert(
-  threadptrRun.record.registers[10] === 0x3fcabf20,
-  `THREADPTR round trip returned 0x${threadptrRun.record.registers[10].toString(16)}`
+  threadptrRun.record.registers[10] === expectedThreadptr,
+  `THREADPTR round trip returned 0x${threadptrRun.record.registers[10].toString(16)} instead of 0x${expectedThreadptr.toString(16)}`
 );
 
 const accxFixture = conformanceFixture("esp32s3_accx_roundtrip", [
@@ -1153,7 +1369,7 @@ const pie = extractElfFunction(
   DEFAULT_TINYDRAW_ESP32S3_FIXTURE_ELF,
   DEFAULT_TINYDRAW_ESP32S3_FIXTURE_SYMBOL
 );
-assert(pie.elfSha256 === "591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742", "PIE fixture ELF changed");
+assert(pie.elfSha256 === "3cb3f1d4751a14132e5a4e6e1d936cbd81cf8b04a9a9ac3d9470a104c93c6a1b", "PIE fixture ELF changed");
 assert(pie.pc === 0x40377698, "PIE fixture PC changed");
 assert(pie.codeSha256 === "f0503e09af131793fa0dfdf9077a9d433225c08962672d7f492f1496b15d1c75", "PIE fixture code changed");
 const pieGap = pie.instructions.find((row) => row.addressValue === 0x403776a0);
@@ -1194,9 +1410,9 @@ const staging = extractElfFunction(
   DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF,
   DEFAULT_TINYDRAW_ESP32S3_STAGING_SYMBOL
 );
-assert(staging.elfSha256 === "522b33cb491bbc9c8a61a364b3c986c7f1d013bcdf228f79791981f7fcad1491", "staging ELF changed");
+assert(staging.elfSha256 === "55164f2c9c6ab825dba9c2d8bd05319e381e6e2ce0cb6d4272fdb2e3a7cd415f", "staging ELF changed");
 assert(staging.objdumpSha256 === "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466", "objdump changed");
-assert(staging.pc === 0x42058230, "staging function PC changed");
+assert(staging.pc === 0x4205824c, "staging function PC changed");
 assert(staging.codeSha256 === "a545acd197c5b75f0351256aa6a9c8a7028cb42f91e617c28317fa560d873877", "staging code changed");
 const stagingMnemonics = staging.instructions.map((row) => row.rawMnemonic);
 assert(
@@ -1532,6 +1748,45 @@ const actualBaseline = {
     unsupportedReason: unsupportedVmulasQupRun.record.reasonName,
     unsupportedEncoding: `0x${unsupportedVmulasQupRun.record.unsupportedEncoding.toString(16)}`
   },
+  fftAmsIsa: {
+    sel0CodeSha256: fftAmsSel0Fixture.codeSha256,
+    sel0OutputHex: Buffer.from(fftAmsSel0Run.dataOutput).toString("hex"),
+    sel0Reason: fftAmsSel0Run.record.reasonName,
+    sel0Steps: fftAmsSel0Run.record.steps,
+    sel0AtValue: `0x${fftAmsSel0Run.record.registers[10].toString(16)}`,
+    sel0DestinationAfter: `0x${fftAmsSel0Run.record.registers[11].toString(16)}`,
+    sel1CodeSha256: fftAmsSel1Fixture.codeSha256,
+    sel1OutputHex: Buffer.from(fftAmsSel1Run.dataOutput).toString("hex"),
+    sel1Reason: fftAmsSel1Run.record.reasonName,
+    sel1Steps: fftAmsSel1Run.record.steps,
+    sel1AtValue: `0x${fftAmsSel1Run.record.registers[10].toString(16)}`,
+    sel1DestinationAfter: `0x${fftAmsSel1Run.record.registers[11].toString(16)}`,
+    unsupportedCodeSha256: fftAmsUnsupportedFixture.codeSha256,
+    unsupportedReason: fftAmsUnsupportedRun.record.reasonName
+  },
+  fftCmulLdIsa: {
+    sel0CodeSha256: fftCmulLdSel0Fixture.codeSha256,
+    sel0OutputHex: Buffer.from(fftCmulLdSel0Run.dataOutput).toString("hex"),
+    sel0Reason: fftCmulLdSel0Run.record.reasonName,
+    sel0Steps: fftCmulLdSel0Run.record.steps,
+    sel0SourceAfter: `0x${fftCmulLdSel0Run.record.registers[10].toString(16)}`,
+    sel5CodeSha256: fftCmulLdSel5Fixture.codeSha256,
+    sel5OutputHex: Buffer.from(fftCmulLdSel5Run.dataOutput).toString("hex"),
+    sel5Reason: fftCmulLdSel5Run.record.reasonName,
+    sel5Steps: fftCmulLdSel5Run.record.steps,
+    sel5SourceAfter: `0x${fftCmulLdSel5Run.record.registers[10].toString(16)}`,
+    unsupportedCodeSha256: fftCmulLdUnsupportedFixture.codeSha256,
+    unsupportedReason: fftCmulLdUnsupportedRun.record.reasonName
+  },
+  fftCmulStIsa: {
+    codeSha256: fftCmulStFixture.codeSha256,
+    outputHex: Buffer.from(fftCmulStRun.dataOutput).toString("hex"),
+    reason: fftCmulStRun.record.reasonName,
+    steps: fftCmulStRun.record.steps,
+    destinationAfter: `0x${fftCmulStRun.record.registers[11].toString(16)}`,
+    unsupportedCodeSha256: fftCmulStUnsupportedFixture.codeSha256,
+    unsupportedReason: fftCmulStUnsupportedRun.record.reasonName
+  },
   accxMemoryIsa: {
     codeSha256: accxMemoryFixture.codeSha256,
     outputHex: Buffer.from(accxMemoryRun.dataOutput).toString("hex"),
@@ -1740,6 +1995,9 @@ assert(
     float64IpIsa: baseline.float64IpIsa,
     float128Isa: baseline.float128Isa,
     vmulasQupIsa: baseline.vmulasQupIsa,
+    fftAmsIsa: baseline.fftAmsIsa,
+    fftCmulLdIsa: baseline.fftCmulLdIsa,
+    fftCmulStIsa: baseline.fftCmulStIsa,
     accxMemoryIsa: baseline.accxMemoryIsa,
     qaccMemoryIsa: baseline.qaccMemoryIsa,
     uaMemoryIsa: baseline.uaMemoryIsa,
