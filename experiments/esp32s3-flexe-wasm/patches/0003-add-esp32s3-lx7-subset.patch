@@ -97,7 +97,7 @@ diff --git a/src/xtensa.c b/src/xtensa.c
 index 67dca18..e72666d 100644
 --- a/src/xtensa.c
 +++ b/src/xtensa.c
-@@ -138,23 +138,44 @@ static inline __attribute__((always_inline))
+@@ -138,23 +138,48 @@ static inline __attribute__((always_inline))
  int xtensa_fetch_inline(const xtensa_cpu_t *cpu, uint32_t addr, uint32_t *insn_out) {
      uint8_t *page = cpu->mem->page_table[addr >> 12];
      if (__builtin_expect(!page, 0)) return 0;
@@ -118,8 +118,12 @@ index 67dca18..e72666d 100644
 +        }
 +        if (complete) {
 +            uint32_t opcode = candidate & 0xf800000eu;
++            uint32_t float64_ip_opcode = candidate & 0xfc000e0eu;
++            uint32_t float64_ip_sign = (candidate >> 24) & 3u;
 +            if (opcode == 0x8000000eu || opcode == 0x8800000eu ||
-+                opcode == 0x9000000eu || opcode == 0x9800000eu) length = 4u;
++                opcode == 0x9000000eu || opcode == 0x9800000eu ||
++                ((float64_ip_opcode == 0xe000040eu || float64_ip_opcode == 0xe000060eu) &&
++                 (float64_ip_sign == 0u || float64_ip_sign == 3u))) length = 4u;
 +        }
 +    }
 +    if (addr > UINT32_MAX - (length - 1u)) return 0;
@@ -276,7 +280,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2186,452 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2190,477 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -441,6 +445,31 @@ index 67dca18..e72666d 100644
 +    }
 +
 +    uint32_t float64_opcode = insn & 0x0f000fu;
++    uint32_t float64_ip_opcode = insn & 0xfc000e0eu;
++    uint32_t float64_ip_sign = (insn >> 24) & 3u;
++    if ((float64_ip_opcode == 0xe000040eu || float64_ip_opcode == 0xe000060eu) &&
++        (float64_ip_sign == 0u || float64_ip_sign == 3u)) {
++        unsigned low_float_register = (insn >> 12) & 15u;
++        unsigned high_float_register = (insn >> 20) & 15u;
++        unsigned base_register = (insn >> 4) & 15u;
++        uint32_t immediate = ((insn >> 8) & 1u) |
++                             ((insn & 1u) << 1) |
++                             (((insn >> 16) & 15u) << 2) |
++                             (((insn >> 24) & 1u) << 6);
++        int32_t increment = sign_extend(immediate, 7) * 8;
++        uint32_t base = ar_read(cpu, base_register);
++        uint32_t address = base & ~7u;
++        if (float64_ip_opcode == 0xe000040eu) {
++            cpu->fr[low_float_register] = bits_to_float(mem_read32(cpu->mem, address));
++            cpu->fr[high_float_register] = bits_to_float(mem_read32(cpu->mem, address + 4));
++        } else {
++            mem_write32(cpu->mem, address, float_to_bits(cpu->fr[low_float_register]));
++            mem_write32(cpu->mem, address + 4, float_to_bits(cpu->fr[high_float_register]));
++        }
++        ar_write(cpu, base_register, base + (uint32_t)increment);
++        return 1;
++    }
++
 +    if (float64_opcode == 0x060000u || float64_opcode == 0x070000u) {
 +        unsigned low_float_register = (insn >> 20) & 15u;
 +        unsigned high_float_register = (insn >> 12) & 15u;
@@ -729,7 +758,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2871,8 @@ have_insn:
+@@ -2319,6 +2900,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -738,7 +767,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +2899,16 @@ have_insn:
+@@ -2345,14 +2928,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -759,7 +788,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +2922,8 @@ have_insn:
+@@ -2366,6 +2951,8 @@ have_insn:
          }
      }
 

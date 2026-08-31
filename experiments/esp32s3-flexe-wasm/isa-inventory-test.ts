@@ -50,6 +50,8 @@ assert(surface.normalizedMnemonics.includes("ee.vld.l.64.ip"), "ESP32-S3 PIE pat
 assert(surface.normalizedMnemonics.includes("ee.vld.l.64.xp"), "ESP32-S3 PIE patch surface lost half vector XP load");
 assert(surface.normalizedMnemonics.includes("ee.vst.l.64.ip"), "ESP32-S3 PIE patch surface lost low-half vector store");
 assert(surface.normalizedMnemonics.includes("ee.vst.h.64.xp"), "ESP32-S3 PIE patch surface lost half vector XP store");
+assert(surface.normalizedMnemonics.includes("ee.ldf.64.ip"), "ESP32-S3 PIE patch surface lost float-pair immediate load");
+assert(surface.normalizedMnemonics.includes("ee.stf.64.ip"), "ESP32-S3 PIE patch surface lost float-pair immediate store");
 assert(surface.normalizedMnemonics.includes("ee.ldf.64.xp"), "ESP32-S3 PIE patch surface lost float-pair load");
 assert(surface.normalizedMnemonics.includes("ee.stf.64.xp"), "ESP32-S3 PIE patch surface lost float-pair store");
 assert(surface.normalizedMnemonics.includes("ee.ldf.128.ip"), "ESP32-S3 PIE patch surface lost float-quad immediate load");

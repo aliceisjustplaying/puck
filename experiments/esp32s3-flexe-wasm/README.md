@@ -79,7 +79,8 @@ mnemonic remains in the gap list, and every named user-register form is covered.
 `0003-add-esp32s3-lx7-subset.patch` implements `s32nb`, `lsip`, `ssip`,
 `ld.qr`, `st.qr`, `ee.vld.128.ip`, `ee.vld.128.xp`, `ee.vst.128.ip`,
 `ee.vld.l.64.ip`, `ee.vld.h.64.ip`, `ee.vst.h.64.ip`, `ee.vunzip.8`, and
-`ee.vzip.8`, `ee.ldf.64.xp`, `ee.stf.64.xp`, `ee.ld.accx.ip`, and
+`ee.vzip.8`, `ee.ldf.64.ip`, `ee.stf.64.ip`, `ee.ldf.64.xp`,
+`ee.stf.64.xp`, `ee.ld.accx.ip`, and
 `ee.st.accx.ip`, all eight `ee.[ld/st].qacc_[h/l].[h.32/l.128].ip`
 transfers, `ee.[ld/st].ua_state.ip`, `ee.ld.128.usar.ip`, `ee.vldbc.32.ip`,
 `ee.ldqa.s16.128.ip`, `ee.movi.32.q`, `ee.zero.q`, `ee.ld.128.usar.xp`,
@@ -159,10 +160,12 @@ directions with independent pointer updates. Exact code
 hashes, outputs, step counts, and post-incremented registers are pinned in the
 dynamic baseline.
 
-The floating-register pair fixture round-trips an exact NaN payload and a
-second arbitrary 32-bit word through `ee.ldf.64.xp` and `ee.stf.64.xp`. It
-proves forced eight-byte alignment, low/high register order, bit preservation,
-and independent register postincrements. A four-register fixture round-trips
+The floating-register pair fixtures round-trip an exact NaN payload and a
+second arbitrary 32-bit word through both immediate and register-postincrement
+`ee.ldf.64` and `ee.stf.64` forms. They prove forced eight-byte alignment,
+low/high register order, bit preservation, and exact signed postincrements.
+An adjacent immediate encoding with different fixed opcode bits remains
+fail-closed in dynamic and sparse execution. A four-register fixture round-trips
 32 deterministic bytes through the immediate and register-postincrement
 `ee.ldf.128` and `ee.stf.128` forms, including forced 16-byte alignment. The
 adjacent `ee.vmulas.s16.accx.ld.xp.qup` form remains fail-closed.
@@ -412,9 +415,10 @@ exact ROM callback, `esp_rom_set_cpu_ticks_per_us` at `0x40001a4c`,
 accepts argument 40 with CALLINC 2 only after both clock-query cycles. The real
 image then restores interrupt level zero through `_xtos_set_intlevel` at
 `0x40001c38`, requiring exact saved PS `0x00040c00`, previous PS `0x00040c03`,
-CALLINC 2, and the completed REGI2C sequence. It now executes 523 instructions
-and stops at the following unloaded ROM callback `rom_i2c_writeReg` at
-`0x40005d60`; the typed event log also contains the interrupt-level restore.
+CALLINC 2, and the completed REGI2C sequence. It then executes the exact
+one-shot `rom_i2c_writeReg(0x66, 1, 4, 0x6b)` callback and now reaches 535
+instructions before refusing the next `_xtos_set_intlevel` call at
+`0x40001c38`; the typed event log retains both callback boundaries.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
@@ -427,7 +431,7 @@ first undeclared 32-bit MMIO read at
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 1,024 executed instructions. The pinned TinyDraw ELF
-automatically installs the tracked 926-instruction ESP32-S3 ISA gap set before
+automatically installs the tracked 916-instruction ESP32-S3 ISA gap set before
 execution. Each marker must match the decoder-width bytes in loaded executable
 memory during setup; stale, mismatched, unloaded, and non-executable markers are
 refused. Once bound, reaching a marked PC stops before LX6 decoding, including
@@ -441,8 +445,8 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 523-step
-interrupt-restore boundary produces 706 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 535-step
+second interrupt-level boundary produces 721 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
