@@ -329,9 +329,9 @@ the bootloader-persisted duplicated-half value is `0x00280028`. Other RTCCNTL
 addresses, access shapes, readers, orderings, and repeats are refused. The real
 The next exact ROM callback, `esp_rom_set_cpu_ticks_per_us` at `0x40001a4c`,
 accepts argument 40 with CALLINC 2 only after both clock-query cycles. The real
-image now executes 322 instructions and stops on the following
-`SYSTEM_SYSCLK_CONF` write at PC `0x4037727d`; the typed event log contains the
-CPU-ticks callback, seven SYSTEM reads, and one RTCCNTL read.
+image now executes 325 instructions and stops on the following
+`SYSTEM_SYSCLK_CONF` read at PC `0x40377294`; the typed event log contains the
+CPU-ticks callback, seven SYSTEM reads, one SYSTEM write, and one RTCCNTL read.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
@@ -358,8 +358,8 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 322-step
-cache-bootstrap boundary produces 448 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 325-step
+cache-bootstrap boundary produces 452 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
@@ -369,15 +369,15 @@ MMIO pages observed in the trace, with their ELF or inherited permissions.
 Those eight exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 448 records issue 799 timing events: 416 memory-system
-events, 35 MMIO accesses, 322 calibrated CPU issue events, and 26 calibrated
-dependent load-use events. Exactly 764 events have adopted costs, including
+literal loads. The 452 records issue 806 timing events: 419 memory-system
+events, 36 MMIO accesses, 325 calibrated CPU issue events, and 26 calibrated
+dependent load-use events. Exactly 770 events have adopted costs, including
 three exact not-taken `beqz` paths, three flash line fills, and every zero-miss
 cache hit. The baseline pins the branch classifier, hazard count, and a
 projection hash of their schedule, consumer IDs, registers, and
-producer/consumer PCs. Only the 35 controller MMIO costs remain unknown, so the
+producer/consumer PCs. Only the 36 controller MMIO costs remain unknown, so the
 replay is blocked and reports no total cycle claim. The baseline also pins the
-exact address, direction, width, peripheral, and count of all ten observed MMIO
+exact address, direction, width, peripheral, and count of all eleven observed MMIO
 access classes so hardware-adopted costs can reduce that boundary without
 silently broadening their scope.
 An executable-permission miss and an unloaded page have distinct recoverable

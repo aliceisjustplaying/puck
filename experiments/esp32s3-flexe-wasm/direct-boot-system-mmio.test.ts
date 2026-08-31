@@ -6,6 +6,7 @@ import {
   ESP32S3_DIRECT_BOOT_CPU_PER_PROVENANCE,
   ESP32S3_DIRECT_BOOT_SYSCLK_CONF,
   ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_READ_PC,
+  ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_WRITE_PC,
   ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC,
   ESP32S3_DIRECT_BOOT_SYSCLK_PROVENANCE,
   ESP32S3_SYSTEM_MMIO_PAGE,
@@ -13,6 +14,7 @@ import {
   ESP32S3_SYSTEM_SYSCLK_CONF_REG,
   createEsp32S3DirectBootSystemMmio,
   readEsp32S3DirectBootSystemMmio,
+  writeEsp32S3DirectBootSystemMmio,
 } from "./direct-boot-system-mmio";
 
 describe("ESP32-S3 direct-boot system MMIO", () => {
@@ -44,6 +46,8 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
         cpuPerConf: 0x0000_0004,
         cpuPerReadCount: 0,
         cpuPerLastReadPc: null,
+        writeCount: 0,
+        lastWritePc: null,
       },
     });
   });
@@ -86,6 +90,8 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
         cpuPerConf: 0x0000_0004,
         cpuPerReadCount: 1,
         cpuPerLastReadPc: 0x4037_71d6,
+        writeCount: 0,
+        lastWritePc: null,
       },
     });
   });
@@ -277,6 +283,39 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       },
     });
     if (!postTicks.handled || postTicks.status !== "accepted") throw new Error("post-ticks source read refused");
+    const writeAccess = {
+      pc: ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_WRITE_PC,
+      address: ESP32S3_SYSTEM_SYSCLK_CONF_REG,
+      width: 4,
+      isWrite: true,
+      value: 0x400,
+      rtcMmioComplete: true,
+      cpuTicksConfigured: true,
+    } as const;
+    for (const invalid of [
+      { ...writeAccess, pc: 0x4037_727a },
+      { ...writeAccess, address: ESP32S3_SYSTEM_CPU_PER_CONF_REG },
+      { ...writeAccess, width: 2 },
+      { ...writeAccess, isWrite: false },
+      { ...writeAccess, value: 0 },
+      { ...writeAccess, rtcMmioComplete: false },
+      { ...writeAccess, cpuTicksConfigured: false },
+    ]) {
+      const refused = writeEsp32S3DirectBootSystemMmio(postTicks.state, invalid);
+      expect(refused.status).toBe("refused");
+      if (refused.handled) expect(refused.state).toBe(postTicks.state);
+    }
+    const write = writeEsp32S3DirectBootSystemMmio(postTicks.state, writeAccess);
+    expect(write).toEqual({
+      handled: true,
+      status: "accepted",
+      value: 0x400,
+      state: { ...postTicks.state, writeCount: 1, lastWritePc: 0x4037_727d },
+    });
+    if (!write.handled || write.status !== "accepted") throw new Error("post-ticks source write refused");
+    const repeatedWrite = writeEsp32S3DirectBootSystemMmio(write.state, writeAccess);
+    expect(repeatedWrite.status).toBe("refused");
+    if (repeatedWrite.handled) expect(repeatedWrite.state).toBe(write.state);
     const fourthSource = readEsp32S3DirectBootSystemMmio(postTicks.state, postTicksAccess);
     expect(fourthSource.status).toBe("refused");
     if (fourthSource.handled) expect(fourthSource.state).toBe(postTicks.state);

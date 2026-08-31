@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "inputs": {
     "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
-    "moduleSha256": "8c9d1b4ee7997552e4c0926109c5112f267dd05f17a19e37a7273eb27ed97231",
-    "traceRecordSha256": "4550f885c861248f3ebb95286d67e60c1e3721d45ebdcc67e513bef1aeeb948f",
+    "moduleSha256": "c81b181c1f257c639b0b69452618028dbcb296f15864f72a583c3d7a19fbaf82",
+    "traceRecordSha256": "0d9f26750adc068b155c4da6e900f4680bceb8ef60246d79ab1f8a59927a632b",
     "timingProfileSha256": "fa2ce865eb19f45b6bd49baf41232753132ce6f046654a9f07b667e76cae4f4b",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
     "neutralAdapterSha256": "337da62ff6c9a4f4aab9a09e419d250de22f0cc7fc04110826dd90bc8bf4430c",
@@ -12,10 +12,10 @@
     "beqzClassifierSha256": "05fc756b4fe8c1cc69fe3787e413dece79b02cc920d4a3f9340c7bf3bfea3fc9"
   },
   "trace": {
-    "records": 448,
-    "instructions": 322,
+    "records": 452,
+    "instructions": 325,
     "reads": 78,
-    "writes": 48,
+    "writes": 49,
     "observedSramPages": [
       "0x3fcab000",
       "0x3fce9000",
@@ -34,9 +34,9 @@
     "totalCycles": null,
     "exactBeqzNotTaken": 3,
     "exactBeqzTaken": 0,
-    "issuedEvents": 799,
-    "memoryEvents": 416,
-    "mmioEvents": 35,
+    "issuedEvents": 806,
+    "memoryEvents": 419,
+    "mmioEvents": 36,
     "mmioAccessBreakdown": [
       {
         "address": "0x600080c0",
@@ -58,6 +58,13 @@
         "bytes": 4,
         "peripheral": "system-controller",
         "count": 3
+      },
+      {
+        "address": "0x600c0060",
+        "operation": "write",
+        "bytes": 4,
+        "peripheral": "system-controller",
+        "count": 1
       },
       {
         "address": "0x600c4004",
@@ -109,11 +116,11 @@
         "count": 1
       }
     ],
-    "cpuEvents": 348,
+    "cpuEvents": 351,
     "dependentSramLoadUseHazards": 26,
-    "knownCostEvents": 764,
-    "unknownCostEvents": 35,
-    "issuedProjectionSha256": "53b16acf44b6f666dd89c85fd951dced0cadf59f60340bb9e1811f5b2d728bb7",
+    "knownCostEvents": 770,
+    "unknownCostEvents": 36,
+    "issuedProjectionSha256": "1feeb58b25c95dcb599ac0c1759b1309536cb5e7b9089210e4b58383b42cc257",
     "loadUseEvidenceSha256": "deeebce965700068af325d700928b5ad7c473ac911f60ba3bb5d9449b0993cb5"
   }
 }

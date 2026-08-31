@@ -3,6 +3,7 @@ export const ESP32S3_SYSTEM_CPU_PER_CONF_REG = 0x600c_0010;
 export const ESP32S3_SYSTEM_SYSCLK_CONF_REG = 0x600c_0060;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC = 0x4037_71a5;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_READ_PC = 0x4037_7275;
+export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_WRITE_PC = 0x4037_727d;
 export const ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC = 0x4037_71d6;
 export const ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC = 0x4037_71ff;
 
@@ -33,6 +34,8 @@ export interface Esp32S3DirectBootSystemMmioState {
   readonly cpuPerConf: number;
   readonly cpuPerReadCount: number;
   readonly cpuPerLastReadPc: number | null;
+  readonly writeCount: number;
+  readonly lastWritePc: number | null;
 }
 
 export interface Esp32S3DirectBootSystemMmioAccess {
@@ -67,6 +70,29 @@ export function createEsp32S3DirectBootSystemMmio(): Esp32S3DirectBootSystemMmio
     cpuPerConf: ESP32S3_DIRECT_BOOT_CPU_PER_CONF,
     cpuPerReadCount: 0,
     cpuPerLastReadPc: null,
+    writeCount: 0,
+    lastWritePc: null,
+  });
+}
+
+export function writeEsp32S3DirectBootSystemMmio(
+  state: Esp32S3DirectBootSystemMmioState,
+  access: Esp32S3DirectBootSystemMmioAccess & Readonly<{ value: number }>,
+): Esp32S3DirectBootSystemMmioDispatch {
+  if ((access.address & ~0xfff) !== ESP32S3_SYSTEM_MMIO_PAGE) return Object.freeze({ handled: false });
+  if (access.address !== ESP32S3_SYSTEM_SYSCLK_CONF_REG || access.width !== 4 || !access.isWrite) {
+    return refuse(state, "only the observed aligned SYSTEM_SYSCLK_CONF write is declared");
+  }
+  if (access.pc !== ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_WRITE_PC ||
+      access.value !== state.sysclkConf || !access.rtcMmioComplete || !access.cpuTicksConfigured ||
+      state.readCount !== 3 || state.cpuPerReadCount !== 4 || state.writeCount !== 0) {
+    return refuse(state, "SYSTEM_SYSCLK_CONF write violated the observed post-ticks contract");
+  }
+  return Object.freeze({
+    handled: true,
+    status: "accepted",
+    value: access.value,
+    state: Object.freeze({ ...state, writeCount: 1, lastWritePc: access.pc }),
   });
 }
 
