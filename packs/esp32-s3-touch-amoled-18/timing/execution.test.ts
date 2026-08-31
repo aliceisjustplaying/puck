@@ -360,6 +360,73 @@ describe("one-entry store buffers", () => {
   });
 });
 
+describe("integrated scheduled execution", () => {
+  test("arbitrates cross-core cache fills, DMA, a store drain, and its fence", () => {
+    const cacheFill = (
+      id: string,
+      core: 0 | 1,
+      earliestCycle: bigint,
+      lineAddress: bigint,
+      firstCycles: bigint,
+      clientId: string,
+    ): ExecutionEvent => ({
+      id,
+      kind: "load",
+      core,
+      earliest: {
+        cycle: earliestCycle,
+        calibration: "calibrated",
+        source: "synthetic-core-ready",
+      },
+      memory: "flash",
+      bytes: 16,
+      latency: known(firstCycles),
+      mspiBurst: {
+        clientId,
+        sequenceId: 1n,
+        lineAddress,
+        lineSizeBytes: 16,
+        firstLineLatency: known(firstCycles),
+        subsequentLineServiceInterval: known(2n),
+      },
+    });
+    const result = scheduleExecution([
+      dma("panel-dma", "panel", 8n, "flash", known(3n)),
+      cacheFill("core1-fill", 1, 11n, 0n, 6n, "cache:1:data:flash"),
+      cacheFill("core0-line-0", 0, 0n, 0n, 8n, "cache:0:data:flash"),
+      bufferedStore("core1-store", 1, known(4n)),
+      cacheFill("core0-line-1", 0, 20n, 16n, 8n, "cache:0:data:flash"),
+      fence("core1-fence", 1),
+    ]);
+
+    expect(projection(result.events)).toEqual([
+      "0:core0-line-0:completed:0-8:mspi",
+      "1:panel-dma:completed:8-11:mspi",
+      "2:core1-fill:completed:11-17:mspi",
+      "3:core1-store:completed:17-18:local",
+      "4:core1-store:drain:completed:18-22:mspi",
+      "5:core0-line-1:completed:22-30:mspi",
+      "6:core1-fence:completed:22-24:local",
+    ]);
+    expect(result.events[5]?.status).toBe("completed");
+    if (result.events[5]?.status === "completed") {
+      expect(result.events[5].latency.cycles).toBe(8n);
+    }
+    expect(result.finalClocks).toEqual({
+      cores: [
+        { status: "known", cycle: 30n, calibration: "calibrated" },
+        { status: "known", cycle: 24n, calibration: "calibrated" },
+      ],
+      storeBuffers: [
+        { status: "known", cycle: 0n, calibration: "calibrated" },
+        { status: "known", cycle: 22n, calibration: "calibrated" },
+      ],
+      mspi: { status: "known", cycle: 30n, calibration: "calibrated" },
+      dma: { panel: { status: "known", cycle: 11n, calibration: "calibrated" } },
+    });
+  });
+});
+
 describe("unknown latency blocking", () => {
   test("blocks its core and shared MSPI without stopping independent SRAM on the other core", () => {
     const result = scheduleExecution([
