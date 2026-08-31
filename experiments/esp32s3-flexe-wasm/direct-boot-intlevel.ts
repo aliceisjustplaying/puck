@@ -16,6 +16,7 @@ export interface Esp32S3DirectBootIntlevelAccess {
   readonly regi2cCalibrationStarted: boolean;
   readonly bbpllModeWritten: boolean;
   readonly bbpllReferenceDividerWritten: boolean;
+  readonly bbpllDividerWritten: boolean;
 }
 
 export type Esp32S3DirectBootIntlevelDispatch =
@@ -40,10 +41,11 @@ export function restoreEsp32S3DirectBootIntlevel(
   state: Esp32S3DirectBootIntlevelState,
   access: Esp32S3DirectBootIntlevelAccess,
 ): Esp32S3DirectBootIntlevelDispatch {
-  const expectedRestorePs = state.restoreCount === 1 || state.restoreCount === 4
+  const expectedRestorePs = state.restoreCount === 1 || state.restoreCount === 4 || state.restoreCount === 7
     ? ESP32S3_DIRECT_BOOT_INTLEVEL_PRESERVE_PS
     : ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS;
-  const validOrder = state.restoreCount === 0
+  const dividerStateValid = state.restoreCount < 7 ? !access.bbpllDividerWritten : access.bbpllDividerWritten;
+  const validOrder = dividerStateValid && (state.restoreCount === 0
     ? state.intlevel === 3 && !access.bbpllModeWritten && !access.bbpllReferenceDividerWritten
     : state.restoreCount === 1
       ? state.intlevel === 0 && access.bbpllModeWritten && !access.bbpllReferenceDividerWritten
@@ -55,8 +57,10 @@ export function restoreEsp32S3DirectBootIntlevel(
             ? state.intlevel === 0 && access.bbpllModeWritten && access.bbpllReferenceDividerWritten
             : state.restoreCount === 5
               ? state.intlevel === 3 && access.bbpllModeWritten && access.bbpllReferenceDividerWritten
-              : state.restoreCount === 6 && state.intlevel === 0 && access.bbpllModeWritten &&
-                access.bbpllReferenceDividerWritten;
+              : state.restoreCount === 6
+                ? state.intlevel === 0 && access.bbpllModeWritten && access.bbpllReferenceDividerWritten
+                : state.restoreCount === 7 && state.intlevel === 0 && access.bbpllModeWritten &&
+                  access.bbpllReferenceDividerWritten);
   if (access.pc !== ESP32S3_ROM_SET_INTLEVEL || access.callinc !== 2 ||
       access.restorePs !== expectedRestorePs || !access.regi2cCalibrationStarted || !validOrder) {
     return Object.freeze({
