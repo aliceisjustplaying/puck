@@ -264,6 +264,21 @@ const timingProfile: Check = {
         hz: 240_000_000,
         frequencyStatus: "configured",
       },
+      coreSteadyStateCycles: {
+        status: "partially-calibrated",
+        evidence:
+          "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-bf169bc-counters-candidate.json",
+        instructionIssueCycles: 1,
+        independentSramAccessAdditiveCycles: {
+          load: 0,
+          store: 0,
+        },
+        dependentLoadUseHazard: {
+          status: "unmodeled",
+          observedAdditionalCycles: 1,
+          reason: "runtime traces do not identify register dependencies",
+        },
+      },
       psram: {
         mode: "octal",
         dtr: true,
@@ -278,6 +293,19 @@ const timingProfile: Check = {
         frequencyStatus: "configured",
         calibrated: false,
         throughputBytesPerSecond: null,
+      },
+      cacheLineFillCycles: {
+        status: "calibrated",
+        evidence:
+          "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-a91d1d7-cache-burst-adoption.json",
+        instruction: {
+          flash: { firstLineCycles: 204, subsequentLineCycles: 266 },
+          psram: null,
+        },
+        data: {
+          flash: { firstLineCycles: 115, subsequentLineCycles: 473 },
+          psram: { firstLineCycles: 82, subsequentLineCycles: 170 },
+        },
       },
       panel: {
         interface: "qspi",

@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "format": "puck-esp32s3-runtime-trace-v1",
+  "source": "synthetic bounded ESP32-S3 runtime callback trace",
+  "capacity": 4,
+  "overflow": false,
+  "internalSramRegions": [
+    {
+      "id": "observed-iram-page",
+      "base": "0x40374000",
+      "sizeBytes": 4096,
+      "permissions": { "read": true, "write": false, "execute": true }
+    },
+    {
+      "id": "observed-dram-page",
+      "base": "0x3fcab000",
+      "sizeBytes": 4096,
+      "permissions": { "read": true, "write": true, "execute": false }
+    }
+  ],
+  "observations": [
+    {
+      "id": "runtime:fetch:0",
+      "sequence": 0,
+      "core": 0,
+      "kind": "instruction",
+      "address": "0x40374000",
+      "width": 3
+    },
+    {
+      "id": "runtime:load:0",
+      "sequence": 1,
+      "core": 0,
+      "kind": "read",
+      "address": "0x3fcab010",
+      "width": 4
+    },
+    {
+      "id": "runtime:fetch:1",
+      "sequence": 2,
+      "core": 0,
+      "kind": "instruction",
+      "address": "0x40374003",
+      "width": 3
+    },
+    {
+      "id": "runtime:store:1",
+      "sequence": 3,
+      "core": 0,
+      "kind": "write",
+      "address": "0x3fcab020",
+      "width": 4
+    }
+  ]
+}

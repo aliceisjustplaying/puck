@@ -136,11 +136,14 @@ uncalibrated anywhere the profile or cycle costs are not measurements.
 bun run pack:esp32:timing:test
 bun run pack:esp32:gate
 bun run packs/esp32-s3-touch-amoled-18/timing/report.ts <emu.wasm>
+bun run pack:esp32:timing:replay <runtime-trace.json>
 ```
 
-The last command emits stable JSON containing the accounted ledger and the
+The emulator report emits stable JSON containing the accounted ledger and the
 deterministic schedule. A module without timing exports produces an explicit
 `"timingExports": "absent"` report and exits successfully.
+The runtime replay command accepts the timing lab's strict SRAM-only callback
+artifact and emits the timing machine's partial claim with unknown costs intact.
 
 ## Layout
 
