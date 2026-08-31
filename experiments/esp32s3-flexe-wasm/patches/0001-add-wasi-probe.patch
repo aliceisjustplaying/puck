@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..55a269c
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1914 @@
+@@ -0,0 +1,1920 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -265,6 +265,8 @@ index 0000000..55a269c
 +#define ESP32S3_BBPLL_MODE_HF_480M 0x6bu
 +#define ESP32S3_BBPLL_OC_REF_DIV 2u
 +#define ESP32S3_BBPLL_OC_REF_DIV_480M 0x50u
++#define ESP32S3_BBPLL_OC_DIV_7_0 3u
++#define ESP32S3_BBPLL_OC_DIV_7_0_480M 8u
 +#define ESP32S3_ROM_SET_CPU_TICKS_PER_US 0x40001a4cu
 +#define ESP32S3_DIRECT_BOOT_CPU_TICKS_PER_US 40u
 +#define ESP32S3_CACHE_IDLE 0x001001u
@@ -698,9 +700,11 @@ index 0000000..55a269c
 +    uint32_t block_and_order = event[2];
 +    uint32_t packed_args = event[3];
 +    uint32_t call_state = event[4];
-+    uint32_t expected_restores = write_index == 0u ? 1u : 4u;
-+    uint32_t expected_reg = write_index == 0u ? ESP32S3_BBPLL_MODE_HF : ESP32S3_BBPLL_OC_REF_DIV;
-+    uint32_t expected_data = write_index == 0u ? ESP32S3_BBPLL_MODE_HF_480M : ESP32S3_BBPLL_OC_REF_DIV_480M;
++    uint32_t expected_restores = write_index == 0u ? 1u : (write_index == 1u ? 4u : 7u);
++    uint32_t expected_reg = write_index == 0u ? ESP32S3_BBPLL_MODE_HF :
++                            (write_index == 1u ? ESP32S3_BBPLL_OC_REF_DIV : ESP32S3_BBPLL_OC_DIV_7_0);
++    uint32_t expected_data = write_index == 0u ? ESP32S3_BBPLL_MODE_HF_480M :
++                             (write_index == 1u ? ESP32S3_BBPLL_OC_REF_DIV_480M : ESP32S3_BBPLL_OC_DIV_7_0_480M);
 +    return event[0] == ELF_ROM_EVENT_BBPLL_ROM_WRITE &&
 +           event[1] == ESP32S3_ROM_I2C_WRITE_REG &&
 +           (block_and_order & 0xffu) == ESP32S3_I2C_BBPLL &&
@@ -716,7 +720,7 @@ index 0000000..55a269c
 +    uint32_t count = 0u;
 +    for (uint32_t i = 0; i < elf_rom_event_count; i++) {
 +        if (elf_rom_events[i][0] != ELF_ROM_EVENT_BBPLL_ROM_WRITE) continue;
-+        if (count >= 2u || !elf_bbpll_rom_event_matches(elf_rom_events[i], count)) return 0;
++        if (count >= 3u || !elf_bbpll_rom_event_matches(elf_rom_events[i], count)) return 0;
 +        count++;
 +    }
 +    return count > 0u;
@@ -1413,11 +1417,13 @@ index 0000000..55a269c
 +        uint32_t packed = (host_id << 16) | (reg << 8) | data;
 +        uint32_t intlevel_restores = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_INTLEVEL_RESTORE);
 +        uint32_t bbpll_writes = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_BBPLL_ROM_WRITE);
-+        uint32_t expected_reg = bbpll_writes == 0u ? ESP32S3_BBPLL_MODE_HF : ESP32S3_BBPLL_OC_REF_DIV;
-+        uint32_t expected_data = bbpll_writes == 0u ? ESP32S3_BBPLL_MODE_HF_480M : ESP32S3_BBPLL_OC_REF_DIV_480M;
-+        uint32_t expected_restores = bbpll_writes == 0u ? 1u : 4u;
++        uint32_t expected_reg = bbpll_writes == 0u ? ESP32S3_BBPLL_MODE_HF :
++                                (bbpll_writes == 1u ? ESP32S3_BBPLL_OC_REF_DIV : ESP32S3_BBPLL_OC_DIV_7_0);
++        uint32_t expected_data = bbpll_writes == 0u ? ESP32S3_BBPLL_MODE_HF_480M :
++                                 (bbpll_writes == 1u ? ESP32S3_BBPLL_OC_REF_DIV_480M : ESP32S3_BBPLL_OC_DIV_7_0_480M);
++        uint32_t expected_restores = bbpll_writes == 0u ? 1u : (bbpll_writes == 1u ? 4u : 7u);
 +        if (callinc != 2u || block != ESP32S3_I2C_BBPLL ||
-+            host_id != ESP32S3_I2C_BBPLL_HOST_ID || bbpll_writes >= 2u || reg != expected_reg ||
++            host_id != ESP32S3_I2C_BBPLL_HOST_ID || bbpll_writes >= 3u || reg != expected_reg ||
 +            data != expected_data || XT_PS_INTLEVEL(target_cpu->ps) != 3u ||
 +            intlevel_restores != expected_restores ||
 +            (bbpll_writes > 0u && !elf_bbpll_rom_event_accepted())) {
