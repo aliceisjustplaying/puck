@@ -7,13 +7,13 @@
     "flexeDecoderSha256": "68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0"
   },
   "coverage": {
-    "decoderNormalizedMnemonics": 381,
+    "decoderNormalizedMnemonics": 389,
     "instructionRows": 64276,
-    "supportedInstructionRows": 63530,
-    "unsupportedInstructionRows": 746,
+    "supportedInstructionRows": 63532,
+    "unsupportedInstructionRows": 744,
     "rawMnemonics": 341,
-    "supportedRawMnemonics": 328,
-    "unsupportedRawMnemonics": 13
+    "supportedRawMnemonics": 329,
+    "unsupportedRawMnemonics": 12
   },
   "unsupportedMnemonicRows": {
     ".byte": 699,
@@ -21,7 +21,6 @@
     "ee.fft.cmul.s16.ld.xp": 3,
     "ee.fft.cmul.s16.st.xp": 3,
     "ee.vadds.s8.st.incp": 1,
-    "ee.vmulas.s16.accx.ld.ip": 2,
     "ee.vmulas.s16.qacc.ld.ip.qup": 6,
     "ee.vmulas.s16.qacc.ld.xp.qup": 1,
     "ee.vmulas.s8.qacc.ld.ip.qup": 11,

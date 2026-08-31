@@ -841,6 +841,42 @@ for (const vmulasCase of registerVmulasCases) {
   registerVmulasRuns.push({ vmulasCase, fixture, run });
 }
 
+const accxLoadExpected = new Uint8Array(signedVmulasInput.length);
+accxLoadExpected.set(signedVmulasInput.slice(32, 48));
+const accxLoadCases = [
+  { name: "s16-ip", middle: 0x00, baseLow: 0x51, accxLow: 0x0000_05d5, accxHigh: 0, sourceAfter: 48 },
+  { name: "s8-ip", middle: 0x02, baseLow: 0x51, accxLow: 0xffff_f8d6, accxHigh: 0xff, sourceAfter: 48 },
+  { name: "u16-ip", middle: 0x04, baseLow: 0x51, accxLow: 0xffaf_05d5, accxHigh: 0, sourceAfter: 48 },
+  { name: "u8-ip", middle: 0x06, baseLow: 0x51, accxLow: 0x0001_b1d6, accxHigh: 0, sourceAfter: 48 },
+  { name: "s16-xp", middle: 0x10, baseLow: 0x5c, accxLow: 0x0000_05d5, accxHigh: 0, sourceAfter: 72 },
+  { name: "s8-xp", middle: 0x12, baseLow: 0x5c, accxLow: 0xffff_f8d6, accxHigh: 0xff, sourceAfter: 72 },
+  { name: "u16-xp", middle: 0x14, baseLow: 0x5c, accxLow: 0xffaf_05d5, accxHigh: 0, sourceAfter: 72 },
+  { name: "u8-xp", middle: 0x16, baseLow: 0x5c, accxLow: 0x0001_b1d6, accxHigh: 0, sourceAfter: 72 }
+] as const;
+const accxLoadRuns = [];
+for (const vmulasCase of accxLoadCases) {
+  const fixture = conformanceFixture(`esp32s3_vmulas_${vmulasCase.name}_accx_load`, [
+    0xa4, 0x81, 0x83,
+    0xa4, 0x01, 0x93,
+    0xae, vmulasCase.baseLow, vmulasCase.middle, 0xf0,
+    0x00, 0xd0, 0xe3,
+    0x10, 0xe0, 0xe3,
+    0xb4, 0x01, 0x8a
+  ]);
+  const run = await runFresh(moduleBytes, fixture, { data: signedVmulasInput, maxSteps: 6 });
+  assert(run.record.reason === STOP_REASONS.maxSteps, `${vmulasCase.name} ACCX load VMULAS stopped with ${run.record.reasonName}`);
+  assert(run.record.steps === 6, `${vmulasCase.name} ACCX load VMULAS executed ${run.record.steps} instructions`);
+  assert(
+    run.dataOutput.every((byte, index) => byte === accxLoadExpected[index]),
+    `${vmulasCase.name} ACCX load VMULAS output changed: ${Buffer.from(run.dataOutput).toString("hex")}`
+  );
+  assert(run.record.registers[10] === INITIAL_SOURCE + vmulasCase.sourceAfter, `${vmulasCase.name} ACCX load VMULAS applied the wrong increment: 0x${run.record.registers[10].toString(16)}`);
+  assert(run.record.registers[11] === INITIAL_DESTINATION + 16, `${vmulasCase.name} ACCX load VMULAS store applied the wrong increment`);
+  assert(run.record.registers[13] === vmulasCase.accxLow, `${vmulasCase.name} ACCX load VMULAS produced the wrong low word`);
+  assert(run.record.registers[14] === vmulasCase.accxHigh, `${vmulasCase.name} ACCX load VMULAS produced the wrong high byte`);
+  accxLoadRuns.push({ vmulasCase, fixture, run });
+}
+
 const unsupportedVmulasQupFixture = conformanceFixture("esp32s3_unsupported_vmulas_s16_qacc_ld_ip_qup", [
   0xae, 0x5f, 0x34, 0x1c
 ]);
@@ -1614,6 +1650,17 @@ const actualBaseline = {
       sourceAfter: `0x${run.record.registers[10].toString(16)}`,
       accxLow: `0x${run.record.registers[12].toString(16)}`,
       accxHigh: `0x${run.record.registers[13].toString(16)}`
+    })),
+    nonQupVariants: accxLoadRuns.map(({ vmulasCase, fixture, run }) => ({
+      name: vmulasCase.name,
+      codeSha256: fixture.codeSha256,
+      outputHex: Buffer.from(run.dataOutput).toString("hex"),
+      reason: run.record.reasonName,
+      steps: run.record.steps,
+      sourceAfter: `0x${run.record.registers[10].toString(16)}`,
+      destinationAfter: `0x${run.record.registers[11].toString(16)}`,
+      accxLow: `0x${run.record.registers[13].toString(16)}`,
+      accxHigh: `0x${run.record.registers[14].toString(16)}`
     })),
     unsupportedCodeSha256: unsupportedVmulasQupFixture.codeSha256,
     unsupportedReason: unsupportedVmulasQupRun.record.reasonName,
