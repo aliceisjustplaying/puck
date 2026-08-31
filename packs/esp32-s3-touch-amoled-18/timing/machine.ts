@@ -18,6 +18,7 @@ import {
   type CalibrationStatus,
   type CpuExecutionEvent,
   type DmaEvent,
+  type EventReadyTime,
   type EventLatency,
   type ExecutionEvent,
   type ExecutionSchedule,
@@ -38,6 +39,11 @@ export type TimingMachineIssue =
   | Readonly<{ kind: "cpu"; eventId: string }>
   | Readonly<{ kind: "dma"; eventId: string }>;
 
+export interface ScheduledMemoryIssue {
+  readonly accessId: string;
+  readonly earliest: EventReadyTime;
+}
+
 export interface TimingMachineInput {
   readonly cores: readonly [
     readonly VirtualMemoryAccess[],
@@ -46,6 +52,11 @@ export interface TimingMachineInput {
   readonly architecturalInterleave: readonly string[];
   readonly cpu?: readonly CpuExecutionEvent[];
   readonly dma: readonly DmaEvent[];
+  /**
+   * Optional per-access ready clocks. Entry order is irrelevant. The machine
+   * dispatches the two core-stream heads by cycle, with core 0 winning ties.
+   */
+  readonly memoryIssueSchedule?: readonly ScheduledMemoryIssue[];
   /** Optional total issue order. Omission uses memory, CPU, then DMA order. */
   readonly issueOrder?: readonly TimingMachineIssue[];
 }
@@ -158,6 +169,11 @@ export interface TimingMachineClaim {
     calibration: CalibrationStatus;
     source: string;
   }>[];
+  readonly memoryReadinessSources: readonly Readonly<{
+    accessId: string;
+    calibration: CalibrationStatus;
+    source: string;
+  }>[];
 }
 
 export interface TimingMachineResult {
@@ -239,6 +255,7 @@ interface OrderedArchitecturalAccess {
   readonly core: 0 | 1;
   readonly programIndex: number;
   readonly access: VirtualMemoryAccess;
+  readonly earliest?: EventReadyTime;
 }
 
 type OrderedMachineIssue =
@@ -250,6 +267,74 @@ interface ValidatedMachineInput {
   readonly architecturalOrder: readonly OrderedArchitecturalAccess[];
   readonly issueOrder: readonly OrderedMachineIssue[];
   readonly hasExplicitIssueOrder: boolean;
+  readonly hasScheduledMemoryIssues: boolean;
+}
+
+function validateReadyTime(value: unknown, path: string): asserts value is EventReadyTime {
+  if (typeof value !== "object" || value === null) throw new Error(`${path} must be an object`);
+  const ready = value as Partial<EventReadyTime>;
+  if (typeof ready.cycle !== "bigint" || ready.cycle < 0n) {
+    throw new Error(`${path}.cycle must be a non-negative bigint`);
+  }
+  if (ready.calibration !== "calibrated" && ready.calibration !== "uncalibrated") {
+    throw new Error(`${path}.calibration must be calibrated or uncalibrated`);
+  }
+  requireNonEmpty(ready.source, `${path}.source`);
+}
+
+function scheduledArchitecturalOrder(
+  input: TimingMachineInput,
+  byId: ReadonlyMap<string, OrderedArchitecturalAccess>,
+): readonly OrderedArchitecturalAccess[] {
+  const schedule = input.memoryIssueSchedule;
+  if (!Array.isArray(schedule)) {
+    throw new Error("input.memoryIssueSchedule must be an array when supplied");
+  }
+  const readyById = new Map<string, EventReadyTime>();
+  for (const [scheduleIndex, issue] of schedule.entries()) {
+    if (typeof issue !== "object" || issue === null) {
+      throw new Error(`input.memoryIssueSchedule[${scheduleIndex}] must be a scheduled issue`);
+    }
+    const id = requireNonEmpty(issue.accessId, `input.memoryIssueSchedule[${scheduleIndex}].accessId`);
+    if (!byId.has(id)) throw new Error(`input.memoryIssueSchedule contains unknown access id ${id}`);
+    if (readyById.has(id)) throw new Error(`input.memoryIssueSchedule duplicates access id ${id}`);
+    validateReadyTime(issue.earliest, `input.memoryIssueSchedule[${scheduleIndex}].earliest`);
+    readyById.set(id, Object.freeze({ ...issue.earliest }));
+  }
+  const omitted = [...byId.keys()].filter((id) => !readyById.has(id));
+  if (omitted.length > 0) {
+    throw new Error(`input.memoryIssueSchedule omits access ids: ${omitted.join(", ")}`);
+  }
+
+  const streams: [OrderedArchitecturalAccess[], OrderedArchitecturalAccess[]] = [[], []];
+  for (const core of [0, 1] as const) {
+    let previousCycle = 0n;
+    for (const [programIndex, access] of input.cores[core].entries()) {
+      const earliest = readyById.get(access.id)!;
+      if (programIndex > 0 && earliest.cycle < previousCycle) {
+        throw new Error(
+          `input.memoryIssueSchedule cycle for ${access.id} precedes its prior core ${core} access`,
+        );
+      }
+      previousCycle = earliest.cycle;
+      streams[core].push(Object.freeze({ core, programIndex, access, earliest }));
+    }
+  }
+
+  const next: [number, number] = [0, 0];
+  const dispatched: OrderedArchitecturalAccess[] = [];
+  while (next[0] < streams[0].length || next[1] < streams[1].length) {
+    const core0 = streams[0][next[0]];
+    const core1 = streams[1][next[1]];
+    const core = core0 === undefined
+      ? 1
+      : core1 === undefined || core0.earliest!.cycle <= core1.earliest!.cycle
+        ? 0
+        : 1;
+    dispatched.push(streams[core][next[core]]!);
+    next[core] += 1;
+  }
+  return Object.freeze(dispatched);
 }
 
 function validateInput(input: TimingMachineInput): ValidatedMachineInput {
@@ -287,7 +372,7 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
 
   const seen = new Set<string>();
   const nextProgramIndex: [number, number] = [0, 0];
-  const ordered: OrderedArchitecturalAccess[] = [];
+  const callerOrdered: OrderedArchitecturalAccess[] = [];
   for (const [interleaveIndex, value] of input.architecturalInterleave.entries()) {
     const id = requireNonEmpty(value, `input.architecturalInterleave[${interleaveIndex}]`);
     if (seen.has(id)) throw new Error(`input.architecturalInterleave duplicates access id ${id}`);
@@ -302,12 +387,17 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
     }
     seen.add(id);
     nextProgramIndex[entry.core] += 1;
-    ordered.push(entry);
+    callerOrdered.push(entry);
   }
   const omitted = [...byId.keys()].filter((id) => !seen.has(id));
   if (omitted.length > 0) {
     throw new Error(`input.architecturalInterleave omits access ids: ${omitted.join(", ")}`);
   }
+  const hasScheduledMemoryIssues = input.memoryIssueSchedule !== undefined;
+  const ordered = hasScheduledMemoryIssues
+    ? scheduledArchitecturalOrder(input, byId)
+    : Object.freeze(callerOrdered);
+  const effectiveById = new Map(ordered.map((entry) => [entry.access.id, entry]));
 
   const dmaById = new Map<string, Readonly<{ dmaIndex: number; event: DmaEvent }>>();
   for (const [dmaIndex, event] of input.dma.entries()) {
@@ -351,6 +441,7 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
         ),
       ]),
       hasExplicitIssueOrder: false,
+      hasScheduledMemoryIssues,
     });
   }
   if (!Array.isArray(input.issueOrder)) throw new Error("input.issueOrder must be an array when supplied");
@@ -367,12 +458,15 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
     if (issue.kind === "memory") {
       const id = requireNonEmpty(issue.accessId, `input.issueOrder[${issueIndex}].accessId`);
       if (issueIds.has(id)) throw new Error(`input.issueOrder duplicates issue id ${id}`);
-      const entry = byId.get(id);
+      const entry = effectiveById.get(id);
       if (!entry) throw new Error(`input.issueOrder contains unknown memory access id ${id}`);
       const expected = ordered[memoryIndex]?.access.id;
       if (id !== expected) {
+        const orderSource = hasScheduledMemoryIssues
+          ? "derived memory issue order"
+          : "architecturalInterleave";
         throw new Error(
-          `input.issueOrder memory access ${id} disagrees with architecturalInterleave at index ${memoryIndex}`,
+          `input.issueOrder memory access ${id} disagrees with ${orderSource} at index ${memoryIndex}`,
         );
       }
       memoryIndex += 1;
@@ -425,7 +519,12 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
     architecturalOrder: Object.freeze(ordered),
     issueOrder: Object.freeze(issueOrder),
     hasExplicitIssueOrder: true,
+    hasScheduledMemoryIssues,
   });
+}
+
+function withReadyTime(event: ExecutionEvent, earliest: EventReadyTime | undefined): ExecutionEvent {
+  return earliest === undefined ? event : Object.freeze({ ...event, earliest }) as ExecutionEvent;
 }
 
 function freezeCoreResult(
@@ -566,9 +665,10 @@ export function runTimingMachine(
         if (output.kind === "mmio") {
           const cost = mmioCosts.get(output.resolved.index);
           if (!cost) throw new Error(`internal error: no MMIO cost for ${output.event.id}`);
+          const scheduledEvent = withReadyTime(output.event, issue.entry.earliest);
           const eventRecord: IssuedMachineEvent = Object.freeze({
             issueIndex: issued.length,
-            event: output.event,
+            event: scheduledEvent,
             origin: Object.freeze({
               kind: "mmio",
               core,
@@ -577,7 +677,7 @@ export function runTimingMachine(
               addressSegmentIndex: output.resolved.index,
               regionId: output.resolved.regionId,
             }),
-            cost: provenance(output.event, cost.source),
+            cost: provenance(scheduledEvent, cost.source),
           });
           issued.push(eventRecord);
           issuedEventIds.push(output.event.id);
@@ -587,9 +687,10 @@ export function runTimingMachine(
         const step = cache.process(output.trace);
         cacheSteps.push(step);
         for (const [cacheEmissionIndex, emission] of step.emissions.entries()) {
+          const scheduledEvent = withReadyTime(emission.event, issue.entry.earliest);
           const eventRecord: IssuedMachineEvent = Object.freeze({
             issueIndex: issued.length,
-            event: emission.event,
+            event: scheduledEvent,
             origin: Object.freeze({
               kind: "cache",
               core,
@@ -599,7 +700,7 @@ export function runTimingMachine(
               cacheEmissionIndex,
               regionId: output.resolved.regionId,
             }),
-            cost: provenance(emission.event, emission.cost.source),
+            cost: provenance(scheduledEvent, emission.cost.source),
           });
           issued.push(eventRecord);
           issuedEventIds.push(emission.event.id);
@@ -625,7 +726,9 @@ export function runTimingMachine(
 
   const execution = scheduleExecution(
     issued.map((record) => record.event),
-    validatedInput.hasExplicitIssueOrder ? { sameCycleTieBreak: "input-order" } : undefined,
+    validatedInput.hasExplicitIssueOrder && !validatedInput.hasScheduledMemoryIssues
+      ? { sameCycleTieBreak: "input-order" }
+      : undefined,
   );
   const costProvenance = Object.freeze(issued.map((record) => record.cost));
   const directUncalibratedEventIds = Object.freeze(
@@ -645,6 +748,15 @@ export function runTimingMachine(
       }),
     ),
   );
+  const memoryReadinessSources = Object.freeze(
+    (input.memoryIssueSchedule ?? []).map((issue) =>
+      Object.freeze({
+        accessId: issue.accessId,
+        calibration: issue.earliest.calibration,
+        source: issue.earliest.source,
+      }),
+    ).sort((left, right) => left.accessId.localeCompare(right.accessId)),
+  );
   const cores = Object.freeze(coreResults) as readonly [MachineCoreResult, MachineCoreResult];
   const architectureSources = Object.freeze([
     Object.freeze({ component: "address-map", source: config.addressMap.metadata.source }),
@@ -658,6 +770,7 @@ export function runTimingMachine(
     unknownCostEventIds,
     costProvenance,
     dmaReadinessSources,
+    memoryReadinessSources,
   });
 
   return Object.freeze({

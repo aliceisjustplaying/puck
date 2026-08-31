@@ -3,6 +3,12 @@ export type CalibrationStatus = "calibrated" | "uncalibrated";
 export type TimingCertainty = CalibrationStatus | "unknown";
 export type MemoryRegion = "sram" | "psram" | "flash";
 
+export interface EventReadyTime {
+  readonly cycle: bigint;
+  readonly calibration: CalibrationStatus;
+  readonly source: string;
+}
+
 export type EventLatency =
   | Readonly<{
       status: "known";
@@ -19,6 +25,7 @@ export type EventLatency =
 interface CoreEventBase {
   readonly id: string;
   readonly core: CoreId;
+  readonly earliest?: EventReadyTime;
   readonly latency: EventLatency;
 }
 
@@ -74,11 +81,7 @@ export interface DmaEvent {
   readonly id: string;
   readonly kind: "dma";
   readonly channel: string;
-  readonly earliest: Readonly<{
-    cycle: bigint;
-    calibration: CalibrationStatus;
-    source: string;
-  }>;
+  readonly earliest: EventReadyTime;
   readonly source: DmaEndpoint;
   readonly destination: DmaEndpoint;
   readonly bytes: number;
@@ -228,6 +231,16 @@ function validateCalibration(value: unknown, path: string): asserts value is Cal
   }
 }
 
+function validateReadyTime(value: unknown, path: string): asserts value is EventReadyTime {
+  if (typeof value !== "object" || value === null) throw new Error(`${path} must be an object`);
+  const ready = value as Partial<EventReadyTime>;
+  if (typeof ready.cycle !== "bigint" || ready.cycle < 0n) {
+    throw new Error(`${path}.cycle must be a non-negative bigint`);
+  }
+  validateCalibration(ready.calibration, `${path}.calibration`);
+  requireNonEmpty(ready.source, `${path}.source`);
+}
+
 function validateLatency(value: unknown, path: string): asserts value is EventLatency {
   if (typeof value !== "object" || value === null) {
     throw new Error(`${path} is required; the scheduler has no default chip costs`);
@@ -271,6 +284,7 @@ function assertNever(value: never): never {
 function validateEvent(event: ExecutionEvent, inputIndex: number): void {
   requireNonEmpty(event.id, `events[${inputIndex}].id`);
   validateLatency(event.latency, `events[${inputIndex}].latency`);
+  if (event.earliest !== undefined) validateReadyTime(event.earliest, `events[${inputIndex}].earliest`);
   switch (event.kind) {
     case "instruction-fetch":
     case "literal-load":
@@ -313,14 +327,9 @@ function validateEvent(event: ExecutionEvent, inputIndex: number): void {
       return;
     case "dma":
       requireNonEmpty(event.channel, `events[${inputIndex}].channel`);
-      if (typeof event.earliest !== "object" || event.earliest === null) {
+      if (event.earliest === undefined) {
         throw new Error(`events[${inputIndex}].earliest is required for DMA`);
       }
-      if (typeof event.earliest.cycle !== "bigint" || event.earliest.cycle < 0n) {
-        throw new Error(`events[${inputIndex}].earliest.cycle must be a non-negative bigint`);
-      }
-      validateCalibration(event.earliest.calibration, `events[${inputIndex}].earliest.calibration`);
-      requireNonEmpty(event.earliest.source, `events[${inputIndex}].earliest.source`);
       validateEndpoint(event.source, `events[${inputIndex}].source`);
       validateEndpoint(event.destination, `events[${inputIndex}].destination`);
       requirePositiveBytes(event.bytes, `events[${inputIndex}].bytes`);
@@ -391,9 +400,8 @@ function candidateFor(
 ): Candidate {
   const actor = actorFor(queued.event);
   const resource = eventUsesMspi(queued.event) ? "mspi" : null;
-  const earliestCycle = queued.event.kind === "dma" ? queued.event.earliest.cycle : 0n;
-  const earliestCalibration =
-    queued.event.kind === "dma" ? queued.event.earliest.calibration : "calibrated";
+  const earliestCycle = queued.event.earliest?.cycle ?? 0n;
+  const earliestCalibration = queued.event.earliest?.calibration ?? "calibrated";
   if (resource === "mspi" && mspiClock.status === "blocked") {
     return {
       queued,

@@ -18,6 +18,7 @@ import {
 import {
   runTimingMachine,
   timingMachineJson,
+  type ScheduledMemoryIssue,
   type TimingMachineConfiguration,
   type TimingMachineInput,
 } from "./machine";
@@ -195,6 +196,17 @@ function dma(id: string, latencyCycles: bigint): DmaEvent {
       cycles: latencyCycles,
       calibration: "calibrated",
       source: "synthetic-dma-cost",
+    },
+  };
+}
+
+function scheduled(accessId: string, cycle: bigint): ScheduledMemoryIssue {
+  return {
+    accessId,
+    earliest: {
+      cycle,
+      calibration: "calibrated",
+      source: "synthetic-core-ready-clock",
     },
   };
 }
@@ -565,6 +577,84 @@ describe("explicit architectural interleave", () => {
       ...ordered,
       cpu: [{ ...cpu, instructionAccessId: "missing" }],
     })).toThrow("input.cpu[0].instructionAccessId must name an instruction-fetch access");
+  });
+});
+
+describe("scheduled cross-core cache dispatch", () => {
+  test("derives shared-cache and MSPI order from ready clocks, independent of caller interleave", () => {
+    const core0 = [access("core0-later", 0, "load", 0x2020n)];
+    const core1 = [access("core1-earlier", 1, "load", 0x2000n)];
+    const memoryIssueSchedule = [
+      scheduled("core0-later", 20n),
+      scheduled("core1-earlier", 5n),
+    ];
+    const forward = runTimingMachine(configuration(), {
+      ...input(core0, core1, [], ["core0-later", "core1-earlier"]),
+      memoryIssueSchedule,
+    });
+    const reverse = runTimingMachine(configuration(), {
+      ...input(core0, core1, [], ["core1-earlier", "core0-later"]),
+      memoryIssueSchedule: [...memoryIssueSchedule].reverse(),
+    });
+
+    expect(reverse).toEqual(forward);
+    expect(forward.architecturalInterleave).toEqual(["core1-earlier", "core0-later"]);
+    expect(forward.issuedEvents
+      .filter((issued) => issued.origin.kind === "cache" && issued.event.id.endsWith("line-fill"))
+      .map((issued) => issued.origin.kind === "cache" ? issued.origin.accessId : null))
+      .toEqual(["core1-earlier", "core0-later"]);
+    expect(forward.execution.events
+      .filter((event) => event.resource === "mspi")
+      .map((event) => [event.eventId, event.startCycle, event.endCycle]))
+      .toEqual([
+        ["cache:core1-earlier:segment:0:cache:0:line-fill", 5n, 15n],
+        ["cache:core0-later:segment:0:cache:0:line-fill", 20n, 30n],
+      ]);
+  });
+
+  test("preserves same-core program order and breaks cross-core cycle ties by core id", () => {
+    const core0 = [
+      access("core0-first", 0, "load", 0x2000n),
+      access("core0-second", 0, "load", 0x2020n),
+    ];
+    const core1 = [access("core1-tied", 1, "load", 0x2040n)];
+    const result = runTimingMachine(configuration(), {
+      ...input(core0, core1, [], ["core1-tied", "core0-first", "core0-second"]),
+      memoryIssueSchedule: [
+        scheduled("core0-second", 5n),
+        scheduled("core1-tied", 5n),
+        scheduled("core0-first", 5n),
+      ],
+    });
+
+    expect(result.architecturalInterleave).toEqual([
+      "core0-first",
+      "core0-second",
+      "core1-tied",
+    ]);
+    expect(result.issuedEvents
+      .filter((issued) => issued.origin.kind === "cache" && issued.event.id.endsWith("line-fill"))
+      .map((issued) => issued.origin.kind === "cache" ? issued.origin.accessId : null))
+      .toEqual(["core0-first", "core0-second", "core1-tied"]);
+  });
+
+  test("requires a complete non-regressing ready-clock schedule", () => {
+    const core0 = [
+      access("core0-first", 0, "load", 0x2000n),
+      access("core0-second", 0, "load", 0x2020n),
+    ];
+    const base = input(core0, [], [], ["core0-first", "core0-second"]);
+    expect(() => runTimingMachine(configuration(), {
+      ...base,
+      memoryIssueSchedule: [scheduled("core0-first", 1n)],
+    })).toThrow("input.memoryIssueSchedule omits access ids: core0-second");
+    expect(() => runTimingMachine(configuration(), {
+      ...base,
+      memoryIssueSchedule: [
+        scheduled("core0-first", 2n),
+        scheduled("core0-second", 1n),
+      ],
+    })).toThrow("cycle for core0-second precedes its prior core 0 access");
   });
 });
 
