@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..55a269c
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1498 @@
+@@ -0,0 +1,1500 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -631,7 +631,9 @@ index 0000000..55a269c
 +                              (cpu_per_reads == 1u &&
 +                               g_dbg_pc == ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC) ||
 +                              (cpu_per_reads == 2u &&
-+                               g_dbg_pc == ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC);
++                               g_dbg_pc == ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC) ||
++                              (cpu_per_reads == 3u &&
++                               g_dbg_pc == ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC);
 +        uint32_t expected_sysclk_reads = cpu_per_reads < 2u ? 1u : 2u;
 +        uint32_t expected_rtc_reads = cpu_per_reads < 2u ? 0u : 1u;
 +        if (!expected_reader ||

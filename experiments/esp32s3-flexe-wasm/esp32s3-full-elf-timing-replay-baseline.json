@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "inputs": {
     "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
-    "moduleSha256": "dbf4dc89d0791f6747d3027934b3adfb2509e9f2a6b4d8f765ee7aef1c891a28",
-    "traceRecordSha256": "94d9037a379dcf5914e292c42cc9d13c56cdfb156141acad735b30b01f2e622d",
+    "moduleSha256": "a23ac284c448efe9a184c18dae5f7405aa9b40343557407b937a467e207e8533",
+    "traceRecordSha256": "7fc602ad2c8bf442c8853def51f0e5a6fc2f10cd9049b854577ab03a44948870",
     "timingProfileSha256": "fa2ce865eb19f45b6bd49baf41232753132ce6f046654a9f07b667e76cae4f4b",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
     "neutralAdapterSha256": "337da62ff6c9a4f4aab9a09e419d250de22f0cc7fc04110826dd90bc8bf4430c",
@@ -12,10 +12,10 @@
     "beqzClassifierSha256": "05fc756b4fe8c1cc69fe3787e413dece79b02cc920d4a3f9340c7bf3bfea3fc9"
   },
   "trace": {
-    "records": 419,
-    "instructions": 301,
-    "reads": 74,
-    "writes": 44,
+    "records": 440,
+    "instructions": 316,
+    "reads": 76,
+    "writes": 48,
     "observedSramPages": [
       "0x3fcab000",
       "0x3fce9000",
@@ -32,16 +32,16 @@
   "replay": {
     "status": "blocked",
     "totalCycles": null,
-    "issuedEvents": 748,
-    "memoryEvents": 389,
-    "mmioEvents": 33,
-    "cpuEvents": 326,
-    "dependentSramLoadUseHazards": 25,
     "exactBeqzNotTaken": 3,
     "exactBeqzTaken": 0,
-    "knownCostEvents": 715,
-    "unknownCostEvents": 33,
-    "issuedProjectionSha256": "3164ef6b1864359b639e0981a3e59e248ff6c1a46ac34cb1a7bd1563f2d1b53a",
-    "loadUseEvidenceSha256": "92f83e59cd75ea00e1fadd44d604139e8d1dcbd3cee28ff2827d2a79e5bf8da5"
+    "issuedEvents": 785,
+    "memoryEvents": 409,
+    "mmioEvents": 34,
+    "cpuEvents": 342,
+    "dependentSramLoadUseHazards": 26,
+    "knownCostEvents": 751,
+    "unknownCostEvents": 34,
+    "issuedProjectionSha256": "452c1f83cc246fb273eebc31b44a93a6ff146dbcbb1886922c4f1ebbc2cf79f1",
+    "loadUseEvidenceSha256": "deeebce965700068af325d700928b5ad7c473ac911f60ba3bb5d9449b0993cb5"
   }
 }

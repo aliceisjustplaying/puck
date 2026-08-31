@@ -9,10 +9,10 @@
     "inheritedPages": 3,
     "initialStack": "0x3fce9700",
     "initialStackProvenance": "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
-    "runnerPatchSha256": "d45fa86c944b56343708ee528d840feced40ff2790592ee08af230df00d7ac27",
+    "runnerPatchSha256": "45c0bda30e1c345ef2bb5e343846e47083a15db2a257734b5a549cc2ed832dc4",
     "esp32s3PatchSha256": "2d6f6497ac888fb0011334d850db9d0d293bdceb6f48c35e3c311604aa64f9b2",
-    "moduleBytes": 60445,
-    "moduleSha256": "dbf4dc89d0791f6747d3027934b3adfb2509e9f2a6b4d8f765ee7aef1c891a28"
+    "moduleBytes": 60430,
+    "moduleSha256": "a23ac284c448efe9a184c18dae5f7405aa9b40343557407b937a467e207e8533"
   },
   "bounded": {
     "reason": "maxSteps",
@@ -84,18 +84,18 @@
     }
   },
   "cacheProgress": {
-    "reason": "readPermission",
-    "steps": 301,
-    "pc": "0x403771ff",
-    "traceSha256": "c465cf5613e5d0e999a67e38a66c094624ac58735e35c4d7dcedb41ead891d2a",
-    "stackPointer": "0x3fce95b0",
-    "memoryTraceRecords": 419,
-    "memoryTraceSha256": "94d9037a379dcf5914e292c42cc9d13c56cdfb156141acad735b30b01f2e622d",
+    "reason": "unloadedPage",
+    "steps": 316,
+    "pc": "0x40001a4c",
+    "traceSha256": "d49ff5f230867ba3677c8044da0fdf7262a28e3361c6605d6f04a03185e6de78",
+    "stackPointer": "0x3fce95e0",
+    "memoryTraceRecords": 440,
+    "memoryTraceSha256": "7fc602ad2c8bf442c8853def51f0e5a6fc2f10cd9049b854577ab03a44948870",
     "registers": [
-      "0x80377264", "0x3fce95b0", "0x3fce95e0", "0x00000000",
+      "0x80377320", "0x3fce95e0", "0x00000028", "0x00000001",
       "0x00000000", "0x00000000", "0x00000000", "0x00000000",
-      "0x00000001", "0x00000000", "0x600c0010", "0x00000000",
-      "0x00000000", "0x00000000", "0x00000002", "0x00000000"
+      "0x8037726c", "0x3fce95b0", "0x00000028", "0x00000000",
+      "0x00000000", "0x00000000", "0x00000000", "0x00000000"
     ],
     "cacheBootstrap": {
       "sequenceIndex": 6,
@@ -145,15 +145,16 @@
       { "kind": "systemMmioRead", "pc": "0x403771ff", "address": "0x600c0010", "width": 4, "value": "0x4" },
       { "kind": "rtcMmioRead", "pc": "0x40377159", "address": "0x600080c0", "width": 4, "value": "0x280028" },
       { "kind": "systemMmioRead", "pc": "0x403771a5", "address": "0x600c0060", "width": 4, "value": "0x400" },
-      { "kind": "systemMmioRead", "pc": "0x403771d6", "address": "0x600c0010", "width": 4, "value": "0x4" }
+      { "kind": "systemMmioRead", "pc": "0x403771d6", "address": "0x600c0010", "width": 4, "value": "0x4" },
+      { "kind": "systemMmioRead", "pc": "0x403771ff", "address": "0x600c0010", "width": 4, "value": "0x4" }
     ],
     "systemMmio": {
       "sysclkConf": 1024,
       "readCount": 2,
       "lastReadPc": 1077375397,
       "cpuPerConf": 4,
-      "cpuPerReadCount": 3,
-      "cpuPerLastReadPc": 1077375446
+      "cpuPerReadCount": 4,
+      "cpuPerLastReadPc": 1077375487
     },
     "rtcMmio": {
       "xtalFreqReg": 2621480,

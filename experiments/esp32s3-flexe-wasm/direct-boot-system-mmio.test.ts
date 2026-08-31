@@ -219,6 +219,37 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
     });
     expect(thirdCpu.status).toBe("refused");
     if (thirdCpu.handled) expect(thirdCpu.state).toBe(repeatedCpu.state);
+    const secondRepeatedCpu = readEsp32S3DirectBootSystemMmio(repeatedCpu.state, {
+      pc: ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC,
+      address: ESP32S3_SYSTEM_CPU_PER_CONF_REG,
+      width: 4,
+      isWrite: false,
+      rtcMmioComplete: true,
+    });
+    expect(secondRepeatedCpu).toEqual({
+      handled: true,
+      status: "accepted",
+      value: 0x4,
+      state: {
+        ...repeatedCpu.state,
+        cpuPerReadCount: 4,
+        cpuPerLastReadPc: 0x4037_71ff,
+      },
+    });
+    if (!secondRepeatedCpu.handled || secondRepeatedCpu.status !== "accepted") {
+      throw new Error("second repeated CPU-period read refused");
+    }
+    for (const pc of [ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC, ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC]) {
+      const extraCpu = readEsp32S3DirectBootSystemMmio(secondRepeatedCpu.state, {
+        pc,
+        address: ESP32S3_SYSTEM_CPU_PER_CONF_REG,
+        width: 4,
+        isWrite: false,
+        rtcMmioComplete: true,
+      });
+      expect(extraCpu.status).toBe("refused");
+      if (extraCpu.handled) expect(extraCpu.state).toBe(secondRepeatedCpu.state);
+    }
     const thirdSource = readEsp32S3DirectBootSystemMmio(repeatedSource.state, {
       pc: ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC,
       address: ESP32S3_SYSTEM_SYSCLK_CONF_REG,
