@@ -492,6 +492,42 @@ assert(
   "adjacent float-128 XP refusal changed registers"
 );
 
+const accxMemoryFixture = conformanceFixture("esp32s3_accx_memory_roundtrip", [
+  0x3b, 0xaa,
+  0xa4, 0x7f, 0x4e,
+  0x3b, 0xbb,
+  0xb4, 0x7f, 0x42,
+  0x00, 0x20, 0xe3,
+  0x10, 0x30, 0xe3
+]);
+const accxMemoryInput = Uint8Array.from([0x78, 0x56, 0x34, 0x12, 0xef, 0xbe, 0xad, 0xde]);
+const accxMemoryExpected = Uint8Array.from([0x78, 0x56, 0x34, 0x12, 0xef, 0x00, 0x00, 0x00]);
+const accxMemoryRun = await runFresh(moduleBytes, accxMemoryFixture, { data: accxMemoryInput, maxSteps: 6 });
+assert(accxMemoryRun.record.reason === STOP_REASONS.maxSteps, `ACCX memory fixture stopped with ${accxMemoryRun.record.reasonName}`);
+assert(accxMemoryRun.record.steps === 6, `ACCX memory fixture executed ${accxMemoryRun.record.steps} instructions`);
+assert(
+  accxMemoryRun.dataOutput.every((byte, index) => byte === accxMemoryExpected[index]),
+  `ACCX memory fixture output changed: ${Buffer.from(accxMemoryRun.dataOutput).toString("hex")}`
+);
+assert(accxMemoryRun.record.registers[2] === 0x12345678, "ACCX memory load changed its low word");
+assert(accxMemoryRun.record.registers[3] === 0xef, "ACCX memory load did not mask its high byte");
+assert(accxMemoryRun.record.registers[10] === (INITIAL_SOURCE - 5) >>> 0, "ACCX memory load applied the wrong signed immediate");
+assert(accxMemoryRun.record.registers[11] === (INITIAL_DESTINATION - 5) >>> 0, "ACCX memory store applied the wrong signed immediate");
+
+const unsupportedQaccMemoryFixture = conformanceFixture("esp32s3_unsupported_ld_qacc_h_h_32_ip", [0xa4, 0x01, 0x1e]);
+const unsupportedQaccMemoryRun = await runFresh(moduleBytes, unsupportedQaccMemoryFixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0x1e01a4 }
+});
+assert(unsupportedQaccMemoryRun.record.reason === STOP_REASONS.unsupported, "adjacent QACC memory form did not fail closed");
+assert(unsupportedQaccMemoryRun.record.steps === 0, "adjacent QACC memory form was counted as executed");
+assert(unsupportedQaccMemoryRun.trace.count === 0, "adjacent QACC memory refusal leaked a trace record");
+assert(unsupportedQaccMemoryRun.dataOutput.length === 0, "adjacent QACC memory refusal exposed data output");
+assert(
+  unsupportedQaccMemoryRun.record.registers.every((value, index) => value === unsupportedXpRegisters[index]),
+  "adjacent QACC memory refusal changed registers"
+);
+
 const threadptrFixture = conformanceFixture("esp32s3_threadptr_roundtrip", [
   0x36, 0x21, 0x00,
   0x81, 0x12, 0xfa,
@@ -908,6 +944,19 @@ const actualBaseline = {
     unsupportedReason: unsupportedFloat128Run.record.reasonName,
     unsupportedEncoding: `0x${unsupportedFloat128Run.record.unsupportedEncoding.toString(16)}`
   },
+  accxMemoryIsa: {
+    codeSha256: accxMemoryFixture.codeSha256,
+    outputHex: Buffer.from(accxMemoryRun.dataOutput).toString("hex"),
+    reason: accxMemoryRun.record.reasonName,
+    steps: accxMemoryRun.record.steps,
+    sourceAfter: `0x${accxMemoryRun.record.registers[10].toString(16)}`,
+    destinationAfter: `0x${accxMemoryRun.record.registers[11].toString(16)}`,
+    lowValue: `0x${accxMemoryRun.record.registers[2].toString(16)}`,
+    highValue: `0x${accxMemoryRun.record.registers[3].toString(16)}`,
+    unsupportedCodeSha256: unsupportedQaccMemoryFixture.codeSha256,
+    unsupportedReason: unsupportedQaccMemoryRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedQaccMemoryRun.record.unsupportedEncoding.toString(16)}`
+  },
   threadptrIsa: {
     codeSha256: threadptrFixture.codeSha256,
     literalPageSha256: threadptrLiterals.sha256,
@@ -1038,6 +1087,7 @@ assert(
     qrXpIsa: baseline.qrXpIsa,
     halfQrIsa: baseline.halfQrIsa,
     float64XpIsa: baseline.float64XpIsa,
+    accxMemoryIsa: baseline.accxMemoryIsa,
     threadptrIsa: baseline.threadptrIsa,
     accxIsa: baseline.accxIsa,
     qaccIsa: baseline.qaccIsa,
