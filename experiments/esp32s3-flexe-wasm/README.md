@@ -335,7 +335,9 @@ Neither callback is enabled by default. Calls appear only as typed, bounded ROM
 events; they do not enter the instruction PC trace or decoded-instruction count.
 The event records summarize reset-reason arguments and results or the full
 `memset` destination, byte value, and length. They assign no timing to the bulk
-operation.
+operation. Every ROM event also records `afterInstructionCount`, the exact
+committed instruction count after its preceding call, so timing replay can
+attach the callback at the correct boundary without inventing a duration.
 
 The opt-in cache bootstrap accepts 11 exact ROM invocations across nine
 addresses. It follows the observed call order through cache disable/enable,
@@ -399,14 +401,16 @@ MMIO pages observed in the trace, with their ELF or inherited permissions.
 Those nine exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 504 records issue 898 timing events: 465 memory-system
+literal loads. The 504 records issue 914 timing events: 465 memory-system
 events, 42 MMIO accesses, 362 calibrated CPU issue events, and 29 calibrated
-dependent load-use events. Exactly 861 events have adopted costs, including
+dependent load-use events, plus 16 configured ROM callback boundaries with
+explicitly unknown CPU durations. Exactly 861 events have adopted costs, including
 five exact MMIO reads, three exact not-taken `beqz` paths, three flash line
 fills, and every zero-miss cache hit. The baseline pins the branch classifier,
 hazard count, and a projection hash of their schedule, consumer IDs, registers,
-and producer/consumer PCs. The remaining 37 controller MMIO events keep the
-replay blocked with no total cycle claim. The baseline also pins the exact
+and producer/consumer PCs, plus the ROM callback boundary provenance. The 37
+controller MMIO costs and 16 ROM callback durations keep the replay blocked
+with no total cycle claim. The baseline also pins the exact
 address, direction, width, peripheral, and count of all observed MMIO access
 classes so hardware-adopted costs cannot silently broaden their scope.
 An executable-permission miss and an unloaded page have distinct recoverable
@@ -446,8 +450,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 70,439 bytes with Zig 0.16.0, SHA-256
-`28e6d560b526c117b825ba7ac6c0eb772dd56f774dfa66bc568350114641953b`.
+The stripped freestanding module is 70,658 bytes with Zig 0.16.0, SHA-256
+`acfbc3b95126c6d183a740c6a4c85648bc2bc5f5d6576412d1fb734f10303a35`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and

@@ -157,9 +157,9 @@ because it is not an integral per-access cost.
   bounded S3 patch and fail-closed markers for 1,225 decoded inventory gaps.
   Static inventory is not whole-program execution coverage.
 - The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 362 real
-  instructions. Its current timing replay emits 898 events and adopts exact
+  instructions. Its current timing replay emits 914 events and adopts exact
   costs for 861, including five matched MMIO reads. The remaining 37 MMIO
-  events block a total. It does not provide the complete
+  costs and 16 ROM callback durations block a total. It does not provide the complete
   ESP32-S3 data map, interrupt matrix,
   peripherals, ESP-IDF boot, or real dual-core execution.
 - Cache-store hits, dependent load-use modeling, dirty writeback, DMA ordering,

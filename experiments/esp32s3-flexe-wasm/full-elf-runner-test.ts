@@ -637,12 +637,22 @@ assert.equal(romProgress.record.unsupportedEncoding, 0xf3_e780);
 assert.equal(romProgress.trace.length, romProgress.record.steps);
 assert(!romProgress.trace.includes(0x4000_057c), "reset-reason callback leaked into the instruction trace");
 assert(!romProgress.trace.includes(0x4000_11e8), "memset callback leaked into the instruction trace");
-assert.deepEqual(romProgress.romEvents, [
+const withoutTimingBoundary = (events: readonly FullElfRomEvent[]) => events.map((event) => {
+  const { afterInstructionCount: _afterInstructionCount, ...semanticEvent } = event;
+  return semanticEvent;
+});
+
+assert.deepEqual(withoutTimingBoundary(romProgress.romEvents), [
   { kind: "resetReason", pc: 0x4000_057c, core: 0, result: 1 },
   { kind: "resetReason", pc: 0x4000_057c, core: 1, result: 1 },
   { kind: "memset", pc: 0x4000_11e8, destination: 0x3fca_be60, value: 0, length: 0x52e0 },
   { kind: "memset", pc: 0x4000_11e8, destination: 0x5000_0000, value: 0, length: 0 },
 ]);
+assert.deepEqual(
+  romProgress.romEvents.map((event) => event.afterInstructionCount),
+  [6, 11, 19, 26],
+  "full ELF ROM callback ABI lost exact preceding-instruction boundaries",
+);
 
 const lx7Progress = await runSparseXtensaElf(moduleBytes, image, {
   ...runnerMemory,
@@ -703,7 +713,7 @@ assert.deepEqual(cacheProgress.cacheBootstrap, {
   },
 });
 const cacheEvents = cacheProgress.romEvents.filter((event) => event.kind === "cache");
-assert.deepEqual(cacheEvents, [
+assert.deepEqual(withoutTimingBoundary(cacheEvents), [
   { kind: "cache", pc: 0x4000_186c, sequenceIndex: 0, argument: null, returnValue: 0 },
   { kind: "cache", pc: 0x4000_1884, sequenceIndex: 1, argument: null, returnValue: 0 },
   { kind: "cache", pc: 0x4000_1878, sequenceIndex: 2, argument: 0, returnValue: null },
@@ -711,20 +721,20 @@ assert.deepEqual(cacheEvents, [
   { kind: "cache", pc: 0x4000_1878, sequenceIndex: 4, argument: 0, returnValue: null },
   { kind: "cache", pc: 0x4000_1890, sequenceIndex: 5, argument: 0, returnValue: null },
 ]);
-assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "cacheMode"), [
+assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "cacheMode")), [
   { kind: "cacheMode", pc: 0x4000_1a1c, cache: "instruction", sizeBytes: 0x4000, ways: 8, lineBytes: 32 },
   { kind: "cacheMode", pc: 0x4000_1a28, cache: "data", sizeBytes: 0x8000, ways: 8, lineBytes: 64 },
 ]);
-assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "cacheSuspend"), [
+assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "cacheSuspend")), [
   { kind: "cacheSuspend", pc: 0x4000_18b4, cache: "data", returnValue: 0 },
 ]);
-assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "cacheResume"), [
+assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "cacheResume")), [
   { kind: "cacheResume", pc: 0x4000_18c0, cache: "data", argument: 0 },
 ]);
-assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "cacheMmuSizes"), [
+assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "cacheMmuSizes")), [
   { kind: "cacheMmuSizes", pc: 0x4000_1914, instructionBytes: 0x3c, dataBytes: 0x3c4 },
 ]);
-assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "systemMmioRead"), [
+assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "systemMmioRead")), [
   { kind: "systemMmioRead", pc: 0x4037_71a5, address: 0x600c_0060, width: 4, value: 0x400 },
   { kind: "systemMmioRead", pc: 0x4037_71d6, address: 0x600c_0010, width: 4, value: 0x4 },
   { kind: "systemMmioRead", pc: 0x4037_71ff, address: 0x600c_0010, width: 4, value: 0x4 },
@@ -735,7 +745,7 @@ assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "syste
   { kind: "systemMmioRead", pc: 0x4037_7294, address: 0x600c_0060, width: 4, value: 0x400 },
   { kind: "systemMmioRead", pc: 0x4037_72aa, address: 0x600c_0060, width: 4, value: 0x400 },
 ]);
-assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "systemMmioWrite"), [
+assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "systemMmioWrite")), [
   { kind: "systemMmioWrite", pc: 0x4037_727d, address: 0x600c_0060, width: 4, value: 0x400 },
   { kind: "systemMmioWrite", pc: 0x4037_72a5, address: 0x600c_0060, width: 4, value: 0x400 },
   { kind: "systemMmioWrite", pc: 0x4037_72b8, address: 0x600c_0060, width: 4, value: 0 },
@@ -750,11 +760,11 @@ assert.deepEqual(cacheProgress.systemMmio, {
   writeCount: 3,
   lastWritePc: 0x4037_72b8,
 });
-assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "rtcMmioRead"), [
+assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "rtcMmioRead")), [
   { kind: "rtcMmioRead", pc: 0x4037_7159, address: 0x6000_80c0, width: 4, value: 0x0028_0028 },
   { kind: "rtcMmioRead", pc: 0x4037_7301, address: 0x6000_81fc, width: 4, value: 0x0210_1271 },
 ]);
-assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "rtcMmioWrite"), [
+assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "rtcMmioWrite")), [
   { kind: "rtcMmioWrite", pc: 0x4037_730f, address: 0x6000_81fc, width: 4, value: 0x0210_f271 },
 ]);
 assert.deepEqual(cacheProgress.rtcMmio, {
@@ -767,9 +777,15 @@ assert.deepEqual(cacheProgress.rtcMmio, {
   dateWriteCount: 1,
   dateLastWritePc: 0x4037_730f,
 });
-assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "cpuTicksPerUs"), [
+assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "cpuTicksPerUs")), [
   { kind: "cpuTicksPerUs", pc: 0x4000_1a4c, ticksPerUs: 40, callinc: 2 },
 ]);
+assert(cacheProgress.romEvents.every((event, index, events) =>
+  Number.isSafeInteger(event.afterInstructionCount) &&
+  event.afterInstructionCount > 0 &&
+  event.afterInstructionCount <= cacheProgress.record.steps &&
+  (index === 0 || event.afterInstructionCount >= events[index - 1]!.afterInstructionCount)
+), "full ELF ROM event instruction boundaries are invalid or unordered");
 assert.deepEqual(cacheProgress.cpuTicks, {
   configured: true,
   ticksPerUs: 40,

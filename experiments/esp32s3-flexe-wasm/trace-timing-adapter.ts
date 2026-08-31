@@ -9,8 +9,11 @@ import {
   type NeutralTraceAdapterOptions,
   type NeutralTraceKind,
 } from "../../packs/esp32-s3-touch-amoled-18/timing/trace-adapter";
-import type { EventLatency } from "../../packs/esp32-s3-touch-amoled-18/timing/execution";
-import type { RuntimeTimingTrace } from "../../packs/esp32-s3-touch-amoled-18/timing/runtime-trace";
+import type { CpuExecutionEvent, EventLatency } from "../../packs/esp32-s3-touch-amoled-18/timing/execution";
+import type {
+  RuntimeTimingTrace,
+  RuntimeTraceObservation,
+} from "../../packs/esp32-s3-touch-amoled-18/timing/runtime-trace";
 import { classifyFlexeBeqzCpuCosts, type FlexeBeqzTimingOptions } from "./flexe-beqz";
 import {
   detectFlexeDependentSramLoadUseHazards,
@@ -24,10 +27,17 @@ export interface FlexeTraceTimingProvenance {
   readonly core: 0 | 1;
 }
 
+export interface FlexeRomCallbackBoundary {
+  readonly kind: string;
+  readonly pc: number;
+  readonly afterInstructionCount: number;
+}
+
 export interface FlexeTraceTimingOptions extends NeutralTraceAdapterOptions {
   readonly instructionCpuCost?: EventLatency;
   readonly dependentSramLoadUseHazard?: FlexeDependentSramLoadUseHazardOptions;
   readonly beqzCpuCost?: FlexeBeqzTimingOptions;
+  readonly romCallbacks?: readonly FlexeRomCallbackBoundary[];
 }
 
 function kindFor(record: TraceRecord, index: number): NeutralTraceKind {
@@ -53,6 +63,105 @@ function exactL32rPcs(decoded: DecodedTrace): ReadonlySet<number> {
     }
   }
   return pcs;
+}
+
+function attachRomCallbackBoundaries(
+  runtime: RuntimeTimingTrace,
+  instructionAccessIds: readonly string[],
+  provenance: FlexeTraceTimingProvenance,
+  callbacks: readonly FlexeRomCallbackBoundary[] | undefined,
+): RuntimeTimingTrace {
+  if (callbacks === undefined) return runtime;
+  if (!Array.isArray(callbacks)) throw new Error("flexe ROM callbacks must be an array");
+  const callbacksByInstruction = new Map<string, CpuExecutionEvent[]>();
+  const callbackCpuById = new Map<string, CpuExecutionEvent>();
+  let previousInstructionCount = 0;
+  for (const [index, callback] of callbacks.entries()) {
+    if (typeof callback !== "object" || callback === null) {
+      throw new Error(`flexe ROM callbacks[${index}] must be a callback boundary`);
+    }
+    if (typeof callback.kind !== "string" || callback.kind.length === 0) {
+      throw new Error(`flexe ROM callbacks[${index}].kind must be a non-empty string`);
+    }
+    if (!Number.isInteger(callback.pc) || callback.pc < 0 || callback.pc > 0xffff_ffff) {
+      throw new Error(`flexe ROM callbacks[${index}].pc must be a uint32`);
+    }
+    if (
+      !Number.isSafeInteger(callback.afterInstructionCount) ||
+      callback.afterInstructionCount <= 0 ||
+      callback.afterInstructionCount > instructionAccessIds.length
+    ) {
+      throw new Error(
+        `flexe ROM callbacks[${index}].afterInstructionCount must identify an executed instruction`,
+      );
+    }
+    if (callback.afterInstructionCount < previousInstructionCount) {
+      throw new Error("flexe ROM callbacks must be ordered by afterInstructionCount");
+    }
+    previousInstructionCount = callback.afterInstructionCount;
+    const instructionAccessId = instructionAccessIds[callback.afterInstructionCount - 1]!;
+    const event = Object.freeze({
+      id: `${instructionAccessId}:rom-callback:${index}:${callback.kind}`,
+      kind: "cpu" as const,
+      core: provenance.core,
+      instructionAccessId,
+      latency: Object.freeze({
+        status: "unknown" as const,
+        reason: `ROM callback ${callback.kind} at 0x${callback.pc.toString(16)} has no adopted CPU duration`,
+        source:
+          `full ELF ROM event afterInstructionCount ${callback.afterInstructionCount}; ${provenance.source}`,
+      }),
+    });
+    callbackCpuById.set(event.id, event);
+    const existing = callbacksByInstruction.get(instructionAccessId);
+    if (existing === undefined) callbacksByInstruction.set(instructionAccessId, [event]);
+    else existing.push(event);
+  }
+  if (callbackCpuById.size === 0) return runtime;
+
+  const observationOrder: RuntimeTraceObservation[] = [];
+  for (const observation of runtime.observationOrder) {
+    observationOrder.push(Object.freeze({ ...observation, sequence: observationOrder.length }));
+    if (
+      observation.kind !== "cpu" ||
+      observation.eventId !== `${observation.instructionAccessId}:cpu`
+    ) continue;
+    for (const callback of callbacksByInstruction.get(observation.instructionAccessId) ?? []) {
+      observationOrder.push(Object.freeze({
+        sequence: observationOrder.length,
+        kind: "cpu",
+        eventId: callback.id,
+        instructionAccessId: callback.instructionAccessId,
+      }));
+    }
+  }
+  if (observationOrder.length !== runtime.observationOrder.length + callbackCpuById.size) {
+    throw new Error("flexe ROM callback boundary has no preceding instruction CPU event");
+  }
+  const originalCpuById = new Map((runtime.input.cpu ?? []).map((event) => [event.id, event]));
+  const cpu = observationOrder
+    .filter((observation): observation is Extract<RuntimeTraceObservation, { kind: "cpu" }> =>
+      observation.kind === "cpu",
+    )
+    .map((observation) => {
+      const event = callbackCpuById.get(observation.eventId) ?? originalCpuById.get(observation.eventId);
+      if (event === undefined) throw new Error(`flexe CPU observation ${observation.eventId} has no event`);
+      return event;
+    });
+  const issueOrder = observationOrder.map((observation) =>
+    observation.kind === "memory"
+      ? Object.freeze({ kind: "memory" as const, accessId: observation.accessId })
+      : Object.freeze({ kind: observation.kind, eventId: observation.eventId }),
+  );
+  return Object.freeze({
+    ...runtime,
+    observationOrder: Object.freeze(observationOrder),
+    input: Object.freeze({
+      ...runtime.input,
+      cpu: Object.freeze(cpu),
+      issueOrder: Object.freeze(issueOrder),
+    }),
+  });
 }
 
 export function adaptFlexeTraceToRuntimeTiming(
@@ -137,5 +246,14 @@ export function adaptFlexeTraceToRuntimeTiming(
     }),
     observations: Object.freeze(observations),
   });
-  return adaptNeutralTimingTrace(neutral, [], { storeBuffer: options.storeBuffer });
+  const runtime = adaptNeutralTimingTrace(neutral, [], { storeBuffer: options.storeBuffer });
+  const instructionAccessIds = observations
+    .filter((observation) => observation.kind === "instruction")
+    .map((observation) => observation.id);
+  return attachRomCallbackBoundaries(
+    runtime,
+    instructionAccessIds,
+    provenance,
+    options.romCallbacks,
+  );
 }

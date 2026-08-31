@@ -305,6 +305,13 @@ const cache: CacheConfiguration = Object.freeze({
     maintenance: unknown,
   }),
 });
+const romCallbacks = run.romEvents.filter((event) =>
+  event.kind !== "systemMmioRead" &&
+  event.kind !== "systemMmioWrite" &&
+  event.kind !== "rtcMmioRead" &&
+  event.kind !== "rtcMmioWrite"
+);
+assert.equal(romCallbacks.length, 16);
 const runtimeTrace = adaptFlexeTraceToRuntimeTiming(run.memoryTrace, {
   source: "full ELF runner committed execution trace",
   sha256: FULL_TRACE_RECORD_SHA256,
@@ -338,6 +345,7 @@ const runtimeTrace = adaptFlexeTraceToRuntimeTiming(run.memoryTrace, {
       branchCostSource,
     ),
   },
+  romCallbacks,
 });
 const machine = runRuntimeTimingTrace({
   addressMap,
@@ -359,7 +367,7 @@ assert.equal(machine.cores[0].status, "complete");
 assert.equal(machine.cores[0].accesses.length, 504);
 assert(machine.cores[0].accesses.every((access) => access.status === "resolved"));
 assert.equal(machine.cores[1].accesses.length, 0);
-assert.equal(runtimeTrace.input.cpu?.length, 391);
+assert.equal(runtimeTrace.input.cpu?.length, 407);
 assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "cache").length, 465);
 assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "mmio").length, 42);
 const cpuEvents = machine.issuedEvents.filter((event) => event.origin.kind === "cpu");
@@ -375,17 +383,24 @@ const exactMmioEvents = machine.issuedEvents.filter((event) =>
   event.origin.kind === "mmio" && event.cost.status === "known" &&
   event.cost.source.includes("exact matched ESP32-S3 MMIO access")
 );
-assert.equal(cpuEvents.length, 391);
+const romCallbackCpuEvents = cpuEvents.filter((event) => event.event.id.includes(":rom-callback:"));
+assert.equal(cpuEvents.length, 407);
 assert.equal(loadUseHazards.length, 29);
 assert.equal(instructionCpuEvents.length, 362);
 assert.equal(exactBeqzNotTaken.length, 3);
 assert.equal(exactBeqzTaken.length, 0);
-assert.equal(machine.issuedEvents.length, 898);
+assert.equal(romCallbackCpuEvents.length, 16);
+assert.equal(machine.issuedEvents.length, 914);
 assert.equal(exactMmioEvents.length, 5);
-assert.equal(machine.claim.unknownCostEventIds.length, 37);
+assert.equal(machine.claim.unknownCostEventIds.length, 53);
 assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 861);
-assert(cpuEvents.every((event) =>
+assert([...instructionCpuEvents, ...loadUseHazards].every((event) =>
   event.cost.status === "known" && event.cost.cycles === 1n && event.cost.calibration === "calibrated"
+));
+assert(romCallbackCpuEvents.every((event) =>
+  event.cost.status === "unknown" &&
+  event.cost.reason.includes("has no adopted CPU duration") &&
+  event.cost.source?.includes("afterInstructionCount")
 ));
 assert(loadUseHazards.every((event) =>
   event.cost.status === "known" && event.cost.source.includes("dependent internal SRAM load-use a")
@@ -461,6 +476,13 @@ const loadUseEvidenceProjection = loadUseHazards.map((issued) => ({
     ? issued.cost.source.slice(issued.cost.source.lastIndexOf("dependent internal SRAM load-use"))
     : null,
 }));
+const romCallbackEvidenceProjection = romCallbackCpuEvents.map((issued) => ({
+  issueIndex: issued.issueIndex,
+  eventId: issued.event.id,
+  instructionAccessId: issued.origin.kind === "cpu" ? issued.origin.instructionAccessId : null,
+  reason: issued.cost.status === "unknown" ? issued.cost.reason : null,
+  source: issued.cost.status === "unknown" ? issued.cost.source : null,
+}));
 const actualBaseline = {
   schemaVersion: 1,
   inputs: {
@@ -492,6 +514,7 @@ const actualBaseline = {
     mmioEvents: machine.issuedEvents.filter((event) => event.origin.kind === "mmio").length,
     mmioAccessBreakdown,
     cpuEvents: cpuEvents.length,
+    romCallbackEvents: romCallbackCpuEvents.length,
     dependentSramLoadUseHazards: loadUseHazards.length,
     exactBeqzNotTaken: exactBeqzNotTaken.length,
     exactBeqzTaken: exactBeqzTaken.length,
@@ -501,6 +524,9 @@ const actualBaseline = {
     issuedProjectionSha256: createHash("sha256").update(JSON.stringify(issuedProjection)).digest("hex"),
     loadUseEvidenceSha256: createHash("sha256")
       .update(JSON.stringify(loadUseEvidenceProjection))
+      .digest("hex"),
+    romCallbackEvidenceSha256: createHash("sha256")
+      .update(JSON.stringify(romCallbackEvidenceProjection))
       .digest("hex"),
   },
 };

@@ -121,6 +121,7 @@ export interface CapturedElfPage {
 }
 
 export type FullElfRomEvent = Readonly<
+  { readonly afterInstructionCount: number } & (
   | { kind: "resetReason"; pc: number; core: number; result: number }
   | { kind: "memset"; pc: number; destination: number; value: number; length: number }
   | {
@@ -173,6 +174,7 @@ export type FullElfRomEvent = Readonly<
   | { kind: "rtcMmioWrite"; pc: number; address: number; width: number; value: number }
   | { kind: "cpuTicksPerUs"; pc: number; ticksPerUs: number; callinc: number }
   | { kind: "systemMmioWrite"; pc: number; address: number; width: number; value: number }
+  )
 >;
 
 interface FullElfExports {
@@ -481,13 +483,14 @@ export async function runSparseXtensaElf(
   const romEventCount = exports.flexe_wasm_elf_rom_event_count() >>> 0;
   const romEventCapacity = exports.flexe_wasm_elf_rom_event_capacity() >>> 0;
   assert(romEventCount <= romEventCapacity, "full ELF module returned too many ROM events");
-  const romEventPointer = checkPointer(exports.memory, exports.flexe_wasm_elf_rom_events(), romEventCount * 20, "ELF ROM events");
-  const romEventWords = new Uint32Array(exports.memory.buffer, romEventPointer, romEventCount * 5);
+  const romEventPointer = checkPointer(exports.memory, exports.flexe_wasm_elf_rom_events(), romEventCount * 24, "ELF ROM events");
+  const romEventWords = new Uint32Array(exports.memory.buffer, romEventPointer, romEventCount * 6);
   const romEvents: FullElfRomEvent[] = [];
   for (let index = 0; index < romEventCount; index++) {
-    const words = romEventWords.subarray(index * 5, index * 5 + 5);
+    const words = romEventWords.subarray(index * 6, index * 6 + 6);
+    const afterInstructionCount = words[5];
     if (words[0] === 1) {
-      romEvents.push(Object.freeze({ kind: "resetReason", pc: words[1], core: words[2], result: words[3] }));
+      romEvents.push(Object.freeze({ kind: "resetReason", pc: words[1], core: words[2], result: words[3], afterInstructionCount }));
     } else if (words[0] === 2) {
       romEvents.push(Object.freeze({
         kind: "memset",
@@ -495,6 +498,7 @@ export async function runSparseXtensaElf(
         destination: words[2],
         value: words[3],
         length: words[4],
+        afterInstructionCount,
       }));
     } else if (words[0] === 3) {
       romEvents.push(Object.freeze({
@@ -503,6 +507,7 @@ export async function runSparseXtensaElf(
         sequenceIndex: words[2],
         argument: words[3] === 0xffff_ffff ? null : words[3],
         returnValue: words[4] === 0xffff_ffff ? null : words[4],
+        afterInstructionCount,
       }));
     } else if (words[0] === 4) {
       const cache = words[1] === ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureInstruction
@@ -518,6 +523,7 @@ export async function runSparseXtensaElf(
         sizeBytes: words[2],
         ways: words[3],
         lineBytes: words[4],
+        afterInstructionCount,
       }));
     } else if (words[0] === 5) {
       assert(words[2] === 2, `unknown suspended cache ${words[2]}`);
@@ -526,6 +532,7 @@ export async function runSparseXtensaElf(
         pc: words[1],
         cache: "data",
         returnValue: words[3],
+        afterInstructionCount,
       }));
     } else if (words[0] === 6) {
       assert(words[2] === 2, `unknown resumed cache ${words[2]}`);
@@ -534,6 +541,7 @@ export async function runSparseXtensaElf(
         pc: words[1],
         cache: "data",
         argument: words[3],
+        afterInstructionCount,
       }));
     } else if (words[0] === 7) {
       romEvents.push(Object.freeze({
@@ -541,6 +549,7 @@ export async function runSparseXtensaElf(
         pc: words[1],
         instructionBytes: words[2],
         dataBytes: words[3],
+        afterInstructionCount,
       }));
     } else if (words[0] === 8) {
       romEvents.push(Object.freeze({
@@ -549,6 +558,7 @@ export async function runSparseXtensaElf(
         address: words[2],
         width: words[3],
         value: words[4],
+        afterInstructionCount,
       }));
     } else if (words[0] === 9) {
       romEvents.push(Object.freeze({
@@ -557,6 +567,7 @@ export async function runSparseXtensaElf(
         address: words[2],
         width: words[3],
         value: words[4],
+        afterInstructionCount,
       }));
     } else if (words[0] === 10) {
       romEvents.push(Object.freeze({
@@ -564,6 +575,7 @@ export async function runSparseXtensaElf(
         pc: words[1],
         ticksPerUs: words[2],
         callinc: words[3],
+        afterInstructionCount,
       }));
     } else if (words[0] === 11) {
       romEvents.push(Object.freeze({
@@ -572,6 +584,7 @@ export async function runSparseXtensaElf(
         address: words[2],
         width: words[3],
         value: words[4],
+        afterInstructionCount,
       }));
     } else if (words[0] === 12) {
       romEvents.push(Object.freeze({
@@ -580,6 +593,7 @@ export async function runSparseXtensaElf(
         address: words[2],
         width: words[3],
         value: words[4],
+        afterInstructionCount,
       }));
     } else throw new Error(`unknown full ELF ROM event ${words[0]}`);
   }

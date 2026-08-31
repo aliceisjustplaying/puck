@@ -72,6 +72,83 @@ assert(trace.claim.cycleAccurate === false, "flexe bridge made a cycle claim");
 assert(accesses[2]?.storeBuffer === undefined, "flexe bridge enabled store buffering by default");
 assert(trace.input.fence === undefined, "flexe bridge invented a default fence");
 
+const callbackTrace = adaptFlexeTraceToRuntimeTiming(decoded, {
+  source: "synthetic flexe trace",
+  sha256,
+  core: 1,
+}, {
+  instructionCpuCost: {
+    status: "known",
+    cycles: 1n,
+    calibration: "calibrated",
+    source: "synthetic steady-state issue evidence",
+  },
+  romCallbacks: [{ kind: "memset", pc: 0x400011e8, afterInstructionCount: 1 }],
+});
+const callbackCpu = callbackTrace.input.cpu?.[1];
+assert(callbackTrace.input.cpu?.length === 2, "flexe bridge omitted the configured ROM callback CPU boundary");
+assert(
+  callbackCpu?.id === "trace:00:instruction-fetch:rom-callback:0:memset" &&
+    callbackCpu.instructionAccessId === "trace:00:instruction-fetch" &&
+    callbackCpu.latency.status === "unknown" &&
+    callbackCpu.latency.reason.includes("memset at 0x400011e8") &&
+    callbackCpu.latency.source?.includes("afterInstructionCount 1"),
+  "flexe bridge assigned cost or lost provenance for the configured ROM callback",
+);
+assert(
+  JSON.stringify(callbackTrace.input.issueOrder?.slice(-2)) === JSON.stringify([
+    { kind: "cpu", eventId: "trace:00:instruction-fetch:cpu" },
+    { kind: "cpu", eventId: "trace:00:instruction-fetch:rom-callback:0:memset" },
+  ]),
+  "flexe bridge did not attach the ROM callback after its preceding call instruction",
+);
+
+for (const afterInstructionCount of [0, 2]) {
+  let invalidRomBoundaryFailure: unknown = null;
+  try {
+    adaptFlexeTraceToRuntimeTiming(decoded, {
+      source: "synthetic invalid ROM boundary",
+      sha256,
+      core: 1,
+    }, {
+      romCallbacks: [{ kind: "memset", pc: 0x400011e8, afterInstructionCount }],
+    });
+  } catch (error) {
+    invalidRomBoundaryFailure = error;
+  }
+  assert(
+    invalidRomBoundaryFailure instanceof Error && invalidRomBoundaryFailure.message.includes("afterInstructionCount"),
+    `flexe bridge accepted ROM callback afterInstructionCount ${afterInstructionCount}`,
+  );
+}
+const twoInstructionDecoded: DecodedTrace = {
+  ...decoded,
+  count: 2,
+  records: [
+    decoded.records[0]!,
+    { ...decoded.records[0]!, pc: 0x42000003 },
+  ],
+};
+let unorderedRomBoundaryFailure: unknown = null;
+try {
+  adaptFlexeTraceToRuntimeTiming(twoInstructionDecoded, {
+    source: "synthetic unordered ROM boundaries",
+    sha256,
+    core: 1,
+  }, {
+    romCallbacks: [
+      { kind: "cache", pc: 0x4000186c, afterInstructionCount: 2 },
+      { kind: "memset", pc: 0x400011e8, afterInstructionCount: 1 },
+    ],
+  });
+} catch (error) {
+  unorderedRomBoundaryFailure = error;
+}
+assert(
+  unorderedRomBoundaryFailure instanceof Error && unorderedRomBoundaryFailure.message.includes("ordered"),
+  "flexe bridge accepted out-of-order ROM callback instruction boundaries",
+);
+
 const L32R_A2 = 0xffff21;
 const literalDecoded: DecodedTrace = {
   ...decoded,

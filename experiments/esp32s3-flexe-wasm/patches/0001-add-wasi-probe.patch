@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..55a269c
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1638 @@
+@@ -0,0 +1,1639 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -194,7 +194,7 @@ index 0000000..55a269c
 +#define ELF_MEMORY_TRACE_CAPACITY 1024u
 +#define ELF_UNSUPPORTED_CAPACITY 2048u
 +#define ELF_ROM_EVENT_CAPACITY 64u
-+#define ELF_ROM_EVENT_WORDS 5u
++#define ELF_ROM_EVENT_WORDS 6u
 +#define ELF_ROM_MEMSET_MAX_BYTES 65536u
 +#define ESP32S3_ROM_RESET_REASON 0x4000057cu
 +#define ESP32S3_ROM_MEMSET 0x400011e8u
@@ -858,6 +858,7 @@ index 0000000..55a269c
 +    event[2] = arg0;
 +    event[3] = arg1;
 +    event[4] = arg2;
++    event[5] = elf_trace_count;
 +    return 1;
 +}
 +

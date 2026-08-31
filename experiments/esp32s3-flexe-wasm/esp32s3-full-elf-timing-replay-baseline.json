@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "inputs": {
     "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
-    "moduleSha256": "28e6d560b526c117b825ba7ac6c0eb772dd56f774dfa66bc568350114641953b",
+    "moduleSha256": "acfbc3b95126c6d183a740c6a4c85648bc2bc5f5d6576412d1fb734f10303a35",
     "traceRecordSha256": "89a628ff6f8273a786654e3153f1cf8d6cf629ed849ca6c3c58c04917819736d",
     "timingProfileSha256": "8dfbf2f51aa77d69eb98a0eed87d8d2442a2a9584ac21c5d238291398918f15b",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
     "neutralAdapterSha256": "337da62ff6c9a4f4aab9a09e419d250de22f0cc7fc04110826dd90bc8bf4430c",
-    "adapterSha256": "2c77902bc5ea89505f459de96f987de007c29f98070a95e86c2c5d1dc527a010",
+    "adapterSha256": "a2d375bbc4d19e8e7448e7d173a57601266aad779b6b0b7102a12c7d80cdf997",
     "loadUseClassifierSha256": "1759fe4d4e9bbf91f8780dbf585ab2b4b2a797ab39f7857cc6ce45f45ac60240",
     "beqzClassifierSha256": "05fc756b4fe8c1cc69fe3787e413dece79b02cc920d4a3f9340c7bf3bfea3fc9"
   },
@@ -36,7 +36,7 @@
     "exactBeqzNotTaken": 3,
     "exactBeqzTaken": 0,
     "exactMmioEvents": 5,
-    "issuedEvents": 898,
+    "issuedEvents": 914,
     "memoryEvents": 465,
     "mmioEvents": 42,
     "mmioAccessBreakdown": [
@@ -132,11 +132,13 @@
         "count": 1
       }
     ],
-    "cpuEvents": 391,
+    "cpuEvents": 407,
+    "romCallbackEvents": 16,
     "dependentSramLoadUseHazards": 29,
     "knownCostEvents": 861,
-    "unknownCostEvents": 37,
-    "issuedProjectionSha256": "b46c7ac6685b0946198b864321523522438e9f85776d580ff386e151be7960bf",
-    "loadUseEvidenceSha256": "4cd5539455eec51f4c908f50f0a6cbda438226a4cc430f15f3b976c3657f704b"
+    "unknownCostEvents": 53,
+    "issuedProjectionSha256": "3803433727bb38c98cf24adfe19ee9898e4421a3881ff5ade1ea54f60d89a84c",
+    "loadUseEvidenceSha256": "989be2b5ab383177a3a9b410e2858c9ee99b5d891434ad5483069febdda444b7",
+    "romCallbackEvidenceSha256": "c6baf69718f2e46549dee9dff84e92f33aa62aa5d173ee3dd6a7765161aa0e27"
   }
 }
