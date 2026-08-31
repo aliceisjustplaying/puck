@@ -47,7 +47,9 @@ assert(surface.normalizedMnemonics.includes("s32nb"), "ESP32-S3 scalar patch sur
 assert(surface.normalizedMnemonics.includes("ee.vld.128.ip"), "ESP32-S3 PIE patch surface lost vector load");
 assert(surface.normalizedMnemonics.includes("ee.vld.128.xp"), "ESP32-S3 PIE patch surface lost register-postincrement load");
 assert(surface.normalizedMnemonics.includes("ee.vld.l.64.ip"), "ESP32-S3 PIE patch surface lost half vector load");
+assert(surface.normalizedMnemonics.includes("ee.vld.l.64.xp"), "ESP32-S3 PIE patch surface lost half vector XP load");
 assert(surface.normalizedMnemonics.includes("ee.vst.l.64.ip"), "ESP32-S3 PIE patch surface lost low-half vector store");
+assert(surface.normalizedMnemonics.includes("ee.vst.h.64.xp"), "ESP32-S3 PIE patch surface lost half vector XP store");
 assert(surface.normalizedMnemonics.includes("ee.ldf.64.xp"), "ESP32-S3 PIE patch surface lost float-pair load");
 assert(surface.normalizedMnemonics.includes("ee.stf.64.xp"), "ESP32-S3 PIE patch surface lost float-pair store");
 assert(surface.normalizedMnemonics.includes("ee.ldf.128.ip"), "ESP32-S3 PIE patch surface lost float-quad immediate load");
@@ -59,7 +61,11 @@ assert(surface.normalizedMnemonics.includes("ee.ld.ua_state.ip"), "ESP32-S3 PIE 
 assert(surface.normalizedMnemonics.includes("ee.ld.128.usar.ip"), "ESP32-S3 PIE patch surface lost USAR load");
 assert(surface.normalizedMnemonics.includes("ee.ld.128.usar.xp"), "ESP32-S3 PIE patch surface lost USAR register-postincrement load");
 assert(surface.normalizedMnemonics.includes("ee.movi.32.q"), "ESP32-S3 PIE patch surface lost scalar-to-QR move");
+assert(surface.normalizedMnemonics.includes("ee.andq"), "ESP32-S3 PIE patch surface lost QR bitwise logic");
+assert(surface.normalizedMnemonics.includes("ee.notq"), "ESP32-S3 PIE patch surface lost QR bitwise NOT");
 assert(surface.normalizedMnemonics.includes("ee.ldqa.s16.128.ip"), "ESP32-S3 PIE patch surface lost signed QACC load");
+assert(surface.normalizedMnemonics.includes("ee.ldqa.u16.128.ip"), "ESP32-S3 PIE patch surface lost unsigned halfword QACC load");
+assert(surface.normalizedMnemonics.includes("ee.ldqa.u8.128.ip"), "ESP32-S3 PIE patch surface lost unsigned byte QACC load");
 assert(surface.normalizedMnemonics.includes("ee.st.accx.ip"), "ESP32-S3 PIE patch surface lost ACCX store");
 assert(surface.normalizedMnemonics.includes("ee.ld.qacc_h.h.32.ip"), "ESP32-S3 PIE patch surface lost QACC high-word load");
 assert(surface.normalizedMnemonics.includes("ee.ld.qacc_h.l.128.ip"), "ESP32-S3 PIE patch surface lost QACC high-bank low-part load");
@@ -72,6 +78,9 @@ assert(surface.normalizedMnemonics.includes("ee.st.qacc_l.h.32.ip"), "ESP32-S3 P
 assert(surface.normalizedMnemonics.includes("ee.st.ua_state.ip"), "ESP32-S3 PIE patch surface lost UA_STATE store");
 assert(surface.normalizedMnemonics.includes("ee.vldbc.32.ip"), "ESP32-S3 PIE patch surface lost broadcast load");
 assert(surface.normalizedMnemonics.includes("ee.vldbc.16.ip"), "ESP32-S3 PIE patch surface lost halfword broadcast load");
+assert(surface.normalizedMnemonics.includes("ee.vcmp.eq.s16"), "ESP32-S3 PIE patch surface lost halfword equality compare");
+assert(surface.normalizedMnemonics.includes("ee.vprelu.s16"), "ESP32-S3 PIE patch surface lost halfword parametric ReLU");
+assert(surface.normalizedMnemonics.includes("ee.vprelu.s8"), "ESP32-S3 PIE patch surface lost byte parametric ReLU");
 assert(surface.normalizedMnemonics.includes("ee.zero.q"), "ESP32-S3 PIE patch surface lost QR zero");
 assert(!surface.normalizedMnemonics.includes("??gap"), "unknown decoder diagnostics are not instructions");
 

@@ -163,6 +163,16 @@ function reasonName(value: number): keyof typeof STOP_REASONS {
   return match[0] as keyof typeof STOP_REASONS;
 }
 
+function initialRegisters(returnPc: number): number[] {
+  const registers = Array<number>(16).fill(0);
+  registers[1] = INITIAL_STACK;
+  registers[8] = ((2 << 30) | (returnPc & 0x3fff_ffff)) >>> 0;
+  registers[10] = INITIAL_SOURCE;
+  registers[11] = INITIAL_DESTINATION;
+  registers[12] = 1;
+  return registers;
+}
+
 function traceKindName(value: number): keyof typeof TRACE_KINDS {
   const match = Object.entries(TRACE_KINDS).find(([, number]) => number === value);
   if (!match) throw new Error(`unknown trace kind ${value}`);
@@ -422,6 +432,124 @@ assert(
   `QR scalar fixture output changed: ${Buffer.from(qrScalarRun.dataOutput).toString("hex")}`
 );
 
+const qrBitwiseFixture = conformanceFixture("esp32s3_qr_bitwise_logic", [
+  0xa4, 0x01, 0x93,
+  0xa4, 0x81, 0x93,
+  0x64, 0x34, 0xed,
+  0xa4, 0xf4, 0xed,
+  0x94, 0x35, 0xfd,
+  0xc4, 0xff, 0xfd,
+  0xb4, 0x01, 0xaa,
+  0xb4, 0x81, 0xaa,
+  0xb4, 0x01, 0xba,
+  0xb4, 0x81, 0xba
+]);
+const qrBitwiseInput = Uint8Array.from({ length: 64 }, (_, index) => (index * 29 + 7) & 0xff);
+const qrBitwiseExpected = new Uint8Array(64);
+for (let index = 0; index < 16; index++) {
+  const x = qrBitwiseInput[index]!;
+  const y = qrBitwiseInput[index + 16]!;
+  qrBitwiseExpected[index] = x & y;
+  qrBitwiseExpected[index + 16] = y;
+  qrBitwiseExpected[index + 32] = x ^ y;
+  qrBitwiseExpected[index + 48] = (~(x ^ y)) & 0xff;
+}
+const qrBitwiseRun = await runFresh(moduleBytes, qrBitwiseFixture, { data: qrBitwiseInput, maxSteps: 10 });
+assert(qrBitwiseRun.record.reason === STOP_REASONS.maxSteps, "QR bitwise fixture did not finish");
+assert(qrBitwiseRun.record.steps === 10, "QR bitwise fixture executed the wrong instruction count");
+assert(
+  qrBitwiseRun.dataOutput.every((byte, index) => byte === qrBitwiseExpected[index]),
+  `QR bitwise fixture output changed: ${Buffer.from(qrBitwiseRun.dataOutput).toString("hex")}`
+);
+assert(qrBitwiseRun.record.registers[10] === INITIAL_SOURCE + 32, "QR bitwise loads applied the wrong postincrements");
+assert(qrBitwiseRun.record.registers[11] === INITIAL_DESTINATION + 64, "QR bitwise stores applied the wrong postincrements");
+
+const qrCompareInput = Uint8Array.from([
+  0x00, 0x00, 0x01, 0x00, 0xff, 0xff, 0x00, 0x80,
+  0x34, 0x12, 0xcd, 0xab, 0x55, 0x55, 0xaa, 0xaa,
+  0x00, 0x00, 0x02, 0x00, 0xff, 0xff, 0xff, 0x7f,
+  0x34, 0x12, 0xba, 0xdc, 0x55, 0x55, 0x11, 0x11
+]);
+const qrCompareFixture = conformanceFixture("esp32s3_qr_compare_eq_s16", [
+  0xa4, 0x01, 0x93,
+  0xa4, 0x81, 0x93,
+  0x94, 0x1a, 0xae,
+  0xb4, 0x01, 0xaa
+]);
+const qrCompareExpected = Uint8Array.from([
+  0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00,
+  0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+]);
+const qrCompareRun = await runFresh(moduleBytes, qrCompareFixture, { data: qrCompareInput, maxSteps: 4 });
+assert(qrCompareRun.record.reason === STOP_REASONS.maxSteps, "QR comparison fixture did not finish");
+assert(qrCompareRun.record.steps === 4, "QR comparison fixture executed the wrong instruction count");
+assert(
+  qrCompareRun.dataOutput.every((byte, index) => byte === qrCompareExpected[index]),
+  `QR comparison fixture output changed: ${Buffer.from(qrCompareRun.dataOutput).toString("hex")}`
+);
+
+const unsupportedQrCompareFixture = conformanceFixture("esp32s3_unsupported_vcmp_lt_s16", [0xf4, 0x1a, 0xae]);
+const unsupportedQrCompareRun = await runFresh(moduleBytes, unsupportedQrCompareFixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0xae1af4 }
+});
+assert(unsupportedQrCompareRun.record.reason === STOP_REASONS.unsupported, "adjacent QR comparison did not fail closed");
+assert(unsupportedQrCompareRun.record.steps === 0, "adjacent QR comparison was counted as executed");
+assert(unsupportedQrCompareRun.trace.count === 0, "adjacent QR comparison leaked a trace record");
+assert(
+  unsupportedQrCompareRun.record.registers.every(
+    (value, index) => value === initialRegisters(unsupportedQrCompareRun.record.returnPc)[index]
+  ),
+  "adjacent QR comparison changed registers"
+);
+
+const qrPreluInput = Uint8Array.from([
+  0x01, 0x00, 0xff, 0xff, 0x00, 0x80, 0x00, 0x00,
+  0x34, 0x12, 0xfe, 0xff, 0xd4, 0xfe, 0xff, 0x7f,
+  0x02, 0x00, 0x02, 0x00, 0xff, 0xff, 0x05, 0x00,
+  0x10, 0x00, 0xff, 0x7f, 0xd4, 0xfe, 0x03, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+]);
+const qrPreluFixture = conformanceFixture("esp32s3_qr_parametric_relu", [
+  0xa4, 0x01, 0x93,
+  0xa4, 0x81, 0x93,
+  0xc4, 0x1a, 0xac,
+  0xd4, 0xba, 0xac,
+  0xb4, 0x01, 0xaa,
+  0xb4, 0x81, 0xaa
+]);
+const qrPreluExpected = Uint8Array.from([
+  0x01, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
+  0x34, 0x12, 0xff, 0xff, 0x00, 0x00, 0xff, 0x7f,
+  0x01, 0x00, 0xfe, 0x00, 0x00, 0x80, 0x00, 0x00,
+  0x34, 0x12, 0x02, 0x81, 0x90, 0x04, 0xfd, 0x7f,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+]);
+const qrPreluRun = await runFresh(moduleBytes, qrPreluFixture, { data: qrPreluInput, maxSteps: 6 });
+assert(qrPreluRun.record.reason === STOP_REASONS.maxSteps, "QR PRELU fixture did not finish");
+assert(qrPreluRun.record.steps === 6, "QR PRELU fixture executed the wrong instruction count");
+assert(
+  qrPreluRun.dataOutput.every((byte, index) => byte === qrPreluExpected[index]),
+  `QR PRELU fixture output changed: ${Buffer.from(qrPreluRun.dataOutput).toString("hex")}`
+);
+
+const unsupportedQrReluFixture = conformanceFixture("esp32s3_unsupported_vrelu_s16", [0xd4, 0x1c, 0xdd]);
+const unsupportedQrReluRun = await runFresh(moduleBytes, unsupportedQrReluFixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0xdd1cd4 }
+});
+assert(unsupportedQrReluRun.record.reason === STOP_REASONS.unsupported, "adjacent QR ReLU did not fail closed");
+assert(unsupportedQrReluRun.record.steps === 0, "adjacent QR ReLU was counted as executed");
+assert(unsupportedQrReluRun.trace.count === 0, "adjacent QR ReLU leaked a trace record");
+
 const unsupportedQrNeighborFixture = conformanceFixture("esp32s3_unsupported_zero_qacc", [0x44, 0x08, 0x25]);
 const unsupportedQrNeighborRun = await runFresh(moduleBytes, unsupportedQrNeighborFixture, {
   maxSteps: 1,
@@ -472,25 +600,24 @@ assert(
 assert(halfQrRun.record.registers[10] === INITIAL_SOURCE + 21, "QR half loads did not apply signed post-increments");
 assert(halfQrRun.record.registers[11] === INITIAL_DESTINATION + 11, "QR half store did not apply its signed post-increment");
 
-const unsupportedXpFixture = conformanceFixture("esp32s3_unsupported_vld_l_64_xp", [0xa4, 0x3c, 0x8d]);
-const unsupportedXpRun = await runFresh(moduleBytes, unsupportedXpFixture, {
-  maxSteps: 1,
-  unsupported: { offset: 0, encoding: 0x8d3ca4 }
-});
-assert(unsupportedXpRun.record.reason === STOP_REASONS.unsupported, "adjacent half XP form did not fail closed");
-assert(unsupportedXpRun.record.steps === 0, "adjacent half XP form was counted as executed");
-assert(unsupportedXpRun.trace.count === 0, "adjacent half XP refusal leaked a trace record");
-assert(unsupportedXpRun.dataOutput.length === 0, "adjacent half XP refusal exposed data output");
-const unsupportedXpRegisters = Array<number>(16).fill(0);
-unsupportedXpRegisters[1] = INITIAL_STACK;
-unsupportedXpRegisters[8] = ((2 << 30) | (unsupportedXpRun.record.returnPc & 0x3fff_ffff)) >>> 0;
-unsupportedXpRegisters[10] = INITIAL_SOURCE;
-unsupportedXpRegisters[11] = INITIAL_DESTINATION;
-unsupportedXpRegisters[12] = 1;
+const halfQrXpFixture = conformanceFixture("esp32s3_qr_half_register_postincrement", [
+  0xa4, 0xbc, 0x9d,
+  0xa4, 0x6c, 0xad,
+  0xb4, 0xcc, 0xdd,
+  0xb4, 0x0c, 0xed
+]);
+const halfQrXpExpected = new Uint8Array(32);
+halfQrXpExpected.set(halfQrInput.slice(0, 8), 0);
+halfQrXpExpected.set(halfQrInput.slice(16, 24), 16);
+const halfQrXpRun = await runFresh(moduleBytes, halfQrXpFixture, { data: halfQrInput, maxSteps: 4 });
+assert(halfQrXpRun.record.reason === STOP_REASONS.maxSteps, "QR half XP fixture did not finish");
+assert(halfQrXpRun.record.steps === 4, "QR half XP fixture executed the wrong instruction count");
 assert(
-  unsupportedXpRun.record.registers.every((value, index) => value === unsupportedXpRegisters[index]),
-  "adjacent half XP refusal changed registers"
+  halfQrXpRun.dataOutput.every((byte, index) => byte === halfQrXpExpected[index]),
+  `QR half XP fixture output changed: ${Buffer.from(halfQrXpRun.dataOutput).toString("hex")}`
 );
+assert(halfQrXpRun.record.registers[10] === INITIAL_SOURCE + 32, "QR half XP loads applied the wrong register increments");
+assert(halfQrXpRun.record.registers[11] === INITIAL_DESTINATION + 32, "QR half XP stores applied the wrong register increments");
 
 const float64XpFixture = conformanceFixture("esp32s3_float_pair_register_postincrement", [
   0x3b, 0xaa,
@@ -540,7 +667,9 @@ assert(unsupportedFloatMacRun.record.steps === 0, "adjacent float MAC form was c
 assert(unsupportedFloatMacRun.trace.count === 0, "adjacent float MAC refusal leaked a trace record");
 assert(unsupportedFloatMacRun.dataOutput.length === 0, "adjacent float MAC refusal exposed data output");
 assert(
-  unsupportedFloatMacRun.record.registers.every((value, index) => value === unsupportedXpRegisters[index]),
+  unsupportedFloatMacRun.record.registers.every(
+    (value, index) => value === initialRegisters(unsupportedFloatMacRun.record.returnPc)[index]
+  ),
   "adjacent float MAC refusal changed registers"
 );
 
@@ -715,17 +844,83 @@ assert(
   "signed QACC load packed or sign-extended a 40-bit lane incorrectly"
 );
 
-const unsupportedQaccLaneFixture = conformanceFixture("esp32s3_unsupported_ldqa_u16_128_ip", [0xa4, 0x01, 0x05]);
+const unsignedQaccU16Fixture = conformanceFixture("esp32s3_unsigned_qacc_u16_load", [
+  0x5b, 0xaa,
+  0xa4, 0x7f, 0x45,
+  0x70, 0x20, 0xe3,
+  0x80, 0x30, 0xe3,
+  0x90, 0x40, 0xe3,
+  0xa0, 0x50, 0xe3,
+  0xb0, 0x60, 0xe3,
+  0x20, 0x70, 0xe3,
+  0x30, 0x80, 0xe3,
+  0x40, 0x90, 0xe3,
+  0x50, 0xc0, 0xe3,
+  0x60, 0xd0, 0xe3
+]);
+const unsignedQaccU16Run = await runFresh(moduleBytes, unsignedQaccU16Fixture, {
+  data: signedQaccLoadInput,
+  maxSteps: 12
+});
+const unsignedQaccU16Expected = [
+  0x00000001, 0x007fff00, 0x80000000, 0xff000000, 0x000000ff,
+  0x00001234, 0x00fedc00, 0x40000000, 0x00000000, 0x000000c0
+];
+assert(unsignedQaccU16Run.record.reason === STOP_REASONS.maxSteps, "unsigned U16 QACC fixture did not finish");
+assert(unsignedQaccU16Run.record.steps === 12, "unsigned U16 QACC fixture executed the wrong instruction count");
+assert(unsignedQaccU16Run.record.registers[10] === (INITIAL_SOURCE - 11) >>> 0, "unsigned U16 QACC load applied the wrong postincrement");
+assert(
+  signedQaccRegisters.every((register, index) => unsignedQaccU16Run.record.registers[register] === unsignedQaccU16Expected[index]),
+  "unsigned U16 QACC load packed or zero-extended a 40-bit lane incorrectly"
+);
+
+const unsignedQaccU8Input = Uint8Array.from([
+  0x01, 0x7f, 0x80, 0xff, 0x12, 0xfe, 0x40, 0xc0,
+  0x02, 0x55, 0xaa, 0x99, 0x11, 0x22, 0x33, 0x44
+]);
+const unsignedQaccU8Fixture = conformanceFixture("esp32s3_unsigned_qacc_u8_load", [
+  0x5b, 0xaa,
+  0xa4, 0x02, 0x15,
+  0x70, 0x20, 0xe3,
+  0x80, 0x30, 0xe3,
+  0x90, 0x40, 0xe3,
+  0xa0, 0x50, 0xe3,
+  0xb0, 0x60, 0xe3,
+  0x20, 0x70, 0xe3,
+  0x30, 0x80, 0xe3,
+  0x40, 0x90, 0xe3,
+  0x50, 0xc0, 0xe3,
+  0x60, 0xd0, 0xe3
+]);
+const unsignedQaccU8Run = await runFresh(moduleBytes, unsignedQaccU8Fixture, {
+  data: unsignedQaccU8Input,
+  maxSteps: 12
+});
+const unsignedQaccU8Expected = [
+  0x07f00001, 0xf0008000, 0x0012000f, 0x40000fe0, 0x000c0000,
+  0x05500002, 0x9000aa00, 0x00110009, 0x33000220, 0x00044000
+];
+assert(unsignedQaccU8Run.record.reason === STOP_REASONS.maxSteps, "unsigned U8 QACC fixture did not finish");
+assert(unsignedQaccU8Run.record.steps === 12, "unsigned U8 QACC fixture executed the wrong instruction count");
+assert(unsignedQaccU8Run.record.registers[10] === INITIAL_SOURCE + 37, "unsigned U8 QACC load applied the wrong postincrement");
+assert(
+  signedQaccRegisters.every((register, index) => unsignedQaccU8Run.record.registers[register] === unsignedQaccU8Expected[index]),
+  "unsigned U8 QACC load packed or zero-extended a 20-bit lane incorrectly"
+);
+
+const unsupportedQaccLaneFixture = conformanceFixture("esp32s3_unsupported_ldqa_u16_128_xp", [0xa4, 0x4c, 0x7a]);
 const unsupportedQaccLaneRun = await runFresh(moduleBytes, unsupportedQaccLaneFixture, {
   maxSteps: 1,
-  unsupported: { offset: 0, encoding: 0x0501a4 }
+  unsupported: { offset: 0, encoding: 0x7a4ca4 }
 });
-assert(unsupportedQaccLaneRun.record.reason === STOP_REASONS.unsupported, "adjacent unsigned QACC load did not fail closed");
+assert(unsupportedQaccLaneRun.record.reason === STOP_REASONS.unsupported, "adjacent unsigned QACC XP load did not fail closed");
 assert(unsupportedQaccLaneRun.record.steps === 0, "adjacent unsigned QACC load was counted as executed");
 assert(unsupportedQaccLaneRun.trace.count === 0, "adjacent unsigned QACC refusal leaked a trace record");
 assert(unsupportedQaccLaneRun.dataOutput.length === 0, "adjacent unsigned QACC refusal exposed data output");
 assert(
-  unsupportedQaccLaneRun.record.registers.every((value, index) => value === unsupportedXpRegisters[index]),
+  unsupportedQaccLaneRun.record.registers.every(
+    (value, index) => value === initialRegisters(unsupportedQaccLaneRun.record.returnPc)[index]
+  ),
   "adjacent unsigned QACC refusal changed registers"
 );
 
@@ -812,12 +1007,7 @@ assert(
 assert(unknownUserRegisterRun.record.steps === 0, "unknown user register was counted as executed");
 assert(unknownUserRegisterRun.record.pc === unknownUserRegisterFixture.pc, "failed decoder step changed PC");
 assert(unknownUserRegisterRun.trace.count === 0, "failed decoder step leaked a trace record");
-const failedStepRegisters = Array<number>(16).fill(0);
-failedStepRegisters[1] = INITIAL_STACK;
-failedStepRegisters[8] = ((2 << 30) | (unknownUserRegisterRun.record.returnPc & 0x3fff_ffff)) >>> 0;
-failedStepRegisters[10] = INITIAL_SOURCE;
-failedStepRegisters[11] = INITIAL_DESTINATION;
-failedStepRegisters[12] = 1;
+const failedStepRegisters = initialRegisters(unknownUserRegisterRun.record.returnPc);
 assert(
   unknownUserRegisterRun.record.registers.every((value, index) => value === failedStepRegisters[index]),
   "failed decoder step changed registers",
@@ -1124,6 +1314,32 @@ const actualBaseline = {
     unsupportedReason: unsupportedQrNeighborRun.record.reasonName,
     unsupportedEncoding: `0x${unsupportedQrNeighborRun.record.unsupportedEncoding.toString(16)}`
   },
+  qrBitwiseIsa: {
+    codeSha256: qrBitwiseFixture.codeSha256,
+    outputHex: Buffer.from(qrBitwiseRun.dataOutput).toString("hex"),
+    reason: qrBitwiseRun.record.reasonName,
+    steps: qrBitwiseRun.record.steps,
+    sourceAfter: `0x${qrBitwiseRun.record.registers[10].toString(16)}`,
+    destinationAfter: `0x${qrBitwiseRun.record.registers[11].toString(16)}`
+  },
+  qrCompareIsa: {
+    codeSha256: qrCompareFixture.codeSha256,
+    outputHex: Buffer.from(qrCompareRun.dataOutput).toString("hex"),
+    reason: qrCompareRun.record.reasonName,
+    steps: qrCompareRun.record.steps,
+    unsupportedCodeSha256: unsupportedQrCompareFixture.codeSha256,
+    unsupportedReason: unsupportedQrCompareRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedQrCompareRun.record.unsupportedEncoding.toString(16)}`
+  },
+  qrPreluIsa: {
+    codeSha256: qrPreluFixture.codeSha256,
+    outputHex: Buffer.from(qrPreluRun.dataOutput).toString("hex"),
+    reason: qrPreluRun.record.reasonName,
+    steps: qrPreluRun.record.steps,
+    unsupportedCodeSha256: unsupportedQrReluFixture.codeSha256,
+    unsupportedReason: unsupportedQrReluRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedQrReluRun.record.unsupportedEncoding.toString(16)}`
+  },
   qrXpIsa: {
     codeSha256: qrXpFixture.codeSha256,
     outputHex: Buffer.from(qrXpRun.dataOutput).toString("hex"),
@@ -1138,10 +1354,15 @@ const actualBaseline = {
     reason: halfQrRun.record.reasonName,
     steps: halfQrRun.record.steps,
     sourceAfter: `0x${halfQrRun.record.registers[10].toString(16)}`,
-    destinationAfter: `0x${halfQrRun.record.registers[11].toString(16)}`,
-    unsupportedCodeSha256: unsupportedXpFixture.codeSha256,
-    unsupportedReason: unsupportedXpRun.record.reasonName,
-    unsupportedEncoding: `0x${unsupportedXpRun.record.unsupportedEncoding.toString(16)}`
+    destinationAfter: `0x${halfQrRun.record.registers[11].toString(16)}`
+  },
+  halfQrXpIsa: {
+    codeSha256: halfQrXpFixture.codeSha256,
+    outputHex: Buffer.from(halfQrXpRun.dataOutput).toString("hex"),
+    reason: halfQrXpRun.record.reasonName,
+    steps: halfQrXpRun.record.steps,
+    sourceAfter: `0x${halfQrXpRun.record.registers[10].toString(16)}`,
+    destinationAfter: `0x${halfQrXpRun.record.registers[11].toString(16)}`
   },
   float64XpIsa: {
     codeSha256: float64XpFixture.codeSha256,
@@ -1170,10 +1391,7 @@ const actualBaseline = {
     sourceAfter: `0x${accxMemoryRun.record.registers[10].toString(16)}`,
     destinationAfter: `0x${accxMemoryRun.record.registers[11].toString(16)}`,
     lowValue: `0x${accxMemoryRun.record.registers[2].toString(16)}`,
-    highValue: `0x${accxMemoryRun.record.registers[3].toString(16)}`,
-    unsupportedCodeSha256: unsupportedQaccLaneFixture.codeSha256,
-    unsupportedReason: unsupportedQaccLaneRun.record.reasonName,
-    unsupportedEncoding: `0x${unsupportedQaccLaneRun.record.unsupportedEncoding.toString(16)}`
+    highValue: `0x${accxMemoryRun.record.registers[3].toString(16)}`
   },
   qaccMemoryIsa: {
     codeSha256: qaccMemoryFixture.codeSha256,
@@ -1223,6 +1441,17 @@ const actualBaseline = {
     sourceAfter: `0x${signedQaccLoadRun.record.registers[10].toString(16)}`,
     lowWords: signedQaccRegisters.slice(0, 5).map((register) => `0x${signedQaccLoadRun.record.registers[register].toString(16)}`),
     highWords: signedQaccRegisters.slice(5).map((register) => `0x${signedQaccLoadRun.record.registers[register].toString(16)}`)
+  },
+  unsignedQaccLoadIsa: {
+    u16CodeSha256: unsignedQaccU16Fixture.codeSha256,
+    u16SourceAfter: `0x${unsignedQaccU16Run.record.registers[10].toString(16)}`,
+    u16Words: signedQaccRegisters.map((register) => `0x${unsignedQaccU16Run.record.registers[register].toString(16)}`),
+    u8CodeSha256: unsignedQaccU8Fixture.codeSha256,
+    u8SourceAfter: `0x${unsignedQaccU8Run.record.registers[10].toString(16)}`,
+    u8Words: signedQaccRegisters.map((register) => `0x${unsignedQaccU8Run.record.registers[register].toString(16)}`),
+    unsupportedCodeSha256: unsupportedQaccLaneFixture.codeSha256,
+    unsupportedReason: unsupportedQaccLaneRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedQaccLaneRun.record.unsupportedEncoding.toString(16)}`
   },
   threadptrIsa: {
     codeSha256: threadptrFixture.codeSha256,
@@ -1352,8 +1581,12 @@ assert(
     scalarIsa: baseline.scalarIsa,
     qrIsa: baseline.qrIsa,
     qrScalarIsa: baseline.qrScalarIsa,
+    qrBitwiseIsa: baseline.qrBitwiseIsa,
+    qrCompareIsa: baseline.qrCompareIsa,
+    qrPreluIsa: baseline.qrPreluIsa,
     qrXpIsa: baseline.qrXpIsa,
     halfQrIsa: baseline.halfQrIsa,
+    halfQrXpIsa: baseline.halfQrXpIsa,
     float64XpIsa: baseline.float64XpIsa,
     float128Isa: baseline.float128Isa,
     accxMemoryIsa: baseline.accxMemoryIsa,
@@ -1362,6 +1595,7 @@ assert(
     alignedLoadIsa: baseline.alignedLoadIsa,
     alignedMoreIsa: baseline.alignedMoreIsa,
     signedQaccLoadIsa: baseline.signedQaccLoadIsa,
+    unsignedQaccLoadIsa: baseline.unsignedQaccLoadIsa,
     threadptrIsa: baseline.threadptrIsa,
     accxIsa: baseline.accxIsa,
     qaccIsa: baseline.qaccIsa,
