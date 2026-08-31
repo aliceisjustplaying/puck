@@ -1,5 +1,5 @@
 import type { VirtualMemoryAccess } from "./address-map";
-import { scheduleExecution, type DmaEvent } from "./execution";
+import { scheduleExecution, type CpuExecutionEvent, type DmaEvent } from "./execution";
 import {
   runTimingMachine,
   timingMachineJson,
@@ -21,6 +21,12 @@ export type RuntimeTraceObservation =
       sequence: number;
       kind: "memory";
       accessId: string;
+    }>
+  | Readonly<{
+      sequence: number;
+      kind: "cpu";
+      eventId: string;
+      instructionAccessId: string;
     }>
   | Readonly<{
       sequence: number;
@@ -107,7 +113,11 @@ function freezeDma(event: DmaEvent): DmaEvent {
         calibration: event.latency.calibration,
         source: event.latency.source,
       })
-    : Object.freeze({ status: "unknown" as const, reason: event.latency.reason });
+    : Object.freeze({
+        status: "unknown" as const,
+        reason: event.latency.reason,
+        ...(event.latency.source === undefined ? {} : { source: event.latency.source }),
+      });
   const source = event.source.kind === "memory"
     ? Object.freeze({ kind: "memory" as const, memory: event.source.memory })
     : Object.freeze({ kind: "mmio" as const, peripheral: event.source.peripheral });
@@ -126,6 +136,24 @@ function freezeDma(event: DmaEvent): DmaEvent {
   });
 }
 
+function freezeCpu(event: CpuExecutionEvent): CpuExecutionEvent {
+  scheduleExecution([event]);
+  const latency = event.latency.status === "known"
+    ? Object.freeze({ ...event.latency })
+    : Object.freeze({
+        status: "unknown" as const,
+        reason: event.latency.reason,
+        ...(event.latency.source === undefined ? {} : { source: event.latency.source }),
+      });
+  return Object.freeze({
+    id: event.id,
+    kind: "cpu",
+    core: event.core,
+    instructionAccessId: event.instructionAccessId,
+    latency,
+  });
+}
+
 /**
  * Collect the exact event order reported by an execution runtime. The recorder
  * makes no completeness claim and supplies no addresses, mappings, or costs.
@@ -134,9 +162,11 @@ export class RuntimeTimingTraceRecorder {
   readonly #claim: RuntimeTimingTrace["claim"];
   readonly #cores: [VirtualMemoryAccess[], VirtualMemoryAccess[]] = [[], []];
   readonly #interleave: string[] = [];
+  readonly #cpu: CpuExecutionEvent[] = [];
   readonly #dma: DmaEvent[] = [];
   readonly #observations: RuntimeTraceObservation[] = [];
   readonly #ids = new Set<string>();
+  readonly #memoryById = new Map<string, VirtualMemoryAccess>();
   #nextAccessId = 0;
 
   constructor(source: string) {
@@ -172,11 +202,34 @@ export class RuntimeTimingTraceRecorder {
       bytes: observation.bytes,
     });
     this.#cores[observation.core].push(access);
+    this.#memoryById.set(id, access);
     this.#interleave.push(id);
     this.#observations.push(
       Object.freeze({ sequence: this.#observations.length, kind: "memory", accessId: id }),
     );
     return id;
+  }
+
+  recordCpu(event: CpuExecutionEvent): void {
+    if (typeof event !== "object" || event === null) throw new Error("runtime CPU event is required");
+    requireNonEmpty(event.id, "runtime CPU event.id");
+    if (this.#ids.has(event.id)) throw new Error(`runtime trace event id ${event.id} is already in use`);
+    const instruction = this.#memoryById.get(event.instructionAccessId);
+    if (!instruction || instruction.kind !== "instruction-fetch") {
+      throw new Error("runtime CPU event.instructionAccessId must name a recorded instruction-fetch access");
+    }
+    if (event.core !== instruction.core) {
+      throw new Error("runtime CPU event.core must match its instruction-fetch access");
+    }
+    const frozen = freezeCpu(event);
+    this.#ids.add(frozen.id);
+    this.#cpu.push(frozen);
+    this.#observations.push(Object.freeze({
+      sequence: this.#observations.length,
+      kind: "cpu",
+      eventId: frozen.id,
+      instructionAccessId: frozen.instructionAccessId,
+    }));
   }
 
   recordDma(event: DmaEvent): void {
@@ -198,13 +251,15 @@ export class RuntimeTimingTraceRecorder {
         Object.freeze([...this.#cores[1]]),
       ]) as TimingMachineInput["cores"],
       architecturalInterleave: Object.freeze([...this.#interleave]),
+      cpu: Object.freeze([...this.#cpu]),
       dma: Object.freeze([...this.#dma]),
       issueOrder: Object.freeze(
-        this.#observations.map((observation) =>
-          observation.kind === "memory"
-            ? Object.freeze({ kind: "memory" as const, accessId: observation.accessId })
-            : Object.freeze({ kind: "dma" as const, eventId: observation.eventId }),
-        ),
+        this.#observations.map((observation) => {
+          if (observation.kind === "memory") {
+            return Object.freeze({ kind: "memory" as const, accessId: observation.accessId });
+          }
+          return Object.freeze({ kind: observation.kind, eventId: observation.eventId });
+        }),
       ),
     });
     return Object.freeze({
@@ -285,7 +340,25 @@ export function runRuntimeTimingTrace(
       }
       continue;
     }
-    throw new Error(`runtime timing trace observationOrder[${index}].kind must be memory or dma`);
+    if (observation.kind === "cpu") {
+      const eventId = requireNonEmpty(
+        observation.eventId,
+        `runtime timing trace observationOrder[${index}].eventId`,
+      );
+      const instructionAccessId = requireNonEmpty(
+        observation.instructionAccessId,
+        `runtime timing trace observationOrder[${index}].instructionAccessId`,
+      );
+      if (issue.kind !== "cpu" || issue.eventId !== eventId) {
+        throw new Error(`runtime timing trace observationOrder[${index}] disagrees with input.issueOrder`);
+      }
+      const cpu = trace.input.cpu?.find((event) => event.id === eventId);
+      if (!cpu || cpu.instructionAccessId !== instructionAccessId) {
+        throw new Error(`runtime timing trace observationOrder[${index}] disagrees with input.cpu`);
+      }
+      continue;
+    }
+    throw new Error(`runtime timing trace observationOrder[${index}].kind must be memory, cpu, or dma`);
   }
 
   const machine = runTimingMachine(config, trace.input);

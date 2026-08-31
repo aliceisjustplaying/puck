@@ -194,6 +194,12 @@ assert(machine.cores[0].accesses.length === trace.length, "TimingMachine omitted
 assert(machine.cores[1].accesses.length === 0, "replay invented core 1 activity");
 
 const executionById = new Map(machine.execution.events.map((event) => [event.eventId, event]));
+const cpuByInstruction = new Map(
+  machine.issuedEvents
+    .flatMap((issued) => issued.origin.kind === "cpu"
+      ? [[issued.origin.instructionAccessId, issued] as const]
+      : []),
+);
 const perRecord = machine.cores[0].accesses.map((result, index) => {
   assert(result.status === "resolved", `trace access ${index} did not resolve`);
   const emissions = result.cacheSteps.flatMap((step) => step.emissions).map((emission) => {
@@ -216,6 +222,29 @@ const perRecord = machine.cores[0].accesses.map((result, index) => {
     };
   });
   const record = trace[index]!;
+  const cpuIssued = cpuByInstruction.get(result.access.id);
+  assert(
+    (record.kind === TRACE_KINDS.instruction) === (cpuIssued !== undefined),
+    `trace access ${result.access.id} CPU grouping changed`,
+  );
+  const cpu = cpuIssued === undefined ? null : (() => {
+    const execution = executionById.get(cpuIssued.event.id);
+    assert(execution !== undefined, `missing execution result for ${cpuIssued.event.id}`);
+    return {
+      eventId: cpuIssued.event.id,
+      cost: cpuIssued.cost.status === "known"
+        ? { status: "known", cycles: cpuIssued.cost.cycles.toString(10), calibration: cpuIssued.cost.calibration, source: cpuIssued.cost.source }
+        : { status: "unknown", cycles: null, reason: cpuIssued.cost.reason, source: cpuIssued.cost.source },
+      execution: {
+        status: execution.status,
+        resource: execution.resource,
+        startCycle: execution.startCycle === null ? null : execution.startCycle.toString(10),
+        endCycle: execution.endCycle === null ? null : execution.endCycle.toString(10)
+      }
+    };
+  })();
+  const timingKnown = emissions.every((emission) => emission.cost.status === "known") &&
+    (cpu === null || cpu.cost.status === "known");
   return {
     traceIndex: index,
     trace: {
@@ -240,10 +269,14 @@ const perRecord = machine.cores[0].accesses.map((result, index) => {
       physicalOffset: hex(segment.physicalOffset)
     })),
     timing: {
-      status: emissions.every((emission) => emission.cost.status === "known") ? "known" : "unknown",
-      totalCycles: emissions.every((emission) => emission.cost.status === "known")
-        ? emissions.reduce((sum, emission) => sum + BigInt(emission.cost.cycles ?? "0"), 0n).toString(10)
+      status: timingKnown ? "known" : "unknown",
+      totalCycles: timingKnown
+        ? (
+            emissions.reduce((sum, emission) => sum + BigInt(emission.cost.cycles ?? "0"), 0n) +
+            BigInt(cpu?.cost.cycles ?? "0")
+          ).toString(10)
         : null,
+      cpu,
       emissions
     }
   };
@@ -254,9 +287,11 @@ const emissionKinds = machine.cores[0].accesses.flatMap((result) =>
 );
 const counts = Object.fromEntries([...new Set(emissionKinds)].sort().map((kind) => [kind, emissionKinds.filter((value) => value === kind).length]));
 assert(JSON.stringify(counts) === JSON.stringify({ hit: 44, "line-fill": 2, "sram-bypass": 10 }), `unexpected replay emissions ${JSON.stringify(counts)}`);
-assert(machine.issuedEvents.length === 56, `expected 56 issued events, got ${machine.issuedEvents.length}`);
+const cpuEvents = machine.issuedEvents.filter((issued) => issued.origin.kind === "cpu");
+assert(cpuEvents.length === 43, `expected 43 CPU events, got ${cpuEvents.length}`);
+assert(machine.issuedEvents.length === 99, `expected 99 issued events, got ${machine.issuedEvents.length}`);
 assert(machine.execution.events.filter((event) => event.resource === "mspi").length === 2, "instruction misses did not reach MSPI");
-assert(machine.claim.unknownCostEventIds.length === 56, "an event acquired an unproven cycle cost");
+assert(machine.claim.unknownCostEventIds.length === 99, "an event acquired an unproven cycle cost");
 const crossingFetch = perRecord.find((record) => record.trace.pc === "0x420d4e1e");
 assert(crossingFetch !== undefined, "trace lost the cache-line crossing fetch");
 assert(
@@ -299,11 +334,12 @@ const actualBaseline = {
     instructionFetches: accesses.filter((access) => access.kind === "instruction-fetch").length,
     loads: accesses.filter((access) => access.kind === "load").length,
     stores: accesses.filter((access) => access.kind === "store").length,
+    cpuExecutions: cpuEvents.length,
     issuedEvents: machine.issuedEvents.length,
     emissions: counts,
     mspiEvents: machine.execution.events.filter((event) => event.resource === "mspi").length,
     totalCycles: null,
-    totalCyclesReason: "all cache and SRAM latency costs remain unadopted",
+    totalCyclesReason: "all CPU, cache, and SRAM latency costs remain unadopted",
     perRecordSha256
   }
 };

@@ -227,7 +227,9 @@ describe("runtime observation seam", () => {
 
     const result = runRuntimeTimingTrace(configuration(), recorder.snapshot());
     expect(result.issuedEvents.map((issued) =>
-      issued.origin.kind === "dma" ? issued.event.id : issued.origin.accessId,
+      issued.origin.kind === "cache" || issued.origin.kind === "mmio"
+        ? issued.origin.accessId
+        : issued.event.id,
     )).toEqual([
       "runtime-access:0",
       "runtime-access:0",

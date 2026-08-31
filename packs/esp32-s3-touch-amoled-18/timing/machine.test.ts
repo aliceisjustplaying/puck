@@ -7,7 +7,7 @@ import {
   type CacheLineFillCost,
   type CacheLatency,
 } from "./cache";
-import type { DmaEvent } from "./execution";
+import type { CpuExecutionEvent, DmaEvent } from "./execution";
 import {
   ESP32_S3_IDF_V6_0_2_MMU_METADATA,
   ESP32_S3_MMU_ENTRY_COUNT,
@@ -512,7 +512,9 @@ describe("explicit architectural interleave", () => {
     };
     const result = runTimingMachine(configuration(), ordered);
     expect(result.issuedEvents.map((issued) =>
-      issued.origin.kind === "dma" ? issued.event.id : issued.origin.accessId,
+      issued.origin.kind === "cache" || issued.origin.kind === "mmio"
+        ? issued.origin.accessId
+        : issued.event.id,
     )).toEqual(["memory-before", "dma-middle", "memory-after"]);
 
     const omitted: TimingMachineInput = { ...ordered, issueOrder: ordered.issueOrder!.slice(0, -1) };
@@ -530,6 +532,39 @@ describe("explicit architectural interleave", () => {
     expect(() => runTimingMachine(configuration(), drift)).toThrow(
       "input.issueOrder memory access memory-after disagrees with architecturalInterleave at index 0",
     );
+  });
+
+  test("links a CPU event to its preceding instruction fetch", () => {
+    const fetch = access("fetch", 0, "instruction-fetch", 0x1000n, 2);
+    const cpu: CpuExecutionEvent = {
+      id: "fetch:cpu",
+      kind: "cpu",
+      core: 0,
+      instructionAccessId: fetch.id,
+      latency: { status: "known", cycles: 3n, calibration: "uncalibrated", source: "caller-cpu-cost" },
+    };
+    const ordered: TimingMachineInput = {
+      ...input([fetch], []),
+      cpu: [cpu],
+      issueOrder: [
+        { kind: "memory", accessId: fetch.id },
+        { kind: "cpu", eventId: cpu.id },
+      ],
+    };
+    const result = runTimingMachine(configuration(), ordered);
+    expect(result.issuedEvents.at(-1)).toMatchObject({
+      origin: { kind: "cpu", instructionAccessId: fetch.id, core: 0 },
+      cost: { status: "known", cycles: 3n, source: "caller-cpu-cost" },
+    });
+
+    expect(() => runTimingMachine(configuration(), {
+      ...ordered,
+      issueOrder: [...ordered.issueOrder!].reverse(),
+    })).toThrow("input.issueOrder CPU event fetch:cpu must follow instruction access fetch");
+    expect(() => runTimingMachine(configuration(), {
+      ...ordered,
+      cpu: [{ ...cpu, instructionAccessId: "missing" }],
+    })).toThrow("input.cpu[0].instructionAccessId must name an instruction-fetch access");
   });
 });
 
@@ -593,7 +628,10 @@ describe("fault and unknown-cost barriers", () => {
       blockedByAccessId: "unmapped",
       issuedEventIds: [],
     });
-    expect(result.issuedEvents.some((issued) => issued.origin.kind !== "dma" && issued.origin.accessId === "must-not-run")).toBe(false);
+    expect(result.issuedEvents.some((issued) =>
+      (issued.origin.kind === "cache" || issued.origin.kind === "mmio") &&
+      issued.origin.accessId === "must-not-run"
+    )).toBe(false);
     expect(result.execution.events.some((event) => event.eventId.includes("other-core"))).toBe(true);
     expect(result.execution.status).toBe("complete");
   });

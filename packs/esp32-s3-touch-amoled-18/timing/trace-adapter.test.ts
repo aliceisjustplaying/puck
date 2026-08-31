@@ -7,7 +7,7 @@ import {
 } from "./cache";
 import type { DmaEvent } from "./execution";
 import type { TimingMachineConfiguration } from "./machine";
-import { runRuntimeTimingTrace } from "./runtime-trace";
+import { runtimeTimingResultJson, runRuntimeTimingTrace } from "./runtime-trace";
 import {
   adaptNeutralTimingTrace,
   type BoundedNeutralTrace,
@@ -49,7 +49,11 @@ function unknown(component: string): CacheLatency {
   };
 }
 
-function configuration(): TimingMachineConfiguration {
+function known(cycles: bigint, source = "caller-instruction-cost"): CacheLatency {
+  return { status: "known", cycles, calibration: "uncalibrated", source };
+}
+
+function configuration(costFor: (component: string) => CacheLatency = unknown): TimingMachineConfiguration {
   const addressMap: AddressMapConfiguration = {
     addressBits: 32,
     metadata: { architectureCalibration: "uncalibrated", source: "synthetic-map" },
@@ -85,27 +89,27 @@ function configuration(): TimingMachineConfiguration {
     },
     costs: {
       hit: {
-        instructionFetch: unknown("instruction hit"),
-        load: unknown("load hit"),
-        store: unknown("store hit"),
+        instructionFetch: costFor("instruction hit"),
+        load: costFor("load hit"),
+        store: costFor("store hit"),
       },
-      lineFill: unknown("line fill"),
-      dirtyWriteback: unknown("writeback"),
-      writeThrough: unknown("write through"),
+      lineFill: costFor("line fill"),
+      dirtyWriteback: costFor("writeback"),
+      writeThrough: costFor("write through"),
       uncached: {
-        instructionFetch: unknown("uncached instruction"),
-        load: unknown("uncached load"),
-        store: unknown("uncached store"),
+        instructionFetch: costFor("uncached instruction"),
+        load: costFor("uncached load"),
+        store: costFor("uncached store"),
       },
       sram: {
-        instructionFetch: unknown("SRAM instruction"),
-        load: unknown("SRAM load"),
-        store: unknown("SRAM store"),
+        instructionFetch: costFor("SRAM instruction"),
+        load: costFor("SRAM load"),
+        store: costFor("SRAM store"),
       },
-      maintenance: unknown("maintenance"),
+      maintenance: costFor("maintenance"),
     },
   };
-  return { addressMap, cache, mmioCost: () => unknown("MMIO") };
+  return { addressMap, cache, mmioCost: () => costFor("MMIO") };
 }
 
 function dma(): DmaEvent {
@@ -141,8 +145,25 @@ describe("bounded neutral timing trace adapter", () => {
     expect(trace.observationOrder).toEqual([
       { sequence: 0, kind: "memory", accessId: "core-1-read" },
       { sequence: 1, kind: "memory", accessId: "core-0-instruction" },
-      { sequence: 2, kind: "memory", accessId: "core-1-write" },
+      {
+        sequence: 2,
+        kind: "cpu",
+        eventId: "core-0-instruction:cpu",
+        instructionAccessId: "core-0-instruction",
+      },
+      { sequence: 3, kind: "memory", accessId: "core-1-write" },
     ]);
+    expect(trace.input.cpu).toEqual([{
+      id: "core-0-instruction:cpu",
+      kind: "cpu",
+      core: 0,
+      instructionAccessId: "core-0-instruction",
+      latency: {
+        status: "unknown",
+        reason: "instruction core-0-instruction has no caller-supplied CPU cost",
+        source: "synthetic-neutral-trace",
+      },
+    }]);
     expect(trace.provenance).toEqual({
       source: "synthetic-neutral-trace",
       format: "synthetic-v1",
@@ -192,6 +213,10 @@ describe("bounded neutral timing trace adapter", () => {
     expect(() => adaptNeutralTimingTrace(neutral([
       observation("bad-data", 0, 0, "read", 0x1000n, 3),
     ]))).toThrow("neutral trace observations[0].width 3 is unsupported for read");
+    expect(() => adaptNeutralTimingTrace(neutral([{
+      ...observation("costed-read", 0, 0, "read", 0x1000n, 4),
+      cpuCost: known(1n),
+    }]))).toThrow("neutral trace observations[0].cpuCost is only valid for an instruction observation");
   });
 
   test("keeps literal loads behind a caller-sourced read extension", () => {
@@ -239,7 +264,90 @@ describe("bounded neutral timing trace adapter", () => {
     expect(result.claim.costCalibration).toBe("unknown");
     expect(result.claim.cycleAccurate).toBe(false);
     expect(result.claim.coverage).toBe("caller-reported-events-only");
-    expect(result.claim.unknownCostEventIds).toHaveLength(3);
+    expect(result.claim.unknownCostEventIds).toHaveLength(4);
     expect(result.provenance).toEqual(trace.provenance);
+  });
+
+  test("lets an unknown instruction cost finish its group, block its core, and leave the other core independent", () => {
+    const trace = adaptNeutralTimingTrace(neutral([
+      observation("instruction", 0, 0, "instruction", 0x1000n, 2),
+      observation("instruction-read", 1, 0, "read", 0x1004n, 4),
+      observation("other-core-read", 2, 1, "read", 0x1100n, 4),
+      {
+        ...observation("next-instruction", 3, 0, "instruction", 0x1008n, 2),
+        cpuCost: known(1n, "caller-next-instruction-cost"),
+      },
+    ]));
+    const result = runRuntimeTimingTrace(configuration(() => known(1n, "known-memory-cost")), trace);
+    expect(result.status).toBe("blocked");
+    expect(result.claim.costCalibration).toBe("unknown");
+    expect(result.claim.cycleAccurate).toBe(false);
+    expect(result.claim.unknownCostEventIds).toEqual(["instruction:cpu"]);
+    expect(result.claim.costProvenance.find((cost) => cost.eventId === "instruction:cpu")).toEqual({
+      status: "unknown",
+      eventId: "instruction:cpu",
+      calibration: "unknown",
+      reason: "instruction instruction has no caller-supplied CPU cost",
+      source: "synthetic-neutral-trace",
+    });
+    expect(result.execution.events.map((event) => [event.eventId, event.status])).toEqual([
+      ["cache:instruction:segment:0:cache:0:sram-bypass", "completed"],
+      ["cache:other-core-read:segment:0:cache:0:sram-bypass", "completed"],
+      ["cache:instruction-read:segment:0:cache:0:sram-bypass", "completed"],
+      ["instruction:cpu", "started-unknown-duration"],
+      ["cache:next-instruction:segment:0:cache:0:sram-bypass", "blocked"],
+      ["next-instruction:cpu", "blocked"],
+    ]);
+  });
+
+  test("serializes supplied CPU costs after each instruction's fetch and data while other cores progress", () => {
+    const trace = adaptNeutralTimingTrace(neutral([
+      { ...observation("c0-instruction", 0, 0, "instruction", 0x1000n, 2), cpuCost: known(3n, "c0-cost") },
+      { ...observation("c1-instruction", 1, 1, "instruction", 0x1100n, 2), cpuCost: known(2n, "c1-cost") },
+      observation("c0-read", 2, 0, "read", 0x1004n, 4),
+      observation("c1-write", 3, 1, "write", 0x1104n, 4),
+      { ...observation("c0-next", 4, 0, "instruction", 0x1008n, 2), cpuCost: known(1n, "c0-next-cost") },
+    ]));
+    expect(trace.input.issueOrder).toEqual([
+      { kind: "memory", accessId: "c0-instruction" },
+      { kind: "memory", accessId: "c1-instruction" },
+      { kind: "memory", accessId: "c0-read" },
+      { kind: "cpu", eventId: "c0-instruction:cpu" },
+      { kind: "memory", accessId: "c1-write" },
+      { kind: "cpu", eventId: "c1-instruction:cpu" },
+      { kind: "memory", accessId: "c0-next" },
+      { kind: "cpu", eventId: "c0-next:cpu" },
+    ]);
+
+    const result = runRuntimeTimingTrace(configuration(() => known(1n, "known-memory-cost")), trace);
+    expect(result.status).toBe("complete");
+    const windows = Object.fromEntries(result.execution.events.map((event) => [
+      event.eventId,
+      event.status === "completed" ? [event.startCycle, event.endCycle] : event.status,
+    ]));
+    expect(windows).toMatchObject({
+      "cache:c0-instruction:segment:0:cache:0:sram-bypass": [0n, 1n],
+      "cache:c0-read:segment:0:cache:0:sram-bypass": [1n, 2n],
+      "c0-instruction:cpu": [2n, 5n],
+      "cache:c0-next:segment:0:cache:0:sram-bypass": [5n, 6n],
+      "c0-next:cpu": [6n, 7n],
+      "cache:c1-instruction:segment:0:cache:0:sram-bypass": [0n, 1n],
+      "cache:c1-write:segment:0:cache:0:sram-bypass": [1n, 2n],
+      "c1-instruction:cpu": [2n, 4n],
+    });
+    expect(result.claim.costProvenance.filter((cost) => cost.eventId.endsWith(":cpu"))).toEqual([
+      { status: "known", eventId: "c0-instruction:cpu", calibration: "uncalibrated", cycles: 3n, source: "c0-cost" },
+      { status: "known", eventId: "c1-instruction:cpu", calibration: "uncalibrated", cycles: 2n, source: "c1-cost" },
+      { status: "known", eventId: "c0-next:cpu", calibration: "uncalibrated", cycles: 1n, source: "c0-next-cost" },
+    ]);
+    expect(
+      JSON.parse(runtimeTimingResultJson(result)).claim.costProvenance
+        .filter((cost: { eventId: string }) => cost.eventId.endsWith(":cpu"))
+        .map((cost: { cycles: string; source: string }) => [cost.cycles, cost.source]),
+    ).toEqual([
+      ["3", "c0-cost"],
+      ["2", "c1-cost"],
+      ["1", "c0-next-cost"],
+    ]);
   });
 });

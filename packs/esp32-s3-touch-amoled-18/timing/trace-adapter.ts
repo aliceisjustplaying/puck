@@ -1,4 +1,4 @@
-import type { DmaEvent } from "./execution";
+import type { CpuExecutionEvent, DmaEvent, EventLatency } from "./execution";
 import {
   RuntimeTimingTraceRecorder,
   type RuntimeMemoryObservation,
@@ -15,6 +15,8 @@ export interface NeutralTraceObservation {
   readonly kind: NeutralTraceKind;
   readonly address: bigint;
   readonly width: number;
+  /** Instruction-only CPU duration. Omission becomes an explicit unknown cost. */
+  readonly cpuCost?: EventLatency;
   readonly extension?: Readonly<{
     kind: "literal-load";
     source: string;
@@ -83,6 +85,12 @@ function memoryObservation(
     throw new Error(`${path}.address must be a non-negative bigint`);
   }
   const bytes = validateWidth(observation.kind, observation.width, `${path}.width`);
+  if (observation.cpuCost !== undefined && observation.kind !== "instruction") {
+    throw new Error(`${path}.cpuCost is only valid for an instruction observation`);
+  }
+  if (observation.cpuCost?.status === "unknown") {
+    requireNonEmpty(observation.cpuCost.source, `${path}.cpuCost.source`);
+  }
   if (observation.extension !== undefined) {
     if (typeof observation.extension !== "object" || observation.extension === null) {
       throw new Error(`${path}.extension must be an object`);
@@ -106,6 +114,26 @@ function memoryObservation(
           : "load",
     address: observation.address,
     bytes,
+  });
+}
+
+function cpuEventFor(
+  observation: NeutralTraceObservation,
+  source: string,
+): CpuExecutionEvent {
+  const latency: EventLatency = observation.cpuCost === undefined
+    ? Object.freeze({
+        status: "unknown" as const,
+        reason: `instruction ${observation.id} has no caller-supplied CPU cost`,
+        source,
+      })
+    : Object.freeze({ ...observation.cpuCost });
+  return Object.freeze({
+    id: `${observation.id}:cpu`,
+    kind: "cpu",
+    core: observation.core,
+    instructionAccessId: observation.id,
+    latency,
   });
 }
 
@@ -148,7 +176,9 @@ function provenanceFor(trace: BoundedNeutralTrace): RuntimeTraceProvenance {
  * Convert caller-observed instruction, read, and write facts into the pack's
  * runtime timing seam. Addresses, cores, order, literal-load classification,
  * and optional DMA are all explicit inputs. Configuration supplies every
- * address mapping and cost after this boundary.
+ * address mapping and memory cost after this boundary. Per-core data records
+ * stay with the preceding instruction until that core's next instruction;
+ * one CPU event closes each such group.
  */
 export function adaptNeutralTimingTrace(
   trace: BoundedNeutralTrace,
@@ -172,6 +202,7 @@ export function adaptNeutralTimingTrace(
   const memory = trace.observations.map((observation, index) => Object.freeze({
     sequence: requireSequence(observation?.sequence, `neutral trace observations[${index}].sequence`),
     id: observation?.id,
+    neutral: observation,
     observation: memoryObservation(observation, index),
   }));
   const explicitDma = dma.map((observation, index) => {
@@ -195,6 +226,32 @@ export function adaptNeutralTimingTrace(
   }
 
   const provenance = provenanceFor(trace);
+  const cpuAfterSequence = new Map<number, CpuExecutionEvent>();
+  const pending: Array<Readonly<{
+    event: CpuExecutionEvent;
+    lastMemorySequence: number;
+  }> | null> = [null, null];
+  for (const observation of ordered) {
+    if (observation.kind !== "memory") continue;
+    const core = observation.observation.core;
+    if (observation.neutral.kind === "instruction") {
+      const previous = pending[core];
+      if (previous !== null) cpuAfterSequence.set(previous.lastMemorySequence, previous.event);
+      pending[core] = Object.freeze({
+        event: cpuEventFor(observation.neutral, provenance.source),
+        lastMemorySequence: observation.sequence,
+      });
+      continue;
+    }
+    const current = pending[core];
+    if (current !== null) {
+      pending[core] = Object.freeze({ ...current, lastMemorySequence: observation.sequence });
+    }
+  }
+  for (const current of pending) {
+    if (current !== null) cpuAfterSequence.set(current.lastMemorySequence, current.event);
+  }
+
   const recorder = new RuntimeTimingTraceRecorder(provenance.source);
   for (const observation of ordered) {
     if (observation.kind === "memory") {
@@ -202,6 +259,8 @@ export function adaptNeutralTimingTrace(
     } else {
       recorder.recordDma(observation.event);
     }
+    const cpu = cpuAfterSequence.get(observation.sequence);
+    if (cpu !== undefined) recorder.recordCpu(cpu);
   }
   return Object.freeze({ ...recorder.snapshot(), provenance });
 }

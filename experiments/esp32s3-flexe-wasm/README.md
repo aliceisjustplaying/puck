@@ -196,14 +196,17 @@ experiment input, not an observed hardware MMU snapshot. The two 4 KiB runner
 data pages are covered by one explicit internal-SRAM experiment region.
 
 The replay resolves all 43 instruction fetches, five loads, and five stores.
-It emits 44 instruction-cache hits, two line fills on MSPI, and ten SRAM bypass
-events. There are 44 hit emissions because the three-byte instruction at
+It also emits 43 per-core CPU execution events, each with an explicit unknown
+cost because this trace supplies no instruction timing. The memory path emits
+44 instruction-cache hits, two line fills on MSPI, and ten SRAM bypass events.
+There are 44 hit emissions because the three-byte instruction at
 `0x420d4e1e` crosses the 32-byte cache-line boundary and touches both lines.
-The path-independent per-record evidence SHA-256 is
-`c96fcf5fd90682a6565f3690e24868f95f11199d6c65f9c9333e045fbbab3a49`.
+The path-independent per-record evidence SHA-256, including each instruction's
+CPU event, is
+`0d176093d0822a07e293466185b6da924d4a576fc080c304adfcb94905707e55`.
 
-The timing profile supplies no adopted instruction-cache, line-fill, or SRAM
-cycle costs. Every one of the 56 issued costs stays explicitly unknown, the
+The timing profile supplies no adopted CPU, instruction-cache, line-fill, or
+SRAM cycle costs. Every one of the 99 issued costs stays explicitly unknown, the
 machine result is `blocked`, and total cycles are `null`. The replay establishes
 the deterministic accounting path and the exact evidence still needed. It
 does not estimate latency or make a cycle-accuracy claim.

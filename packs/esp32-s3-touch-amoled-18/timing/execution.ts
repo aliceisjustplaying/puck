@@ -13,6 +13,7 @@ export type EventLatency =
   | Readonly<{
       status: "unknown";
       reason: string;
+      source?: string;
     }>;
 
 interface CoreEventBase {
@@ -60,6 +61,11 @@ export interface MmioEvent extends CoreEventBase {
   readonly bytes: number;
 }
 
+export interface CpuExecutionEvent extends CoreEventBase {
+  readonly kind: "cpu";
+  readonly instructionAccessId: string;
+}
+
 export type DmaEndpoint =
   | Readonly<{ kind: "memory"; memory: MemoryRegion }>
   | Readonly<{ kind: "mmio"; peripheral: string }>;
@@ -87,6 +93,7 @@ export type ExecutionEvent =
   | AtomicEvent
   | CacheOpEvent
   | MmioEvent
+  | CpuExecutionEvent
   | DmaEvent;
 
 export type ExecutionActor =
@@ -236,6 +243,7 @@ function validateLatency(value: unknown, path: string): asserts value is EventLa
   }
   if (latency.status === "unknown") {
     requireNonEmpty(latency.reason, `${path}.reason`);
+    if (latency.source !== undefined) requireNonEmpty(latency.source, `${path}.source`);
     return;
   }
   throw new Error(`${path}.status must be known or unknown`);
@@ -299,6 +307,10 @@ function validateEvent(event: ExecutionEvent, inputIndex: number): void {
       }
       requirePositiveBytes(event.bytes, `events[${inputIndex}].bytes`);
       return;
+    case "cpu":
+      if (event.core !== 0 && event.core !== 1) throw new Error(`events[${inputIndex}].core must be 0 or 1`);
+      requireNonEmpty(event.instructionAccessId, `events[${inputIndex}].instructionAccessId`);
+      return;
     case "dma":
       requireNonEmpty(event.channel, `events[${inputIndex}].channel`);
       if (typeof event.earliest !== "object" || event.earliest === null) {
@@ -354,6 +366,7 @@ export function eventUsesMspi(event: ExecutionEvent): boolean {
     case "cache-op":
       return event.backing === "flash" || event.backing === "psram";
     case "mmio":
+    case "cpu":
       return false;
     case "dma":
       return endpointUsesMspi(event.source) || endpointUsesMspi(event.destination);

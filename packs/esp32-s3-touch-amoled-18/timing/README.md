@@ -17,16 +17,22 @@ result.
 | --- | --- | --- |
 | Instrumented shadow ledger | [`consumer.ts`](consumer.ts), [`report.ts`](report.ts) | Strictly decodes optional `emu_timing_*` WebAssembly exports and reports allocation, memory, panel, and CPU observations. Only instrumented events are counted. Missing exports are reported as absent. |
 | Producer and panel scheduler | [`model.ts`](model.ts) | Deterministically schedules strips on separate CPU-producer and panel-DMA clocks with bounded queue depth and exact rational time. Any unmeasured input keeps the result uncalibrated. |
-| Resource execution scheduler | [`execution.ts`](execution.ts) | Orders explicit events from two cores and DMA, including shared MSPI use. Unknown durations block dependent work instead of becoming guessed cycles. |
+| Resource execution scheduler | [`execution.ts`](execution.ts) | Orders explicit CPU and memory events from two cores plus DMA, including shared MSPI use. Unknown durations block dependent work instead of becoming guessed cycles. |
 | Address model | [`address-map.ts`](address-map.ts) | Resolves mapped, aliased, split, permission-checked SRAM, PSRAM, flash, and MMIO accesses. Its ESP32-S3 architecture source remains uncalibrated. |
 | External-memory MMU | [`mmu.ts`](mmu.ts) | Translates explicit 512-entry, 64 KiB ESP32-S3 IROM/DROM page tables to flash or PSRAM without assuming reset mappings or adding latency. |
 | Cache model | [`cache.ts`](cache.ts) | Maintains per-core instruction caches and the ESP32-S3's shared data cache, and emits hits, misses, fills, writebacks, and maintenance work. Geometry, policies, and costs are supplied explicitly and remain uncalibrated unless evidence says otherwise. |
 | Timing machine | [`machine.ts`](machine.ts) | Composes an explicit two-core architectural interleave, address resolution, cache emissions, DMA, and resource scheduling into stable JSON with cost provenance and unknowns. It is not an instruction decoder or a full chip. |
 | Runtime trace seam | [`runtime-trace.ts`](runtime-trace.ts) | Converts ordered interpreter fetch, load, store, and explicit DMA callbacks into immutable timing-machine input without inventing missing events or costs. |
-| Neutral trace adapter | [`trace-adapter.ts`](trace-adapter.ts) | Converts a bounded, provenance-carrying instruction/read/write trace with explicit cores and total order into the runtime trace seam. Literal loads and DMA remain explicit extensions. |
+| Neutral trace adapter | [`trace-adapter.ts`](trace-adapter.ts) | Converts a bounded, provenance-carrying instruction/read/write trace with explicit cores and total order into the runtime trace seam. Each instruction group gets one local CPU event with caller-owned or explicitly unknown cost. Literal loads and DMA remain explicit extensions. |
 | Hardware receipt adoption | [`calibration.ts`](calibration.ts) | Strictly parses clean ESP32-S3 hardware receipts, exact 32-bit CCOUNT wraparound samples, metadata, and matching multi-boot cohorts. It emits deterministic candidate statistics only. |
 | Evidence report CLI | [`calibration-report.ts`](calibration-report.ts) | Reads receipt JSON files or flat directories, retains receipt and boot-log hashes, and writes byte-stable candidate JSON with exact integers and rationals as decimal strings. Adoption stays `unreviewed`; cache and ISA calibration are not claimed. |
 | Xtensa WebAssembly experiment | [`../../../experiments/esp32s3-flexe-wasm/`](../../../experiments/esp32s3-flexe-wasm/) | Executes a real TinyDraw RGB565 kernel through Puck's loader with a bounded instruction and data-access trace, then replays it through this timing machine. |
+
+The neutral adapter's optional `cpuCost` is an additive local-core duration
+after that instruction's fetch and data group. Its caller must exclude memory
+work already modeled by those events. Omission becomes an explicit unknown
+cost; the adapter does not decode an instruction or choose a fallback cycle
+count.
 
 ## Line-fill burst boundary
 

@@ -16,6 +16,7 @@ import {
 import {
   scheduleExecution,
   type CalibrationStatus,
+  type CpuExecutionEvent,
   type DmaEvent,
   type EventLatency,
   type ExecutionEvent,
@@ -34,6 +35,7 @@ export interface TimingMachineConfiguration {
 
 export type TimingMachineIssue =
   | Readonly<{ kind: "memory"; accessId: string }>
+  | Readonly<{ kind: "cpu"; eventId: string }>
   | Readonly<{ kind: "dma"; eventId: string }>;
 
 export interface TimingMachineInput {
@@ -42,8 +44,9 @@ export interface TimingMachineInput {
     readonly VirtualMemoryAccess[],
   ];
   readonly architecturalInterleave: readonly string[];
+  readonly cpu?: readonly CpuExecutionEvent[];
   readonly dma: readonly DmaEvent[];
-  /** Optional total issue order. Omission retains the legacy memory-then-DMA behavior. */
+  /** Optional total issue order. Omission uses memory, CPU, then DMA order. */
   readonly issueOrder?: readonly TimingMachineIssue[];
 }
 
@@ -109,6 +112,12 @@ export type MachineEventOrigin =
       kind: "dma";
       dmaIndex: number;
       channel: string;
+    }>
+  | Readonly<{
+      kind: "cpu";
+      cpuIndex: number;
+      core: 0 | 1;
+      instructionAccessId: string;
     }>;
 
 export type MachineCostProvenance =
@@ -234,6 +243,7 @@ interface OrderedArchitecturalAccess {
 
 type OrderedMachineIssue =
   | Readonly<{ kind: "memory"; entry: OrderedArchitecturalAccess }>
+  | Readonly<{ kind: "cpu"; cpuIndex: number; event: CpuExecutionEvent }>
   | Readonly<{ kind: "dma"; dmaIndex: number; event: DmaEvent }>;
 
 interface ValidatedMachineInput {
@@ -251,6 +261,9 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
     throw new Error("each core stream must be an array");
   }
   if (!Array.isArray(input.dma)) throw new Error("input.dma must be an array");
+  if (input.cpu !== undefined && !Array.isArray(input.cpu)) {
+    throw new Error("input.cpu must be an array when supplied");
+  }
   if (!Array.isArray(input.architecturalInterleave)) {
     throw new Error("input.architecturalInterleave is required");
   }
@@ -306,11 +319,33 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
     dmaById.set(id, Object.freeze({ dmaIndex, event }));
   }
 
+  const cpu = input.cpu ?? [];
+  const cpuById = new Map<string, Readonly<{ cpuIndex: number; event: CpuExecutionEvent }>>();
+  for (const [cpuIndex, event] of cpu.entries()) {
+    if (typeof event !== "object" || event === null) {
+      throw new Error(`input.cpu[${cpuIndex}] must be a CPU event`);
+    }
+    scheduleExecution([event]);
+    const id = requireNonEmpty(event.id, `input.cpu[${cpuIndex}].id`);
+    if (ids.has(id) || dmaById.has(id) || cpuById.has(id)) throw new Error(`duplicate machine issue id ${id}`);
+    const instruction = byId.get(event.instructionAccessId);
+    if (!instruction || instruction.access.kind !== "instruction-fetch") {
+      throw new Error(`input.cpu[${cpuIndex}].instructionAccessId must name an instruction-fetch access`);
+    }
+    if (event.core !== instruction.core) {
+      throw new Error(`input.cpu[${cpuIndex}].core must match instruction access ${event.instructionAccessId}`);
+    }
+    cpuById.set(id, Object.freeze({ cpuIndex, event }));
+  }
+
   if (input.issueOrder === undefined) {
     return Object.freeze({
       architecturalOrder: Object.freeze(ordered),
       issueOrder: Object.freeze([
         ...ordered.map((entry) => Object.freeze({ kind: "memory" as const, entry })),
+        ...cpu.map((event, cpuIndex) =>
+          Object.freeze({ kind: "cpu" as const, cpuIndex, event }),
+        ),
         ...input.dma.map((event, dmaIndex) =>
           Object.freeze({ kind: "dma" as const, dmaIndex, event }),
         ),
@@ -323,6 +358,7 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
   const issueOrder: OrderedMachineIssue[] = [];
   const issueIds = new Set<string>();
   let memoryIndex = 0;
+  let cpuIndex = 0;
   let dmaIndex = 0;
   for (const [issueIndex, issue] of input.issueOrder.entries()) {
     if (typeof issue !== "object" || issue === null) {
@@ -344,6 +380,23 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
       issueOrder.push(Object.freeze({ kind: "memory", entry }));
       continue;
     }
+    if (issue.kind === "cpu") {
+      const id = requireNonEmpty(issue.eventId, `input.issueOrder[${issueIndex}].eventId`);
+      if (issueIds.has(id)) throw new Error(`input.issueOrder duplicates issue id ${id}`);
+      const entry = cpuById.get(id);
+      if (!entry) throw new Error(`input.issueOrder contains unknown CPU event id ${id}`);
+      const expected = cpu[cpuIndex]?.id;
+      if (id !== expected) {
+        throw new Error(`input.issueOrder CPU event ${id} disagrees with input.cpu at index ${cpuIndex}`);
+      }
+      if (!issueIds.has(entry.event.instructionAccessId)) {
+        throw new Error(`input.issueOrder CPU event ${id} must follow instruction access ${entry.event.instructionAccessId}`);
+      }
+      cpuIndex += 1;
+      issueIds.add(id);
+      issueOrder.push(Object.freeze({ kind: "cpu", ...entry }));
+      continue;
+    }
     if (issue.kind === "dma") {
       const id = requireNonEmpty(issue.eventId, `input.issueOrder[${issueIndex}].eventId`);
       if (issueIds.has(id)) throw new Error(`input.issueOrder duplicates issue id ${id}`);
@@ -358,11 +411,12 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
       issueOrder.push(Object.freeze({ kind: "dma", ...entry }));
       continue;
     }
-    throw new Error(`input.issueOrder[${issueIndex}].kind must be memory or dma`);
+    throw new Error(`input.issueOrder[${issueIndex}].kind must be memory, cpu, or dma`);
   }
-  if (memoryIndex !== ordered.length || dmaIndex !== input.dma.length) {
+  if (memoryIndex !== ordered.length || cpuIndex !== cpu.length || dmaIndex !== input.dma.length) {
     const missing = [
       ...ordered.slice(memoryIndex).map((entry) => entry.access.id),
+      ...cpu.slice(cpuIndex).map((event) => event.id),
       ...input.dma.slice(dmaIndex).map((event) => event.id),
     ];
     throw new Error(`input.issueOrder omits issue ids: ${missing.join(", ")}`);
@@ -399,7 +453,8 @@ function resultStatus(
 }
 
 /**
- * Resolve and execute two ordered architectural memory streams plus DMA.
+ * Resolve and execute two ordered architectural memory streams, linked local
+ * CPU events, and DMA.
  * The caller supplies one total cross-core interleave that preserves both
  * per-core orders, so shared cache state has no implicit traversal order.
  * Address faults are atomic: the faulting access emits nothing, and every
@@ -437,6 +492,26 @@ export function runTimingMachine(
               channel: issue.event.channel,
             }),
             cost: provenance(issue.event, null),
+          }),
+        );
+        continue;
+      }
+      if (issue.kind === "cpu") {
+        if (faultedByAccessId[issue.event.core] !== null) continue;
+        issued.push(
+          Object.freeze({
+            issueIndex: issued.length,
+            event: issue.event,
+            origin: Object.freeze({
+              kind: "cpu",
+              cpuIndex: issue.cpuIndex,
+              core: issue.event.core,
+              instructionAccessId: issue.event.instructionAccessId,
+            }),
+            cost: provenance(
+              issue.event,
+              issue.event.latency.status === "unknown" ? issue.event.latency.source ?? null : null,
+            ),
           }),
         );
         continue;

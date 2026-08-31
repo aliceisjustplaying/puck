@@ -259,6 +259,7 @@ describe("typed event surface", () => {
       { id: "atomic", kind: "atomic", core: 1, memory: "sram", bytes: 4, operation: "cas", latency: known(1n) },
       { id: "cache", kind: "cache-op", core: 1, operation: "invalidate", backing: "flash", latency: known(1n) },
       { id: "mmio", kind: "mmio", core: 1, peripheral: "gpio", operation: "read", bytes: 4, latency: known(1n) },
+      { id: "cpu", kind: "cpu", core: 1, instructionAccessId: "fetch", latency: known(1n) },
       dma("dma", "panel", 0n, "psram", known(1n)),
     ];
     expect(events.map((event) => [event.kind, eventUsesMspi(event)])).toEqual([
@@ -268,6 +269,7 @@ describe("typed event surface", () => {
       ["atomic", false],
       ["cache-op", true],
       ["mmio", false],
+      ["cpu", false],
       ["dma", true],
     ]);
     const expectedKinds: Array<ExecutionEvent["kind"]> = [
@@ -277,6 +279,7 @@ describe("typed event surface", () => {
       "atomic",
       "cache-op",
       "mmio",
+      "cpu",
       "dma",
     ];
     expect(scheduleExecution(events).events.map((event) => event.kind).sort()).toEqual(expectedKinds.sort());

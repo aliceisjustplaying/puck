@@ -33,6 +33,16 @@ const trace = adaptFlexeTraceToRuntimeTiming(decoded, {
 const accesses = trace.input.cores[1];
 assert(trace.input.cores[0].length === 0, "flexe bridge invented core 0 activity");
 assert(accesses.length === 3, "flexe bridge omitted a trace record");
+assert(trace.input.cpu?.length === 1, "flexe bridge omitted the instruction CPU event");
+assert(
+  JSON.stringify(trace.input.issueOrder) === JSON.stringify([
+    { kind: "memory", accessId: "trace:00:instruction-fetch" },
+    { kind: "memory", accessId: "trace:01:load" },
+    { kind: "memory", accessId: "trace:02:store" },
+    { kind: "cpu", eventId: "trace:00:instruction-fetch:cpu" },
+  ]),
+  "flexe bridge lost instruction and data grouping",
+);
 assert(
   JSON.stringify(accesses.map((access) => [access.id, access.kind, access.address.toString(16), access.bytes])) ===
     JSON.stringify([
@@ -47,4 +57,4 @@ assert(trace.provenance.bounds.capacity === 8, "flexe bridge lost the trace capa
 assert(trace.claim.coverage === "caller-reported-events-only", "flexe bridge overclaimed coverage");
 assert(trace.claim.cycleAccurate === false, "flexe bridge made a cycle claim");
 
-console.log(JSON.stringify({ records: accesses.length, core: 1, sha256 }));
+console.log(JSON.stringify({ records: accesses.length, cpuEvents: trace.input.cpu.length, core: 1, sha256 }));
