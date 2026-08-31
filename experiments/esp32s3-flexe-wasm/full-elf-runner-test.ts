@@ -32,6 +32,7 @@ assert.equal(bounded.record.pc, 0x4037_5ca7);
 assert.deepEqual(bounded.trace, [0x4037_5c9c, 0x4037_5c9f, 0x4037_5ca2, 0x4037_5ca5]);
 assert.equal(bounded.loadedPages, 625);
 assert.deepEqual(bounded.logs, []);
+assert.deepEqual(bounded.romEvents, []);
 
 const firstStop = await runSparseXtensaElf(moduleBytes, image, { maxSteps: 64 });
 assert.equal(firstStop.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
@@ -46,6 +47,21 @@ assert.deepEqual(firstStop.trace, [
   0x4037_5caa,
 ]);
 assert.deepEqual(firstStop.logs, []);
+assert.deepEqual(firstStop.romEvents, []);
+
+const romProgress = await runSparseXtensaElf(moduleBytes, image, {
+  maxSteps: 256,
+  rom: { resetReasons: [1, 1], memset: true },
+});
+assert.equal(romProgress.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
+assert.equal(romProgress.record.steps, 57);
+assert.equal(romProgress.record.pc, 0x4000_186c);
+assert.deepEqual(romProgress.romEvents, [
+  { kind: "resetReason", pc: 0x4000_057c, core: 0, result: 1 },
+  { kind: "resetReason", pc: 0x4000_057c, core: 1, result: 1 },
+  { kind: "memset", pc: 0x4000_11e8, destination: 0x3fca_be60, value: 0, length: 0x52e0 },
+  { kind: "memset", pc: 0x4000_11e8, destination: 0x5000_0000, value: 0, length: 0 },
+]);
 
 const refusedInstruction = await runSparseXtensaElf(moduleBytes, image, {
   maxSteps: 64,
@@ -79,6 +95,12 @@ await assert.rejects(
 
 const hex = (value: number): string => `0x${value.toString(16)}`;
 const paddedHex = (value: number): string => `0x${value.toString(16).padStart(8, "0")}`;
+const traceSha256 = (trace: readonly number[]): string => {
+  const bytes = new Uint8Array(trace.length * 4);
+  const view = new DataView(bytes.buffer);
+  trace.forEach((pc, index) => view.setUint32(index * 4, pc, true));
+  return createHash("sha256").update(bytes).digest("hex");
+};
 const instructionAt = (pc: number): { pc: string; encoding: string } => {
   const pageAddress = Math.floor(pc / 4096) * 4096;
   const offset = pc - pageAddress;
@@ -117,6 +139,24 @@ const actualBaseline = {
     stackPointer: hex(firstStop.record.stackPointer),
     registers: firstStop.record.registers.map(paddedHex),
   },
+  romProgress: {
+    resetReasons: [1, 1],
+    reason: romProgress.record.reasonName,
+    steps: romProgress.record.steps,
+    pc: hex(romProgress.record.pc),
+    traceSha256: traceSha256(romProgress.trace),
+    stackPointer: hex(romProgress.record.stackPointer),
+    registers: romProgress.record.registers.map(paddedHex),
+    events: romProgress.romEvents.map((event) => event.kind === "resetReason"
+      ? { kind: event.kind, pc: hex(event.pc), core: event.core, result: event.result }
+      : {
+          kind: event.kind,
+          pc: hex(event.pc),
+          destination: hex(event.destination),
+          value: event.value,
+          length: event.length,
+        }),
+  },
   unsupportedRefusal: {
     reason: refusedInstruction.record.reasonName,
     steps: refusedInstruction.record.steps,
@@ -140,5 +180,11 @@ console.log(JSON.stringify({
     reason: firstStop.record.reasonName,
     steps: firstStop.record.steps,
     pc: `0x${firstStop.record.pc.toString(16)}`,
+  },
+  romProgress: {
+    reason: romProgress.record.reasonName,
+    steps: romProgress.record.steps,
+    pc: `0x${romProgress.record.pc.toString(16)}`,
+    events: romProgress.romEvents.length,
   },
 }, null, 2));
