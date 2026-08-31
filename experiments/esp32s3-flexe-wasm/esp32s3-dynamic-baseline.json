@@ -4,9 +4,9 @@
     "flexeCommit": "34ea9eb6eef921b59a55e6a435c7fc55c5727835",
     "runnerPatchSha256": "f539d71f47dd869ae1fb7171a1fa2e001abd875053adb13ca1eae5490734f8ce",
     "freestandingPatchSha256": "dbd2c623bfc9f9f33c4e4a98adcf06dec1d9034c659ad3c7afe94d373c48636d",
-    "esp32s3PatchSha256": "0f124c537fe7386972a2f06204245411369bdde3dd89cc51d8ca796dbf8078fd",
-    "moduleBytes": 60887,
-    "moduleSha256": "774f1d2b788d9cb962a18ad4151c3635c1a9e80dbfd57ca5ecb01ebd481bef00",
+    "esp32s3PatchSha256": "a6b9c9c75078d6222f8755c97703896010631b3f42fe7aa48cca340980f1af18",
+    "moduleBytes": 61263,
+    "moduleSha256": "8660a2827c785b135a3c4bb26d7b7bfa044bed50449a13599fb5e5a44e5d39a0",
     "objdumpSha256": "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466",
     "scalarElfSha256": "a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644",
     "pieElfSha256": "591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742",
@@ -78,9 +78,9 @@
     "destinationAfter": "0x3fca1ffb",
     "lowValue": "0x12345678",
     "highValue": "0xef",
-    "unsupportedCodeSha256": "f0599d2fa0ca55277a12cb47f3552eeda47ce66fc3bd1c4fa62fbf145fcfebc8",
+    "unsupportedCodeSha256": "e537843695cccde80e2d44e1169616cd905a256faf9facd6c8addb63e5d6e290",
     "unsupportedReason": "unsupported",
-    "unsupportedEncoding": "0x8d0ca4"
+    "unsupportedEncoding": "0x501a4"
   },
   "qaccMemoryIsa": {
     "codeSha256": "8e064054216aabf2d26602de024ba83bc22fbcdc5d0cafb4904b5448162591f1",
@@ -99,6 +99,14 @@
     "sourceAfter": "0x3fca1002",
     "destinationAfter": "0x3fca2010",
     "sarByte": 3
+  },
+  "signedQaccLoadIsa": {
+    "codeSha256": "be3616c39a785e87b8279f1b5ad9e3afd8ca27221e8e9928b8499412a7bba61a",
+    "reason": "maxSteps",
+    "steps": 12,
+    "sourceAfter": "0x3fca0ff5",
+    "lowWords": ["0x1", "0x7fff00", "0x80000000", "0xffffffff", "0xffffffff"],
+    "highWords": ["0x1234", "0xfffedc00", "0x4000ffff", "0x0", "0xffffffc0"]
   },
   "threadptrIsa": {
     "codeSha256": "b8fc713dd1f67f2ece4f2a7d61c0a6d6a44ec425dcfc276d3ad48acf21ddc016",

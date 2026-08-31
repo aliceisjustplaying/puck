@@ -563,18 +563,53 @@ assert(alignedLoadRun.record.registers[2] === 3, "USAR load did not preserve the
 assert(alignedLoadRun.record.registers[10] === INITIAL_SOURCE + 2, "aligned loads applied the wrong signed immediates");
 assert(alignedLoadRun.record.registers[11] === INITIAL_DESTINATION + 16, "aligned-load stores used the wrong destination");
 
-const unsupportedUsarMemoryFixture = conformanceFixture("esp32s3_unsupported_ld_128_usar_xp", [0xa4, 0x0c, 0x8d]);
-const unsupportedUsarMemoryRun = await runFresh(moduleBytes, unsupportedUsarMemoryFixture, {
-  maxSteps: 1,
-  unsupported: { offset: 0, encoding: 0x8d0ca4 }
+const signedQaccLoadFixture = conformanceFixture("esp32s3_signed_qacc_lane_load", [
+  0x5b, 0xaa,
+  0xa4, 0x7f, 0x41,
+  0x70, 0x20, 0xe3,
+  0x80, 0x30, 0xe3,
+  0x90, 0x40, 0xe3,
+  0xa0, 0x50, 0xe3,
+  0xb0, 0x60, 0xe3,
+  0x20, 0x70, 0xe3,
+  0x30, 0x80, 0xe3,
+  0x40, 0x90, 0xe3,
+  0x50, 0xc0, 0xe3,
+  0x60, 0xd0, 0xe3
+]);
+const signedQaccLoadInput = Uint8Array.from([
+  0x01, 0x00, 0xff, 0x7f, 0x00, 0x80, 0xff, 0xff,
+  0x34, 0x12, 0xdc, 0xfe, 0x00, 0x40, 0x00, 0xc0
+]);
+const signedQaccLoadRun = await runFresh(moduleBytes, signedQaccLoadFixture, {
+  data: signedQaccLoadInput,
+  maxSteps: 12
 });
-assert(unsupportedUsarMemoryRun.record.reason === STOP_REASONS.unsupported, "adjacent USAR memory form did not fail closed");
-assert(unsupportedUsarMemoryRun.record.steps === 0, "adjacent USAR memory form was counted as executed");
-assert(unsupportedUsarMemoryRun.trace.count === 0, "adjacent USAR memory refusal leaked a trace record");
-assert(unsupportedUsarMemoryRun.dataOutput.length === 0, "adjacent USAR memory refusal exposed data output");
+assert(signedQaccLoadRun.record.reason === STOP_REASONS.maxSteps, `signed QACC fixture stopped with ${signedQaccLoadRun.record.reasonName}`);
+assert(signedQaccLoadRun.record.steps === 12, `signed QACC fixture executed ${signedQaccLoadRun.record.steps} instructions`);
+assert(signedQaccLoadRun.record.registers[10] === (INITIAL_SOURCE - 11) >>> 0, "signed QACC load applied the wrong postincrement");
+const signedQaccRegisters = [2, 3, 4, 5, 6, 7, 8, 9, 12, 13];
+const signedQaccExpected = [
+  0x00000001, 0x007fff00, 0x80000000, 0xffffffff, 0xffffffff,
+  0x00001234, 0xfffedc00, 0x4000ffff, 0x00000000, 0xffffffc0
+];
 assert(
-  unsupportedUsarMemoryRun.record.registers.every((value, index) => value === unsupportedXpRegisters[index]),
-  "adjacent USAR memory refusal changed registers"
+  signedQaccRegisters.every((register, index) => signedQaccLoadRun.record.registers[register] === signedQaccExpected[index]),
+  "signed QACC load packed or sign-extended a 40-bit lane incorrectly"
+);
+
+const unsupportedQaccLaneFixture = conformanceFixture("esp32s3_unsupported_ldqa_u16_128_ip", [0xa4, 0x01, 0x05]);
+const unsupportedQaccLaneRun = await runFresh(moduleBytes, unsupportedQaccLaneFixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0x0501a4 }
+});
+assert(unsupportedQaccLaneRun.record.reason === STOP_REASONS.unsupported, "adjacent unsigned QACC load did not fail closed");
+assert(unsupportedQaccLaneRun.record.steps === 0, "adjacent unsigned QACC load was counted as executed");
+assert(unsupportedQaccLaneRun.trace.count === 0, "adjacent unsigned QACC refusal leaked a trace record");
+assert(unsupportedQaccLaneRun.dataOutput.length === 0, "adjacent unsigned QACC refusal exposed data output");
+assert(
+  unsupportedQaccLaneRun.record.registers.every((value, index) => value === unsupportedXpRegisters[index]),
+  "adjacent unsigned QACC refusal changed registers"
 );
 
 const threadptrFixture = conformanceFixture("esp32s3_threadptr_roundtrip", [
@@ -1002,9 +1037,9 @@ const actualBaseline = {
     destinationAfter: `0x${accxMemoryRun.record.registers[11].toString(16)}`,
     lowValue: `0x${accxMemoryRun.record.registers[2].toString(16)}`,
     highValue: `0x${accxMemoryRun.record.registers[3].toString(16)}`,
-    unsupportedCodeSha256: unsupportedUsarMemoryFixture.codeSha256,
-    unsupportedReason: unsupportedUsarMemoryRun.record.reasonName,
-    unsupportedEncoding: `0x${unsupportedUsarMemoryRun.record.unsupportedEncoding.toString(16)}`
+    unsupportedCodeSha256: unsupportedQaccLaneFixture.codeSha256,
+    unsupportedReason: unsupportedQaccLaneRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedQaccLaneRun.record.unsupportedEncoding.toString(16)}`
   },
   qaccMemoryIsa: {
     codeSha256: qaccMemoryFixture.codeSha256,
@@ -1023,6 +1058,14 @@ const actualBaseline = {
     sourceAfter: `0x${alignedLoadRun.record.registers[10].toString(16)}`,
     destinationAfter: `0x${alignedLoadRun.record.registers[11].toString(16)}`,
     sarByte: alignedLoadRun.record.registers[2]
+  },
+  signedQaccLoadIsa: {
+    codeSha256: signedQaccLoadFixture.codeSha256,
+    reason: signedQaccLoadRun.record.reasonName,
+    steps: signedQaccLoadRun.record.steps,
+    sourceAfter: `0x${signedQaccLoadRun.record.registers[10].toString(16)}`,
+    lowWords: signedQaccRegisters.slice(0, 5).map((register) => `0x${signedQaccLoadRun.record.registers[register].toString(16)}`),
+    highWords: signedQaccRegisters.slice(5).map((register) => `0x${signedQaccLoadRun.record.registers[register].toString(16)}`)
   },
   threadptrIsa: {
     codeSha256: threadptrFixture.codeSha256,
@@ -1157,6 +1200,7 @@ assert(
     accxMemoryIsa: baseline.accxMemoryIsa,
     qaccMemoryIsa: baseline.qaccMemoryIsa,
     alignedLoadIsa: baseline.alignedLoadIsa,
+    signedQaccLoadIsa: baseline.signedQaccLoadIsa,
     threadptrIsa: baseline.threadptrIsa,
     accxIsa: baseline.accxIsa,
     qaccIsa: baseline.qaccIsa,

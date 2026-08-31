@@ -465,14 +465,14 @@ assert.deepEqual(
   "adjacent float-128 XP refusal changed full-ELF registers",
 );
 
-const unsupportedUsarMemoryEntry = 0x4037_2200;
-const unsupportedUsarMemoryImage: Elf32XtensaImage = Object.freeze({
+const unsupportedQaccLaneEntry = 0x4037_2200;
+const unsupportedQaccLaneImage: Elf32XtensaImage = Object.freeze({
   schemaVersion: 1,
-  entryPoint: unsupportedUsarMemoryEntry,
+  entryPoint: unsupportedQaccLaneEntry,
   elfBytes: 3,
-  elfSha256: "synthetic-unsupported-ee-ld-128-usar-xp",
+  elfSha256: "synthetic-unsupported-ee-ldqa-u16-128-ip",
   loadSegments: Object.freeze([
-    syntheticSegment(0, unsupportedUsarMemoryEntry, [0xa4, 0x0c, 0x8d], 3, {
+    syntheticSegment(0, unsupportedQaccLaneEntry, [0xa4, 0x01, 0x05], 3, {
       read: true,
       write: false,
       execute: true,
@@ -482,22 +482,22 @@ const unsupportedUsarMemoryImage: Elf32XtensaImage = Object.freeze({
   totalFileBytes: 3,
   totalMemoryBytes: 0x1003,
 });
-const unsupportedUsarMemoryRun = await runSparseXtensaElf(moduleBytes, unsupportedUsarMemoryImage, {
+const unsupportedQaccLaneRun = await runSparseXtensaElf(moduleBytes, unsupportedQaccLaneImage, {
   initialStack: 0x3fce_a000,
   maxSteps: 1,
-  unsupported: [{ pc: unsupportedUsarMemoryEntry, encoding: 0x8d0ca4 }],
+  unsupported: [{ pc: unsupportedQaccLaneEntry, encoding: 0x0501a4 }],
 });
-assert.equal(unsupportedUsarMemoryRun.record.reason, FULL_ELF_STOP_REASONS.unsupported);
-assert.equal(unsupportedUsarMemoryRun.record.steps, 0);
-assert.equal(unsupportedUsarMemoryRun.record.unsupportedPc, unsupportedUsarMemoryEntry);
-assert.equal(unsupportedUsarMemoryRun.record.unsupportedEncoding, 0x8d0ca4);
-assert.equal(unsupportedUsarMemoryRun.record.unsupportedLength, 3);
-assert.deepEqual(unsupportedUsarMemoryRun.trace, []);
-assert.deepEqual(unsupportedUsarMemoryRun.memoryTrace.records, []);
+assert.equal(unsupportedQaccLaneRun.record.reason, FULL_ELF_STOP_REASONS.unsupported);
+assert.equal(unsupportedQaccLaneRun.record.steps, 0);
+assert.equal(unsupportedQaccLaneRun.record.unsupportedPc, unsupportedQaccLaneEntry);
+assert.equal(unsupportedQaccLaneRun.record.unsupportedEncoding, 0x0501a4);
+assert.equal(unsupportedQaccLaneRun.record.unsupportedLength, 3);
+assert.deepEqual(unsupportedQaccLaneRun.trace, []);
+assert.deepEqual(unsupportedQaccLaneRun.memoryTrace.records, []);
 assert.deepEqual(
-  unsupportedUsarMemoryRun.record.registers,
+  unsupportedQaccLaneRun.record.registers,
   [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  "adjacent USAR memory refusal changed full-ELF registers",
+  "adjacent unsigned QACC load changed full-ELF registers",
 );
 
 const cacheMmioProbeEntry = 0x4037_5c3b;

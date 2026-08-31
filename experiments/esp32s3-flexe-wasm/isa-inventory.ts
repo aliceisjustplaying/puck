@@ -35,6 +35,7 @@ export const ESP32S3_PATCHED_MNEMONICS = [
   "ee.vldbc.32.ip",
   "ee.ldf.64.xp",
   "ee.ld.128.usar.ip",
+  "ee.ldqa.s16.128.ip",
   "ee.ld.accx.ip",
   "ee.ld.qacc_h.h.32.ip",
   "ee.ld.qacc_l.l.128.ip",

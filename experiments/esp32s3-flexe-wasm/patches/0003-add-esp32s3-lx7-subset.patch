@@ -199,7 +199,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2165,206 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2165,230 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -230,6 +230,20 @@ index 67dca18..e72666d 100644
 +static inline void esp32s3_copy_to_memory(xtensa_cpu_t *cpu, uint32_t address,
 +                                          const uint8_t *input, unsigned length) {
 +    for (unsigned i = 0; i < length; i++) mem_write8(cpu->mem, address + i, input[i]);
++}
++
++static inline void esp32s3_pack_qacc_s16(xtensa_cpu_t *cpu, uint32_t output[5],
++                                         uint32_t address) {
++    for (unsigned i = 0; i < 5; i++) output[i] = 0;
++    for (unsigned lane = 0; lane < 4; lane++) {
++        uint64_t value = (uint64_t)(int64_t)sign_extend(
++            mem_read16(cpu->mem, address + lane * 2), 16) & 0xffffffffffull;
++        unsigned bit = lane * 40;
++        unsigned word = bit / 32;
++        unsigned shift = bit % 32;
++        output[word] |= (uint32_t)(value << shift);
++        output[word + 1] |= (uint32_t)(value >> (32 - shift));
++    }
 +}
 +
 +static inline void esp32s3_zip8(xtensa_cpu_t *cpu, unsigned q0, unsigned q1) {
@@ -321,6 +335,16 @@ index 67dca18..e72666d 100644
 +        return 1;
 +    }
 +
++    if ((insn & 0xbf800fu) == 0x010004u) {
++        unsigned base_register = XT_T(insn);
++        uint32_t base = ar_read(cpu, base_register);
++        uint32_t address = base & ~15u;
++        esp32s3_pack_qacc_s16(cpu, cpu->qacc_l, address);
++        esp32s3_pack_qacc_s16(cpu, cpu->qacc_h, address + 8);
++        ar_write(cpu, base_register, base + (uint32_t)esp32s3_imm8x16(insn));
++        return 1;
++    }
++
 +    uint32_t accx_memory_opcode = insn & 0xbf800fu;
 +    if (accx_memory_opcode == 0x0e0004u || accx_memory_opcode == 0x020004u) {
 +        unsigned base_register = XT_T(insn);
@@ -406,7 +430,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2604,8 @@ have_insn:
+@@ -2319,6 +2628,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -415,7 +439,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +2632,16 @@ have_insn:
+@@ -2345,14 +2656,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -436,7 +460,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +2655,8 @@ have_insn:
+@@ -2366,6 +2679,8 @@ have_insn:
          }
      }
 
