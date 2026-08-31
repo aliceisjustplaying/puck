@@ -2,8 +2,10 @@ import { instantiate } from "../../src/wasm";
 import type { Elf32XtensaImage } from "./elf-image";
 import { ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY } from "./esp32s3-full-elf-unsupported";
 import {
+  ESP32S3_ROM_CACHE_MODE_CALLBACKS,
   ESP32S3_ROM_CACHE_CALLINC,
   advanceEsp32S3DirectAppCacheBootstrap,
+  configureEsp32S3DirectAppDataCache,
   configureEsp32S3DirectAppInstructionCache,
   createEsp32S3DirectAppCacheBootstrap,
   suspendEsp32S3DirectAppDataCache,
@@ -105,6 +107,7 @@ export type FullElfRomEvent = Readonly<
   | {
       kind: "cacheMode";
       pc: number;
+      cache: "instruction" | "data";
       sizeBytes: number;
       ways: number;
       lineBytes: number;
@@ -405,9 +408,16 @@ export async function runSparseXtensaElf(
         returnValue: words[4] === 0xffff_ffff ? null : words[4],
       }));
     } else if (words[0] === 4) {
+      const cache = words[1] === ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureInstruction
+        ? "instruction"
+        : words[1] === ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureData
+          ? "data"
+          : null;
+      assert(cache !== null, `unknown cache mode callback 0x${words[1].toString(16)}`);
       romEvents.push(Object.freeze({
         kind: "cacheMode",
         pc: words[1],
+        cache,
         sizeBytes: words[2],
         ways: words[3],
         lineBytes: words[4],
@@ -428,12 +438,14 @@ export async function runSparseXtensaElf(
   for (const event of romEvents) {
     if (event.kind === "cacheMode") {
       assert(cacheBootstrap !== null, "full ELF module returned an unconfigured cache mode event");
-      const configured = configureEsp32S3DirectAppInstructionCache(cacheBootstrap, {
+      const configured = (event.cache === "instruction"
+        ? configureEsp32S3DirectAppInstructionCache
+        : configureEsp32S3DirectAppDataCache)(cacheBootstrap, {
         pc: event.pc,
         callinc: ESP32S3_ROM_CACHE_CALLINC,
         arguments: [event.sizeBytes, event.ways, event.lineBytes],
       });
-      assert(configured.handled && configured.status === "accepted", "full ELF module violated instruction cache mode contract");
+      assert(configured.handled && configured.status === "accepted", `full ELF module violated ${event.cache} cache mode contract`);
       cacheBootstrap = configured.state;
       continue;
     }
@@ -462,8 +474,8 @@ export async function runSparseXtensaElf(
     cacheBootstrap = advanced.state;
   }
   if (cacheBootstrap) {
-    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_cache_state(), 44, "ELF cache state");
-    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 11);
+    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_cache_state(), 60, "ELF cache state");
+    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 15);
     assert(stateWords[0] === cacheBootstrap.sequenceIndex, "cache callback sequence state differs");
     assert(stateWords[1] === cacheBootstrap.registers.dataControl1, "DCache CTRL1 state differs");
     assert(stateWords[2] === cacheBootstrap.registers.dataAutoloadControl, "DCache autoload state differs");
@@ -475,6 +487,10 @@ export async function runSparseXtensaElf(
     assert(stateWords[8] === (cacheBootstrap.instructionMode?.ways ?? 0), "instruction cache ways differ");
     assert(stateWords[9] === (cacheBootstrap.instructionMode?.lineBytes ?? 0), "instruction cache line size differs");
     assert(stateWords[10] === (cacheBootstrap.dataSuspended ? 1 : 0), "data cache suspend state differs");
+    assert(stateWords[11] === (cacheBootstrap.dataMode ? 1 : 0), "data cache mode state differs");
+    assert(stateWords[12] === (cacheBootstrap.dataMode?.sizeBytes ?? 0), "data cache size differs");
+    assert(stateWords[13] === (cacheBootstrap.dataMode?.ways ?? 0), "data cache ways differ");
+    assert(stateWords[14] === (cacheBootstrap.dataMode?.lineBytes ?? 0), "data cache line size differs");
   }
   const captureAddresses = [...(options.capturePages ?? [])];
   assert(new Set(captureAddresses).size === captureAddresses.length, "captured ELF pages must be unique");
