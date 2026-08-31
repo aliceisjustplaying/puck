@@ -7,7 +7,10 @@ export const EXPECTED_RESULT = 42;
 export const FLEXE_DISASSEMBLER_SHA256 =
   "68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0";
 
-const TINYDRAW_ROOT = join(import.meta.dir, "../../../..");
+// The fixture ELFs live in the tinydraw repository. Override with
+// TINYDRAW_ROOT when that checkout is elsewhere; the default names this
+// machine's canonical location (see STATUS.md).
+const TINYDRAW_ROOT = process.env.TINYDRAW_ROOT ?? "/Users/sarah/src/a/tinydraw";
 export const DEFAULT_ESP32S3_OBJDUMP = process.env.ESP32S3_OBJDUMP ?? join(
   process.env.HOME ?? "/nonexistent",
   ".espressif/tools/xtensa-esp-elf/esp-15.2.0_20251204/xtensa-esp-elf/bin/xtensa-esp32s3-elf-objdump"

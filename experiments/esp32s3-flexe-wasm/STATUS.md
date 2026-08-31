@@ -1,7 +1,7 @@
 # ESP32-S3 emulator status
 
 This is the central ledger for the cycle-accurate ESP32-S3 work in this fork.
-The canonical checkout is `/Users/sarah/src/a/tinydraw/out/puck-cycle-accurate`,
+The canonical checkout is `/Users/sarah/src/a/puck-cycle-accurate`,
 the integration branch is `codex/esp32s3-timing-model`, and the GitHub remote is
 `aliceisjustplaying/puck`.
 
