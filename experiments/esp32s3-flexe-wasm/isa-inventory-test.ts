@@ -84,6 +84,14 @@ assert(surface.normalizedMnemonics.includes("ee.vcmp.eq.s16"), "ESP32-S3 PIE pat
 assert(surface.normalizedMnemonics.includes("ee.vprelu.s16"), "ESP32-S3 PIE patch surface lost halfword parametric ReLU");
 assert(surface.normalizedMnemonics.includes("ee.vprelu.s8"), "ESP32-S3 PIE patch surface lost byte parametric ReLU");
 assert(surface.normalizedMnemonics.includes("ee.vmulas.s16.accx.ld.ip.qup"), "ESP32-S3 PIE patch surface lost signed ACCX VMULAS QUP");
+for (const mnemonic of [
+  "ee.fft.ams.s16.ld.incp",
+  "ee.fft.ams.s16.ld.incp.uaup",
+  "ee.fft.ams.s16.ld.r32.decp",
+  "ee.fft.ams.s16.st.incp"
+]) {
+  assert(surface.normalizedMnemonics.includes(mnemonic), `ESP32-S3 PIE patch surface lost ${mnemonic}`);
+}
 assert(surface.normalizedMnemonics.includes("ee.vmulas.s8.accx.ld.ip.qup"), "ESP32-S3 PIE patch surface lost signed-byte ACCX VMULAS QUP");
 assert(surface.normalizedMnemonics.includes("ee.vmulas.u16.accx.ld.ip.qup"), "ESP32-S3 PIE patch surface lost unsigned-halfword ACCX VMULAS QUP");
 assert(surface.normalizedMnemonics.includes("ee.vmulas.u8.accx.ld.ip.qup"), "ESP32-S3 PIE patch surface lost unsigned-byte immediate ACCX VMULAS QUP");

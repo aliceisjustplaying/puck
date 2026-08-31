@@ -1086,6 +1086,205 @@ assert(unsupportedQaccHammingOneRun.trace.count === 0, "Hamming-1 QACC neighbor 
 assert(unsupportedQaccHammingOneRun.dataOutput.length === 0, "Hamming-1 QACC neighbor exposed data output");
 assert(unsupportedQaccHammingOneRun.record.registers.every((value, index) => value === initialRegisters(unsupportedQaccHammingOneRun.record.returnPc)[index]), "Hamming-1 QACC neighbor changed registers");
 
+function fftS16(values: readonly number[]): Uint8Array {
+  assert(values.length === 8, "FFT vector must have eight halfword lanes");
+  const output = new Uint8Array(16);
+  const view = new DataView(output.buffer);
+  values.forEach((value, lane) => view.setInt16(lane * 2, value, true));
+  return output;
+}
+
+function fftJoin(...values: readonly Uint8Array[]): Uint8Array {
+  const output = new Uint8Array(values.reduce((length, value) => length + value.length, 0));
+  let offset = 0;
+  for (const value of values) {
+    output.set(value, offset);
+    offset += value.length;
+  }
+  return output;
+}
+
+function fftLane(value: Uint8Array, lane: number): number {
+  return new DataView(value.buffer, value.byteOffset, value.byteLength).getInt16(lane * 2, true);
+}
+
+function fftSetLane(value: Uint8Array, lane: number, laneValue: number): void {
+  new DataView(value.buffer, value.byteOffset, value.byteLength).setInt16(lane * 2, laneValue, true);
+}
+
+function fftAmsTerms(
+  x: Uint8Array,
+  y: Uint8Array,
+  m: Uint8Array,
+  lane: number,
+  select: boolean,
+  shift: number
+): readonly [number, number, number, number] {
+  const x0 = BigInt(fftLane(x, lane));
+  const x1 = BigInt(fftLane(x, lane + 1));
+  const y0 = BigInt(fftLane(y, lane));
+  const y1 = BigInt(fftLane(y, lane + 1));
+  const m0 = BigInt(fftLane(m, lane));
+  const m1 = BigInt(fftLane(m, lane + 1));
+  const difference = x0 - y0;
+  const sum = x1 + y1;
+  const product2 = select ? sum * m1 + difference * m0 : difference * m0 - sum * m1;
+  const product3 = select ? sum * m0 - difference * m1 : difference * m1 + sum * m0;
+  const truncate = (value: bigint) => Number(BigInt.asIntN(16, value));
+  return [
+    truncate(x0 + y0),
+    truncate(x1 - y1),
+    truncate(product2 >> BigInt(shift)),
+    truncate(product3 >> BigInt(shift))
+  ];
+}
+
+function fftAmsUpdate(
+  z: Uint8Array,
+  z1: Uint8Array,
+  x: Uint8Array,
+  y: Uint8Array,
+  m: Uint8Array,
+  lane: number,
+  select: boolean,
+  shift: number
+): readonly [Uint8Array, Uint8Array, readonly [number, number, number, number]] {
+  const outputZ = Uint8Array.from(z);
+  const outputZ1 = Uint8Array.from(z1);
+  const terms = fftAmsTerms(x, y, m, lane, select, shift);
+  fftSetLane(outputZ, lane, terms[0] + terms[2]);
+  fftSetLane(outputZ, lane + 1, terms[1] + terms[3]);
+  fftSetLane(outputZ1, lane, terms[0] - terms[2]);
+  fftSetLane(outputZ1, lane + 1, terms[3] - terms[1]);
+  return [outputZ, outputZ1, terms];
+}
+
+const fftX = fftS16([100, -200, 30000, -31000, 1234, -2345, 32767, -32768]);
+const fftY = fftS16([-50, 250, -29000, 30000, -4321, 3456, -1, 1]);
+const fftM = fftS16([2, -3, 123, -234, 30000, -30000, 7, -9]);
+
+const fftLdAliasFixture = conformanceFixture("esp32s3_fft_ams_s16_ld_incp_alias", [
+  0x3b, 0xaa,
+  0xa4, 0x01, 0xb3,
+  0xa4, 0x81, 0xb3,
+  0xa4, 0x81, 0xa3,
+  0xaf, 0xb8, 0x7d, 0xd1,
+  0xb4, 0x01, 0x8a,
+  0xb4, 0x01, 0xba,
+  0xb4, 0x81, 0xba
+]);
+const fftLdLoaded = Uint8Array.from({ length: 16 }, (_, index) => 0xa0 + index);
+const fftLdAliasInput = fftJoin(fftX, fftY, fftM, fftLdLoaded);
+const [fftLdZ, fftLdZ1] = fftAmsUpdate(fftX, fftY, fftX, fftY, fftM, 2, false, 0);
+const fftLdAliasExpected = fftJoin(fftLdLoaded, fftLdZ, fftLdZ1);
+const fftLdAliasRun = await runFresh(moduleBytes, fftLdAliasFixture, { data: fftLdAliasInput, maxSteps: 8 });
+assert(fftLdAliasRun.record.reason === STOP_REASONS.maxSteps, `FFT LD.INCP stopped with ${fftLdAliasRun.record.reasonName}`);
+assert(fftLdAliasRun.record.steps === 8, `FFT LD.INCP executed ${fftLdAliasRun.record.steps} instructions`);
+assert(fftLdAliasRun.dataOutput.slice(0, 48).every((byte, index) => byte === fftLdAliasExpected[index]), `FFT LD.INCP output changed: ${Buffer.from(fftLdAliasRun.dataOutput.slice(0, 48)).toString("hex")}`);
+assert(fftLdAliasRun.record.registers[10] === INITIAL_SOURCE + 67, "FFT LD.INCP lost the unaligned base or postincrement");
+assert(fftLdAliasRun.record.registers[11] === INITIAL_DESTINATION + 48, "FFT LD.INCP stores used the wrong postincrement");
+
+const fftUaupFixture = conformanceFixture("esp32s3_fft_ams_s16_ld_incp_uaup", [
+  0xa4, 0x01, 0x10,
+  0xa4, 0x01, 0x83,
+  0xa4, 0x81, 0x83,
+  0xa4, 0x01, 0x93,
+  0xa4, 0x81, 0x93,
+  0xa4, 0x01, 0xa3,
+  0x0c, 0x59,
+  0x90, 0x0d, 0xf3,
+  0xae, 0x15, 0x92, 0xd7,
+  0xb4, 0x81, 0xaa,
+  0xb4, 0x81, 0x9a,
+  0xb4, 0x01, 0xaa,
+  0xb4, 0x01, 0x1c
+]);
+const fftOldUa = Uint8Array.from({ length: 16 }, (_, index) => 0x10 + index);
+const fftUaupZ = fftS16([11, 22, 33, 44, 55, 66, 77, 88]);
+const fftUaupZ1 = fftS16([-11, -22, -33, -44, -55, -66, -77, -88]);
+const fftUaupLoaded = Uint8Array.from({ length: 16 }, (_, index) => 0xc0 + index);
+const fftUaupInput = fftJoin(fftOldUa, fftX, fftY, fftM, fftUaupZ, fftUaupZ1, fftUaupLoaded);
+const [fftUaupExpectedZ, fftUaupExpectedZ1] = fftAmsUpdate(fftUaupZ, fftUaupZ1, fftX, fftY, fftM, 0, true, 0);
+const fftUaupLoadResult = fftJoin(fftOldUa.slice(5), fftUaupLoaded.slice(0, 5));
+const fftUaupExpected = fftJoin(fftUaupLoadResult, fftUaupExpectedZ, fftUaupExpectedZ1, fftUaupLoaded);
+const fftUaupRun = await runFresh(moduleBytes, fftUaupFixture, { data: fftUaupInput, maxSteps: 13 });
+assert(fftUaupRun.record.reason === STOP_REASONS.maxSteps, `FFT LD.INCP.UAUP stopped with ${fftUaupRun.record.reasonName}`);
+assert(fftUaupRun.record.steps === 13, `FFT LD.INCP.UAUP executed ${fftUaupRun.record.steps} instructions`);
+assert(fftUaupRun.dataOutput.slice(0, 64).every((byte, index) => byte === fftUaupExpected[index]), `FFT LD.INCP.UAUP output changed: ${Buffer.from(fftUaupRun.dataOutput.slice(0, 64)).toString("hex")}`);
+assert(fftUaupRun.record.registers[10] === INITIAL_SOURCE + 112, "FFT LD.INCP.UAUP used the wrong source increment");
+assert(fftUaupRun.record.registers[11] === INITIAL_DESTINATION + 64, "FFT LD.INCP.UAUP used the wrong destination increment");
+
+const fftR32Fixture = conformanceFixture("esp32s3_fft_ams_s16_ld_r32_decp", [
+  0xa4, 0x81, 0x93,
+  0xa4, 0x01, 0xa3,
+  0xa4, 0x81, 0xa3,
+  0x3c, 0xf9,
+  0x90, 0x03, 0x13,
+  0xae, 0xc0, 0xcd, 0xd8,
+  0xb4, 0x01, 0x8a,
+  0xb4, 0x81, 0x8a,
+  0xb4, 0x01, 0x9a
+]);
+const fftR32Loaded = Uint8Array.from({ length: 16 }, (_, index) => 0xe0 + index);
+const fftR32Input = fftJoin(fftX, fftY, fftM, fftR32Loaded);
+const fftZero = new Uint8Array(16);
+const [fftR32Z, fftR32Z1] = fftAmsUpdate(fftZero, fftZero, fftX, fftY, fftM, 4, false, 63);
+const fftR32Reversed = fftJoin(fftR32Loaded.slice(12), fftR32Loaded.slice(8, 12), fftR32Loaded.slice(4, 8), fftR32Loaded.slice(0, 4));
+const fftR32Expected = fftJoin(fftR32Reversed, fftR32Z, fftR32Z1);
+const fftR32Run = await runFresh(moduleBytes, fftR32Fixture, { data: fftR32Input, maxSteps: 9 });
+assert(fftR32Run.record.reason === STOP_REASONS.maxSteps, `FFT LD.R32.DECP stopped with ${fftR32Run.record.reasonName}`);
+assert(fftR32Run.record.steps === 9, `FFT LD.R32.DECP executed ${fftR32Run.record.steps} instructions`);
+assert(fftR32Run.dataOutput.slice(0, 48).every((byte, index) => byte === fftR32Expected[index]), `FFT LD.R32.DECP output changed: ${Buffer.from(fftR32Run.dataOutput.slice(0, 48)).toString("hex")}`);
+assert(fftR32Run.record.registers[10] === INITIAL_SOURCE + 32, "FFT LD.R32.DECP used the wrong decrement");
+
+const fftStoreQv = fftS16([-32768, -3, -2, -1, 0x1234, 0x7fff, 111, 222]);
+const fftStoreZ1 = fftS16([1, 2, 3, 4, 5, 6, 7, 8]);
+const fftStoreAt = Uint8Array.of(0x78, 0x56, 0xb4, 0x92, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+const fftStoreInput = fftJoin(fftStoreQv, fftX, fftY, fftM, fftStoreZ1, fftStoreAt);
+const fftStoreRuns = [];
+for (const select of [false, true]) {
+  const fixture = conformanceFixture(`esp32s3_fft_ams_s16_st_incp_sel${Number(select)}`, [
+    0xa4, 0x01, 0x83,
+    0xa4, 0x01, 0x93,
+    0xa4, 0x81, 0x93,
+    0xa4, 0x01, 0xa3,
+    0xa4, 0x81, 0x83,
+    0x98, 0x0a,
+    0x9e, 0xeb, 0x0a, select ? 0xa4 : 0xa0,
+    0xb4, 0x81, 0x8a,
+    0x99, 0x0b
+  ]);
+  const run = await runFresh(moduleBytes, fixture, { data: fftStoreInput, maxSteps: 9 });
+  const [, expectedZ1, terms] = fftAmsUpdate(fftStoreZ1, fftStoreZ1, fftX, fftY, fftM, 6, select, 0);
+  const expectedStore = new Uint8Array(16);
+  if (select) {
+    expectedStore.set(fftStoreAt.slice(0, 4));
+    expectedStore.set(fftStoreQv.slice(0, 12), 4);
+  } else {
+    for (let lane = 0; lane < 2; lane++) fftSetLane(expectedStore, lane, (fftLane(fftStoreAt, lane) & 0xffff) >>> 1);
+    for (let lane = 0; lane < 6; lane++) fftSetLane(expectedStore, lane + 2, (fftLane(fftStoreQv, lane) & 0xffff) >>> 1);
+  }
+  const expectedAt = new Uint8Array(4);
+  new DataView(expectedAt.buffer).setUint32(0, ((terms[0] + terms[2]) & 0xffff) | (((terms[1] + terms[3]) & 0xffff) << 16), true);
+  const expected = fftJoin(expectedStore, expectedZ1, expectedAt);
+  assert(run.record.reason === STOP_REASONS.maxSteps, `FFT ST.INCP sel${Number(select)} stopped with ${run.record.reasonName}`);
+  assert(run.record.steps === 9, `FFT ST.INCP sel${Number(select)} executed ${run.record.steps} instructions`);
+  assert(run.dataOutput.slice(0, 36).every((byte, index) => byte === expected[index]), `FFT ST.INCP sel${Number(select)} output changed: ${Buffer.from(run.dataOutput.slice(0, 36)).toString("hex")}`);
+  assert(run.record.registers[11] === INITIAL_DESTINATION + 32, `FFT ST.INCP sel${Number(select)} used the wrong store increment`);
+  fftStoreRuns.push({ select, fixture, run });
+}
+
+const unsupportedFftAmsFixture = conformanceFixture("esp32s3_unsupported_fft_ams_fixed_bit_neighbor", [0xad, 0xb8, 0x7d, 0xd1]);
+const unsupportedFftAmsRun = await runFresh(moduleBytes, unsupportedFftAmsFixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0xb8ad }
+});
+assert(unsupportedFftAmsRun.record.reason === STOP_REASONS.unsupported, "FFT AMS fixed-bit neighbor did not fail closed");
+assert(unsupportedFftAmsRun.record.steps === 0, "FFT AMS fixed-bit neighbor was counted as executed");
+assert(unsupportedFftAmsRun.record.unsupportedLength === 2, "FFT AMS fixed-bit neighbor widened as a supported PIE instruction");
+assert(unsupportedFftAmsRun.trace.count === 0, "FFT AMS fixed-bit neighbor leaked a trace record");
+assert(unsupportedFftAmsRun.record.registers.every((value, index) => value === initialRegisters(unsupportedFftAmsRun.record.returnPc)[index]), "FFT AMS fixed-bit neighbor changed registers");
+
 const accxMemoryFixture = conformanceFixture("esp32s3_accx_memory_roundtrip", [
   0x3b, 0xaa,
   0xa4, 0x7f, 0x4e,
@@ -1910,6 +2109,49 @@ const actualBaseline = {
       }
     }
   },
+  fftAmsIsa: {
+    ldIncp: {
+      codeSha256: fftLdAliasFixture.codeSha256,
+      outputHex: Buffer.from(fftLdAliasRun.dataOutput.slice(0, 48)).toString("hex"),
+      reason: fftLdAliasRun.record.reasonName,
+      steps: fftLdAliasRun.record.steps,
+      sourceAfter: `0x${fftLdAliasRun.record.registers[10].toString(16)}`,
+      destinationAfter: `0x${fftLdAliasRun.record.registers[11].toString(16)}`
+    },
+    ldIncpUaup: {
+      codeSha256: fftUaupFixture.codeSha256,
+      outputHex: Buffer.from(fftUaupRun.dataOutput.slice(0, 64)).toString("hex"),
+      reason: fftUaupRun.record.reasonName,
+      steps: fftUaupRun.record.steps,
+      sourceAfter: `0x${fftUaupRun.record.registers[10].toString(16)}`,
+      destinationAfter: `0x${fftUaupRun.record.registers[11].toString(16)}`
+    },
+    ldR32Decp: {
+      codeSha256: fftR32Fixture.codeSha256,
+      outputHex: Buffer.from(fftR32Run.dataOutput.slice(0, 48)).toString("hex"),
+      reason: fftR32Run.record.reasonName,
+      steps: fftR32Run.record.steps,
+      sourceAfter: `0x${fftR32Run.record.registers[10].toString(16)}`,
+      destinationAfter: `0x${fftR32Run.record.registers[11].toString(16)}`
+    },
+    stIncp: fftStoreRuns.map(({ select, fixture, run }) => ({
+      select: Number(select),
+      codeSha256: fixture.codeSha256,
+      outputHex: Buffer.from(run.dataOutput.slice(0, 36)).toString("hex"),
+      reason: run.record.reasonName,
+      steps: run.record.steps,
+      sourceAfter: `0x${run.record.registers[10].toString(16)}`,
+      destinationAfter: `0x${run.record.registers[11].toString(16)}`
+    })),
+    fixedBitNeighbor: {
+      codeSha256: unsupportedFftAmsFixture.codeSha256,
+      reason: unsupportedFftAmsRun.record.reasonName,
+      steps: unsupportedFftAmsRun.record.steps,
+      encoding: `0x${unsupportedFftAmsRun.record.unsupportedEncoding.toString(16)}`,
+      instructionLength: unsupportedFftAmsRun.record.unsupportedLength,
+      traceRecords: unsupportedFftAmsRun.trace.count
+    }
+  },
   accxMemoryIsa: {
     codeSha256: accxMemoryFixture.codeSha256,
     outputHex: Buffer.from(accxMemoryRun.dataOutput).toString("hex"),
@@ -2119,6 +2361,7 @@ assert(
     float128Isa: baseline.float128Isa,
     vmulasQupIsa: baseline.vmulasQupIsa,
     qaccVmulasQupIsa: baseline.qaccVmulasQupIsa,
+    fftAmsIsa: baseline.fftAmsIsa,
     accxMemoryIsa: baseline.accxMemoryIsa,
     qaccMemoryIsa: baseline.qaccMemoryIsa,
     uaMemoryIsa: baseline.uaMemoryIsa,

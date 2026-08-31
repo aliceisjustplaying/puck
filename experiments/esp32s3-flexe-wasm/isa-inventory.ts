@@ -29,6 +29,10 @@ export interface DecoderSurface {
 
 export const ESP32S3_PATCHED_MNEMONICS = [
   "ee.andq",
+  "ee.fft.ams.s16.ld.incp",
+  "ee.fft.ams.s16.ld.incp.uaup",
+  "ee.fft.ams.s16.ld.r32.decp",
+  "ee.fft.ams.s16.st.incp",
   "ee.vld.128.ip",
   "ee.vld.128.xp",
   "ee.vld.h.64.ip",
