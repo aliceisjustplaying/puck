@@ -1,6 +1,8 @@
 export const ESP32S3_SYSTEM_MMIO_PAGE = 0x600c_0000;
+export const ESP32S3_SYSTEM_CPU_PER_CONF_REG = 0x600c_0010;
 export const ESP32S3_SYSTEM_SYSCLK_CONF_REG = 0x600c_0060;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC = 0x4037_71a5;
+export const ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC = 0x4037_71d6;
 
 /*
  * TinyDraw's ESP-IDF v6.0.2 bootloader config selects 80 MHz. The S3
@@ -8,16 +10,27 @@ export const ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC = 0x4037_71a5;
  * (PRE_DIV_CNT=0); system_reg.h defines every other reset field as zero.
  */
 export const ESP32S3_DIRECT_BOOT_SYSCLK_CONF = 0x0000_0400;
+/* 80 MHz CPUPERIOD_SEL=0, 480 MHz PLL_FREQ_SEL=1, WAIT_MODE_FORCE_ON=0. */
+export const ESP32S3_DIRECT_BOOT_CPU_PER_CONF = 0x0000_0004;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_PROVENANCE = Object.freeze({
   bootloaderConfig: "bootloader/config/sdkconfig.h: CONFIG_BOOTLOADER_CPU_CLK_FREQ_MHZ=80",
   source: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_cpu_freq_to_pll_mhz",
   register: "ESP-IDF v6.0.2 soc/esp32s3/register/soc/system_reg.h: SYSTEM_SYSCLK_CONF_REG",
+});
+export const ESP32S3_DIRECT_BOOT_CPU_PER_PROVENANCE = Object.freeze({
+  bootloaderConfig: "bootloader/config/sdkconfig.h: CONFIG_BOOTLOADER_CPU_CLK_FREQ_MHZ=80",
+  clockSource: "ESP-IDF v6.0.2 esp_hal_clock/esp32s3/include/hal/clk_tree_ll.h: clk_ll_cpu_set_freq_mhz_from_pll",
+  waitMode: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/include/soc/rtc.h + rtc_init.c: default cpu_waiti_clk_gate=1 clears WAIT_MODE_FORCE_ON",
+  register: "ESP-IDF v6.0.2 soc/esp32s3/register/soc/system_reg.h: SYSTEM_CPU_PER_CONF_REG",
 });
 
 export interface Esp32S3DirectBootSystemMmioState {
   readonly sysclkConf: number;
   readonly readCount: number;
   readonly lastReadPc: number | null;
+  readonly cpuPerConf: number;
+  readonly cpuPerReadCount: number;
+  readonly cpuPerLastReadPc: number | null;
 }
 
 export interface Esp32S3DirectBootSystemMmioAccess {
@@ -47,6 +60,9 @@ export function createEsp32S3DirectBootSystemMmio(): Esp32S3DirectBootSystemMmio
     sysclkConf: ESP32S3_DIRECT_BOOT_SYSCLK_CONF,
     readCount: 0,
     lastReadPc: null,
+    cpuPerConf: ESP32S3_DIRECT_BOOT_CPU_PER_CONF,
+    cpuPerReadCount: 0,
+    cpuPerLastReadPc: null,
   });
 }
 
@@ -64,6 +80,30 @@ export function readEsp32S3DirectBootSystemMmio(
   if ((access.address & ~0xfff) !== ESP32S3_SYSTEM_MMIO_PAGE) {
     return Object.freeze({ handled: false });
   }
+  if (access.address === ESP32S3_SYSTEM_CPU_PER_CONF_REG) {
+    if (access.width !== 4 || access.isWrite) {
+      return refuse(state, "SYSTEM_CPU_PER_CONF permits only the observed aligned 32-bit read");
+    }
+    if (access.pc !== ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC) {
+      return refuse(state, `unexpected SYSTEM_CPU_PER_CONF reader 0x${access.pc.toString(16)}`);
+    }
+    if (state.readCount !== 1) {
+      return refuse(state, "SYSTEM_CPU_PER_CONF read preceded SYSTEM_SYSCLK_CONF");
+    }
+    if (state.cpuPerReadCount !== 0) {
+      return refuse(state, "SYSTEM_CPU_PER_CONF direct-boot read already occurred");
+    }
+    return Object.freeze({
+      handled: true,
+      status: "accepted",
+      value: state.cpuPerConf,
+      state: Object.freeze({
+        ...state,
+        cpuPerReadCount: 1,
+        cpuPerLastReadPc: access.pc,
+      }),
+    });
+  }
   if (access.address !== ESP32S3_SYSTEM_SYSCLK_CONF_REG) {
     return refuse(state, `undeclared system MMIO register 0x${access.address.toString(16)}`);
   }
@@ -79,7 +119,7 @@ export function readEsp32S3DirectBootSystemMmio(
     status: "accepted",
     value: state.sysclkConf,
     state: Object.freeze({
-      sysclkConf: state.sysclkConf,
+      ...state,
       readCount: 1,
       lastReadPc: access.pc,
     }),

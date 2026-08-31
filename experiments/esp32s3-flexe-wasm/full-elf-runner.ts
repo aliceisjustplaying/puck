@@ -627,11 +627,14 @@ export async function runSparseXtensaElf(
     assert(stateWords[18] === (cacheBootstrap.mmuSizes?.dataBytes ?? 0), "data MMU size differs");
   }
   if (systemMmio) {
-    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_system_mmio_state(), 12, "ELF system MMIO state");
-    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 3);
+    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_system_mmio_state(), 24, "ELF system MMIO state");
+    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 6);
     assert(stateWords[0] === systemMmio.sysclkConf, "SYSTEM_SYSCLK_CONF state differs");
     assert(stateWords[1] === systemMmio.readCount, "SYSTEM_SYSCLK_CONF read count differs");
     assert(stateWords[2] === (systemMmio.lastReadPc ?? 0), "SYSTEM_SYSCLK_CONF reader differs");
+    assert(stateWords[3] === systemMmio.cpuPerConf, "SYSTEM_CPU_PER_CONF state differs");
+    assert(stateWords[4] === systemMmio.cpuPerReadCount, "SYSTEM_CPU_PER_CONF read count differs");
+    assert(stateWords[5] === (systemMmio.cpuPerLastReadPc ?? 0), "SYSTEM_CPU_PER_CONF reader differs");
   }
   const captureAddresses = [...(options.capturePages ?? [])];
   assert(new Set(captureAddresses).size === captureAddresses.length, "captured ELF pages must be unique");

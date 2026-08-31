@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..55a269c
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1402 @@
+@@ -0,0 +1,1427 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -215,8 +215,11 @@ index 0000000..55a269c
 +#define ESP32S3_ICACHE_AUTOLOAD 0x600c40a0u
 +#define ESP32S3_CACHE_STATE 0x600c4130u
 +#define ESP32S3_SYSTEM_MMIO_PAGE 0x600c0000u
++#define ESP32S3_SYSTEM_CPU_PER_CONF 0x600c0010u
 +#define ESP32S3_SYSTEM_SYSCLK_CONF 0x600c0060u
++#define ESP32S3_DIRECT_BOOT_CPU_PER_CONF 0x00000004u
 +#define ESP32S3_DIRECT_BOOT_SYSCLK_CONF 0x00000400u
++#define ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC 0x403771d6u
 +#define ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC 0x403771a5u
 +#define ESP32S3_CACHE_IDLE 0x001001u
 +#define ESP32S3_CACHE_AUTOLOAD_BASE 8u
@@ -382,7 +385,7 @@ index 0000000..55a269c
 +static uint8_t elf_rom_cache_mmio[PAGE_BYTES];
 +static uint32_t elf_rom_cache_state[19];
 +static uint8_t elf_rom_system_mmio[PAGE_BYTES];
-+static uint32_t elf_rom_system_mmio_state[3];
++static uint32_t elf_rom_system_mmio_state[6];
 +static int elf_rom_refused;
 +static struct elf_memory_fault_record elf_memory_fault;
 +static struct probe_stop_record result;
@@ -582,22 +585,34 @@ index 0000000..55a269c
 +static int elf_rom_record(uint32_t kind, uint32_t pc, uint32_t arg0,
 +                          uint32_t arg1, uint32_t arg2);
 +
-+static int elf_system_mmio_read_seen(void) {
++static int elf_system_mmio_read_seen(uint32_t address) {
 +    for (uint32_t i = 0; i < elf_rom_event_count; i++) {
-+        if (elf_rom_events[i][0] == ELF_ROM_EVENT_SYSTEM_MMIO_READ) return 1;
++        if (elf_rom_events[i][0] == ELF_ROM_EVENT_SYSTEM_MMIO_READ &&
++            elf_rom_events[i][2] == address) return 1;
 +    }
 +    return 0;
 +}
 +
 +static int elf_system_mmio_permission(uint32_t address, uint32_t width, int is_write) {
 +    if ((address & ~(PAGE_BYTES - 1u)) != ESP32S3_SYSTEM_MMIO_PAGE) return 0;
-+    if (!elf_rom_cache_enabled || elf_rom_cache_mmu_sizes[0] != 1u ||
-+        address != ESP32S3_SYSTEM_SYSCLK_CONF || width != 4u || is_write ||
-+        g_dbg_pc != ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC || elf_system_mmio_read_seen()) {
++    if (!elf_rom_cache_enabled || elf_rom_cache_mmu_sizes[0] != 1u || width != 4u || is_write) {
++        return -1;
++    }
++    uint32_t value;
++    if (address == ESP32S3_SYSTEM_SYSCLK_CONF &&
++        g_dbg_pc == ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC &&
++        !elf_system_mmio_read_seen(address)) {
++        value = ESP32S3_DIRECT_BOOT_SYSCLK_CONF;
++    } else if (address == ESP32S3_SYSTEM_CPU_PER_CONF &&
++               g_dbg_pc == ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC &&
++               elf_system_mmio_read_seen(ESP32S3_SYSTEM_SYSCLK_CONF) &&
++               !elf_system_mmio_read_seen(address)) {
++        value = ESP32S3_DIRECT_BOOT_CPU_PER_CONF;
++    } else {
 +        return -1;
 +    }
 +    return elf_rom_record(ELF_ROM_EVENT_SYSTEM_MMIO_READ, g_dbg_pc, address,
-+                          width, ESP32S3_DIRECT_BOOT_SYSCLK_CONF) ? 1 : -1;
++                          width, value) ? 1 : -1;
 +}
 +
 +static int elf_cache_mmio_permission(uint32_t address, uint32_t width, int is_write) {
@@ -722,8 +737,12 @@ index 0000000..55a269c
 +    elf_rom_data_cache_suspended = 0;
 +    elf_rom_data_cache_suspend_return = ESP32S3_CACHE_EVENT_VOID;
 +    memset(elf_rom_cache_mmu_sizes, 0, sizeof(elf_rom_cache_mmu_sizes));
-+    /* TinyDraw bootloader: 80 MHz via PLL (SOC_CLK_SEL=1), divider 1. */
++    /* TinyDraw bootloader: 80 MHz via 480 MHz PLL, WAITI clock gating enabled. */
 +    memset(elf_rom_system_mmio, 0, sizeof(elf_rom_system_mmio));
++    uint32_t cpu_per_conf = ESP32S3_DIRECT_BOOT_CPU_PER_CONF;
++    memcpy(elf_rom_system_mmio +
++               (ESP32S3_SYSTEM_CPU_PER_CONF - ESP32S3_SYSTEM_MMIO_PAGE),
++           &cpu_per_conf, 4);
 +    uint32_t sysclk_conf = ESP32S3_DIRECT_BOOT_SYSCLK_CONF;
 +    memcpy(elf_rom_system_mmio +
 +               (ESP32S3_SYSTEM_SYSCLK_CONF - ESP32S3_SYSTEM_MMIO_PAGE),
@@ -1164,10 +1183,16 @@ index 0000000..55a269c
 +    elf_rom_system_mmio_state[0] = ESP32S3_DIRECT_BOOT_SYSCLK_CONF;
 +    elf_rom_system_mmio_state[1] = 0u;
 +    elf_rom_system_mmio_state[2] = 0u;
++    elf_rom_system_mmio_state[3] = ESP32S3_DIRECT_BOOT_CPU_PER_CONF;
++    elf_rom_system_mmio_state[4] = 0u;
++    elf_rom_system_mmio_state[5] = 0u;
 +    for (uint32_t i = 0; i < elf_rom_event_count; i++) {
 +        if (elf_rom_events[i][0] == ELF_ROM_EVENT_SYSTEM_MMIO_READ) {
-+            elf_rom_system_mmio_state[1]++;
-+            elf_rom_system_mmio_state[2] = elf_rom_events[i][1];
++            uint32_t *count = elf_rom_events[i][2] == ESP32S3_SYSTEM_SYSCLK_CONF
++                                  ? &elf_rom_system_mmio_state[1]
++                                  : &elf_rom_system_mmio_state[4];
++            count[0]++;
++            count[1] = elf_rom_events[i][1];
 +        }
 +    }
 +    return (uint32_t)(uintptr_t)elf_rom_system_mmio_state;

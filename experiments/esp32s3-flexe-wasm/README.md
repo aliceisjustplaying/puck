@@ -274,8 +274,9 @@ sorted 4 KiB pages, zero-fills `p_memsz - p_filesz`, merges overlapping load
 segments, and preserves the union of their ELF permissions. The module clears
 flexe's default page table before loading the image, so memory that the ELF did
 not declare is absent unless the host supplies a page-aligned zero range with
-provenance. It does not supply ROM, MMIO, flash-controller, or peripheral
-behavior.
+provenance. By default it supplies no ROM, MMIO, flash-controller, or
+peripheral behavior; each modeled direct-boot dependency is opt-in and
+fail-closed.
 
 The gate-harness image is 21,598,616 bytes with SHA-256
 `51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5`.
@@ -291,7 +292,7 @@ The initial stack is a required runner input. The gate-harness baseline uses
 three explicit zeroed writable pages at `0x3fce7000..0x3fcea000`. These are
 bootloader-inherited state, not app ELF pages.
 
-The host may explicitly configure two narrow ROM ABI callbacks. Reset reason
+The host may explicitly configure narrow ROM ABI callbacks. Reset reason
 at `0x4000057c` returns one caller-supplied value per core. `memset` at
 `0x400011e8` accepts at most 64 KiB, validates every destination page and its
 write permission before changing memory, and returns the destination pointer.
@@ -301,6 +302,19 @@ The event records summarize reset-reason arguments and results or the full
 `memset` destination, byte value, and length. They assign no timing to the bulk
 operation.
 
+The opt-in cache bootstrap accepts 11 exact ROM invocations across nine
+addresses. It follows the observed call order through cache disable/enable,
+16 KiB 8-way 32-byte-line instruction geometry, 32 KiB 8-way 64-byte-line
+data geometry, data suspend/resume, and MMU table sizes. It then maps only two
+source-backed SYSTEM registers: the 80 MHz
+PLL source value `0x400` at `0x600c0060`, read from PC `0x403771a5`, and the
+80 MHz CPU period value `0x4` at `0x600c0010`, read from PC `0x403771d6`.
+Both are aligned one-shot 32-bit reads after MMU setup. Other registers,
+access shapes, readers, orderings, and repeats are refused. The real image now
+executes 249 instructions and stops at PC `0x403771ff`, where it attempts a
+second read of `0x600c0010`; the typed event log contains exactly the first two
+SYSTEM reads.
+
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
 `0x3fcabe60`, and records the real zero-length clear at `0x50000000`. A refusal
@@ -309,18 +323,6 @@ decoded instructions. The integrated LX7 run executes that instruction,
 persists user register 231, reaches 34 decoded instructions, and refuses the
 first undeclared 32-bit MMIO read at
 `0x600c4064` with flags zero. No cache or MMIO behavior is implied.
-
-An explicit cache-bootstrap run maps only the required cache-controller MMIO
-page and accepts 11 exact cache ROM invocations across nine callback
-addresses. The callbacks validate their
-argument shapes and cache state transitions, retain typed ROM events outside
-the instruction trace, and configure the observed 16 KiB, 8-way, 32-byte-line
-instruction-cache mode, suspend and resume the data cache around its observed
-32 KiB, 8-way, 64-byte-line mode, and install the observed instruction and
-data MMU sizes. A one-shot, typed `SYSTEM_SYSCLK_CONF_REG` read returns the
-source-backed direct-boot value `0x400`. The real entry advances through 243
-decoded instructions and stops before an undeclared read of
-`SYSTEM_CPU_PER_CONF_REG` at `0x600c0010`.
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 256 executed instructions. The pinned TinyDraw ELF
@@ -338,8 +340,8 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 243-step
-cache-bootstrap boundary produces 332 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 249-step
+cache-bootstrap boundary produces 339 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
@@ -349,12 +351,12 @@ MMIO pages observed in the trace, with their ELF or inherited permissions.
 Those seven exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 332 records issue 602 timing events: 307 memory-system
-events, 28 MMIO accesses, 243 calibrated CPU issue events, and 24 calibrated
-dependent load-use events. Exactly 290 events have adopted costs, including
+literal loads. The 339 records issue 615 timing events: 313 memory-system
+events, 29 MMIO accesses, 249 calibrated CPU issue events, and 24 calibrated
+dependent load-use events. Exactly 296 events have adopted costs, including
 three flash line fills. The baseline pins the hazard count and a projection hash
-of their schedule, consumer IDs, registers, and producer/consumer PCs. The 243
-instruction fetch hits, 41 literal-load hits, and 28 controller MMIO costs
+of their schedule, consumer IDs, registers, and producer/consumer PCs. The 249
+instruction fetch hits, 41 literal-load hits, and 29 controller MMIO costs
 remain unknown, so the replay is blocked and reports no total cycle claim.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
