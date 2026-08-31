@@ -29,7 +29,10 @@ export interface DecoderSurface {
 
 export const ESP32S3_PATCHED_MNEMONICS = [
   "ee.vld.128.ip",
+  "ee.vld.h.64.ip",
+  "ee.vld.l.64.ip",
   "ee.vst.128.ip",
+  "ee.vst.h.64.ip",
   "ee.vunzip.8",
   "ee.vzip.8",
   "ld.qr",

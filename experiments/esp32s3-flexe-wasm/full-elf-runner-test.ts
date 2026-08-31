@@ -395,6 +395,41 @@ assert.equal(collidingEeRun.record.unsupportedEncoding, 0x003f);
 assert.equal(collidingEeRun.record.unsupportedLength, 2);
 assert.deepEqual(collidingEeRun.trace, []);
 
+const unsupportedXpEntry = 0x4037_2000;
+const unsupportedXpImage: Elf32XtensaImage = Object.freeze({
+  schemaVersion: 1,
+  entryPoint: unsupportedXpEntry,
+  elfBytes: 3,
+  elfSha256: "synthetic-unsupported-ee-vld-128-xp",
+  loadSegments: Object.freeze([
+    syntheticSegment(0, unsupportedXpEntry, [0xa4, 0x2c, 0x8d], 3, {
+      read: true,
+      write: false,
+      execute: true,
+    }),
+    syntheticSegment(1, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
+  ]),
+  totalFileBytes: 3,
+  totalMemoryBytes: 0x1003,
+});
+const unsupportedXpRun = await runSparseXtensaElf(moduleBytes, unsupportedXpImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 1,
+  unsupported: [{ pc: unsupportedXpEntry, encoding: 0x8d2ca4 }],
+});
+assert.equal(unsupportedXpRun.record.reason, FULL_ELF_STOP_REASONS.unsupported);
+assert.equal(unsupportedXpRun.record.steps, 0);
+assert.equal(unsupportedXpRun.record.unsupportedPc, unsupportedXpEntry);
+assert.equal(unsupportedXpRun.record.unsupportedEncoding, 0x8d2ca4);
+assert.equal(unsupportedXpRun.record.unsupportedLength, 3);
+assert.deepEqual(unsupportedXpRun.trace, []);
+assert.deepEqual(unsupportedXpRun.memoryTrace.records, []);
+assert.deepEqual(
+  unsupportedXpRun.record.registers,
+  [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "adjacent XP refusal changed full-ELF registers",
+);
+
 const cacheMmioProbeEntry = 0x4037_5c3b;
 const cacheMmioProbeImage: Elf32XtensaImage = Object.freeze({
   schemaVersion: 1,

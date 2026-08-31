@@ -199,7 +199,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2165,92 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2165,114 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -212,14 +212,19 @@ index 67dca18..e72666d 100644
 +    return sign_extend(encoded, 8) * 16;
 +}
 +
++static inline int32_t esp32s3_imm8x8(const uint32_t insn) {
++    uint32_t encoded = ((insn >> 8) & 0x7fu) | (((insn >> 22) & 1u) << 7);
++    return sign_extend(encoded, 8) * 8;
++}
++
 +static inline void esp32s3_copy_from_memory(xtensa_cpu_t *cpu, uint8_t *output,
-+                                            uint32_t address) {
-+    for (unsigned i = 0; i < 16; i++) output[i] = mem_read8(cpu->mem, address + i);
++                                            uint32_t address, unsigned length) {
++    for (unsigned i = 0; i < length; i++) output[i] = mem_read8(cpu->mem, address + i);
 +}
 +
 +static inline void esp32s3_copy_to_memory(xtensa_cpu_t *cpu, uint32_t address,
-+                                          const uint8_t *input) {
-+    for (unsigned i = 0; i < 16; i++) mem_write8(cpu->mem, address + i, input[i]);
++                                          const uint8_t *input, unsigned length) {
++    for (unsigned i = 0; i < length; i++) mem_write8(cpu->mem, address + i, input[i]);
 +}
 +
 +static inline void esp32s3_zip8(xtensa_cpu_t *cpu, unsigned q0, unsigned q1) {
@@ -256,10 +261,27 @@ index 67dca18..e72666d 100644
 +        uint32_t base = ar_read(cpu, base_register);
 +        uint32_t address = base & ~15u;
 +        if ((insn & 0x8f000fu) == 0x830004u)
-+            esp32s3_copy_from_memory(cpu, cpu->qr[q], address);
++            esp32s3_copy_from_memory(cpu, cpu->qr[q], address, 16);
 +        else
-+            esp32s3_copy_to_memory(cpu, address, cpu->qr[q]);
++            esp32s3_copy_to_memory(cpu, address, cpu->qr[q], 16);
 +        ar_write(cpu, base_register, base + (uint32_t)esp32s3_imm8x16(insn));
++        return 1;
++    }
++
++    uint32_t half_opcode = insn & 0x8f000fu;
++    if (half_opcode == 0x890004u || half_opcode == 0x880004u ||
++        half_opcode == 0x8b0004u) {
++        unsigned q = esp32s3_qr(insn);
++        unsigned base_register = XT_T(insn);
++        uint32_t base = ar_read(cpu, base_register);
++        uint32_t address = base & ~7u;
++        if (half_opcode == 0x890004u)
++            esp32s3_copy_from_memory(cpu, cpu->qr[q], address, 8);
++        else if (half_opcode == 0x880004u)
++            esp32s3_copy_from_memory(cpu, cpu->qr[q] + 8, address, 8);
++        else
++            esp32s3_copy_to_memory(cpu, address, cpu->qr[q] + 8, 8);
++        ar_write(cpu, base_register, base + (uint32_t)esp32s3_imm8x8(insn));
 +        return 1;
 +    }
 +
@@ -270,9 +292,9 @@ index 67dca18..e72666d 100644
 +        int32_t offset = sign_extend((insn >> 8) & 15u, 4) * 16;
 +        uint32_t address = base + (uint32_t)offset;
 +        if ((insn & 0xcf7f0fu) == 0xcd2004u)
-+            esp32s3_copy_from_memory(cpu, cpu->qr[q], address);
++            esp32s3_copy_from_memory(cpu, cpu->qr[q], address, 16);
 +        else
-+            esp32s3_copy_to_memory(cpu, address, cpu->qr[q]);
++            esp32s3_copy_to_memory(cpu, address, cpu->qr[q], 16);
 +        return 1;
 +    }
 +
@@ -292,7 +314,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2490,8 @@ have_insn:
+@@ -2319,6 +2512,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -301,7 +323,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +2518,16 @@ have_insn:
+@@ -2345,14 +2540,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -322,7 +344,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +2541,8 @@ have_insn:
+@@ -2366,6 +2563,8 @@ have_insn:
          }
      }
 
