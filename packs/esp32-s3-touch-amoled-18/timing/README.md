@@ -100,13 +100,14 @@ byte for byte. Its adoption status remains `unreviewed`.
 
 ## What remains before a cycle-accurate claim
 
-- A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core is
-  LX6, and the current real-ELF inventory has 47 unsupported raw mnemonics,
-  including 41 PIE `ee.*` forms. The `.byte` rows and dynamic instruction
-  coverage still need resolution.
-- The flexe runner has bounded code, source, and destination pages, not the
-  ESP32-S3 data map, ROM, ESP-IDF boot, interrupt matrix, peripherals, or real
-  dual-core execution.
+- A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core now
+  has a bounded S3 patch, but the current real-ELF inventory still has 74
+  unsupported raw mnemonics: 38 PIE `ee.*` forms, 35 user-register forms, and
+  undecodable `.byte` rows. Static inventory is not whole-program execution
+  coverage.
+- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches the first
+  reset-path ROM call. It does not provide that ROM, the complete ESP32-S3 data
+  map, interrupt matrix, peripherals, ESP-IDF boot, or real dual-core execution.
 - Cache geometry and behavior, SRAM latency, flash and PSRAM fills, shared MSPI
   arbitration, DMA ordering, interrupts, and dual-core interleaving need
   hardware-backed sources and correlation.

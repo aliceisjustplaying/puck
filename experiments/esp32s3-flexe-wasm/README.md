@@ -19,9 +19,10 @@ its ELF entry point, and reaches a deterministic unloaded-ROM stop. Both paths
 return the visible register file, PC, step count, and stop reason through a
 versioned record.
 
-This does not demonstrate ESP32-S3 support, LX7 or PIE instructions, a browser
-page, timing, caches, dual-core scheduling, or an ESP-IDF boot. It proves that
-flexe's direct interpreter can cross Puck's current WebAssembly loader boundary
+This now demonstrates a bounded ESP32-S3 LX7 subset, including the real
+TinyDraw PIE byte-swap kernel. It does not demonstrate complete LX7 or PIE
+support, a browser page, timing, caches, dual-core scheduling, or an ESP-IDF
+boot. The direct interpreter crosses Puck's current WebAssembly loader boundary
 without expanding WASI-lite.
 
 ## Run it
@@ -42,7 +43,9 @@ commit and every file in the dependency closure must match its recorded SHA-256.
 The ISA inventory additionally needs Espressif's
 `xtensa-esp32s3-elf-objdump` and the two named TinyDraw ELFs below. Override
 their paths with `ESP32S3_OBJDUMP`, `TINYDRAW_ESP32S3_ELF`, and
-`TINYDRAW_ESP32S3_FIXTURE_ELF`. The generated JSON stays in ignored `dist/`.
+`TINYDRAW_ESP32S3_FIXTURE_ELF`. Dynamic staging and the pinned full-image
+fixture can be selected independently with `TINYDRAW_ESP32S3_STAGING_ELF` and
+`TINYDRAW_ESP32S3_FULL_ELF`. Generated JSON stays in ignored `dist/`.
 
 ## ESP32-S3 ISA gap inventory
 
@@ -55,19 +58,29 @@ mnemonic to the exact pinned flexe decoder source. Special-register forms such
 as `rsr.ccount` normalize to flexe's generic `rsr` decoder entry.
 
 The current input is
-`out/build/esp32-panel-probe/tinydraw_esp32.elf`, 5,567,916 bytes, SHA-256
-`87d6a00ffdf18c9bcb7dd3742658b5a1786212f939f5cbafe1b82562a350f70f`.
+`out/build/esp32-panel-probe/tinydraw_esp32.elf`, 5,571,516 bytes, SHA-256
+`a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644`.
 The tool is GNU objdump 2.45 from Espressif crosstool-NG
 `esp-15.2.0_20251204`, SHA-256
 `90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466`.
 The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
-That ELF yields 64,262 objdump rows and 343 raw mnemonics. The pinned flexe
-decoder surface has 319 normalized mnemonics. It covers 63,193 rows and 296
-raw mnemonics; 1,069 rows and 47 raw mnemonics are gaps. The 47 gaps are 41
-`ee.*` PIE mnemonics covering 349 rows, 689 undecodable `.byte` rows, plus
-`ld.qr` (8), `lsip` (6), `s32nb` (1), `ssip` (8), and `st.qr` (8).
+That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
+decoder plus this experiment's explicit ESP32-S3 patch surface has 328
+normalized mnemonics. With user-register operands distinguished, it covers
+63,210 rows and 267 raw mnemonics; 1,066 rows and 74 raw mnemonics remain gaps.
+Those gaps are 38 unimplemented `ee.*` PIE forms covering 332 rows, 35
+unimplemented `rur.*` or `wur.*` forms, and 699 undecodable `.byte` rows. No
+known scalar, QR load/store, or THREADPTR mnemonic remains in the gap list.
+
+`0003-add-esp32s3-lx7-subset.patch` implements `s32nb`, `lsip`, `ssip`,
+`ld.qr`, `st.qr`, `ee.vld.128.ip`, `ee.vst.128.ip`, `ee.vunzip.8`, and
+`ee.vzip.8`. It selects those semantics only for the ESP32-S3 experiment
+profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
+represented by flexe's core. The profile also implements per-core UR231
+THREADPTR state and refuses unknown user-register targets as step errors. No
+instruction or timing cost is assigned here.
 
 These are static surface counts. `objdump -d` linearly interprets executable
 sections, including unreachable padding and literal pools, so the row ratio is
@@ -80,12 +93,13 @@ Only factual disassembly rows and hashes are retained. No GNU or Espressif
 source or binary is copied into the experiment.
 
 The executable fixture is
-`out/build/esp32-vector-v2-simd-probe/tinydraw_esp32.elf`, SHA-256
-`2293fb3d35ba2f785e4dce5dfb35d2f33e452150167dc8d24f0e091cfa3e6d53`.
-With `a4` nonzero, `tinydraw_stage_pixels_swapped_pie` executes flexe-supported
-`entry`, `nop.n`, and `loopnez`, then reaches the first decoder gap at
-`0x40377a54`: objdump encoding `830124`, `ee.vld.128.ip q0, a2, 16`. This is a
-real named TinyDraw PIE kernel, not a linear decode from a literal pool.
+`out/build/esp32-vector-v2-demo/tinydraw_esp32.elf`, SHA-256
+`591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742`.
+With `a4` nonzero, `tinydraw_stage_pixels_swapped_pie` executes `entry`,
+`nop.n`, `loopnez`, two vector loads, unzip, zip, two vector stores, and
+`retw.n`. It returns after ten instructions and transforms RGB565 bytes `3412`
+to `1234`. This is a real named TinyDraw PIE kernel, not a linear decode from
+a literal pool.
 
 ## Dynamic ELF execution
 
@@ -117,20 +131,31 @@ synthetic caller, restores its stack, and exposes the return value 4 in caller
 register `a10`. A separate fresh run capped at two instructions stops at
 `0x403808f9` before `retw.n`, proving the bound is active.
 
-The PIE fixture has code SHA-256
+Two raw conformance fixtures cover the remaining implemented data operations.
+The scalar fixture copies `0x12345678` with `l32i.n` and `s32nb`, then executes
+`lsip` and `ssip`; both base registers advance by four and the run returns
+after six instructions. The QR fixture copies 16 deterministic bytes with
+`ld.qr` and `st.qr` and returns after four instructions. Exact code hashes,
+outputs, step counts, and post-incremented registers are pinned in the dynamic
+baseline.
+
+The THREADPTR fixture executes the real reset-path `l32r` and
+`wur.threadptr a8` encoding at `0x40375ce4`, reads UR231 back with
+`rur.threadptr`, and returns the pinned CPU0 value `0x3fcabf20`. A separate
+`wur.accx_0` fixture stops with `stepError` before counting the instruction,
+so unimplemented user registers cannot silently become no-ops.
+
+The PIE fixture starts at `0x40377698` and has code SHA-256
 `f0503e09af131793fa0dfdf9077a9d433225c08962672d7f492f1496b15d1c75`.
-flexe executes the supported `entry`, `nop.n`, and `loopnez`, then its
-experiment-only instruction hook stops before `ee.vld.128.ip` at `0x40377a54`,
-objdump encoding `830124`. The hook is configured by the host from the pinned
-ISA inventory's exact offset and encoding. It is intentionally not presented
-as an automatic LX7 decoder. This prevents flexe from silently treating the
-colliding encoding as an LX6 MAC16 instruction.
+Its first former gap is objdump encoding `830124`, `ee.vld.128.ip q0, a2,
+16`. The S3 profile handles the exact vector encodings before the colliding
+LX6 MAC16 decoder and completes the ten-instruction function.
 
 The RGB565 fixture is the local
 `stage_pixels_swapped_scalar_oracle` function from
 `out/build/esp32-vector-v2-gate-harness/tinydraw_esp32.elf`, SHA-256
-`51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5`.
-Its 41 code bytes start at `0x420d4e10` and have SHA-256
+`522b33cb491bbc9c8a61a364b3c986c7f1d013bcdf228f79791981f7fcad1491`.
+Its 41 code bytes start at `0x42058230` and have SHA-256
 `a545acd197c5b75f0351256aa6a9c8a7028cb42f91e617c28317fa560d873877`.
 The fixture executes loads, stores, shifts, byte combination, pointer updates,
 and a zero-overhead loop over five pixels. Input bytes
@@ -327,9 +352,11 @@ The fixed heap and bounded sparse page pool make the module's minimum memory
 model. A real backend should let the host size and own the regions, replace
 no-op `free`, and give diagnostic logging structured arguments.
 
-That is a bounded portability patch around the core. The bigger project risk
-remains architectural: this commit models ESP32 LX6 addresses and instructions,
-not the ESP32-S3 LX7, PIE extension, memory map, caches, or timing.
+That is a bounded portability and ISA patch around the core. The remaining
+project risk is architectural: 38 observed PIE forms, 35 user-register forms,
+and undecodable `.byte` rows remain explicit gaps, ROM is absent at the first
+reset-path call, and the memory map, caches, peripherals, dual-core scheduling,
+and timing remain unmodeled.
 
 ## License
 

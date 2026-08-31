@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF } from "./constants";
+import { DEFAULT_TINYDRAW_ESP32S3_FULL_ELF } from "./constants";
 import { parseXtensaElf32 } from "./elf-image";
 
 const ELF_HEADER_BYTES = 52;
@@ -77,7 +77,7 @@ for (const [name, bytes, expected] of malformed) {
   assert.throws(() => parseXtensaElf32(bytes), expected, name);
 }
 
-const real = parseXtensaElf32(readFileSync(DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF));
+const real = parseXtensaElf32(readFileSync(DEFAULT_TINYDRAW_ESP32S3_FULL_ELF));
 assert.equal(real.entryPoint, 0x4037_5c9c);
 assert.equal(real.elfBytes, 21_598_616);
 assert.equal(real.elfSha256, "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5");

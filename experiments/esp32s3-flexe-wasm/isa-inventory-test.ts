@@ -16,6 +16,8 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 assert(normalizeMnemonic("rsr.ccount") === "rsr", "special-register aliases must normalize");
+assert(normalizeMnemonic("wur.threadptr") === "wur", "implemented user-register aliases must normalize");
+assert(normalizeMnemonic("rur.accx_1") === "rur.accx_1", "unknown user registers must remain explicit gaps");
 assert(normalizeMnemonic("ee.vld.128.ip") === "ee.vld.128.ip", "PIE mnemonics must stay exact");
 
 const parsed = parseDisassembly(`Disassembly of section .iram0.text:

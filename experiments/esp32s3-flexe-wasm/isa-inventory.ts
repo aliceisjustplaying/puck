@@ -107,10 +107,15 @@ export interface InventoryReport {
   };
 }
 
-const SPECIAL_REGISTER_MNEMONICS = /^(rsr|wsr|xsr|rur|wur)\..*$/;
+const SPECIAL_REGISTER_MNEMONICS = /^(rsr|wsr|xsr)\..*$/;
+const SUPPORTED_USER_REGISTER_MNEMONICS = /^(rur|wur)\.(threadptr|fcr|fsr)$/;
 
 export function normalizeMnemonic(mnemonic: string): string {
-  return mnemonic.replace(SPECIAL_REGISTER_MNEMONICS, "$1");
+  if (SPECIAL_REGISTER_MNEMONICS.test(mnemonic)) return mnemonic.replace(SPECIAL_REGISTER_MNEMONICS, "$1");
+  if (SUPPORTED_USER_REGISTER_MNEMONICS.test(mnemonic)) {
+    return mnemonic.replace(SUPPORTED_USER_REGISTER_MNEMONICS, "$1");
+  }
+  return mnemonic;
 }
 
 export function parseFlexeDecoderSurface(sourceText: string, sourceSha256: string): DecoderSurface {
