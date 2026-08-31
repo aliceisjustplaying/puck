@@ -235,10 +235,26 @@ undeclared ESP32-S3 ROM target `0x4000057c`. The result is `unloadedPage`, six
 executed instructions, and a six-PC trace. This is the first honest boundary,
 not a boot claim.
 
+The host may explicitly configure two narrow ROM ABI callbacks. Reset reason
+at `0x4000057c` returns one caller-supplied value per core. `memset` at
+`0x400011e8` accepts at most 64 KiB, validates every destination page and its
+write permission before changing memory, and returns the destination pointer.
+Neither callback is enabled by default. Each call consumes one bounded trace
+step. A separate bounded ROM-event trace summarizes reset-reason arguments and
+results or the full `memset` destination, byte value, and length. It assigns no
+timing to the bulk operation.
+
+With host-supplied power-on reset value 1 for both cores and `memset` enabled,
+the real entry executes 57 bounded steps. It performs two reset-reason calls,
+clears 21,216 bytes at `0x3fcabe60`, records the real zero-length clear at
+`0x50000000`, and next stops at undeclared ROM `0x4000186c`,
+`Cache_Disable_ICache`. No other ROM behavior is implied.
+
 Full-image runs accept at most 768 pages, 2,048 caller-identified unsupported
-instruction markers, and 256 executed instructions. The trace contains one PC
-per successfully executed instruction. Oversized bounds, duplicate markers,
-out-of-order pages, invalid permissions, and capacity overruns are refused.
+instruction markers, 64 ROM events, and 256 executed instructions. The trace
+contains one PC per successfully executed instruction. Oversized bounds,
+duplicate markers, out-of-order pages, invalid permissions, unwritable ROM
+bulk destinations, and capacity overruns are refused.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
 page count, bounded trace, unsupported-instruction refusal, and first stop,
@@ -269,8 +285,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 42,210 bytes with Zig 0.16.0, SHA-256
-`99ae868419a6c6868bd5ecb6f93a0abd39c1664f33b9ae17d234ce7cbb96ced2`.
+The stripped freestanding module is 43,901 bytes with Zig 0.16.0, SHA-256
+`46f7e2e0a927b4f78732be4ea6aded00d324c9986a375af08f5b930e6cefac66`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and

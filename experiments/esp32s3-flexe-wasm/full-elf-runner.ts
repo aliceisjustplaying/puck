@@ -16,6 +16,7 @@ export const FULL_ELF_STOP_REASONS = {
   cpuStopped: 7,
   unloadedPage: 10,
   nonExecutablePage: 11,
+  romRefused: 12,
 } as const;
 
 export interface SparseElfPage {
@@ -50,14 +51,24 @@ export interface FullElfRunResult {
   readonly trace: readonly number[];
   readonly loadedPages: number;
   readonly logs: readonly string[];
+  readonly romEvents: readonly FullElfRomEvent[];
 }
+
+export type FullElfRomEvent = Readonly<
+  | { kind: "resetReason"; pc: number; core: number; result: number }
+  | { kind: "memset"; pc: number; destination: number; value: number; length: number }
+>;
 
 interface FullElfExports {
   memory: WebAssembly.Memory;
   flexe_wasm_elf_begin(): number;
+  flexe_wasm_elf_configure_rom(resetReasonCore0: number, resetReasonCore1: number, enableMemset: number): number;
   flexe_wasm_elf_load_page(address: number, flags: number): number;
   flexe_wasm_elf_page_capacity(): number;
   flexe_wasm_elf_page_input(): number;
+  flexe_wasm_elf_rom_event_capacity(): number;
+  flexe_wasm_elf_rom_event_count(): number;
+  flexe_wasm_elf_rom_events(): number;
   flexe_wasm_elf_set_unsupported(count: number): number;
   flexe_wasm_elf_trace(): number;
   flexe_wasm_elf_trace_capacity(): number;
@@ -153,7 +164,11 @@ function checkPointer(memory: WebAssembly.Memory, pointer: number, bytes: number
 export async function runSparseXtensaElf(
   moduleBytes: ArrayBuffer,
   image: Elf32XtensaImage,
-  options: Readonly<{ maxSteps?: number; unsupported?: readonly UnsupportedInstruction[] }> = {},
+  options: Readonly<{
+    maxSteps?: number;
+    unsupported?: readonly UnsupportedInstruction[];
+    rom?: Readonly<{ resetReasons: readonly [number, number]; memset?: boolean }>;
+  }> = {},
 ): Promise<FullElfRunResult> {
   const logs: string[] = [];
   const instance = await instantiate(moduleBytes, (text) => logs.push(text));
@@ -161,9 +176,13 @@ export async function runSparseXtensaElf(
   assert(exports.memory instanceof WebAssembly.Memory, "full ELF module memory export is missing");
   for (const name of [
     "flexe_wasm_elf_begin",
+    "flexe_wasm_elf_configure_rom",
     "flexe_wasm_elf_load_page",
     "flexe_wasm_elf_page_capacity",
     "flexe_wasm_elf_page_input",
+    "flexe_wasm_elf_rom_event_capacity",
+    "flexe_wasm_elf_rom_event_count",
+    "flexe_wasm_elf_rom_events",
     "flexe_wasm_elf_set_unsupported",
     "flexe_wasm_elf_trace",
     "flexe_wasm_elf_trace_capacity",
@@ -188,6 +207,20 @@ export async function runSparseXtensaElf(
     new Uint8Array(exports.memory.buffer, pageInput, PAGE_BYTES).set(page.bytes);
     const status = exports.flexe_wasm_elf_load_page(page.address, page.flags) >>> 0;
     assert(status === 1, `full ELF module refused page 0x${page.address.toString(16)} with status ${status}`);
+  }
+
+  if (options.rom) {
+    for (const reason of options.rom.resetReasons) {
+      assert(Number.isSafeInteger(reason) && reason >= 0 && reason <= 0xffff_ffff, "ROM reset reason is invalid");
+    }
+    assert(
+      exports.flexe_wasm_elf_configure_rom(
+        options.rom.resetReasons[0],
+        options.rom.resetReasons[1],
+        options.rom.memset ? 1 : 0,
+      ) === 1,
+      "full ELF module refused ROM configuration",
+    );
   }
 
   const unsupported = [...(options.unsupported ?? [])].sort((left, right) => left.pc - right.pc);
@@ -220,5 +253,31 @@ export async function runSparseXtensaElf(
   const tracePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_trace(), traceCount * 4, "ELF trace");
   const trace = Object.freeze([...new Uint32Array(exports.memory.buffer, tracePointer, traceCount)]);
   assert(trace.length === record.steps, "full ELF trace and executed step count differ");
-  return Object.freeze({ record, trace, loadedPages: pages.length, logs: Object.freeze(logs) });
+  const romEventCount = exports.flexe_wasm_elf_rom_event_count() >>> 0;
+  const romEventCapacity = exports.flexe_wasm_elf_rom_event_capacity() >>> 0;
+  assert(romEventCount <= romEventCapacity, "full ELF module returned too many ROM events");
+  const romEventPointer = checkPointer(exports.memory, exports.flexe_wasm_elf_rom_events(), romEventCount * 20, "ELF ROM events");
+  const romEventWords = new Uint32Array(exports.memory.buffer, romEventPointer, romEventCount * 5);
+  const romEvents: FullElfRomEvent[] = [];
+  for (let index = 0; index < romEventCount; index++) {
+    const words = romEventWords.subarray(index * 5, index * 5 + 5);
+    if (words[0] === 1) {
+      romEvents.push(Object.freeze({ kind: "resetReason", pc: words[1], core: words[2], result: words[3] }));
+    } else if (words[0] === 2) {
+      romEvents.push(Object.freeze({
+        kind: "memset",
+        pc: words[1],
+        destination: words[2],
+        value: words[3],
+        length: words[4],
+      }));
+    } else throw new Error(`unknown full ELF ROM event ${words[0]}`);
+  }
+  return Object.freeze({
+    record,
+    trace,
+    loadedPages: pages.length,
+    logs: Object.freeze(logs),
+    romEvents: Object.freeze(romEvents),
+  });
 }
