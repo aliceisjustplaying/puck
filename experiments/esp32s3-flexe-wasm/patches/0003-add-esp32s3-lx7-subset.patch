@@ -81,7 +81,7 @@ diff --git a/src/xtensa.c b/src/xtensa.c
 index 67dca18..e72666d 100644
 --- a/src/xtensa.c
 +++ b/src/xtensa.c
-@@ -1552,19 +1552,87 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -1552,19 +1552,100 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
                  ar_write(cpu, r, ar_read(cpu, s));
              break;
          case 14: /* RUR */
@@ -117,6 +117,13 @@ index 67dca18..e72666d 100644
 +              case 14:
 +                  if (cpu->esp32s3_profile)
 +                      ar_write(cpu, destination, ur == 13 ? cpu->sar_byte : cpu->fft_bit_width);
++                  else ar_write(cpu, destination, 0);
++                  break;
++              case 15:
++              case 16:
++              case 17:
++              case 18:
++                  if (cpu->esp32s3_profile) ar_write(cpu, destination, cpu->ua_state[ur - 15]);
 +                  else ar_write(cpu, destination, 0);
 +                  break;
 +              case 231:
@@ -163,6 +170,12 @@ index 67dca18..e72666d 100644
 +              case 14:
 +                  if (cpu->esp32s3_profile) cpu->fft_bit_width = ar_read(cpu, t) & 0xfu;
 +                  break;
++              case 15:
++              case 16:
++              case 17:
++              case 18:
++                  if (cpu->esp32s3_profile) cpu->ua_state[ur - 15] = ar_read(cpu, t);
++                  break;
 +              case 231:
 +                  if (cpu->esp32s3_profile) cpu->threadptr = ar_read(cpu, t);
 +                  break;
@@ -175,7 +188,7 @@ index 67dca18..e72666d 100644
                }
              } break;
          default: break;
-@@ -1615,6 +1683,10 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -1615,6 +1696,10 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
              uint32_t addr = ar_read(cpu, s) + (uint32_t)((int32_t)(r << 2) - 64);
              mem_write32(cpu->mem, addr, ar_read(cpu, t));
          } break;
@@ -186,7 +199,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2152,92 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2165,92 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -279,7 +292,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2477,8 @@ have_insn:
+@@ -2319,6 +2490,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -288,7 +301,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +2505,16 @@ have_insn:
+@@ -2345,14 +2518,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -309,7 +322,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +2528,8 @@ have_insn:
+@@ -2366,6 +2541,8 @@ have_insn:
          }
      }
 
@@ -322,7 +335,7 @@ diff --git a/src/xtensa.h b/src/xtensa.h
 index 09e3182..60325a6 100644
 --- a/src/xtensa.h
 +++ b/src/xtensa.h
-@@ -256,6 +256,15 @@ struct xtensa_cpu {
+@@ -256,6 +256,16 @@ struct xtensa_cpu {
      void                       *instruction_hook_ctx;
      uint32_t                    external_exec_begin;
      uint32_t                    external_exec_end;
@@ -334,6 +347,7 @@ index 09e3182..60325a6 100644
 +    uint32_t                    qacc_l[5];
 +    uint8_t                     sar_byte;
 +    uint8_t                     fft_bit_width;
++    uint32_t                    ua_state[4];
 +    uint8_t                     qr[8][16];
      uint32_t         *predecode;        /* Pre-decoded instruction table (heap, 20MB) */
      /* AOT static-recompiled function table.

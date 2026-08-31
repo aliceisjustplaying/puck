@@ -114,7 +114,7 @@ export interface InventoryReport {
 }
 
 const SPECIAL_REGISTER_MNEMONICS = /^(rsr|wsr|xsr)\..*$/;
-const SUPPORTED_USER_REGISTER_MNEMONICS = /^(rur|wur)\.(accx_[01]|qacc_[hl]_[0-4]|sar_byte|fft_bit_width|threadptr|fcr|fsr)$/;
+const SUPPORTED_USER_REGISTER_MNEMONICS = /^(rur|wur)\.(accx_[01]|qacc_[hl]_[0-4]|sar_byte|fft_bit_width|ua_state_[0-3]|threadptr|fcr|fsr)$/;
 
 export function normalizeMnemonic(mnemonic: string): string {
   if (SPECIAL_REGISTER_MNEMONICS.test(mnemonic)) return mnemonic.replace(SPECIAL_REGISTER_MNEMONICS, "$1");

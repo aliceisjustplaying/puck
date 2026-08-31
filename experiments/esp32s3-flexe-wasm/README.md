@@ -70,19 +70,20 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
 decoder plus this experiment's explicit ESP32-S3 patch surface has 328
 normalized mnemonics. With user-register operands distinguished, it covers
-63,237 rows and 294 raw mnemonics; 1,039 rows and 47 raw mnemonics remain gaps.
-Those gaps are 38 unimplemented `ee.*` PIE forms covering 332 rows, eight
-unimplemented `rur.*` or `wur.*` forms, and 699 undecodable `.byte` rows. No
+63,245 rows and 302 raw mnemonics; 1,031 rows and 39 raw mnemonics remain gaps.
+Those gaps are 38 unimplemented `ee.*` PIE forms covering 332 rows and 699
+undecodable `.byte` rows. No
 known scalar, QR load/store, THREADPTR, ACCX, QACC, SAR_BYTE, or FFT_BIT_WIDTH
-mnemonic remains in the gap list.
+mnemonic remains in the gap list, and every named user-register form is covered.
 
 `0003-add-esp32s3-lx7-subset.patch` implements `s32nb`, `lsip`, `ssip`,
 `ld.qr`, `st.qr`, `ee.vld.128.ip`, `ee.vst.128.ip`, `ee.vunzip.8`, and
 `ee.vzip.8`. It selects those semantics only for the ESP32-S3 experiment
 profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
 represented by flexe's core. The profile also implements per-core UR0/UR1
-ACCX, UR2 through UR11 QACC, UR13 SAR_BYTE, UR14 FFT_BIT_WIDTH, and UR231
-THREADPTR state and refuses unknown user-register targets as step errors. No
+ACCX, UR2 through UR11 QACC, UR13 SAR_BYTE, UR14 FFT_BIT_WIDTH, UR15 through
+UR18 UA_STATE, and UR231 THREADPTR state and refuses unknown user-register
+targets as step errors. No
 instruction or timing cost is assigned here.
 
 These are static surface counts. `objdump -d` linearly interprets executable
@@ -149,8 +150,10 @@ fixture writes distinct values through `wur.accx_0` and `wur.accx_1`, then
 reads back the 32-bit ACCX_0 and architecturally masked 8-bit ACCX_1 values.
 The QACC fixture round-trips distinct values through every high and low bank
 register. The SAR/FFT fixture proves both 4-bit masks. A `wur.ua_state_0`
-fixture stops with `stepError` before counting the instruction, so
-unimplemented user registers cannot silently become no-ops.
+through `wur.ua_state_3` fixture round-trips four distinct 32-bit values. An
+encoding targeting the unassigned UR12 slot stops with `stepError` before
+counting the instruction, so unknown user registers cannot silently become
+no-ops.
 
 The PIE fixture starts at `0x40377698` and has code SHA-256
 `f0503e09af131793fa0dfdf9077a9d433225c08962672d7f492f1496b15d1c75`.
@@ -333,7 +336,7 @@ first undeclared 32-bit MMIO read at
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 512 executed instructions. The pinned TinyDraw ELF
-automatically installs the tracked 1,958-instruction ESP32-S3 ISA gap set before
+automatically installs the tracked 1,949-instruction ESP32-S3 ISA gap set before
 execution. Each marker must match the decoder-width bytes in loaded executable
 memory during setup; stale, mismatched, unloaded, and non-executable markers are
 refused. Once bound, reaching a marked PC stops before LX6 decoding, including
