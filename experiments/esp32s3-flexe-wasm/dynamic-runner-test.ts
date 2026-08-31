@@ -448,7 +448,21 @@ assert(
   "QACC low bank round trip changed a value"
 );
 
-const unknownUserRegisterFixture = conformanceFixture("esp32s3_unknown_user_register", [0x80, 0x0d, 0xf3]);
+const sarFftFixture = conformanceFixture("esp32s3_sar_fft_roundtrip", [
+  0xa2, 0xa1, 0xab,
+  0xb2, 0xa1, 0xc5,
+  0xa0, 0x0d, 0xf3,
+  0xb0, 0x0e, 0xf3,
+  0xd0, 0xc0, 0xe3,
+  0xe0, 0xd0, 0xe3
+]);
+const sarFftRun = await runFresh(moduleBytes, sarFftFixture, { maxSteps: 6 });
+assert(sarFftRun.record.reason === STOP_REASONS.maxSteps, `SAR/FFT fixture stopped with ${sarFftRun.record.reasonName}`);
+assert(sarFftRun.record.steps === 6, `SAR/FFT fixture executed ${sarFftRun.record.steps} instructions`);
+assert(sarFftRun.record.registers[12] === 0xb, "SAR_BYTE did not preserve exactly its low 4 bits");
+assert(sarFftRun.record.registers[13] === 0x5, "FFT_BIT_WIDTH did not preserve exactly its low 4 bits");
+
+const unknownUserRegisterFixture = conformanceFixture("esp32s3_unknown_user_register", [0x80, 0x0f, 0xf3]);
 const unknownUserRegisterRun = await runFresh(moduleBytes, unknownUserRegisterFixture, { maxSteps: 1 });
 assert(
   unknownUserRegisterRun.record.reason === STOP_REASONS.stepError,
@@ -786,6 +800,13 @@ const actualBaseline = {
     highValue: `0x${qaccRun.record.registers[2].toString(16)}`,
     lowValue: `0x${qaccRun.record.registers[7].toString(16)}`
   },
+  sarFftIsa: {
+    codeSha256: sarFftFixture.codeSha256,
+    reason: sarFftRun.record.reasonName,
+    steps: sarFftRun.record.steps,
+    sarByte: sarFftRun.record.registers[12],
+    fftBitWidth: sarFftRun.record.registers[13]
+  },
   entry: {
     symbol: entry.symbol,
     pc: `0x${entry.pc.toString(16)}`,
@@ -877,6 +898,7 @@ assert(
     threadptrIsa: baseline.threadptrIsa,
     accxIsa: baseline.accxIsa,
     qaccIsa: baseline.qaccIsa,
+    sarFftIsa: baseline.sarFftIsa,
     entry: baseline.entry,
     pie: baseline.pie,
     staging: baseline.staging,

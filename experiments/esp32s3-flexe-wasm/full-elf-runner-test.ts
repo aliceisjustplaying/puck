@@ -130,7 +130,7 @@ const failedDecoderImage: Elf32XtensaImage = Object.freeze({
   elfBytes: 3,
   elfSha256: "synthetic-failed-decoder",
   loadSegments: Object.freeze([
-    syntheticSegment(0, 0x4037_1000, [0x80, 0x0d, 0xf3], 3, { read: true, write: false, execute: true }),
+    syntheticSegment(0, 0x4037_1000, [0x80, 0x0f, 0xf3], 3, { read: true, write: false, execute: true }),
     syntheticSegment(1, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
   ]),
   totalFileBytes: 3,
