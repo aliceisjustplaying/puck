@@ -164,6 +164,8 @@ const cacheLineFillSource =
   `${costSource}; evidence ${timingProfile.cacheLineFillCycles.evidence}`;
 const coreCyclesSource =
   `${costSource}; evidence ${timingProfile.coreSteadyStateCycles.evidence}`;
+const cacheHitSource =
+  `${costSource}; evidence ${timingProfile.cacheHitAdditiveCycles.evidence}`;
 const cache: CacheConfiguration = Object.freeze({
   addressBits: 32,
   metadata: Object.freeze({
@@ -189,8 +191,16 @@ const cache: CacheConfiguration = Object.freeze({
   }),
   costs: Object.freeze({
     hit: Object.freeze({
-      instructionFetch: unknownCost("instruction-cache hit", costSource),
-      load: unknownCost("data-cache load hit", costSource),
+      instructionFetch: calibratedCost(
+        timingProfile.cacheHitAdditiveCycles.instructionFetch,
+        "hot zero-miss instruction-cache hit additive cost",
+        cacheHitSource,
+      ),
+      load: calibratedCost(
+        timingProfile.cacheHitAdditiveCycles.load,
+        "hot zero-miss data-cache load additive cost; dependent load-use hazard remains unmodeled",
+        cacheHitSource,
+      ),
       store: unknownCost("data-cache store hit", costSource)
     }),
     lineFill: Object.freeze({
@@ -220,7 +230,11 @@ const cache: CacheConfiguration = Object.freeze({
       store: unknownCost("uncached store", costSource)
     }),
     sram: Object.freeze({
-      instructionFetch: unknownCost("internal SRAM instruction fetch", costSource),
+      instructionFetch: calibratedCost(
+        timingProfile.coreSteadyStateCycles.independentSramAccessAdditiveCycles.instructionFetch,
+        "independent internal SRAM instruction fetch additive cost",
+        coreCyclesSource,
+      ),
       load: calibratedCost(
         timingProfile.coreSteadyStateCycles.independentSramAccessAdditiveCycles.load,
         "independent SRAM load additive cost",
@@ -262,14 +276,16 @@ const runtimeTrace = adaptFlexeTraceToRuntimeTiming(decodedTrace, {
 const accesses = runtimeTrace.input.cores[0];
 const machine = runRuntimeTimingTrace(machineConfig, runtimeTrace);
 
-assert(machine.status === "blocked", `expected unknown costs to block timing, got ${machine.status}`);
+assert(machine.status === "complete", `expected adopted costs to complete timing, got ${machine.status}`);
 assert(machine.claim.architectureCalibration === "uncalibrated", "replay architecture became calibrated");
-assert(machine.claim.costCalibration === "unknown", "replay costs became calibrated without evidence");
+assert(machine.claim.costCalibration === "calibrated", "replay did not retain calibrated cost provenance");
 assert(machine.claim.coverage === "caller-reported-events-only", "replay overclaimed trace coverage");
 assert(machine.claim.cycleAccurate === false, "replay acquired a cycle-accurate claim");
 assert(machine.cores[0].status === "complete", "trace address resolution faulted");
 assert(machine.cores[0].accesses.length === trace.length, "TimingMachine omitted a trace access");
 assert(machine.cores[1].accesses.length === 0, "replay invented core 1 activity");
+const coreFinalClock = machine.execution.finalClocks.cores[0];
+assert(coreFinalClock.status === "known", "complete replay left the core clock blocked");
 
 const executionById = new Map(machine.execution.events.map((event) => [event.eventId, event]));
 const cpuByInstruction = new Map(
@@ -378,7 +394,16 @@ const dependentLoadUseEvents = cpuEvents.filter((event) =>
 assert(dependentLoadUseEvents.length === 0, "staging trace unexpectedly gained a dependent SRAM load-use pair");
 assert(machine.issuedEvents.length === 99, `expected 99 issued events, got ${machine.issuedEvents.length}`);
 assert(machine.execution.events.filter((event) => event.resource === "mspi").length === 2, "instruction misses did not reach MSPI");
-assert(machine.claim.unknownCostEventIds.length === 44, "adopted steady-state costs changed unexpectedly");
+assert(machine.claim.unknownCostEventIds.length === 0, "adopted hot-hit costs left an unknown event");
+const calibratedHits = perRecord.flatMap((record) =>
+  record.timing.emissions.filter((emission) => emission.kind === "hit")
+);
+assert(calibratedHits.length === 44, "expected 44 calibrated instruction-cache hits");
+assert(calibratedHits.every((emission) =>
+  emission.cost.status === "known" &&
+  emission.cost.cycles === "0" &&
+  emission.cost.calibration === "calibrated"
+), "instruction-cache hit did not use adopted zero additive hardware evidence");
 const calibratedLineFills = perRecord.flatMap((record) =>
   record.timing.emissions.filter((emission) => emission.kind === "line-fill")
 );
@@ -432,6 +457,7 @@ const actualBaseline = {
         timingProfile.coreSteadyStateCycles.independentSramAccessAdditiveCycles,
       dependentLoadUseHazard: timingProfile.coreSteadyStateCycles.dependentLoadUseHazard,
     },
+    cacheHitAdditiveCycles: timingProfile.cacheHitAdditiveCycles,
     instructionCache: { bytes: 16_384, lineBytes: 32, sets: 64, ways: 8 },
     dataCache: { bytes: 32_768, lineBytes: 64, sets: 64, ways: 8 },
     latencyStatus: "partially-calibrated"
@@ -447,8 +473,9 @@ const actualBaseline = {
     issuedEvents: machine.issuedEvents.length,
     emissions: counts,
     mspiEvents: machine.execution.events.filter((event) => event.resource === "mspi").length,
-    totalCycles: null,
-    totalCyclesReason: "cache-hit latency remains unadopted",
+    totalCycles: coreFinalClock.cycle.toString(10),
+    totalCyclesReason:
+      "complete for caller-reported events; the observed one-cycle dependent load-use hazard is not represented by this trace",
     perRecordSha256
   }
 };
@@ -466,7 +493,7 @@ const report = {
     cycleAccurate: false,
     architectureCalibration: machine.claim.architectureCalibration,
     costCalibration: machine.claim.costCalibration,
-    totalCycles: null,
+    totalCycles: actualBaseline.summary.totalCycles,
     reason: actualBaseline.summary.totalCyclesReason
   },
   provenance: {

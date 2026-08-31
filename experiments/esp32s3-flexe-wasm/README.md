@@ -248,22 +248,23 @@ There are 44 hit emissions because the three-byte instruction at
 `0x4205823e` crosses the 32-byte cache-line boundary and touches both lines.
 The path-independent per-record evidence SHA-256, including each instruction's
 CPU event, is
-`e5052d3394365f869432c8b953f87dc87edf0c4254f7ac82a96ab700c237086e`.
+`91da0ebccc05153f259e542c5c052449116a4094a827ac9ca8d7b370a6c2acc9`.
 
 The timing profile supplies calibrated instruction-cache flash line fills,
-one-cycle steady-state instruction issue, zero additive independent SRAM load
-and store costs, and the measured one-cycle dependent load-use cost. The exact
-classifier finds no dependent pair among this trace's five SRAM loads, so all
-43 CPU events remain one cycle. Fifty-five of the 99 issued costs are known.
-The 44 cache hits remain explicitly unknown. The machine result is `blocked`
-and total cycles are `null`.
+one-cycle steady-state instruction issue, zero additive independent SRAM
+instruction fetch, load, and store costs, and zero additive hot zero-miss
+instruction-cache and data-load hit costs. The exact classifier finds no
+dependent pair among this trace's five SRAM loads. All 99 issued costs are
+known, so the bounded caller-reported trace completes at 451 cycles. The trace
+still lacks whole-program and peripheral coverage, so the replay remains
+explicitly non-cycle-accurate.
 
 `esp32s3-dynamic-baseline.json` pins all three ELF hashes, extracted-code and
 staging-output and trace hashes, patch hashes, objdump hash, module hash, stop
 results, access counts, and overflow result. The detailed generated record and
 toolchain provenance live in ignored `dist/dynamic-execution.json`.
 `esp32s3-timing-replay-baseline.json` separately pins the replay configuration,
-source hashes, classification counts, null total, and per-record evidence hash.
+source hashes, classification counts, scoped total, and per-record evidence hash.
 
 ## Sparse full ELF execution
 
@@ -353,11 +354,11 @@ measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
 literal loads. The 339 records issue 615 timing events: 313 memory-system
 events, 29 MMIO accesses, 249 calibrated CPU issue events, and 24 calibrated
-dependent load-use events. Exactly 296 events have adopted costs, including
-three flash line fills. The baseline pins the hazard count and a projection hash
-of their schedule, consumer IDs, registers, and producer/consumer PCs. The 249
-instruction fetch hits, 41 literal-load hits, and 29 controller MMIO costs
-remain unknown, so the replay is blocked and reports no total cycle claim.
+dependent load-use events. Exactly 586 events have adopted costs, including
+three flash line fills and every zero-miss cache hit. The baseline pins the
+hazard count and a projection hash of their schedule, consumer IDs, registers,
+and producer/consumer PCs. Only the 29 controller MMIO costs remain unknown,
+so the replay is blocked and reports no total cycle claim.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
 page count, bounded trace, unsupported-instruction refusal, and first stop,

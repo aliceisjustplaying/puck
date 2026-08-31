@@ -127,13 +127,15 @@ byte for byte. Its adoption status remains `unreviewed`.
 - A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core has a
   bounded S3 patch and fail-closed markers for 1,985 decoded inventory gaps.
   Static inventory is not whole-program execution coverage.
-- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 195 real
-  instructions through six cache ROM callbacks. It does not provide the next
-  ROM callback, the complete ESP32-S3 data map, interrupt matrix, peripherals,
-  ESP-IDF boot, or real dual-core execution.
-- Cache-hit latency, load-use forms outside the exact opt-in Flexe classifier,
-  dirty writeback, DMA ordering, interrupts, and dual-core correlation still
-  need hardware-backed treatment.
+- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 249 real
+  instructions through 11 cache ROM callbacks and two source-backed SYSTEM
+  reads. It does not provide the complete ESP32-S3 data map, interrupt matrix,
+  peripherals, ESP-IDF boot, or real dual-core execution.
+- Cache-store hits, dependent load-use modeling, dirty writeback, DMA ordering,
+  interrupts, and dual-core correlation still need hardware-backed treatment.
+  Hot zero-miss instruction fetches and flash/PSRAM loads have adopted zero
+  additive costs. The exact opt-in Flexe classifier covers observed register
+  dependencies, while general runtime traces still lack that vocabulary.
 - Hardware receipts are bounded CCOUNT microbenchmarks. Mapping them to
   architectural instruction, cache, or bus costs remains
   `microbenchmarkToArchitecturalCost: "unreviewed"`.

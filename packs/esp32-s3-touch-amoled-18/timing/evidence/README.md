@@ -37,6 +37,30 @@ cycle beyond its two issued instructions. That hazard remains an explicit
 unmodeled claim-boundary value because runtime traces do not identify register
 dependencies. These values are not per-opcode latency claims.
 
+`captures-1ddd64b/` and `receipts-1ddd64b/` retain two boots of exact matched
+hot-hit probes. The 120-instruction IRAM and flash bodies both take 126 cycles;
+the flash body records 62 instruction-cache accesses and zero misses. The
+16-load SRAM, PSRAM, and flash bodies all take 33 cycles; the external bodies
+record 16 data-cache accesses and zero misses. Every retained receipt has 100
+samples with one exact cycle and counter signature.
+
+`captures-4a2c659/` and `receipts-4a2c659/` retain two further boots of the
+matched dependent-load probes. SRAM, hot PSRAM, and hot flash each take exactly
+16,403 cycles for all 100 samples in both boots. The external paths each record
+4,096 data-cache accesses and zero misses. This shows zero additive external
+hot-hit cost even when every next address depends on the prior load. It does
+not remove the common one-cycle dependency hazard: that hazard remains
+unmodeled because runtime traces do not carry register-dependency information.
+
+`esp32s3-rev02-tinydraw-1ddd64b-4a2c659-hot-hit-adoption.json` pins both
+firmware commits, all four boot IDs, compressed and decompressed capture
+hashes, strict receipt hashes, exact distributions, cache-counter signatures,
+and the adopted zero additive instruction-fetch and load hit costs. Store-hit,
+cold-miss, writeback, and per-opcode latency costs are outside this adoption.
+Each raw log contains an isolated malformed USB fragment in an unrelated
+measurement; complete-measurement recovery omits those groups and runs every
+retained target group through the unchanged strict receipt assembler.
+
 `captures-a91d1d7/` contains three raw boot logs from TinyDraw commit
 `a91d1d74af0ff4c1b55aebc3ed584e9074821394`, built with ESP-IDF 6.0.2 for an
 ESP32-S3 revision 0.2 at 240 MHz, QIO flash at 80 MHz, and octal DTR PSRAM at
@@ -59,7 +83,7 @@ the first line and 473 cycles for each subsequent line, with a maximum rounded
 fit residual of two cycles. The PSRAM ladder measured 82, 252, 590, 1271, and
 2631 cycles and adopts 82 plus 170 cycles, also with a maximum residual of two
 cycles. These burst ladders supersede the earlier long-sequential and random
-estimates. Instruction PSRAM, cache-hit latency, writeback latency, and the
+estimates. Instruction PSRAM, cache-store hits, writeback latency, and the
 dependent SRAM load-use hazard remain uncalibrated or unmodeled.
 
 `esp32s3-rev02-tinydraw-a91d1d7-cache-burst-adoption.json` records the adopted

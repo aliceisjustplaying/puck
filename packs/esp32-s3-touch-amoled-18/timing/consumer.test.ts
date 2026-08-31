@@ -27,7 +27,7 @@ function profileObject(): Record<string, unknown> {
       status: "partially-calibrated",
       evidence: "timing/evidence/synthetic-sram-evidence.json",
       instructionIssueCycles: 1,
-      independentSramAccessAdditiveCycles: { load: 0, store: 0 },
+      independentSramAccessAdditiveCycles: { instructionFetch: 0, load: 0, store: 0 },
       dependentLoadUseHazard: {
         status: "unmodeled",
         observedAdditionalCycles: 1,
@@ -60,6 +60,13 @@ function profileObject(): Record<string, unknown> {
         flash: { firstLineCycles: 115, subsequentLineCycles: 473 },
         psram: { firstLineCycles: 82, subsequentLineCycles: 170 },
       },
+    },
+    cacheHitAdditiveCycles: {
+      status: "partially-calibrated",
+      evidence: "timing/evidence/synthetic-hot-hit-adoption.json",
+      instructionFetch: 0,
+      load: 0,
+      store: null,
     },
     panel: {
       interface: "qspi",
@@ -211,12 +218,20 @@ describe("timing profile claim boundary", () => {
       firstLineCycles: 115,
       subsequentLineCycles: 473,
     });
+    expect(profile.cacheHitAdditiveCycles).toEqual({
+      status: "partially-calibrated",
+      evidence:
+        "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-1ddd64b-4a2c659-hot-hit-adoption.json",
+      instructionFetch: 0,
+      load: 0,
+      store: null,
+    });
     expect(profile.coreSteadyStateCycles).toEqual({
       status: "partially-calibrated",
       evidence:
         "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-bf169bc-counters-candidate.json",
       instructionIssueCycles: 1,
-      independentSramAccessAdditiveCycles: { load: 0, store: 0 },
+      independentSramAccessAdditiveCycles: { instructionFetch: 0, load: 0, store: 0 },
       dependentLoadUseHazard: {
         status: "unmodeled",
         observedAdditionalCycles: 1,
@@ -260,6 +275,12 @@ describe("timing profile claim boundary", () => {
     additive.load = 1;
     expect(() => parseTimingProfile(additiveLoad)).toThrow(
       "independentSramAccessAdditiveCycles.load must be 0",
+    );
+
+    const cacheHitStore = clone(profileObject());
+    (cacheHitStore.cacheHitAdditiveCycles as Record<string, unknown>).store = 0;
+    expect(() => parseTimingProfile(cacheHitStore)).toThrow(
+      "cacheHitAdditiveCycles.store must be null",
     );
 
     const modeledHazard = clone(profileObject());

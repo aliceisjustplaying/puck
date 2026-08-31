@@ -4,7 +4,7 @@
     "traceSha256": "5de26fe4432e5af5c95d99d32ee0d3d68260e712bb5dd20c60eb1315f295c4eb",
     "stagingElfSha256": "522b33cb491bbc9c8a61a364b3c986c7f1d013bcdf228f79791981f7fcad1491",
     "sdkconfigSha256": "ac1749b0f5b9c54e3e8e5ffc045b37a434d6b289420a8f9cf0f37fe8a3173d9b",
-    "timingProfileSha256": "865ff83c74c126428cfa0b9c6d732db3f0859953489736e4c9a0a483741f30e8",
+    "timingProfileSha256": "34b42ab4fd68e95a391b2d563844c1d0f8f5318a44fad7b703b7c38607d52dde",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
     "mmuSha256": "fe55f294fceb898337299c46d1400e576e65ad7216462b5b4da0b46ecfed9448",
     "cacheSha256": "1545e87b17e7efdc908fd8fa6be4fe81a9b7c6876229693824fe5463b323bb00"
@@ -17,6 +17,7 @@
     "coreSteadyStateCycles": {
       "instructionIssueCycles": 1,
       "independentSramAccessAdditiveCycles": {
+        "instructionFetch": 0,
         "load": 0,
         "store": 0
       },
@@ -25,6 +26,13 @@
         "observedAdditionalCycles": 1,
         "reason": "runtime traces do not identify register dependencies"
       }
+    },
+    "cacheHitAdditiveCycles": {
+      "status": "partially-calibrated",
+      "evidence": "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-1ddd64b-4a2c659-hot-hit-adoption.json",
+      "instructionFetch": 0,
+      "load": 0,
+      "store": null
     },
     "instructionCache": {
       "bytes": 16384,
@@ -41,7 +49,7 @@
     "latencyStatus": "partially-calibrated"
   },
   "summary": {
-    "status": "blocked",
+    "status": "complete",
     "traceRecords": 53,
     "instructionFetches": 43,
     "loads": 5,
@@ -55,8 +63,8 @@
       "sram-bypass": 10
     },
     "mspiEvents": 2,
-    "totalCycles": null,
-    "totalCyclesReason": "cache-hit latency remains unadopted",
-    "perRecordSha256": "e5052d3394365f869432c8b953f87dc87edf0c4254f7ac82a96ab700c237086e"
+    "totalCycles": "451",
+    "totalCyclesReason": "complete for caller-reported events; the observed one-cycle dependent load-use hazard is not represented by this trace",
+    "perRecordSha256": "91da0ebccc05153f259e542c5c052449116a4094a827ac9ca8d7b370a6c2acc9"
   }
 }

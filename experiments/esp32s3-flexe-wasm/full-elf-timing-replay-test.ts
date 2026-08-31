@@ -200,9 +200,11 @@ const addressMap: AddressMapConfiguration = Object.freeze({
 });
 
 const timingProfile = parseTimingProfile(JSON.parse(readFileSync(timingProfilePath, "utf8")));
+assert.equal(timingProfile.coreSteadyStateCycles.dependentLoadUseHazard.status, "unmodeled");
 const costSource = `timing profile ${timingProfilePath} SHA-256 ${sha256(timingProfilePath)}`;
 const coreCostSource = `${costSource}; evidence ${timingProfile.coreSteadyStateCycles.evidence}`;
 const cacheLineFillSource = `${costSource}; evidence ${timingProfile.cacheLineFillCycles.evidence}`;
+const cacheHitSource = `${costSource}; evidence ${timingProfile.cacheHitAdditiveCycles.evidence}`;
 const unknown = unknownCost("unused cache path", costSource);
 const cache: CacheConfiguration = Object.freeze({
   addressBits: 32,
@@ -228,7 +230,19 @@ const cache: CacheConfiguration = Object.freeze({
     dirtyInvalidate: "writeback",
   }),
   costs: Object.freeze({
-    hit: Object.freeze({ instructionFetch: unknown, load: unknown, store: unknown }),
+    hit: Object.freeze({
+      instructionFetch: calibratedCost(
+        timingProfile.cacheHitAdditiveCycles.instructionFetch,
+        "hot zero-miss instruction-cache hit additive cost",
+        cacheHitSource,
+      ),
+      load: calibratedCost(
+        timingProfile.cacheHitAdditiveCycles.load,
+        "hot zero-miss data-cache load additive cost",
+        cacheHitSource,
+      ),
+      store: unknown,
+    }),
     lineFill: Object.freeze({
       instruction: Object.freeze({
         flash: calibratedLineFill(
@@ -252,7 +266,11 @@ const cache: CacheConfiguration = Object.freeze({
     writeThrough: unknown,
     uncached: Object.freeze({ instructionFetch: unknown, load: unknown, store: unknown }),
     sram: Object.freeze({
-      instructionFetch: unknownCost("internal SRAM instruction fetch", costSource),
+      instructionFetch: calibratedCost(
+        timingProfile.coreSteadyStateCycles.independentSramAccessAdditiveCycles.instructionFetch,
+        "independent internal SRAM instruction fetch additive cost",
+        coreCostSource,
+      ),
       load: calibratedCost(
         timingProfile.coreSteadyStateCycles.independentSramAccessAdditiveCycles.load,
         "independent SRAM load additive cost",
@@ -310,8 +328,8 @@ assert.equal(cpuEvents.length, 273);
 assert.equal(loadUseHazards.length, 24);
 assert.equal(instructionCpuEvents.length, 249);
 assert.equal(machine.issuedEvents.length, 615);
-assert.equal(machine.claim.unknownCostEventIds.length, 319);
-assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 296);
+assert.equal(machine.claim.unknownCostEventIds.length, 29);
+assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 586);
 assert(cpuEvents.every((event) =>
   event.cost.status === "known" && event.cost.cycles === 1n && event.cost.calibration === "calibrated"
 ));
@@ -320,17 +338,15 @@ assert(loadUseHazards.every((event) =>
 ));
 assert.equal(machine.issuedEvents.filter((event) =>
   event.origin.kind === "cache" && event.event.kind === "instruction-fetch" && event.cost.status === "unknown"
-).length, 249);
+).length, 0);
 assert.equal(machine.issuedEvents.filter((event) =>
   event.origin.kind === "cache" && event.event.kind === "literal-load" && event.cost.status === "unknown"
-).length, 41);
+).length, 0);
 assert.equal(machine.issuedEvents.filter((event) =>
   event.origin.kind === "mmio" && event.cost.status === "unknown"
 ).length, 29);
-assert(machine.issuedEvents.filter((event) =>
-  event.origin.kind === "cache" && event.origin.regionId.startsWith("full-elf:sram-page:") &&
-  (event.event.kind === "load" || event.event.kind === "store")
-).every((event) => event.cost.status === "known" && event.cost.cycles === 0n));
+const cacheEvents = machine.issuedEvents.filter((event) => event.origin.kind === "cache");
+assert(cacheEvents.every((event) => event.cost.status === "known"));
 const flashLineFills = machine.issuedEvents.filter((event) =>
   event.origin.kind === "cache" && event.origin.regionId.startsWith("full-elf:flash-page:") &&
   event.event.id.endsWith(":line-fill")
@@ -342,7 +358,8 @@ const flashHits = machine.issuedEvents.filter((event) =>
 assert.equal(flashLineFills.length, 3);
 assert(flashLineFills.every((event) => event.cost.status === "known" && event.cost.cycles === 204n));
 assert.equal(flashHits.length, 6);
-assert(flashHits.every((event) => event.cost.status === "unknown"));
+assert(flashHits.every((event) => event.cost.status === "known" && event.cost.cycles === 0n));
+assert.equal(cacheEvents.filter((event) => event.cost.status === "known" && event.cost.cycles === 0n).length, 310);
 
 const issuedProjection = machine.issuedEvents.map((issued) => ({
   issueIndex: issued.issueIndex,
