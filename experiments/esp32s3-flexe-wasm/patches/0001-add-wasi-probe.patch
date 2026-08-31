@@ -102,7 +102,7 @@ new file mode 100644
 index 0000000..0c17432
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,423 @@
+@@ -0,0 +1,632 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -123,6 +123,9 @@ index 0000000..0c17432
 +#define INPUT_CAPACITY 4096u
 +#define DATA_CAPACITY 4096u
 +#define PAGE_BYTES 4096u
++#define ELF_PAGE_CAPACITY 768u
++#define ELF_TRACE_CAPACITY 256u
++#define ELF_UNSUPPORTED_CAPACITY 2048u
 +#define NO_UNSUPPORTED_OFFSET UINT32_MAX
 +#define INITIAL_STACK 0x3fcaffc0u
 +#define INITIAL_SOURCE 0x3fca1000u
@@ -142,6 +145,8 @@ index 0000000..0c17432
 +    PROBE_STOP_CPU_STOPPED = 7,
 +    PROBE_STOP_TRACE_OVERFLOW = 8,
 +    PROBE_STOP_UNMAPPED_ACCESS = 9,
++    PROBE_STOP_UNLOADED_PAGE = 10,
++    PROBE_STOP_NON_EXECUTABLE_PAGE = 11,
 +};
 +
 +enum probe_trace_kind {
@@ -212,6 +217,11 @@ index 0000000..0c17432
 +    struct probe_write_undo undo[TRACE_CAPACITY];
 +};
 +
++struct unsupported_entry {
++    uint32_t pc;
++    uint32_t encoding;
++};
++
 +static xtensa_cpu_t cpu;
 +static xtensa_mem_t *mem;
 +static uint8_t input[INPUT_CAPACITY];
@@ -220,6 +230,16 @@ index 0000000..0c17432
 +static uint8_t code_page[PAGE_BYTES];
 +static uint8_t source_page[PAGE_BYTES];
 +static uint8_t destination_page[PAGE_BYTES];
++static uint8_t elf_page_input[PAGE_BYTES];
++static uint8_t elf_pages[ELF_PAGE_CAPACITY][PAGE_BYTES];
++static uint32_t elf_page_addresses[ELF_PAGE_CAPACITY];
++static uint32_t elf_page_flags[ELF_PAGE_CAPACITY];
++static uint32_t elf_page_count;
++static uint32_t elf_trace[ELF_TRACE_CAPACITY];
++static uint32_t elf_trace_count;
++static struct unsupported_entry elf_unsupported[ELF_UNSUPPORTED_CAPACITY];
++static uint32_t elf_unsupported_count;
++static struct unsupported_marker elf_unsupported_hit;
 +static struct probe_stop_record result;
 +static struct probe_trace_buffer trace_buffer;
 +static struct probe_step_transaction step_transaction;
@@ -328,6 +348,39 @@ index 0000000..0c17432
 +    trace_buffer.header.count = step_transaction.trace_start;
 +}
 +
++static int stop_elf_unsupported(xtensa_cpu_t *unused_cpu, uint32_t pc, uint32_t insn,
++                                int length, void *unused_context) {
++    (void)unused_cpu;
++    (void)unused_context;
++    uint32_t low = 0;
++    uint32_t high = elf_unsupported_count;
++    while (low < high) {
++        uint32_t middle = low + (high - low) / 2u;
++        if (elf_unsupported[middle].pc < pc) low = middle + 1u;
++        else high = middle;
++    }
++    if (low >= elf_unsupported_count || elf_unsupported[low].pc != pc) return 0;
++    if (elf_unsupported[low].encoding != insn) return 0;
++    elf_unsupported_hit.hit = 1;
++    elf_unsupported_hit.observed_pc = pc;
++    elf_unsupported_hit.observed_encoding = insn;
++    elf_unsupported_hit.observed_length = (uint32_t)length;
++    elf_unsupported_hit.encoding = elf_unsupported[low].encoding;
++    return 1;
++}
++
++static int elf_page_index(uint32_t address) {
++    uint32_t page = address & ~(PAGE_BYTES - 1u);
++    uint32_t low = 0;
++    uint32_t high = elf_page_count;
++    while (low < high) {
++        uint32_t middle = low + (high - low) / 2u;
++        if (elf_page_addresses[middle] < page) low = middle + 1u;
++        else high = middle;
++    }
++    return low < elf_page_count && elf_page_addresses[low] == page ? (int)low : -1;
++}
++
 +FLEXE_EXPORT("flexe_wasm_input")
 +uint32_t flexe_wasm_input(void) {
 +    return (uint32_t)(uintptr_t)input;
@@ -367,6 +420,80 @@ index 0000000..0c17432
 +FLEXE_EXPORT("flexe_wasm_trace_capacity")
 +uint32_t flexe_wasm_trace_capacity(void) {
 +    return TRACE_CAPACITY;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_page_input")
++uint32_t flexe_wasm_elf_page_input(void) {
++    return (uint32_t)(uintptr_t)elf_page_input;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_page_capacity")
++uint32_t flexe_wasm_elf_page_capacity(void) {
++    return ELF_PAGE_CAPACITY;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_trace")
++uint32_t flexe_wasm_elf_trace(void) {
++    return (uint32_t)(uintptr_t)elf_trace;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_trace_count")
++uint32_t flexe_wasm_elf_trace_count(void) {
++    return elf_trace_count;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_trace_capacity")
++uint32_t flexe_wasm_elf_trace_capacity(void) {
++    return ELF_TRACE_CAPACITY;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_unsupported_input")
++uint32_t flexe_wasm_elf_unsupported_input(void) {
++    return (uint32_t)(uintptr_t)elf_unsupported;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_unsupported_capacity")
++uint32_t flexe_wasm_elf_unsupported_capacity(void) {
++    return ELF_UNSUPPORTED_CAPACITY;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_begin")
++uint32_t flexe_wasm_elf_begin(void) {
++    if (!mem) mem = mem_create();
++    if (!mem) return 0;
++    mem_reset(mem);
++    memset(mem->page_table, 0, sizeof(mem->page_table));
++    elf_page_count = 0;
++    elf_trace_count = 0;
++    elf_unsupported_count = 0;
++    memset(&elf_unsupported_hit, 0, sizeof(elf_unsupported_hit));
++    return 1;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_load_page")
++uint32_t flexe_wasm_elf_load_page(uint32_t address, uint32_t flags) {
++    if (!mem) return 0;
++    if ((address & (PAGE_BYTES - 1u)) != 0 || (flags & ~7u) != 0) return 2;
++    if (elf_page_count >= ELF_PAGE_CAPACITY) return 3;
++    if (elf_page_count > 0 && address <= elf_page_addresses[elf_page_count - 1u]) return 4;
++    memcpy(elf_pages[elf_page_count], elf_page_input, PAGE_BYTES);
++    elf_page_addresses[elf_page_count] = address;
++    elf_page_flags[elf_page_count] = flags;
++    mem->page_table[address >> 12] = elf_pages[elf_page_count];
++    elf_page_count++;
++    return 1;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_set_unsupported")
++uint32_t flexe_wasm_elf_set_unsupported(uint32_t count) {
++    if (!mem) return 0;
++    if (count > ELF_UNSUPPORTED_CAPACITY) return 2;
++    for (uint32_t i = 0; i < count; i++) {
++        if (elf_unsupported[i].encoding > 0xffffffu) return 3;
++        if (i > 0 && elf_unsupported[i - 1u].pc >= elf_unsupported[i].pc) return 4;
++    }
++    elf_unsupported_count = count;
++    return 1;
 +}
 +
 +static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_steps,
@@ -505,6 +632,88 @@ index 0000000..0c17432
 +                        unsupported_encoding, data_length);
 +}
 +
++FLEXE_EXPORT("flexe_wasm_run_elf")
++uint32_t flexe_wasm_run_elf(uint32_t entry, uint32_t max_steps) {
++    memset(&result, 0, sizeof(result));
++    memset(&cpu, 0, sizeof(cpu));
++    memset(&elf_unsupported_hit, 0, sizeof(elf_unsupported_hit));
++    elf_trace_count = 0;
++    result.abi_version = RESULT_ABI_VERSION;
++    result.struct_bytes = (uint32_t)sizeof(result);
++    result.start_pc = entry;
++    result.pc = entry;
++    if (!mem || elf_page_count == 0 || max_steps == 0 || max_steps > ELF_TRACE_CAPACITY) {
++        result.reason = PROBE_STOP_INVALID_ARGUMENT;
++        return (uint32_t)(uintptr_t)&result;
++    }
++
++    int entry_page = elf_page_index(entry);
++    if (entry_page < 0) {
++        result.reason = PROBE_STOP_UNLOADED_PAGE;
++        return (uint32_t)(uintptr_t)&result;
++    }
++    if ((elf_page_flags[entry_page] & 1u) == 0) {
++        result.reason = PROBE_STOP_NON_EXECUTABLE_PAGE;
++        return (uint32_t)(uintptr_t)&result;
++    }
++
++    xtensa_cpu_init(&cpu);
++    cpu.mem = mem;
++    cpu.pc = entry;
++    cpu.running = true;
++    cpu.ps = (1u << 18) | (WINDOW_CALLINC << 16);
++    cpu.windowbase = 0;
++    cpu.windowstart = 1;
++    cpu.window_callsize[0] = WINDOW_CALLINC;
++    ar_write(&cpu, 1, INITIAL_STACK);
++    if (elf_unsupported_count > 0) {
++        cpu.instruction_hook = stop_elf_unsupported;
++        cpu.instruction_hook_ctx = NULL;
++    }
++
++    uint32_t steps = 0;
++    uint32_t reason = PROBE_STOP_MAX_STEPS;
++    while (steps < max_steps) {
++        int page = elf_page_index(cpu.pc);
++        if (page < 0 || mem->page_table[cpu.pc >> 12] == NULL) {
++            reason = PROBE_STOP_UNLOADED_PAGE;
++            break;
++        }
++        if ((elf_page_flags[page] & 1u) == 0) {
++            reason = PROBE_STOP_NON_EXECUTABLE_PAGE;
++            break;
++        }
++        uint8_t first = mem->page_table[cpu.pc >> 12][cpu.pc & (PAGE_BYTES - 1u)];
++        uint32_t instruction_length = (first & 8u) != 0 ? 2u : 3u;
++        if ((cpu.pc & (PAGE_BYTES - 1u)) + instruction_length > PAGE_BYTES &&
++            elf_page_index(cpu.pc + instruction_length - 1u) < 0) {
++            reason = PROBE_STOP_UNLOADED_PAGE;
++            break;
++        }
++
++        uint32_t executed_pc = cpu.pc;
++        int step_result = xtensa_step(&cpu);
++        if (elf_unsupported_hit.hit) {
++            reason = PROBE_STOP_UNSUPPORTED;
++            break;
++        }
++        if (step_result != 0) {
++            reason = PROBE_STOP_STEP_ERROR;
++            break;
++        }
++        elf_trace[elf_trace_count++] = executed_pc;
++        steps++;
++        if (!cpu.running) {
++            reason = PROBE_STOP_CPU_STOPPED;
++            break;
++        }
++    }
++
++    finish_record(reason, steps, entry, 0,
++                  elf_unsupported_hit.hit ? &elf_unsupported_hit : NULL);
++    return (uint32_t)(uintptr_t)&result;
++}
++
 +FLEXE_EXPORT("flexe_wasm_probe")
 +uint32_t flexe_wasm_probe(void) {
 +    static const uint8_t fixture[] = {
@@ -530,20 +739,21 @@ diff --git a/src/xtensa.c b/src/xtensa.c
 index 24c9792..bafc154 100644
 --- a/src/xtensa.c
 +++ b/src/xtensa.c
-@@ -2208,7 +2208,11 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
+@@ -2208,7 +2208,12 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
 
      /* Invalid PC trap. Slow-path body lives in a noinline helper so
       * the hot-path branch is just a single range compare. */
 -    if (__builtin_expect(cpu->pc < 0x40000000u || cpu->pc >= 0x40500000u, 0)) {
-+    bool external_exec = cpu->external_exec_begin < cpu->external_exec_end &&
-+                         cpu->pc >= cpu->external_exec_begin &&
-+                         cpu->pc < cpu->external_exec_end;
++    bool external_exec = (cpu->external_exec_begin < cpu->external_exec_end &&
++                          cpu->pc >= cpu->external_exec_begin &&
++                          cpu->pc < cpu->external_exec_end) ||
++                         cpu->mem->page_table[cpu->pc >> 12] != NULL;
 +    if (__builtin_expect((cpu->pc < 0x40000000u || cpu->pc >= 0x40500000u) &&
 +                         !external_exec, 0)) {
          cpu->cycle_count = *local_cc;
          xtensa_invalid_pc_trap(cpu);
          return -1;
-@@ -2296,6 +2300,10 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
+@@ -2296,6 +2301,10 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
  have_insn:
  #endif
 
