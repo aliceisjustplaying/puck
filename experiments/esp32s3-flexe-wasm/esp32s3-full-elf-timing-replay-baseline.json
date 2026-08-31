@@ -4,7 +4,7 @@
     "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
     "moduleSha256": "ecfa3dd43a5c29f4b3bfa38f0e2f3081bd014d536a22960c316da4e40b43f1e4",
     "traceRecordSha256": "377ee799f0737ea4ff5fe30ccd6691599d5f7b5a2b5bdba8d59e8a0087a3cbaf",
-    "timingProfileSha256": "fb6306f9fb984ba1d10fb63a784073273654fedc0502b2b7deee52695d411e1c",
+    "timingProfileSha256": "1c39de4aa569fe049117d453ac39ce5c200f8470a8df93171a0041a3770a4f7d",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
     "neutralAdapterSha256": "187ad825414c070dc160fc682311bbf9d69d1af47d67ca7ee4097239a7c69f94",
     "adapterSha256": "977d80cb6f04ef8e87c58ac0e591b00f004ec36e51fd3f9eed53d3b711133fcb",
@@ -62,15 +62,15 @@
     ],
     "cpuEvents": 592,
     "romCallbackEvents": 18,
-    "exactRomCallbackEvents": 3,
+    "exactRomCallbackEvents": 4,
     "dependentSramLoadUseHazards": 39,
     "exactBeqzNotTaken": 5,
     "exactBeqzTaken": 0,
     "exactMmioEvents": 40,
-    "knownCostEvents": 1287,
-    "unknownCostEvents": 29,
-    "issuedProjectionSha256": "c520a5f06f492f8e83f52ff18dce4c188e492fddfed73384ef2423557090c85d",
+    "knownCostEvents": 1288,
+    "unknownCostEvents": 28,
+    "issuedProjectionSha256": "c81a3ea0104a7e30984d4b678e7041a895a584dd0ea637e85583f79ad51d4e26",
     "loadUseEvidenceSha256": "0ad064712d819dee6d47aa72769b7e738eefa1ffde2199c0d0ffc11d697bd09e",
-    "romCallbackEvidenceSha256": "d21aae1552426ca02038db6b33fd7f32fd9d138aa868839281a3082d37e52bd0"
+    "romCallbackEvidenceSha256": "7456fedc706e8ee0fae6d8bd8e97b54aadb17725c77d87468180b0c5df0e11a1"
   }
 }

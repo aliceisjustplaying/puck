@@ -177,14 +177,21 @@ zero-length `memset`, 6,659 cycles for the observed `0x52e0`-byte boot clear,
 and 9 cycles for setting CPU ticks/us to its current value. Callback PC and all
 arguments must match. Reset-reason remains excluded because its duration is not scalar.
 
+The exact BBPLL callback extension is checked in as
+[`evidence/esp32s3-rev02-tinydraw-0a41b6f-bbpll-rom-callback-adoption.json`](evidence/esp32s3-rev02-tinydraw-0a41b6f-bbpll-rom-callback-adoption.json).
+Two independent boots prove the replay value is already present before the
+one-shot `rom_i2c_writeReg(0x66, 1, 4, 0x6b)` call and remains present after it.
+Matched baselines adopt the reset-state invocation at 836 cycles with zero
+cache activity; the distinct 835-cycle warmed repeat is retained but not generalized.
+
 ## What remains before a cycle-accurate claim
 
 - A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core has a
   bounded S3 patch and fail-closed markers for 1,069 decoded inventory gaps.
   Static inventory is not whole-program execution coverage.
-- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 523 real
-  instructions. Its current timing replay emits 1,286 events and adopts exact
-  costs for 1,258, including 40 matched MMIO accesses and three exact ROM
+- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 535 real
+  instructions. Its current timing replay emits 1,316 events and adopts exact
+  costs for 1,288, including 40 matched MMIO accesses and four exact ROM
   callbacks. The remaining 14 MMIO costs and 14 ROM callback durations block a total. It does not provide the complete
   ESP32-S3 data map, interrupt matrix,
   peripherals, ESP-IDF boot, or real dual-core execution.

@@ -180,6 +180,19 @@ export type RomCallbackProfileCost =
       ticksPerUs: number;
       callinc: number;
       cycles: number;
+    }>
+  | Readonly<{
+      kind: "bbpllRomWrite";
+      pc: string;
+      block: number;
+      hostId: number;
+      register: number;
+      data: number;
+      callinc: number;
+      currentIntlevel: number;
+      priorIntlevelRestoreCount: number;
+      priorWriteCount: number;
+      cycles: number;
     }>;
 
 export type TimingAvailability =
@@ -782,12 +795,51 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
         cycles: positiveSafeInteger(object.cycles, `${path}.cycles`),
       });
     }
-    throw new Error(`${path}.kind must be memset or cpuTicksPerUs`);
+    if (object.kind === "bbpllRomWrite") {
+      exactKeys(object, [
+        "kind",
+        "pc",
+        "block",
+        "hostId",
+        "register",
+        "data",
+        "callinc",
+        "currentIntlevel",
+        "priorIntlevelRestoreCount",
+        "priorWriteCount",
+        "cycles",
+      ], path);
+      const pc = stringAt(object.pc, `${path}.pc`);
+      if (!/^0x[0-9a-f]{8}$/.test(pc)) throw new Error(`${path}.pc must be one canonical lowercase 32-bit hex address`);
+      return Object.freeze({
+        kind: "bbpllRomWrite",
+        pc,
+        block: uint32At(object.block, `${path}.block`),
+        hostId: uint32At(object.hostId, `${path}.hostId`),
+        register: uint32At(object.register, `${path}.register`),
+        data: uint32At(object.data, `${path}.data`),
+        callinc: uint32At(object.callinc, `${path}.callinc`),
+        currentIntlevel: uint32At(object.currentIntlevel, `${path}.currentIntlevel`),
+        priorIntlevelRestoreCount: uint32At(
+          object.priorIntlevelRestoreCount,
+          `${path}.priorIntlevelRestoreCount`,
+        ),
+        priorWriteCount: uint32At(object.priorWriteCount, `${path}.priorWriteCount`),
+        cycles: positiveSafeInteger(object.cycles, `${path}.cycles`),
+      });
+    }
+    throw new Error(`${path}.kind must be memset, cpuTicksPerUs, or bbpllRomWrite`);
   });
-  const romCallbackKeys = romCallbackEntries.map((entry) => entry.kind === "memset"
-    ? `${entry.pc}:${entry.kind}:${entry.destination}:${entry.value}:${entry.length}`
-    : `${entry.pc}:${entry.kind}:${entry.ticksPerUs}:${entry.callinc}`
-  );
+  const romCallbackKeys = romCallbackEntries.map((entry) => {
+    if (entry.kind === "memset") {
+      return `${entry.pc}:${entry.kind}:${entry.destination}:${entry.value}:${entry.length}`;
+    }
+    if (entry.kind === "cpuTicksPerUs") {
+      return `${entry.pc}:${entry.kind}:${entry.ticksPerUs}:${entry.callinc}`;
+    }
+    return `${entry.pc}:${entry.kind}:${entry.block}:${entry.hostId}:${entry.register}:${entry.data}:` +
+      `${entry.callinc}:${entry.currentIntlevel}:${entry.priorIntlevelRestoreCount}:${entry.priorWriteCount}`;
+  });
   if (new Set(romCallbackKeys).size !== romCallbackKeys.length) {
     throw new Error("timing profile.romCallbackCycles.entries must not contain duplicate callback classes");
   }

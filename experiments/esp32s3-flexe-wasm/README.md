@@ -454,14 +454,14 @@ measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
 literal loads. The 721 records issue 1,316 timing events: 670 memory-system
 events, 54 MMIO accesses, 535 calibrated CPU issue events, and 39 calibrated
-dependent load-use events, plus 18 configured ROM callback boundaries: three
-exact and 15 explicitly unknown. Exactly 1,287 events have adopted costs,
+dependent load-use events, plus 18 configured ROM callback boundaries: four
+exact and 14 explicitly unknown. Exactly 1,288 events have adopted costs,
 including 28 exact MMIO reads, 12 exact same-value MMIO writes, five exact
 not-taken `beqz` paths, three flash line fills, every zero-miss cache hit, and
-three exact argument-matched ROM callbacks. The baseline pins the branch
+four exact argument-matched ROM callbacks. The baseline pins the branch
 classifier, hazard count, and a projection hash of their schedule, consumer
 IDs, registers, and producer/consumer PCs, plus the ROM callback boundary
-provenance. The 14 controller MMIO costs and 15 ROM callback durations keep the
+provenance. The 14 controller MMIO costs and 14 ROM callback durations keep the
 replay blocked with no total cycle claim. The baseline also pins the exact
 address, direction, observed write effect, width, peripheral, and count of all observed MMIO access
 classes so hardware-adopted costs cannot silently broaden their scope.

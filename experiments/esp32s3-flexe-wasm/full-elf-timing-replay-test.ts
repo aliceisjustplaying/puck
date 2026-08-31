@@ -66,9 +66,14 @@ function calibratedCost(cycles: number, component: string, source: string): Cach
 }
 
 function romCallbackProfileKey(entry: RomCallbackProfileCost): string {
-  return entry.kind === "memset"
-    ? `${entry.pc}:${entry.kind}:${entry.destination}:${entry.value}:${entry.length}`
-    : `${entry.pc}:${entry.kind}:${entry.ticksPerUs}:${entry.callinc}`;
+  if (entry.kind === "memset") {
+    return `${entry.pc}:${entry.kind}:${entry.destination}:${entry.value}:${entry.length}`;
+  }
+  if (entry.kind === "cpuTicksPerUs") {
+    return `${entry.pc}:${entry.kind}:${entry.ticksPerUs}:${entry.callinc}`;
+  }
+  return `${entry.pc}:${entry.kind}:${entry.block}:${entry.hostId}:${entry.register}:${entry.data}:` +
+    `${entry.callinc}:${entry.currentIntlevel}:${entry.priorIntlevelRestoreCount}:${entry.priorWriteCount}`;
 }
 
 function romCallbackEventKey(event: FullElfRomEvent): string | null {
@@ -78,6 +83,10 @@ function romCallbackEventKey(event: FullElfRomEvent): string | null {
   }
   if (event.kind === "cpuTicksPerUs") {
     return `${pc}:${event.kind}:${event.ticksPerUs}:${event.callinc}`;
+  }
+  if (event.kind === "bbpllRomWrite") {
+    return `${pc}:${event.kind}:${event.block}:${event.hostId}:${event.register}:${event.data}:` +
+      `${event.callinc}:${event.currentIntlevel}:${event.priorIntlevelRestoreCount}:${event.priorBbpllWriteCount}`;
   }
   return null;
 }
@@ -452,11 +461,11 @@ assert.equal(instructionCpuEvents.length, 535);
 assert.equal(exactBeqzNotTaken.length, 5);
 assert.equal(exactBeqzTaken.length, 0);
 assert.equal(romCallbackCpuEvents.length, 18);
-assert.equal(exactRomCallbackEvents.length, 3);
+assert.equal(exactRomCallbackEvents.length, 4);
 assert.equal(machine.issuedEvents.length, 1316);
 assert.equal(exactMmioEvents.length, 40);
-assert.equal(machine.claim.unknownCostEventIds.length, 29);
-assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 1287);
+assert.equal(machine.claim.unknownCostEventIds.length, 28);
+assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 1288);
 assert([...instructionCpuEvents, ...loadUseHazards].every((event) =>
   event.cost.status === "known" && event.cost.cycles === 1n && event.cost.calibration === "calibrated"
 ));
