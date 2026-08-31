@@ -49,6 +49,12 @@ workloads, distribution agreement on RTC and long-window PSRAM paths.
 
 ## Lane plan at a glance
 
+Per-lane implementation briefs, including each lane's home repository,
+branch convention, reading list, constraints, and exit criteria, live in
+[`docs/lanes/`](lanes/README.md). The complete handoff to an implementing
+agent is a checkout of this repository, one lane letter, and that lane's
+brief.
+
 | Lane | Scope | Agent-hours | Cloud-viable | Blocked by |
 | --- | --- | --- | --- | --- |
 | 0 | ESP-IDF 6.1 rebaseline of this project's receipts and fixtures (checklist below) | 2 to 4, plus one board session | No, needs the board | Nothing; unchanged by 0011 |
