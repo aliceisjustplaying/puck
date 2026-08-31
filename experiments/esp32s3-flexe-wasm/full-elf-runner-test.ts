@@ -360,7 +360,7 @@ assert.deepEqual(
   }],
 );
 
-const collidingEeInventoryPc = 0x4037_5549;
+const collidingEeInventoryPc = 0x4037_54b9;
 assert.deepEqual(
   ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY.markers.find(([pc]) => pc === collidingEeInventoryPc),
   [collidingEeInventoryPc, 0xffde],
@@ -742,22 +742,22 @@ assert.equal(undeclaredRegi2cMmio.record.reason, FULL_ELF_STOP_REASONS.readPermi
 assert.equal(undeclaredRegi2cMmio.record.steps, 1);
 assert.equal(undeclaredRegi2cMmio.memoryFault?.address, 0x6000_e044);
 
-assert.equal(image.entryPoint, 0x4037_5c9c);
-assert.equal(image.elfSha256, "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5");
-assert.equal(pages.length, 625);
+assert.equal(image.entryPoint, 0x4037_5c34);
+assert.equal(image.elfSha256, "4e121a3642a6f18766cfe96c2be6adc8a0017fba4afa82105d642168ea40e2c8");
+assert.equal(pages.length, 328);
 assert.equal(pages[0]!.address, 0x3c00_0000);
 assert.equal(pages.at(-1)!.address, 0x600f_f000);
 assert.equal(pages.find((page) => page.address === 0x4037_5000)!.flags, 7);
 assert.equal(pages.find((page) => page.address === 0x4200_0000)!.flags, 5);
-assert.equal(pages.find((page) => page.address === 0x3fca_b000)!.bytes[0xe58], 0, "PT_LOAD BSS must be zero");
-assert.throws(() => buildSparseElfPages(image, 624), /more than 624 sparse pages/);
+assert.equal(pages.find((page) => page.address === 0x3fca_1000)!.bytes[0], 0, "PT_LOAD BSS must be zero");
+assert.throws(() => buildSparseElfPages(image, 327), /more than 327 sparse pages/);
 
 const bounded = await runSparseXtensaElf(moduleBytes, image, { ...runnerMemory, maxSteps: 4 });
 assert.equal(bounded.record.reason, FULL_ELF_STOP_REASONS.maxSteps);
 assert.equal(bounded.record.steps, 4);
-assert.equal(bounded.record.pc, 0x4037_5ca7);
-assert.deepEqual(bounded.trace, [0x4037_5c9c, 0x4037_5c9f, 0x4037_5ca2, 0x4037_5ca5]);
-assert.equal(bounded.loadedPages, 628);
+assert.equal(bounded.record.pc, 0x4037_5c3f);
+assert.deepEqual(bounded.trace, [0x4037_5c34, 0x4037_5c37, 0x4037_5c3a, 0x4037_5c3d]);
+assert.equal(bounded.loadedPages, 331);
 assert.deepEqual(bounded.logs, []);
 assert.deepEqual(bounded.romEvents, []);
 
@@ -766,12 +766,12 @@ assert.equal(firstStop.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
 assert.equal(firstStop.record.steps, 6);
 assert.equal(firstStop.record.pc, 0x4000_057c);
 assert.deepEqual(firstStop.trace, [
-  0x4037_5c9c,
-  0x4037_5c9f,
-  0x4037_5ca2,
-  0x4037_5ca5,
-  0x4037_5ca7,
-  0x4037_5caa,
+  0x4037_5c34,
+  0x4037_5c37,
+  0x4037_5c3a,
+  0x4037_5c3d,
+  0x4037_5c3f,
+  0x4037_5c42,
 ]);
 assert.deepEqual(firstStop.logs, []);
 assert.deepEqual(firstStop.romEvents, []);
@@ -779,12 +779,12 @@ assert.deepEqual(firstStop.romEvents, []);
 const romProgress = await runSparseXtensaElf(moduleBytes, image, {
   ...runnerMemory,
   maxSteps: 256,
-  unsupported: [{ pc: 0x4037_5ce7, encoding: 0xf3_e780 }],
+  unsupported: [{ pc: 0x4037_5c77, encoding: 0xf3_e780 }],
   rom: { resetReasons: [1, 1], memset: true },
 });
 assert.equal(romProgress.record.reason, FULL_ELF_STOP_REASONS.unsupported);
-assert.equal(romProgress.record.steps, 27);
-assert.equal(romProgress.record.pc, 0x4037_5ce7);
+assert.equal(romProgress.record.steps, 24);
+assert.equal(romProgress.record.pc, 0x4037_5c77);
 assert.equal(romProgress.record.unsupportedEncoding, 0xf3_e780);
 assert.equal(romProgress.trace.length, romProgress.record.steps);
 assert(!romProgress.trace.includes(0x4000_057c), "reset-reason callback leaked into the instruction trace");
@@ -797,12 +797,12 @@ const withoutTimingBoundary = (events: readonly FullElfRomEvent[]) => events.map
 assert.deepEqual(withoutTimingBoundary(romProgress.romEvents), [
   { kind: "resetReason", pc: 0x4000_057c, core: 0, result: 1 },
   { kind: "resetReason", pc: 0x4000_057c, core: 1, result: 1 },
-  { kind: "memset", pc: 0x4000_11e8, destination: 0x3fca_be60, value: 0, length: 0x52e0 },
+  { kind: "memset", pc: 0x4000_11e8, destination: 0x3fca_0ac0, value: 0, length: 0x18d0 },
   { kind: "memset", pc: 0x4000_11e8, destination: 0x5000_0000, value: 0, length: 0 },
 ]);
 assert.deepEqual(
   romProgress.romEvents.map((event) => event.afterInstructionCount),
-  [6, 11, 19, 26],
+  [6, 10, 16, 23],
   "full ELF ROM callback ABI lost exact preceding-instruction boundaries",
 );
 
@@ -812,15 +812,15 @@ const lx7Progress = await runSparseXtensaElf(moduleBytes, image, {
   rom: { resetReasons: [1, 1], memset: true },
 });
 assert.equal(lx7Progress.record.reason, FULL_ELF_STOP_REASONS.readPermission);
-assert.equal(lx7Progress.record.steps, 34);
-assert.equal(lx7Progress.record.pc, 0x4037_5c44);
+assert.equal(lx7Progress.record.steps, 31);
+assert.equal(lx7Progress.record.pc, 0x4037_5bdc);
 assert.equal(lx7Progress.record.unsupportedPc, 0);
-assert(lx7Progress.trace.includes(0x4037_5ce7), "LX7 run did not execute wur.threadptr");
+assert(lx7Progress.trace.includes(0x4037_5c77), "LX7 run did not execute wur.threadptr");
 assert.deepEqual(lx7Progress.romEvents, romProgress.romEvents);
 assert.deepEqual(lx7Progress.memoryFault, {
   abiVersion: 1,
   structBytes: 40,
-  pc: 0x4037_5c44,
+  pc: 0x4037_5bdc,
   address: 0x600c_4064,
   width: 4,
   isWrite: false,
@@ -835,10 +835,10 @@ const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true, cpuTicksPerUs: 40 },
 });
 assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.romRefused);
-assert.equal(cacheProgress.record.steps, 943);
+assert.equal(cacheProgress.record.steps, 940);
 assert.equal(cacheProgress.record.pc, 0x4000_1c38);
 assert(cacheProgress.record.steps > 356, "RTC_CNTL_DATE XTAL write did not advance the real ELF");
-assert.notEqual(cacheProgress.record.pc, 0x4037_730f);
+assert.notEqual(cacheProgress.record.pc, 0x4037_70cb);
 assert.deepEqual(cacheProgress.cacheBootstrap, {
   sequenceIndex: 6,
   complete: true,
@@ -862,8 +862,8 @@ assert.deepEqual(cacheProgress.cacheBootstrap, {
   },
   dataSuspendReturn: 0,
   mmuSizes: {
-    instructionBytes: 0x3c,
-    dataBytes: 0x3c4,
+    instructionBytes: 0x1c,
+    dataBytes: 0x3e4,
   },
 });
 const cacheEvents = cacheProgress.romEvents.filter((event) => event.kind === "cache");
@@ -886,80 +886,80 @@ assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) =>
   { kind: "cacheResume", pc: 0x4000_18c0, cache: "data", argument: 0 },
 ]);
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "cacheMmuSizes")), [
-  { kind: "cacheMmuSizes", pc: 0x4000_1914, instructionBytes: 0x3c, dataBytes: 0x3c4 },
+  { kind: "cacheMmuSizes", pc: 0x4000_1914, instructionBytes: 0x1c, dataBytes: 0x3e4 },
 ]);
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "systemMmioRead")), [
-  { kind: "systemMmioRead", pc: 0x4037_71a5, address: 0x600c_0060, width: 4, value: 0x400 },
-  { kind: "systemMmioRead", pc: 0x4037_71d6, address: 0x600c_0010, width: 4, value: 0x4 },
-  { kind: "systemMmioRead", pc: 0x4037_71ff, address: 0x600c_0010, width: 4, value: 0x4 },
-  { kind: "systemMmioRead", pc: 0x4037_71a5, address: 0x600c_0060, width: 4, value: 0x400 },
-  { kind: "systemMmioRead", pc: 0x4037_71d6, address: 0x600c_0010, width: 4, value: 0x4 },
-  { kind: "systemMmioRead", pc: 0x4037_71ff, address: 0x600c_0010, width: 4, value: 0x4 },
-  { kind: "systemMmioRead", pc: 0x4037_7275, address: 0x600c_0060, width: 4, value: 0x400 },
-  { kind: "systemMmioRead", pc: 0x4037_7294, address: 0x600c_0060, width: 4, value: 0x400 },
-  { kind: "systemMmioRead", pc: 0x4037_72aa, address: 0x600c_0060, width: 4, value: 0x400 },
-  { kind: "systemMmioRead", pc: 0x4037_f5df, address: 0x600c_0060, width: 4, value: 0 },
-  { kind: "systemMmioRead", pc: 0x4037_f6a8, address: 0x600c_0010, width: 4, value: 0x4 },
+  { kind: "systemMmioRead", pc: 0x4037_6f61, address: 0x600c_0060, width: 4, value: 0x400 },
+  { kind: "systemMmioRead", pc: 0x4037_6f92, address: 0x600c_0010, width: 4, value: 0x4 },
+  { kind: "systemMmioRead", pc: 0x4037_6fbb, address: 0x600c_0010, width: 4, value: 0x4 },
+  { kind: "systemMmioRead", pc: 0x4037_6f61, address: 0x600c_0060, width: 4, value: 0x400 },
+  { kind: "systemMmioRead", pc: 0x4037_6f92, address: 0x600c_0010, width: 4, value: 0x4 },
+  { kind: "systemMmioRead", pc: 0x4037_6fbb, address: 0x600c_0010, width: 4, value: 0x4 },
+  { kind: "systemMmioRead", pc: 0x4037_7031, address: 0x600c_0060, width: 4, value: 0x400 },
+  { kind: "systemMmioRead", pc: 0x4037_7050, address: 0x600c_0060, width: 4, value: 0x400 },
+  { kind: "systemMmioRead", pc: 0x4037_7066, address: 0x600c_0060, width: 4, value: 0x400 },
+  { kind: "systemMmioRead", pc: 0x4037_d71f, address: 0x600c_0060, width: 4, value: 0 },
+  { kind: "systemMmioRead", pc: 0x4037_d7e8, address: 0x600c_0010, width: 4, value: 0x4 },
 ]);
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "systemMmioWrite")), [
-  { kind: "systemMmioWrite", pc: 0x4037_727d, address: 0x600c_0060, width: 4, value: 0x400 },
-  { kind: "systemMmioWrite", pc: 0x4037_72a5, address: 0x600c_0060, width: 4, value: 0x400 },
-  { kind: "systemMmioWrite", pc: 0x4037_72b8, address: 0x600c_0060, width: 4, value: 0 },
-  { kind: "systemMmioWrite", pc: 0x4037_f6b3, address: 0x600c_0010, width: 4, value: 0x4 },
+  { kind: "systemMmioWrite", pc: 0x4037_7039, address: 0x600c_0060, width: 4, value: 0x400 },
+  { kind: "systemMmioWrite", pc: 0x4037_7061, address: 0x600c_0060, width: 4, value: 0x400 },
+  { kind: "systemMmioWrite", pc: 0x4037_7074, address: 0x600c_0060, width: 4, value: 0 },
+  { kind: "systemMmioWrite", pc: 0x4037_d7f3, address: 0x600c_0010, width: 4, value: 0x4 },
 ]);
 assert.deepEqual(cacheProgress.systemMmio, {
   sysclkConf: 0,
   readCount: 6,
-  lastReadPc: 0x4037_f5df,
+  lastReadPc: 0x4037_d71f,
   cpuPerConf: 0x4,
   cpuPerReadCount: 5,
-  cpuPerLastReadPc: 0x4037_f6a8,
+  cpuPerLastReadPc: 0x4037_d7e8,
   writeCount: 3,
-  lastWritePc: 0x4037_72b8,
+  lastWritePc: 0x4037_7074,
   cpuPerWriteCount: 1,
-  cpuPerLastWritePc: 0x4037_f6b3,
+  cpuPerLastWritePc: 0x4037_d7f3,
 });
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "rtcMmioRead")), [
-  { kind: "rtcMmioRead", pc: 0x4037_7159, address: 0x6000_80c0, width: 4, value: 0x0028_0028 },
-  { kind: "rtcMmioRead", pc: 0x4037_7301, address: 0x6000_81fc, width: 4, value: 0x0210_1271 },
-  { kind: "rtcMmioRead", pc: 0x4037_f7df, address: 0x6000_8000, width: 4, value: 0x1c00_8000 },
-  { kind: "rtcMmioRead", pc: 0x4037_f640, address: 0x6000_8000, width: 4, value: 0x1c00_8540 },
-  { kind: "rtcMmioRead", pc: 0x4037_7159, address: 0x6000_80c0, width: 4, value: 0x0028_0028 },
+  { kind: "rtcMmioRead", pc: 0x4037_6f15, address: 0x6000_80c0, width: 4, value: 0x0028_0028 },
+  { kind: "rtcMmioRead", pc: 0x4037_70bd, address: 0x6000_81fc, width: 4, value: 0x0210_1271 },
+  { kind: "rtcMmioRead", pc: 0x4037_d91f, address: 0x6000_8000, width: 4, value: 0x1c00_8000 },
+  { kind: "rtcMmioRead", pc: 0x4037_d780, address: 0x6000_8000, width: 4, value: 0x1c00_8540 },
+  { kind: "rtcMmioRead", pc: 0x4037_6f15, address: 0x6000_80c0, width: 4, value: 0x0028_0028 },
 ]);
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "rtcMmioWrite")), [
-  { kind: "rtcMmioWrite", pc: 0x4037_730f, address: 0x6000_81fc, width: 4, value: 0x0210_f271 },
-  { kind: "rtcMmioWrite", pc: 0x4037_f7e8, address: 0x6000_8000, width: 4, value: 0x1c00_8540 },
-  { kind: "rtcMmioWrite", pc: 0x4037_f649, address: 0x6000_8000, width: 4, value: 0x1c00_8000 },
+  { kind: "rtcMmioWrite", pc: 0x4037_70cb, address: 0x6000_81fc, width: 4, value: 0x0210_f271 },
+  { kind: "rtcMmioWrite", pc: 0x4037_d928, address: 0x6000_8000, width: 4, value: 0x1c00_8540 },
+  { kind: "rtcMmioWrite", pc: 0x4037_d789, address: 0x6000_8000, width: 4, value: 0x1c00_8000 },
 ]);
 assert.deepEqual(cacheProgress.rtcMmio, {
   xtalFreqReg: 0x0028_0028,
   readCount: 2,
-  lastReadPc: 0x4037_7159,
+  lastReadPc: 0x4037_6f15,
   dateReg: 0x0210_f271,
   dateReadCount: 1,
-  dateLastReadPc: 0x4037_7301,
+  dateLastReadPc: 0x4037_70bd,
   dateWriteCount: 1,
-  dateLastWritePc: 0x4037_730f,
+  dateLastWritePc: 0x4037_70cb,
   optionsReg: 0x1c00_8000,
   optionsReadCount: 2,
-  optionsLastReadPc: 0x4037_f640,
+  optionsLastReadPc: 0x4037_d780,
   optionsWriteCount: 2,
-  optionsLastWritePc: 0x4037_f649,
+  optionsLastWritePc: 0x4037_d789,
 });
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "regi2cMmioRead")), [
-  { kind: "regi2cMmioRead", pc: 0x4037_f6b8, address: 0x6000_e040, width: 4, value: 0x0100_0004 },
-  { kind: "regi2cMmioRead", pc: 0x4037_f6c7, address: 0x6000_e040, width: 4, value: 0x0100_0000 },
+  { kind: "regi2cMmioRead", pc: 0x4037_d7f8, address: 0x6000_e040, width: 4, value: 0x0100_0004 },
+  { kind: "regi2cMmioRead", pc: 0x4037_d807, address: 0x6000_e040, width: 4, value: 0x0100_0000 },
 ]);
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "regi2cMmioWrite")), [
-  { kind: "regi2cMmioWrite", pc: 0x4037_f6c2, address: 0x6000_e040, width: 4, value: 0x0100_0000 },
-  { kind: "regi2cMmioWrite", pc: 0x4037_f6d1, address: 0x6000_e040, width: 4, value: 0x0100_0008 },
+  { kind: "regi2cMmioWrite", pc: 0x4037_d802, address: 0x6000_e040, width: 4, value: 0x0100_0000 },
+  { kind: "regi2cMmioWrite", pc: 0x4037_d811, address: 0x6000_e040, width: 4, value: 0x0100_0008 },
 ]);
 assert.deepEqual(cacheProgress.regi2cMmio, {
   anaConf0: 0x0100_0008,
   readCount: 2,
-  lastReadPc: 0x4037_f6c7,
+  lastReadPc: 0x4037_d807,
   writeCount: 2,
-  lastWritePc: 0x4037_f6d1,
+  lastWritePc: 0x4037_d811,
 });
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "intlevelRestore")), [
   { kind: "intlevelRestore", pc: 0x4000_1c38, restorePs: 0x0004_0c00, previousPs: 0x0004_0c03, callinc: 2 },

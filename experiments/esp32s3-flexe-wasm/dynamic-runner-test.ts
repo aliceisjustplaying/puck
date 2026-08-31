@@ -360,9 +360,9 @@ const scalar = extractElfFunction(
   DEFAULT_TINYDRAW_ESP32S3_ELF,
   "tlsf_alloc_overhead"
 );
-assert(scalar.elfSha256 === "e9681a8015728b95a9e948a56a0cbe4245b1abff812fa0b70b93c4ca1a29f044", "scalar ELF changed");
+assert(scalar.elfSha256 === "143e9f5185d010a8b5344ee5ed2c82a99928dba6839a84d746219d9045de468f", "scalar ELF changed");
 assert(scalar.objdumpSha256 === "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466", "objdump changed");
-assert(scalar.pc === 0x403808f4, "scalar function PC changed");
+assert(scalar.pc === 0x40380ac8, "scalar function PC changed");
 assert(scalar.codeSha256 === "cebc5d75741ee728f371bf15e6f834d1cacd50ce35b264385313c30b542ee7b7", "scalar code changed");
 assert(scalar.instructions.map((row) => row.rawMnemonic).join(",") === "entry,movi.n,retw.n", "scalar instruction path changed");
 const scalarRun = await runFresh(moduleBytes, scalar);
@@ -375,7 +375,7 @@ assert(scalarRun.logs.length === 0, `scalar emitted logs: ${JSON.stringify(scala
 const boundedRun = await runFresh(moduleBytes, scalar, { maxSteps: 2 });
 assert(boundedRun.record.reason === STOP_REASONS.maxSteps, "scalar ignored the instruction bound");
 assert(boundedRun.record.steps === 2, `bounded scalar executed ${boundedRun.record.steps} instructions`);
-assert(boundedRun.record.pc === 0x403808f9, "bounded scalar did not stop before retw.n");
+assert(boundedRun.record.pc === 0x40380acd, "bounded scalar did not stop before retw.n");
 
 const scalarIsaFixture = conformanceFixture("esp32s3_scalar_load_store", [
   0x36, 0x21, 0x00,
@@ -1339,17 +1339,17 @@ assert(
 
 const threadptrFixture = conformanceFixture("esp32s3_threadptr_roundtrip", [
   0x36, 0x21, 0x00,
-  0x81, 0x12, 0xfa,
+  0x81, 0x2f, 0xfa,
   0x80, 0xe7, 0xf3,
   0x70, 0x2e, 0xe3,
   0x1d, 0xf0
-], 0x40375ce1);
+], 0x40375c71);
 const threadptrLiterals = extractElfRange(DEFAULT_ESP32S3_OBJDUMP, DEFAULT_TINYDRAW_ESP32S3_FULL_ELF, 0x40374000, 4096);
 const threadptrRun = await runFresh(moduleBytes, threadptrFixture, { auxiliary: threadptrLiterals });
 assert(threadptrRun.record.reason === STOP_REASONS.returned, `THREADPTR fixture stopped with ${threadptrRun.record.reasonName}`);
 assert(threadptrRun.record.steps === 5, `THREADPTR fixture executed ${threadptrRun.record.steps} instructions`);
 assert(
-  threadptrRun.record.registers[10] === 0x3fcabf20,
+  threadptrRun.record.registers[10] === 0x3fca0b98,
   `THREADPTR round trip returned 0x${threadptrRun.record.registers[10].toString(16)}`
 );
 
@@ -1428,9 +1428,9 @@ assert(
 
 const entry = extractElfFunction(DEFAULT_ESP32S3_OBJDUMP, DEFAULT_TINYDRAW_ESP32S3_ELF, "call_start_cpu0");
 const entryAuxiliary = extractElfRange(DEFAULT_ESP32S3_OBJDUMP, DEFAULT_TINYDRAW_ESP32S3_ELF, 0x40374000, 4096);
-assert(entry.pc === 0x40375a54, "reset entry PC changed");
-assert(entry.codeSha256 === "a29017f57f57d4a02c87b4e63e0ade179c21e3382b264bf5cd4217defc984aaf", "reset entry code changed");
-assert(entryAuxiliary.sha256 === "f2f990dd3f25c373615b4d0d9bb58e372d32a19db242ebf7c9c2e999c61e3b2e", "reset literal page changed");
+assert(entry.pc === 0x40375aa8, "reset entry PC changed");
+assert(entry.codeSha256 === "7a49cd0780119af5a4154881eda6fe75e2ebed6529f4525338492b50bcb27010", "reset entry code changed");
+assert(entryAuxiliary.sha256 === "ebe62c488c28edd5198960234f004b0479131753f9b8ff1da3354864861a20b4", "reset literal page changed");
 assert(
   entry.instructions.slice(0, 6).map((row) => row.rawMnemonic).join(",") ===
     "entry,l32r,wsr.vecbase,movi.n,l32r,callx8",
@@ -1439,7 +1439,7 @@ assert(
 const entryRun = await runFresh(moduleBytes, entry, { auxiliary: entryAuxiliary, maxSteps: 5 });
 assert(entryRun.record.reason === STOP_REASONS.maxSteps, `reset entry stopped with ${entryRun.record.reasonName}`);
 assert(entryRun.record.steps === 5, `reset entry executed ${entryRun.record.steps} instructions`);
-assert(entryRun.record.pc === 0x40375a62, `reset entry stopped at 0x${entryRun.record.pc.toString(16)}`);
+assert(entryRun.record.pc === 0x40375ab6, `reset entry stopped at 0x${entryRun.record.pc.toString(16)}`);
 assert(entryRun.record.registers[8] === 0x4000057c, "second reset literal load did not resolve the ROM target");
 
 const pie = extractElfFunction(
@@ -1447,10 +1447,10 @@ const pie = extractElfFunction(
   DEFAULT_TINYDRAW_ESP32S3_FIXTURE_ELF,
   DEFAULT_TINYDRAW_ESP32S3_FIXTURE_SYMBOL
 );
-assert(pie.elfSha256 === "3cb3f1d4751a14132e5a4e6e1d936cbd81cf8b04a9a9ac3d9470a104c93c6a1b", "PIE fixture ELF changed");
-assert(pie.pc === 0x40377698, "PIE fixture PC changed");
+assert(pie.elfSha256 === "1b0475db6ab30e1e6b6ee07ae77ae46b21c874cac64a736e5ba86604a68234ce", "PIE fixture ELF changed");
+assert(pie.pc === 0x40377818, "PIE fixture PC changed");
 assert(pie.codeSha256 === "f0503e09af131793fa0dfdf9077a9d433225c08962672d7f492f1496b15d1c75", "PIE fixture code changed");
-const pieGap = pie.instructions.find((row) => row.addressValue === 0x403776a0);
+const pieGap = pie.instructions.find((row) => row.addressValue === 0x40377820);
 assert(pieGap?.objdumpEncoding === "830124", "PIE gap encoding changed");
 assert(pieGap.rawMnemonic === "ee.vld.128.ip", "PIE gap mnemonic changed");
 const pieRefusalRun = await runFresh(moduleBytes, pie, {
@@ -1488,9 +1488,9 @@ const staging = extractElfFunction(
   DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF,
   DEFAULT_TINYDRAW_ESP32S3_STAGING_SYMBOL
 );
-assert(staging.elfSha256 === "55164f2c9c6ab825dba9c2d8bd05319e381e6e2ce0cb6d4272fdb2e3a7cd415f", "staging ELF changed");
+assert(staging.elfSha256 === "4e121a3642a6f18766cfe96c2be6adc8a0017fba4afa82105d642168ea40e2c8", "staging ELF changed");
 assert(staging.objdumpSha256 === "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466", "objdump changed");
-assert(staging.pc === 0x4205824c, "staging function PC changed");
+assert(staging.pc === 0x420590d8, "staging function PC changed");
 assert(staging.codeSha256 === "a545acd197c5b75f0351256aa6a9c8a7028cb42f91e617c28317fa560d873877", "staging code changed");
 const stagingMnemonics = staging.instructions.map((row) => row.rawMnemonic);
 assert(

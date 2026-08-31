@@ -98,25 +98,20 @@ objdump encoding and mnemonic pair, counts it, and compares its normalized
 mnemonic to the exact pinned flexe decoder source. Special-register forms such
 as `rsr.ccount` normalize to flexe's generic `rsr` decoder entry.
 
-The current input is the clean TinyDraw `4b5385a` fixture at
-`out/fixtures/esp32s3-timing/out/build/esp32-panel-probe/tinydraw_esp32.elf`,
-5,571,900 bytes, SHA-256
-`e9681a8015728b95a9e948a56a0cbe4245b1abff812fa0b70b93c4ca1a29f044`.
+The current input is the ESP-IDF v6.1 TinyDraw `3db3985` panel fixture,
+5,695,452 bytes, SHA-256
+`143e9f5185d010a8b5344ee5ed2c82a99928dba6839a84d746219d9045de468f`.
 The tool is GNU objdump 2.45 from Espressif crosstool-NG
 `esp-15.2.0_20251204`, SHA-256
 `90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466`.
 The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
-That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
+That ELF yields 65,896 objdump rows and 351 raw mnemonics. The pinned flexe
 decoder plus this experiment's explicit ESP32-S3 patch surface has 397
 normalized mnemonics. With user-register operands distinguished, it covers
-63,567 rows and 335 raw mnemonics; 709 rows and 6 raw mnemonics remain gaps.
-Those gaps are five unimplemented `ee.*` PIE forms covering 10 rows and 699
-undecodable `.byte` rows. Every QACC QUP form is covered; one non-QUP QACC XP
-form remains. No known scalar, QR load/store, THREADPTR, ACCX, SAR_BYTE, or
-FFT_BIT_WIDTH mnemonic remains in the gap list, and every named user-register
-form is covered.
+65,143 rows and 339 raw mnemonics; 753 rows and 12 raw mnemonics remain gaps.
+The generated inventory and baseline pin every gap and its first occurrence.
 
 `0003-add-esp32s3-lx7-subset.patch` implements `s32nb`, `lsip`, `ssip`,
 `ld.qr`, `st.qr`, `ee.vld.128.ip`, `ee.vld.128.xp`, `ee.vst.128.ip`,
@@ -413,10 +408,10 @@ provenance. By default it supplies no ROM, MMIO, flash-controller, or
 peripheral behavior; each modeled direct-boot dependency is opt-in and
 fail-closed.
 
-The gate-harness image is 21,598,616 bytes with SHA-256
-`51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5`.
-Its eight load segments become 625 sparse pages. Execution begins at its ELF
-entry `0x40375c9c`, `call_start_cpu0`. flexe executes `entry`, `l32r`,
+The ESP-IDF v6.1 gate-harness image is 15,230,428 bytes with SHA-256
+`4e121a3642a6f18766cfe96c2be6adc8a0017fba4afa82105d642168ea40e2c8`.
+Its eight load segments become 328 sparse pages. Execution begins at its ELF
+entry `0x40375c34`, `call_start_cpu0`. flexe executes `entry`, `l32r`,
 `wsr.vecbase`, `movi.n`, `l32r`, and `callx8`, then stops before fetching the
 undeclared ESP32-S3 ROM target `0x4000057c`. The result is `unloadedPage`, six
 executed instructions, and a six-PC trace. This is the first honest boundary,
@@ -444,32 +439,32 @@ addresses. It follows the observed call order through cache disable/enable,
 16 KiB 8-way 32-byte-line instruction geometry, 32 KiB 8-way 64-byte-line
 data geometry, data suspend/resume, and MMU table sizes. It then maps only two
 source-backed SYSTEM registers: the 80 MHz
-PLL source value `0x400` at `0x600c0060`, read from PC `0x403771a5` before and
+PLL source value `0x400` at `0x600c0060`, read from PC `0x40376f61` before and
 after the crystal-frequency query, and
 the 80 MHz CPU period value `0x4` at `0x600c0010`, read in order from PCs
-`0x403771d6` and `0x403771ff`. All are aligned 32-bit reads after MMU setup.
+`0x40376f92` and `0x40376fbb`. All are aligned 32-bit reads after MMU setup.
 Other registers, access shapes, readers, orderings, and additional accesses are
 refused. After the first SYSTEM sequence, the runner exposes one
 ordered 32-bit read of RTCCNTL `RTC_XTAL_FREQ_REG` at `0x600080c0` from PC
-`0x40377159`. TinyDraw configures a 40 MHz crystal and keeps ROM logging on, so
+`0x40376f15`. TinyDraw configures a 40 MHz crystal and keeps ROM logging on, so
 the bootloader-persisted duplicated-half value is `0x00280028`. After the clock
 switch, the runner admits the exact `RTC_CNTL_DATE_REG` read at `0x600081fc`
-from PC `0x40377301`. Its source-backed value is the documented raw reset
+from PC `0x403770bd`. Its source-backed value is the documented raw reset
 value `0x02101271`; the following RMW installs the XTAL LDO slave field.
 The subsequent BBPLL-disable RMW reads `RTC_CNTL_OPTIONS0_REG` at
-`0x60008000` from PC `0x4037f7df`. The documented reset fields produce
+`0x60008000` from PC `0x4037d91f`. The documented reset fields produce
 `0x1c00a000`, and the bootloader's default RTC initialization clears
 `XTL_FORCE_PU`, yielding the inherited `0x1c008000`; the write at
-`0x4037f7e8` ORs the documented force-PD mask `0x540` to produce
+`0x4037d928` ORs the documented force-PD mask `0x540` to produce
 `0x1c008540`. The restore path then reads the zeroed
-`SYSTEM_SYSCLK_CONF_REG` at `0x4037f5df`, clears that same force-PD mask with
-the OPTIONS0 RMW at `0x4037f640`/`0x4037f649`, repeats the 40 MHz
+`SYSTEM_SYSCLK_CONF_REG` at `0x4037d71f`, clears that same force-PD mask with
+the OPTIONS0 RMW at `0x4037d780`/`0x4037d789`, repeats the 40 MHz
 `RTC_XTAL_FREQ_REG` read, and preserves the 480 MHz PLL selection in
-`SYSTEM_CPU_PER_CONF_REG` with the RMW at `0x4037f6a8`/`0x4037f6b3`.
+`SYSTEM_CPU_PER_CONF_REG` with the RMW at `0x4037d7e8`/`0x4037d7f3`.
 The following source-backed REGI2C sequence inherits `I2C_MST_ANA_CONF0_REG`
 as `0x01000004` after the bootloader observed calibration completion and selected
-`BBPLL_STOP_FORCE_HIGH`. The RMWs at `0x4037f6b8`/`0x4037f6c2` and
-`0x4037f6c7`/`0x4037f6d1` clear FORCE_HIGH and set FORCE_LOW, producing
+`BBPLL_STOP_FORCE_HIGH`. The RMWs at `0x4037d7f8`/`0x4037d802` and
+`0x4037d807`/`0x4037d811` clear FORCE_HIGH and set FORCE_LOW, producing
 `0x01000000` then `0x01000008`.
 Other RTCCNTL addresses, access shapes, readers, orderings, and repeats
 are refused. The next
@@ -477,20 +472,20 @@ exact ROM callback, `esp_rom_set_cpu_ticks_per_us` at `0x40001a4c`,
 accepts argument 40 with CALLINC 2 only after both clock-query cycles. The real
 image then restores interrupt level zero through `_xtos_set_intlevel` at
 `0x40001c38`, requiring exact saved PS `0x00040c00`, previous PS `0x00040c03`,
-CALLINC 2, and the completed REGI2C sequence. It now executes 523 instructions
+CALLINC 2, and the completed REGI2C sequence. It now executes 520 instructions
 before the source-backed `rom_i2c_writeReg` call at `0x40005d60` programs
 BBPLL block `0x66`, host 1, mode register 4 to the 480 MHz value `0x6b` with
 CALLINC 2 while the critical section holds interrupt level 3. The runner then
 accepts the three following `_xtos_set_intlevel` calls in their observed
-`0x00040c03`, `0x00040c00`, `0x00040c00` restore order. It executes 659
+`0x00040c03`, `0x00040c00`, `0x00040c00` restore order. It executes 656
 instructions before the second `rom_i2c_writeReg` call writes the source-backed
 40 MHz reference-divider value `0x50` to register 2 for block `0x66`, host 1.
 The runner accepts that exact ordered call with CALLINC 2 and interrupt level 3,
 then accepts the fifth `_xtos_set_intlevel` restore with saved PS `0x00040c03`.
-The sixth restore accepts saved PS `0x00040c00`; execution reaches 724
+The sixth restore accepts saved PS `0x00040c00`; execution reaches 721
 instructions before the seventh restore accepts the same saved PS. The runner
 then accepts the third `rom_i2c_writeReg` call with block `0x66`, host 1,
-register 3, and data `0x08`. ESP-IDF v6.0.2
+register 3, and data `0x08`. ESP-IDF v6.1
 `components/soc/esp32s3/include/soc/regi2c_bbpll.h` identifies register 3 as
 `I2C_BBPLL_OC_DIV_7_0`, while
 `components/esp_hal_clock/esp32s3/include/hal/clk_tree_ll.h` selects divider 8
@@ -499,19 +494,19 @@ and all seven preceding restores. The eighth `_xtos_set_intlevel` then accepts
 saved PS `0x00040c03`, returns previous PS `0x00040c03`, and restores interrupt
 level 3. The ninth and tenth `_xtos_set_intlevel` calls each accept saved PS
 `0x00040c00`. Execution then reaches the source-backed
-`esp_rom_regi2c_write_mask` callback at `0x40005d6c` after 931 instructions.
+`esp_rom_regi2c_write_mask` callback at `0x40005d6c` after 928 instructions.
 The exact call requires CALLINC 2, interrupt level 3, block `0x66`, host 1,
 register 5, bits 2:0, and data zero. ESP-IDF identifies that field as
 `I2C_BBPLL_OC_DR1` and selects zero for the 480 MHz/40 MHz path. The runner
 accepts it only after all three full BBPLL writes and ten restores, then reaches
-943 instructions before refusing the next `_xtos_set_intlevel` boundary.
+940 instructions before refusing the next `_xtos_set_intlevel` boundary.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
-the real entry performs two reset-reason calls, clears 21,216 bytes at
-`0x3fcabe60`, and records the real zero-length clear at `0x50000000`. A refusal
-control deliberately marks `wur.threadptr` at `0x40375ce7` and stops after 27
+the real entry performs two reset-reason calls, clears 6,352 bytes at
+`0x3fca0ac0`, and records the real zero-length clear at `0x50000000`. A refusal
+control deliberately marks `wur.threadptr` at `0x40375c77` and stops after 24
 decoded instructions. The integrated LX7 run executes that instruction,
-persists user register 231, reaches 34 decoded instructions, and refuses the
+persists user register 231, reaches 31 decoded instructions, and refuses the
 first undeclared 32-bit MMIO read at
 `0x600c4064` with flags zero. No cache or MMIO behavior is implied.
 
@@ -531,8 +526,8 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 943-step
-post-DR1 INTLEVEL boundary produces 1,233 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 940-step
+post-DR1 INTLEVEL boundary produces 1,228 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
@@ -542,12 +537,12 @@ MMIO pages observed in the trace, with their ELF or inherited permissions.
 Those twelve exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 1,233 records issue 2,296 timing events: 1,182 memory-system
-events, 54 MMIO accesses, 943 calibrated CPU issue events, and 87 calibrated
+literal loads. The 1,228 records issue 2,288 timing events: 1,177 memory-system
+events, 54 MMIO accesses, 940 calibrated CPU issue events, and 87 calibrated
 dependent load-use events, plus 30 configured ROM callback boundaries. The
 replay adopts 11 exact not-taken `beqz` paths, 40 exact MMIO accesses, and
-11 exact ROM callback events. Exactly 2,263 events have adopted costs; 14
-controller MMIO costs and 19 ROM callback durations remain unknown, so no total
+10 exact ROM callback events. Exactly 2,254 events have adopted costs; 14
+controller MMIO costs and 20 ROM callback durations remain unknown, so no total
 cycle claim is made. The baseline pins exact branch, MMIO, load-use, and
 callback evidence projections.
 An executable-permission miss and an unloaded page have distinct recoverable

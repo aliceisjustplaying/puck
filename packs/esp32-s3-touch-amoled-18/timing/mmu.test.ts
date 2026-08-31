@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   ESP32_S3_EXTERNAL_WINDOWS,
-  ESP32_S3_IDF_V6_0_2_MMU_METADATA,
+  ESP32_S3_IDF_V6_1_MMU_METADATA,
   ESP32_S3_MMU_ENTRY_COUNT,
   ESP32_S3_MMU_INVALID_BIT,
   ESP32_S3_MMU_PAGE_SIZE_BYTES,
@@ -34,7 +34,7 @@ function entries(...mappings: readonly Mapping[]): ExternalMmuEntryConfiguration
 
 function configuration(table: readonly ExternalMmuEntryConfiguration[]): ExternalMmuConfiguration {
   return {
-    metadata: ESP32_S3_IDF_V6_0_2_MMU_METADATA,
+    metadata: ESP32_S3_IDF_V6_1_MMU_METADATA,
     entries: table,
   };
 }
@@ -68,7 +68,7 @@ describe("configuration and source boundary", () => {
     );
 
     const overclaim = {
-      ...ESP32_S3_IDF_V6_0_2_MMU_METADATA,
+      ...ESP32_S3_IDF_V6_1_MMU_METADATA,
       architectureCalibration: "calibrated",
     } as unknown as ExternalMmuConfiguration["metadata"];
     expect(() => new Esp32S3ExternalMmu({ metadata: overclaim, entries: entries() })).toThrow(
@@ -76,19 +76,19 @@ describe("configuration and source boundary", () => {
     );
 
     const wrongVersion = {
-      ...ESP32_S3_IDF_V6_0_2_MMU_METADATA,
-      idfVersion: "v6.1",
+      ...ESP32_S3_IDF_V6_1_MMU_METADATA,
+      idfVersion: "v6.0.2",
     };
     expect(() => new Esp32S3ExternalMmu({ metadata: wrongVersion, entries: entries() })).toThrow(
-      "config.metadata.idfVersion must be v6.0.2 for this MMU definition",
+      "config.metadata.idfVersion must be v6.1 for this MMU definition",
     );
   });
 
   test("records exact ESP-IDF version, paths, and macros without latency claims", () => {
     const snapshot = new Esp32S3ExternalMmu(configuration(entries())).snapshot();
-    expect(snapshot.metadata).toEqual(ESP32_S3_IDF_V6_0_2_MMU_METADATA);
+    expect(snapshot.metadata).toEqual(ESP32_S3_IDF_V6_1_MMU_METADATA);
     expect(snapshot.metadata.architectureCalibration).toBe("uncalibrated");
-    expect(snapshot.metadata.idfVersion).toBe("v6.0.2");
+    expect(snapshot.metadata.idfVersion).toBe("v6.1");
     expect(snapshot.metadata.sources).toContainEqual({
       path: "components/soc/esp32s3/include/soc/ext_mem_defs.h",
       symbols: expect.arrayContaining([
@@ -370,7 +370,7 @@ describe("address-map adapter", () => {
     expect(adapted.metadata.source).toContain(
       "components/soc/esp32s3/include/soc/ext_mem_defs.h [SOC_IRAM0_CACHE_ADDRESS_LOW",
     );
-    expect(adapted.mmuClaim).toBe(ESP32_S3_IDF_V6_0_2_MMU_METADATA);
+    expect(adapted.mmuClaim).toBe(ESP32_S3_IDF_V6_1_MMU_METADATA);
   });
 });
 

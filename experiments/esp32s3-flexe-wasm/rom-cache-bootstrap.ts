@@ -1,5 +1,5 @@
 /*
- * Bounded ROM contract for direct entry into TinyDraw's ESP-IDF v6.0.2 app.
+ * Bounded ROM contract for direct entry into TinyDraw's ESP-IDF v6.1 app.
  * Reset-through-bootloader register defaults are outside this slice. The two
  * final enables are cache_hal_init repeating do_multicore_settings' enables.
  */
@@ -47,8 +47,8 @@ export const ESP32S3_DIRECT_APP_DATA_CACHE_MODE = Object.freeze({
 });
 
 export const ESP32S3_DIRECT_APP_CACHE_MMU_SIZES = Object.freeze({
-  instructionBytes: 0x3c,
-  dataBytes: 0x3c4,
+  instructionBytes: 0x1c,
+  dataBytes: 0x3e4,
 });
 
 const CACHE_IDLE_STATE = 0x0010_01;

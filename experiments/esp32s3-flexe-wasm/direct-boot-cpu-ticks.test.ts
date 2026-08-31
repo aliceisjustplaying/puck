@@ -21,7 +21,7 @@ describe("ESP32-S3 direct-boot CPU ticks ROM callback", () => {
   test("accepts the observed 40 MHz callback after both clock-query cycles", () => {
     expect(ESP32S3_DIRECT_BOOT_CPU_TICKS_PROVENANCE).toEqual({
       bootloaderConfig: "bootloader/config/sdkconfig.h: CONFIG_XTAL_FREQ_40=y",
-      source: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_cpu_freq_to_xtal",
+      source: "ESP-IDF v6.1 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_cpu_freq_to_xtal",
       rom: "ESP32-S3 ROM API esp_rom_set_cpu_ticks_per_us",
     });
     expect(configureEsp32S3DirectBootCpuTicks(createEsp32S3DirectBootCpuTicks(), valid)).toEqual({

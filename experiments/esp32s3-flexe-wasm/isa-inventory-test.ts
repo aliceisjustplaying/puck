@@ -114,11 +114,11 @@ const report = buildInventoryReport({
 });
 const baseline = JSON.parse(readFileSync(join(import.meta.dir, "esp32s3-isa-baseline.json"), "utf8"));
 assert(
-  report.inputs.elf.sha256 === "e9681a8015728b95a9e948a56a0cbe4245b1abff812fa0b70b93c4ca1a29f044",
+  report.inputs.elf.sha256 === "143e9f5185d010a8b5344ee5ed2c82a99928dba6839a84d746219d9045de468f",
   "current panel-probe ELF changed, regenerate and review the inventory"
 );
 assert(
-  report.inputs.fixtureElf.sha256 === "3cb3f1d4751a14132e5a4e6e1d936cbd81cf8b04a9a9ac3d9470a104c93c6a1b",
+  report.inputs.fixtureElf.sha256 === "1b0475db6ab30e1e6b6ee07ae77ae46b21c874cac64a736e5ba86604a68234ce",
   "SIMD fixture ELF changed, regenerate and review the first gap"
 );
 assert(

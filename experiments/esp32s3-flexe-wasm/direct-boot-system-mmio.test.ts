@@ -31,12 +31,12 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
     expect(ESP32S3_DIRECT_BOOT_SYSCLK_CONF).toBe(0x0000_0400);
     expect(ESP32S3_DIRECT_BOOT_SYSCLK_PROVENANCE).toEqual({
       bootloaderConfig: "bootloader/config/sdkconfig.h: CONFIG_BOOTLOADER_CPU_CLK_FREQ_MHZ=80",
-      source: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_cpu_freq_to_pll_mhz",
-      register: "ESP-IDF v6.0.2 soc/esp32s3/register/soc/system_reg.h: SYSTEM_SYSCLK_CONF_REG",
+      source: "ESP-IDF v6.1 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_cpu_freq_to_pll_mhz",
+      register: "ESP-IDF v6.1 soc/esp32s3/register/soc/system_reg.h: SYSTEM_SYSCLK_CONF_REG",
     });
     const initial = createEsp32S3DirectBootSystemMmio();
     const read = readEsp32S3DirectBootSystemMmio(initial, {
-      pc: 0x4037_71a5,
+      pc: 0x4037_6f61,
       address: ESP32S3_SYSTEM_SYSCLK_CONF_REG,
       width: 4,
       isWrite: false,
@@ -49,7 +49,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       state: {
         sysclkConf: 0x0000_0400,
         readCount: 1,
-        lastReadPc: 0x4037_71a5,
+        lastReadPc: 0x4037_6f61,
         cpuPerConf: 0x0000_0004,
         cpuPerReadCount: 0,
         cpuPerLastReadPc: null,
@@ -63,13 +63,13 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
 
   test("reads the bootloader-configured 80 MHz CPU period after the clock source", () => {
     expect(ESP32S3_SYSTEM_CPU_PER_CONF_REG).toBe(0x600c_0010);
-    expect(ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC).toBe(0x4037_71d6);
+    expect(ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC).toBe(0x4037_6f92);
     expect(ESP32S3_DIRECT_BOOT_CPU_PER_CONF).toBe(0x0000_0004);
     expect(ESP32S3_DIRECT_BOOT_CPU_PER_PROVENANCE).toEqual({
       bootloaderConfig: "bootloader/config/sdkconfig.h: CONFIG_BOOTLOADER_CPU_CLK_FREQ_MHZ=80",
-      clockSource: "ESP-IDF v6.0.2 esp_hal_clock/esp32s3/include/hal/clk_tree_ll.h: clk_ll_cpu_set_freq_mhz_from_pll",
-      waitMode: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/include/soc/rtc.h + rtc_init.c: default cpu_waiti_clk_gate=1 clears WAIT_MODE_FORCE_ON",
-      register: "ESP-IDF v6.0.2 soc/esp32s3/register/soc/system_reg.h: SYSTEM_CPU_PER_CONF_REG",
+      clockSource: "ESP-IDF v6.1 esp_hal_clock/esp32s3/include/hal/clk_tree_ll.h: clk_ll_cpu_set_freq_mhz_from_pll",
+      waitMode: "ESP-IDF v6.1 esp_hw_support/port/esp32s3/include/soc/rtc.h + rtc_init.c: default cpu_waiti_clk_gate=1 clears WAIT_MODE_FORCE_ON",
+      register: "ESP-IDF v6.1 soc/esp32s3/register/soc/system_reg.h: SYSTEM_CPU_PER_CONF_REG",
     });
     const initial = createEsp32S3DirectBootSystemMmio();
     const access = {
@@ -81,7 +81,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
     } as const;
     expect(readEsp32S3DirectBootSystemMmio(initial, access).status).toBe("refused");
     const source = readEsp32S3DirectBootSystemMmio(initial, {
-      pc: 0x4037_71a5,
+      pc: 0x4037_6f61,
       address: ESP32S3_SYSTEM_SYSCLK_CONF_REG,
       width: 4,
       isWrite: false,
@@ -95,10 +95,10 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       state: {
         sysclkConf: 0x0000_0400,
         readCount: 1,
-        lastReadPc: 0x4037_71a5,
+        lastReadPc: 0x4037_6f61,
         cpuPerConf: 0x0000_0004,
         cpuPerReadCount: 1,
-        cpuPerLastReadPc: 0x4037_71d6,
+        cpuPerLastReadPc: 0x4037_6f92,
         writeCount: 0,
         lastWritePc: null,
         cpuPerWriteCount: 0,
@@ -108,10 +108,10 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
   });
 
   test("permits the distinct ordered CPU period reader exactly once", () => {
-    expect(ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC).toBe(0x4037_71ff);
+    expect(ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC).toBe(0x4037_6fbb);
     const initial = createEsp32S3DirectBootSystemMmio();
     const source = readEsp32S3DirectBootSystemMmio(initial, {
-      pc: 0x4037_71a5,
+      pc: 0x4037_6f61,
       address: ESP32S3_SYSTEM_SYSCLK_CONF_REG,
       width: 4,
       isWrite: false,
@@ -139,7 +139,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       state: {
         ...first.state,
         cpuPerReadCount: 2,
-        cpuPerLastReadPc: 0x4037_71ff,
+        cpuPerLastReadPc: 0x4037_6fbb,
       },
     });
   });
@@ -184,7 +184,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       state: {
         ...secondCpu.state,
         readCount: 2,
-        lastReadPc: 0x4037_71a5,
+        lastReadPc: 0x4037_6f61,
       },
     });
     if (!repeatedSource.handled || repeatedSource.status !== "accepted") {
@@ -222,7 +222,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       state: {
         ...repeatedSource.state,
         cpuPerReadCount: 3,
-        cpuPerLastReadPc: 0x4037_71d6,
+        cpuPerLastReadPc: 0x4037_6f92,
       },
     });
     if (!repeatedCpu.handled || repeatedCpu.status !== "accepted") {
@@ -251,7 +251,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       state: {
         ...repeatedCpu.state,
         cpuPerReadCount: 4,
-        cpuPerLastReadPc: 0x4037_71ff,
+        cpuPerLastReadPc: 0x4037_6fbb,
       },
     });
     if (!secondRepeatedCpu.handled || secondRepeatedCpu.status !== "accepted") {
@@ -290,7 +290,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       state: {
         ...secondRepeatedCpu.state,
         readCount: 3,
-        lastReadPc: 0x4037_7275,
+        lastReadPc: 0x4037_7031,
       },
     });
     if (!postTicks.handled || postTicks.status !== "accepted") throw new Error("post-ticks source read refused");
@@ -304,7 +304,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       cpuTicksConfigured: true,
     } as const;
     for (const invalid of [
-      { ...writeAccess, pc: 0x4037_727a },
+      { ...writeAccess, pc: 0x4037_7036 },
       { ...writeAccess, address: ESP32S3_SYSTEM_CPU_PER_CONF_REG },
       { ...writeAccess, width: 2 },
       { ...writeAccess, isWrite: false },
@@ -321,7 +321,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       handled: true,
       status: "accepted",
       value: 0x400,
-      state: { ...postTicks.state, writeCount: 1, lastWritePc: 0x4037_727d },
+      state: { ...postTicks.state, writeCount: 1, lastWritePc: 0x4037_7039 },
     });
     if (!write.handled || write.status !== "accepted") throw new Error("post-ticks source write refused");
     const adjustReadAccess = {
@@ -340,7 +340,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       handled: true,
       status: "accepted",
       value: 0x400,
-      state: { ...write.state, readCount: 4, lastReadPc: 0x4037_7294 },
+      state: { ...write.state, readCount: 4, lastReadPc: 0x4037_7050 },
     });
     if (!adjustRead.handled || adjustRead.status !== "accepted") throw new Error("clock-adjust read refused");
     const adjustWriteAccess = {
@@ -355,7 +355,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       handled: true,
       status: "accepted",
       value: 0x400,
-      state: { ...adjustRead.state, writeCount: 2, lastWritePc: 0x4037_72a5 },
+      state: { ...adjustRead.state, writeCount: 2, lastWritePc: 0x4037_7061 },
     });
     if (!adjustWrite.handled || adjustWrite.status !== "accepted") throw new Error("clock-adjust write refused");
     const thirdWrite = writeEsp32S3DirectBootSystemMmio(adjustWrite.state, adjustWriteAccess);
@@ -373,7 +373,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       handled: true,
       status: "accepted",
       value: 0x400,
-      state: { ...adjustWrite.state, readCount: 5, lastReadPc: 0x4037_72aa },
+      state: { ...adjustWrite.state, readCount: 5, lastReadPc: 0x4037_7066 },
     });
     if (!postAdjustRead.handled || postAdjustRead.status !== "accepted") {
       throw new Error("post-adjust read refused");
@@ -401,11 +401,11 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
         ...postAdjustRead.state,
         sysclkConf: 0,
         writeCount: 3,
-        lastWritePc: 0x4037_72b8,
+        lastWritePc: 0x4037_7074,
       },
     });
     if (!xtalWrite.handled || xtalWrite.status !== "accepted") throw new Error("XTAL source write refused");
-    expect(ESP32S3_DIRECT_BOOT_SYSCLK_PLL_RESTORE_READ_PC).toBe(0x4037_f5df);
+    expect(ESP32S3_DIRECT_BOOT_SYSCLK_PLL_RESTORE_READ_PC).toBe(0x4037_d71f);
     const pllRestoreReadAccess = {
       pc: ESP32S3_DIRECT_BOOT_SYSCLK_PLL_RESTORE_READ_PC,
       address: ESP32S3_SYSTEM_SYSCLK_CONF_REG,
@@ -421,7 +421,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
     }).status).toBe("refused");
     expect(readEsp32S3DirectBootSystemMmio(xtalWrite.state, {
       ...pllRestoreReadAccess,
-      pc: 0x4037_f5dc,
+      pc: 0x4037_d71c,
     }).status).toBe("refused");
     const pllRestoreRead = readEsp32S3DirectBootSystemMmio(xtalWrite.state, pllRestoreReadAccess);
     expect(pllRestoreRead).toEqual({
@@ -431,15 +431,15 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       state: {
         ...xtalWrite.state,
         readCount: 6,
-        lastReadPc: 0x4037_f5df,
+        lastReadPc: 0x4037_d71f,
       },
     });
     if (!pllRestoreRead.handled || pllRestoreRead.status !== "accepted") {
       throw new Error("PLL-restore source read refused");
     }
     expect(readEsp32S3DirectBootSystemMmio(pllRestoreRead.state, pllRestoreReadAccess).status).toBe("refused");
-    expect(ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_READ_PC).toBe(0x4037_f6a8);
-    expect(ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_WRITE_PC).toBe(0x4037_f6b3);
+    expect(ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_READ_PC).toBe(0x4037_d7e8);
+    expect(ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_WRITE_PC).toBe(0x4037_d7f3);
     const pllCpuReadAccess = {
       pc: ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_READ_PC,
       address: ESP32S3_SYSTEM_CPU_PER_CONF_REG,
@@ -501,7 +501,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
   test("refuses undeclared registers, invalid access shapes, readers, and repeats", () => {
     const initial = createEsp32S3DirectBootSystemMmio();
     const valid = {
-      pc: 0x4037_71a5,
+      pc: 0x4037_6f61,
       address: ESP32S3_SYSTEM_SYSCLK_CONF_REG,
       width: 4,
       isWrite: false,
@@ -513,7 +513,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       { ...valid, width: 1 },
       { ...valid, width: 2 },
       { ...valid, isWrite: true },
-      { ...valid, pc: 0x4037_71a2 },
+      { ...valid, pc: 0x4037_6f5e },
       { ...valid, rtcMmioComplete: true },
     ]) {
       const refused = readEsp32S3DirectBootSystemMmio(initial, invalid);
@@ -541,7 +541,7 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       { ...cpuAccess, width: 1 },
       { ...cpuAccess, width: 2 },
       { ...cpuAccess, isWrite: true },
-      { ...cpuAccess, pc: 0x4037_71d3 },
+      { ...cpuAccess, pc: 0x4037_6f8f },
     ]) {
       const refused = readEsp32S3DirectBootSystemMmio(accepted.state, invalid);
       expect(refused.status).toBe("refused");

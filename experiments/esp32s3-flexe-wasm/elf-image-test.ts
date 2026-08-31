@@ -78,12 +78,12 @@ for (const [name, bytes, expected] of malformed) {
 }
 
 const real = parseXtensaElf32(readFileSync(DEFAULT_TINYDRAW_ESP32S3_FULL_ELF));
-assert.equal(real.entryPoint, 0x4037_5c9c);
-assert.equal(real.elfBytes, 21_598_616);
-assert.equal(real.elfSha256, "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5");
+assert.equal(real.entryPoint, 0x4037_5c34);
+assert.equal(real.elfBytes, 15_230_428);
+assert.equal(real.elfSha256, "4e121a3642a6f18766cfe96c2be6adc8a0017fba4afa82105d642168ea40e2c8");
 assert.equal(real.loadSegments.length, 8);
-assert.equal(real.totalFileBytes, 1_506_239);
-assert.equal(real.totalMemoryBytes, 3_835_451);
+assert.equal(real.totalFileBytes, 817_971);
+assert.equal(real.totalMemoryBytes, 2_004_176);
 assert.deepEqual(
   real.loadSegments.map(({ index, virtualAddress, fileBytes, memoryBytes, permissions }) => ({
     index,
@@ -93,12 +93,12 @@ assert.deepEqual(
     permissions,
   })),
   [
-    { index: 0, virtualAddress: 0x3c00_0020, fileBytes: 0, memoryBytes: 983_040, permissions: { read: true, write: true, execute: false } },
-    { index: 1, virtualAddress: 0x3c00_0020, fileBytes: 0, memoryBytes: 1_310_688, permissions: { read: true, write: true, execute: false } },
-    { index: 2, virtualAddress: 0x3c0f_0020, fileBytes: 293_276, memoryBytes: 307_267, permissions: { read: true, write: true, execute: false } },
-    { index: 3, virtualAddress: 0x3fc8_8000, fileBytes: 147_032, memoryBytes: 168_256, permissions: { read: true, write: true, execute: false } },
-    { index: 4, virtualAddress: 0x4037_4000, fileBytes: 141_067, memoryBytes: 141_312, permissions: { read: true, write: true, execute: true } },
-    { index: 5, virtualAddress: 0x4200_0020, fileBytes: 924_828, memoryBytes: 924_828, permissions: { read: true, write: false, execute: true } },
+    { index: 0, virtualAddress: 0x3c00_0020, fileBytes: 0, memoryBytes: 458_752, permissions: { read: true, write: true, execute: false } },
+    { index: 1, virtualAddress: 0x3c00_0020, fileBytes: 0, memoryBytes: 720_864, permissions: { read: true, write: true, execute: false } },
+    { index: 2, virtualAddress: 0x3c07_0020, fileBytes: 217_296, memoryBytes: 217_296, permissions: { read: true, write: true, execute: false } },
+    { index: 3, virtualAddress: 0x3fc8_8000, fileBytes: 101_052, memoryBytes: 107_408, permissions: { read: true, write: true, execute: false } },
+    { index: 4, virtualAddress: 0x4037_4000, fileBytes: 102_703, memoryBytes: 102_912, permissions: { read: true, write: true, execute: true } },
+    { index: 5, virtualAddress: 0x4200_0020, fileBytes: 396_884, memoryBytes: 396_884, permissions: { read: true, write: false, execute: true } },
     { index: 6, virtualAddress: 0x5000_0000, fileBytes: 36, memoryBytes: 36, permissions: { read: true, write: true, execute: false } },
     { index: 7, virtualAddress: 0x600f_ffe8, fileBytes: 0, memoryBytes: 24, permissions: { read: true, write: true, execute: false } },
   ],

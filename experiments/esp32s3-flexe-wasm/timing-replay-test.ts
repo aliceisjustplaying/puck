@@ -19,7 +19,7 @@ import type { TimingMachineConfiguration } from "../../packs/esp32-s3-touch-amol
 import { runRuntimeTimingTrace } from "../../packs/esp32-s3-touch-amoled-18/timing/runtime-trace";
 import {
   ESP32_S3_EXTERNAL_WINDOWS,
-  ESP32_S3_IDF_V6_0_2_MMU_METADATA,
+  ESP32_S3_IDF_V6_1_MMU_METADATA,
   ESP32_S3_MMU_ENTRY_COUNT,
   ESP32_S3_MMU_PAGE_SIZE_BYTES,
   Esp32S3ExternalMmu,
@@ -31,7 +31,7 @@ import { sha256 } from "./lib";
 import { TRACE_KINDS, decodeTraceBytes, type DecodedTrace } from "./trace-abi";
 import { adaptFlexeTraceToRuntimeTiming } from "./trace-timing-adapter";
 
-const TRACE_SHA256 = "3a977c98d067f0fc9bb84b0f9d4f163ac34f29451d9c7c9af727bcc6bef8fecc";
+const TRACE_SHA256 = "833a31ab8b4de8a961fd08ec5836050d6989fbb88b20aea7bb923ad4361e3b8f";
 const TRACE_CAPACITY = 128;
 const SRAM_BASE = 0x3fca0000n;
 const SRAM_SIZE = 0x10000n;
@@ -137,7 +137,7 @@ mmuEntries[iromIndex] = {
   target: "flash",
   physicalPage: EXPERIMENT_FLASH_PHYSICAL_PAGE
 };
-const mmu = new Esp32S3ExternalMmu({ metadata: ESP32_S3_IDF_V6_0_2_MMU_METADATA, entries: mmuEntries });
+const mmu = new Esp32S3ExternalMmu({ metadata: ESP32_S3_IDF_V6_1_MMU_METADATA, entries: mmuEntries });
 const externalMap = adaptExternalMmuSnapshotToAddressMap(mmu.snapshot());
 const sramRegion: AddressRegion = Object.freeze({
   id: "experiment:dram",
@@ -380,7 +380,7 @@ const emissionKinds = machine.cores[0].accesses.flatMap((result) =>
   result.status === "resolved" ? result.cacheSteps.flatMap((step) => step.emissions.map((emission) => emission.kind)) : []
 );
 const counts = Object.fromEntries([...new Set(emissionKinds)].sort().map((kind) => [kind, emissionKinds.filter((value) => value === kind).length]));
-assert(JSON.stringify(counts) === JSON.stringify({ hit: 43, "line-fill": 2, "sram-bypass": 10 }), `unexpected replay emissions ${JSON.stringify(counts)}`);
+assert(JSON.stringify(counts) === JSON.stringify({ hit: 44, "line-fill": 3, "sram-bypass": 10 }), `unexpected replay emissions ${JSON.stringify(counts)}`);
 const cpuEvents = machine.issuedEvents.filter((issued) => issued.origin.kind === "cpu");
 assert(cpuEvents.length === 43, `expected 43 CPU events, got ${cpuEvents.length}`);
 assert(cpuEvents.every((event) =>
@@ -392,13 +392,13 @@ const dependentLoadUseEvents = cpuEvents.filter((event) =>
   event.cost.status === "known" && event.cost.cycles === 2n
 );
 assert(dependentLoadUseEvents.length === 0, "staging trace unexpectedly gained a dependent SRAM load-use pair");
-assert(machine.issuedEvents.length === 98, `expected 98 issued events, got ${machine.issuedEvents.length}`);
-assert(machine.execution.events.filter((event) => event.resource === "mspi").length === 2, "instruction misses did not reach MSPI");
+assert(machine.issuedEvents.length === 100, `expected 100 issued events, got ${machine.issuedEvents.length}`);
+assert(machine.execution.events.filter((event) => event.resource === "mspi").length === 3, "instruction misses did not reach MSPI");
 assert(machine.claim.unknownCostEventIds.length === 0, "adopted hot-hit costs left an unknown event");
 const calibratedHits = perRecord.flatMap((record) =>
   record.timing.emissions.filter((emission) => emission.kind === "hit")
 );
-assert(calibratedHits.length === 43, "expected 43 calibrated instruction-cache hits");
+assert(calibratedHits.length === 44, "expected 44 calibrated instruction-cache hits");
 assert(calibratedHits.every((emission) =>
   emission.cost.status === "known" &&
   emission.cost.cycles === "0" &&
@@ -407,17 +407,19 @@ assert(calibratedHits.every((emission) =>
 const calibratedLineFills = perRecord.flatMap((record) =>
   record.timing.emissions.filter((emission) => emission.kind === "line-fill")
 );
-assert(calibratedLineFills.length === 2, "expected two calibrated instruction-cache line fills");
+assert(calibratedLineFills.length === 3, "expected three calibrated instruction-cache line fills");
 assert(calibratedLineFills.every((emission) =>
   emission.cost.status === "known" &&
   emission.cost.calibration === "calibrated" &&
   (emission.cost.cycles === "204" || emission.cost.cycles === "266")
 ), "instruction-cache line fill did not use adopted hardware evidence");
+const instructionHitCounts = perRecord
+  .filter((record) => record.trace.kind === "instruction")
+  .map((record) => record.timing.emissions.filter((emission) => emission.kind === "hit").length);
 assert(
-  perRecord
-    .filter((record) => record.trace.kind === "instruction")
-    .every((record) => record.timing.emissions.filter((emission) => emission.kind === "hit").length === 1),
-  "a staging instruction no longer resolves through exactly one instruction-cache line"
+  instructionHitCounts.filter((count) => count === 1).length === 42 &&
+    instructionHitCounts.filter((count) => count === 2).length === 1,
+  "the re-pinned staging instruction-cache-line split changed",
 );
 for (const record of perRecord.filter((candidate) => candidate.trace.kind !== "instruction")) {
   assert(record.resolution[0]?.physicalBackingId === "esp32-s3-internal-sram", `${record.access.id} left SRAM`);

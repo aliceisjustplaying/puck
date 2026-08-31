@@ -25,9 +25,9 @@ export interface ExternalMmuMetadata {
   readonly sources: readonly MmuSourceReference[];
 }
 
-export const ESP32_S3_IDF_V6_0_2_MMU_METADATA: ExternalMmuMetadata = Object.freeze({
+export const ESP32_S3_IDF_V6_1_MMU_METADATA: ExternalMmuMetadata = Object.freeze({
   architectureCalibration: "uncalibrated",
-  idfVersion: "v6.0.2",
+  idfVersion: "v6.1",
   sources: Object.freeze([
     Object.freeze({
       path: "components/soc/esp32s3/include/soc/ext_mem_defs.h",
@@ -227,8 +227,8 @@ function validateMetadata(metadata: ExternalMmuMetadata): void {
     throw new Error("config.metadata.architectureCalibration must remain uncalibrated");
   }
   requireNonEmpty(metadata.idfVersion, "config.metadata.idfVersion");
-  if (metadata.idfVersion !== ESP32_S3_IDF_V6_0_2_MMU_METADATA.idfVersion) {
-    throw new Error("config.metadata.idfVersion must be v6.0.2 for this MMU definition");
+  if (metadata.idfVersion !== ESP32_S3_IDF_V6_1_MMU_METADATA.idfVersion) {
+    throw new Error("config.metadata.idfVersion must be v6.1 for this MMU definition");
   }
   if (!Array.isArray(metadata.sources) || metadata.sources.length === 0) {
     throw new Error("config.metadata.sources must contain at least one exact source reference");
@@ -245,10 +245,10 @@ function validateMetadata(metadata: ExternalMmuMetadata): void {
       requireNonEmpty(symbol, `config.metadata.sources[${index}].symbols[${symbolIndex}]`);
     }
   }
-  if (metadata.sources.length !== ESP32_S3_IDF_V6_0_2_MMU_METADATA.sources.length) {
-    throw new Error("config.metadata.sources must match the pinned ESP-IDF v6.0.2 source set");
+  if (metadata.sources.length !== ESP32_S3_IDF_V6_1_MMU_METADATA.sources.length) {
+    throw new Error("config.metadata.sources must match the pinned ESP-IDF v6.1 source set");
   }
-  for (const [index, expected] of ESP32_S3_IDF_V6_0_2_MMU_METADATA.sources.entries()) {
+  for (const [index, expected] of ESP32_S3_IDF_V6_1_MMU_METADATA.sources.entries()) {
     const actual = metadata.sources[index]!;
     if (
       actual.path !== expected.path ||
@@ -257,7 +257,7 @@ function validateMetadata(metadata: ExternalMmuMetadata): void {
         (symbol: string, symbolIndex: number) => symbol !== expected.symbols[symbolIndex],
       )
     ) {
-      throw new Error("config.metadata.sources must match the pinned ESP-IDF v6.0.2 source set");
+      throw new Error("config.metadata.sources must match the pinned ESP-IDF v6.1 source set");
     }
   }
 }
@@ -335,7 +335,7 @@ export class Esp32S3ExternalMmu {
     }
     normalized.sort((left, right) => left.index - right.index);
     this.#entries = Object.freeze(normalized);
-    this.#metadata = ESP32_S3_IDF_V6_0_2_MMU_METADATA;
+    this.#metadata = ESP32_S3_IDF_V6_1_MMU_METADATA;
   }
 
   snapshot(): ExternalMmuSnapshot {
@@ -568,9 +568,9 @@ export function adaptExternalMmuSnapshotToAddressMap(
     addressBits: 32,
     metadata: Object.freeze({
       architectureCalibration: "uncalibrated",
-      source: addressMapSource(ESP32_S3_IDF_V6_0_2_MMU_METADATA),
+      source: addressMapSource(ESP32_S3_IDF_V6_1_MMU_METADATA),
     }),
     regions: Object.freeze(regions),
-    mmuClaim: ESP32_S3_IDF_V6_0_2_MMU_METADATA,
+    mmuClaim: ESP32_S3_IDF_V6_1_MMU_METADATA,
   });
 }

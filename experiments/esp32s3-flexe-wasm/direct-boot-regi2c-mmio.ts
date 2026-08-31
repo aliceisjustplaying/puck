@@ -1,16 +1,16 @@
 export const ESP32S3_I2C_MST_MMIO_PAGE = 0x6000_e000;
 export const ESP32S3_I2C_MST_ANA_CONF0_REG = 0x6000_e040;
-export const ESP32S3_DIRECT_BOOT_I2C_MST_START_CLEAR_READ_PC = 0x4037_f6b8;
-export const ESP32S3_DIRECT_BOOT_I2C_MST_START_CLEAR_WRITE_PC = 0x4037_f6c2;
-export const ESP32S3_DIRECT_BOOT_I2C_MST_START_SET_READ_PC = 0x4037_f6c7;
-export const ESP32S3_DIRECT_BOOT_I2C_MST_START_SET_WRITE_PC = 0x4037_f6d1;
+export const ESP32S3_DIRECT_BOOT_I2C_MST_START_CLEAR_READ_PC = 0x4037_d7f8;
+export const ESP32S3_DIRECT_BOOT_I2C_MST_START_CLEAR_WRITE_PC = 0x4037_d802;
+export const ESP32S3_DIRECT_BOOT_I2C_MST_START_SET_READ_PC = 0x4037_d807;
+export const ESP32S3_DIRECT_BOOT_I2C_MST_START_SET_WRITE_PC = 0x4037_d811;
 
 /* Prior bootloader calibration completed and calibration_stop selected FORCE_HIGH. */
 export const ESP32S3_DIRECT_BOOT_I2C_MST_ANA_CONF0 = 0x0100_0004;
 export const ESP32S3_DIRECT_BOOT_I2C_MST_CAL_START_LOW = 0x0100_0008;
 export const ESP32S3_DIRECT_BOOT_I2C_MST_ANA_CONF0_PROVENANCE = Object.freeze({
-  source: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_bbpll_configure",
-  register: "ESP-IDF v6.0.2 soc/esp32s3/include/soc/regi2c_defs.h: I2C_MST_ANA_CONF0_REG",
+  source: "ESP-IDF v6.1 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_bbpll_configure",
+  register: "ESP-IDF v6.1 soc/esp32s3/include/soc/regi2c_defs.h: I2C_MST_ANA_CONF0_REG",
   inheritedState: "prior bootloader calibration observed CAL_DONE then calibration_stop selected FORCE_HIGH",
 });
 

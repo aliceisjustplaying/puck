@@ -97,14 +97,13 @@ the hardware-versus-cloud boundaries below.
 
 ## Toolchain currency
 
-The project tracks the latest stable ESP-IDF. The board and fixtures
-currently build with v6.0.2; v6.1 is already installed through eim. An IDF
+The project tracks the latest stable ESP-IDF. The board and fixtures build
+with v6.1 as of the 2026-08-31 lane-zero flag day. An IDF
 bump is a provenance event, not a chore: every hardware receipt pins the
 IDF version, sdkconfig hash, and compiler, and a new compiler changes
 codegen and can shift measured costs.
 
-The bump is lane zero of the restart, while rebaselining is still a two to
-four agent-hour job plus one board session. Checklist:
+The bump was lane zero of the restart. Its receipt and fixture checklist was:
 
 - rebuild the fixture ELFs under 6.1 and re-pin hashes, addresses, and
   the ISA inventory;
@@ -118,6 +117,13 @@ four agent-hour job plus one board session. Checklist:
 - one flag day, no mixing: v6.0.2 receipts remain valid historical
   evidence for their pinned toolchain, all new evidence is 6.1, and the
   6.0.2-versus-6.1 delta is retained as a toolchain-sensitivity receipt.
+
+The flag day rebuilt and re-pinned the fixtures and ISA inventories, retained
+the IDF-owned interrupt and boot deltas, and confirmed the architectural
+headline values. The strict receipt criterion remains incomplete for six
+explicit RTC/reset groups after four boots because of systematic USB capture
+truncation. The immutable ledger and artifacts are in
+[`idf61-rebaseline-3db3985`](../packs/esp32-s3-touch-amoled-18/timing/evidence/idf61-rebaseline-3db3985/README.md).
 
 esp32sim itself is version-agnostic about application firmware (it boots
 unmodified images), so lane zero concerns this project's receipts and

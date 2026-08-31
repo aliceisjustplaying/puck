@@ -3,6 +3,12 @@
 The `receipts/` directory and `esp32s3-rev02-tinydraw-d81e2ea-candidate.json`
 are the original counter-free cohort.
 
+[`idf61-rebaseline-3db3985/`](idf61-rebaseline-3db3985/README.md) preserves
+lane zero's ESP-IDF 6.1 flag-day captures, recovered receipts, strict coverage
+ledger, fixture and toolchain pins, and the retained v6.0.2-versus-v6.1 delta.
+Its strict two-independent-receipt criterion is incomplete for six explicitly
+listed RTC/reset groups because of repeated USB capture truncation.
+
 `receipts-bf169bc/` contains 118 receipts from three boots of TinyDraw commit
 `bf169bc0e2e3f7cb3cff9b8bbda2861ec436be7d`. That firmware records ESP32-S3
 instruction and data cache counters, configures the DBUS flash classifier to

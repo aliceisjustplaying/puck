@@ -1,29 +1,32 @@
 {
-  "schemaVersion": 1,
   "inputs": {
     "flexeCommit": "34ea9eb6eef921b59a55e6a435c7fc55c5727835",
-    "runnerPatchSha256": "d7ab107c10212be6331eafbf9c601da524ac889d58a07aa6ff50c36db92a8e5f",
+    "runnerPatchSha256": "f4a7a5b9b2073dcf93aa1729e190a9f85923d09ac1dc983fa5c805e96653ddc4",
     "freestandingPatchSha256": "dbd2c623bfc9f9f33c4e4a98adcf06dec1d9034c659ad3c7afe94d373c48636d",
     "esp32s3PatchSha256": "d843d494c37903a4e54fc03eb8fffc9337ff0f20d054bb9df5f92dd6de0ece0c",
     "moduleBytes": 93998,
-    "moduleSha256": "54c601ab9fa2a57f82c62e65f0d5810889055a09ffc209010f87ac00839dc3aa",
+    "moduleSha256": "27e547da2868c6661c7f397a43a9fb27c08c9c76b839d85ef9f0558e9777f366",
     "objdumpSha256": "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466",
-    "scalarElfSha256": "e9681a8015728b95a9e948a56a0cbe4245b1abff812fa0b70b93c4ca1a29f044",
-    "pieElfSha256": "3cb3f1d4751a14132e5a4e6e1d936cbd81cf8b04a9a9ac3d9470a104c93c6a1b",
-    "stagingElfSha256": "55164f2c9c6ab825dba9c2d8bd05319e381e6e2ce0cb6d4272fdb2e3a7cd415f"
+    "scalarElfSha256": "143e9f5185d010a8b5344ee5ed2c82a99928dba6839a84d746219d9045de468f",
+    "pieElfSha256": "1b0475db6ab30e1e6b6ee07ae77ae46b21c874cac64a736e5ba86604a68234ce",
+    "stagingElfSha256": "4e121a3642a6f18766cfe96c2be6adc8a0017fba4afa82105d642168ea40e2c8"
   },
   "scalar": {
     "symbol": "tlsf_alloc_overhead",
-    "pc": "0x403808f4",
+    "pc": "0x40380ac8",
     "codeSha256": "cebc5d75741ee728f371bf15e6f834d1cacd50ce35b264385313c30b542ee7b7",
-    "mnemonics": ["entry", "movi.n", "retw.n"],
+    "mnemonics": [
+      "entry",
+      "movi.n",
+      "retw.n"
+    ],
     "reason": "returned",
     "steps": 3,
     "returnRegister": "a10",
     "returnValue": 4,
     "boundedReason": "maxSteps",
     "boundedSteps": 2,
-    "boundedPc": "0x403808f9"
+    "boundedPc": "0x40380acd"
   },
   "scalarIsa": {
     "codeSha256": "8d6505274b14a19b6722bddd78e435d15010389f9e7ca51948333fcbe113575e",
@@ -208,14 +211,94 @@
       }
     ],
     "nonQupVariants": [
-      { "name": "s16-ip", "codeSha256": "d52240979e826501f559bed8744df5ac663c83977ac9409d2a714a27186e2b95", "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", "reason": "maxSteps", "steps": 6, "sourceAfter": "0x3fca1030", "destinationAfter": "0x3fca2010", "accxLow": "0x5d5", "accxHigh": "0x0" },
-      { "name": "s8-ip", "codeSha256": "ff0b806472c8be5b610698c9a6595287e718d4f41462b2140dbbfeb5aa68ccb4", "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", "reason": "maxSteps", "steps": 6, "sourceAfter": "0x3fca1030", "destinationAfter": "0x3fca2010", "accxLow": "0xfffff8d6", "accxHigh": "0xff" },
-      { "name": "u16-ip", "codeSha256": "2ff81dc376008dc8e95c32c6c6d46cf5507cf1b20758bd43f20cd9966cf53bab", "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", "reason": "maxSteps", "steps": 6, "sourceAfter": "0x3fca1030", "destinationAfter": "0x3fca2010", "accxLow": "0xffaf05d5", "accxHigh": "0x0" },
-      { "name": "u8-ip", "codeSha256": "680eef3ddde89e3ad5fadbf8c660598b42b495b2ec8b934f57dab37a5fecff07", "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", "reason": "maxSteps", "steps": 6, "sourceAfter": "0x3fca1030", "destinationAfter": "0x3fca2010", "accxLow": "0x1b1d6", "accxHigh": "0x0" },
-      { "name": "s16-xp", "codeSha256": "542bb33507877bde8d8dc5e201035e073552940e2304078ce81bbd3c808f76ba", "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", "reason": "maxSteps", "steps": 6, "sourceAfter": "0x3fca1048", "destinationAfter": "0x3fca2010", "accxLow": "0x5d5", "accxHigh": "0x0" },
-      { "name": "s8-xp", "codeSha256": "f4cc3daf3def7aec0415c1a7f7f86cb63fdc782b2c1d463687ea02078c0d8b41", "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", "reason": "maxSteps", "steps": 6, "sourceAfter": "0x3fca1048", "destinationAfter": "0x3fca2010", "accxLow": "0xfffff8d6", "accxHigh": "0xff" },
-      { "name": "u16-xp", "codeSha256": "d9936b4ef850362a2cd8e955c7186b0c35b4e214738a00f8622d305565baa860", "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", "reason": "maxSteps", "steps": 6, "sourceAfter": "0x3fca1048", "destinationAfter": "0x3fca2010", "accxLow": "0xffaf05d5", "accxHigh": "0x0" },
-      { "name": "u8-xp", "codeSha256": "79727a2cd50634f4a5fc3781059e29ca36d84b3b2f7cf9fcd1fb2992ef02a0f2", "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", "reason": "maxSteps", "steps": 6, "sourceAfter": "0x3fca1048", "destinationAfter": "0x3fca2010", "accxLow": "0x1b1d6", "accxHigh": "0x0" }
+      {
+        "name": "s16-ip",
+        "codeSha256": "d52240979e826501f559bed8744df5ac663c83977ac9409d2a714a27186e2b95",
+        "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 6,
+        "sourceAfter": "0x3fca1030",
+        "destinationAfter": "0x3fca2010",
+        "accxLow": "0x5d5",
+        "accxHigh": "0x0"
+      },
+      {
+        "name": "s8-ip",
+        "codeSha256": "ff0b806472c8be5b610698c9a6595287e718d4f41462b2140dbbfeb5aa68ccb4",
+        "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 6,
+        "sourceAfter": "0x3fca1030",
+        "destinationAfter": "0x3fca2010",
+        "accxLow": "0xfffff8d6",
+        "accxHigh": "0xff"
+      },
+      {
+        "name": "u16-ip",
+        "codeSha256": "2ff81dc376008dc8e95c32c6c6d46cf5507cf1b20758bd43f20cd9966cf53bab",
+        "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 6,
+        "sourceAfter": "0x3fca1030",
+        "destinationAfter": "0x3fca2010",
+        "accxLow": "0xffaf05d5",
+        "accxHigh": "0x0"
+      },
+      {
+        "name": "u8-ip",
+        "codeSha256": "680eef3ddde89e3ad5fadbf8c660598b42b495b2ec8b934f57dab37a5fecff07",
+        "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 6,
+        "sourceAfter": "0x3fca1030",
+        "destinationAfter": "0x3fca2010",
+        "accxLow": "0x1b1d6",
+        "accxHigh": "0x0"
+      },
+      {
+        "name": "s16-xp",
+        "codeSha256": "542bb33507877bde8d8dc5e201035e073552940e2304078ce81bbd3c808f76ba",
+        "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 6,
+        "sourceAfter": "0x3fca1048",
+        "destinationAfter": "0x3fca2010",
+        "accxLow": "0x5d5",
+        "accxHigh": "0x0"
+      },
+      {
+        "name": "s8-xp",
+        "codeSha256": "f4cc3daf3def7aec0415c1a7f7f86cb63fdc782b2c1d463687ea02078c0d8b41",
+        "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 6,
+        "sourceAfter": "0x3fca1048",
+        "destinationAfter": "0x3fca2010",
+        "accxLow": "0xfffff8d6",
+        "accxHigh": "0xff"
+      },
+      {
+        "name": "u16-xp",
+        "codeSha256": "d9936b4ef850362a2cd8e955c7186b0c35b4e214738a00f8622d305565baa860",
+        "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 6,
+        "sourceAfter": "0x3fca1048",
+        "destinationAfter": "0x3fca2010",
+        "accxLow": "0xffaf05d5",
+        "accxHigh": "0x0"
+      },
+      {
+        "name": "u8-xp",
+        "codeSha256": "79727a2cd50634f4a5fc3781059e29ca36d84b3b2f7cf9fcd1fb2992ef02a0f2",
+        "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 6,
+        "sourceAfter": "0x3fca1048",
+        "destinationAfter": "0x3fca2010",
+        "accxLow": "0x1b1d6",
+        "accxHigh": "0x0"
+      }
     ],
     "unsupportedCodeSha256": "d1b7ee2d8a9f85a50627d23357db5c750a0801a44228ad3a62863cb1a4a6bc6f",
     "unsupportedReason": "unsupported",
@@ -394,27 +477,61 @@
     "reason": "maxSteps",
     "steps": 12,
     "sourceAfter": "0x3fca0ff5",
-    "lowWords": ["0x1", "0x7fff00", "0x80000000", "0xffffffff", "0xffffffff"],
-    "highWords": ["0x1234", "0xfffedc00", "0x4000ffff", "0x0", "0xffffffc0"]
+    "lowWords": [
+      "0x1",
+      "0x7fff00",
+      "0x80000000",
+      "0xffffffff",
+      "0xffffffff"
+    ],
+    "highWords": [
+      "0x1234",
+      "0xfffedc00",
+      "0x4000ffff",
+      "0x0",
+      "0xffffffc0"
+    ]
   },
   "unsignedQaccLoadIsa": {
     "u16CodeSha256": "f4877796b6d9ab801d4b78a3c521848d22945eb8e1c9e6a5728c41693f51cce7",
     "u16SourceAfter": "0x3fca0ff5",
-    "u16Words": ["0x1", "0x7fff00", "0x80000000", "0xff000000", "0xff", "0x1234", "0xfedc00", "0x40000000", "0x0", "0xc0"],
+    "u16Words": [
+      "0x1",
+      "0x7fff00",
+      "0x80000000",
+      "0xff000000",
+      "0xff",
+      "0x1234",
+      "0xfedc00",
+      "0x40000000",
+      "0x0",
+      "0xc0"
+    ],
     "u8CodeSha256": "f4d9213f3f0e64b5d31f4e2cc092c8099773c1cf791a39d9938424b921159b84",
     "u8SourceAfter": "0x3fca1025",
-    "u8Words": ["0x7f00001", "0xf0008000", "0x12000f", "0x40000fe0", "0xc0000", "0x5500002", "0x9000aa00", "0x110009", "0x33000220", "0x44000"],
+    "u8Words": [
+      "0x7f00001",
+      "0xf0008000",
+      "0x12000f",
+      "0x40000fe0",
+      "0xc0000",
+      "0x5500002",
+      "0x9000aa00",
+      "0x110009",
+      "0x33000220",
+      "0x44000"
+    ],
     "unsupportedCodeSha256": "e4504bce4ed1f26407dee222ad7dedc4aef00d970b642a3148f47f155f133ad8",
     "unsupportedReason": "unsupported",
     "unsupportedEncoding": "0x7a4ca4"
   },
   "threadptrIsa": {
-    "codeSha256": "b8fc713dd1f67f2ece4f2a7d61c0a6d6a44ec425dcfc276d3ad48acf21ddc016",
-    "literalPageSha256": "e89234c3f32f50796cad7f7bd0161582e10acd07151aaefe1006acc063f38f01",
+    "codeSha256": "3d2bf37fdab4f464fdfa651bb698e79b45edbfb89c637f130e768a78feb978fc",
+    "literalPageSha256": "afae203c57c1b0efe0cb7e9f262f9dada5c41b1fb3fb3e285a9b65881085cdf6",
     "reason": "returned",
     "steps": 5,
     "returnRegister": "a10",
-    "returnValue": "0x3fcabf20",
+    "returnValue": "0x3fca0b98",
     "unknownCodeSha256": "20a01af909b933acb480fc297e1aac114345d4ea06e96d9e526a285b21797128",
     "unknownReason": "stepError",
     "unknownSteps": 0,
@@ -445,21 +562,26 @@
     "codeSha256": "56b4f705331de9140a74220f8259e40e6a6311a6d724e1e25784006944ac80f5",
     "reason": "maxSteps",
     "steps": 12,
-    "values": [17, 34, 51, 68]
+    "values": [
+      17,
+      34,
+      51,
+      68
+    ]
   },
   "entry": {
     "symbol": "call_start_cpu0",
-    "pc": "0x40375a54",
-    "codeSha256": "a29017f57f57d4a02c87b4e63e0ade179c21e3382b264bf5cd4217defc984aaf",
-    "literalPageSha256": "f2f990dd3f25c373615b4d0d9bb58e372d32a19db242ebf7c9c2e999c61e3b2e",
+    "pc": "0x40375aa8",
+    "codeSha256": "7a49cd0780119af5a4154881eda6fe75e2ebed6529f4525338492b50bcb27010",
+    "literalPageSha256": "ebe62c488c28edd5198960234f004b0479131753f9b8ff1da3354864861a20b4",
     "reason": "maxSteps",
     "steps": 5,
-    "stopPc": "0x40375a62",
+    "stopPc": "0x40375ab6",
     "nextRomTarget": "0x4000057c"
   },
   "pie": {
     "symbol": "tinydraw_stage_pixels_swapped_pie",
-    "pc": "0x40377698",
+    "pc": "0x40377818",
     "codeSha256": "f0503e09af131793fa0dfdf9077a9d433225c08962672d7f492f1496b15d1c75",
     "reason": "returned",
     "supportedSteps": 10,
@@ -468,7 +590,7 @@
   },
   "staging": {
     "symbol": "_ZN8tinydraw5esp3212gate_harness12_GLOBAL__N_1L34stage_pixels_swapped_scalar_oracleEPKtPti",
-    "pc": "0x4205824c",
+    "pc": "0x420590d8",
     "codeSha256": "a545acd197c5b75f0351256aa6a9c8a7028cb42f91e617c28317fa560d873877",
     "outputSha256": "6d007b52dcec2b7b879b7a749e164e7991fd49e44d05edd26b2a3675805b7581",
     "mnemonics": [
@@ -501,7 +623,7 @@
       "readRecords": 5,
       "writeRecords": 5,
       "overflow": false,
-      "sha256": "3a977c98d067f0fc9bb84b0f9d4f163ac34f29451d9c7c9af727bcc6bef8fecc"
+      "sha256": "833a31ab8b4de8a961fd08ec5836050d6989fbb88b20aea7bb923ad4361e3b8f"
     },
     "overflowTest": {
       "prefixInstructions": 3,
@@ -509,7 +631,7 @@
       "overflowKind": "read",
       "reason": "traceOverflow",
       "steps": 101,
-      "pc": "0x42058260",
+      "pc": "0x420590ec",
       "records": 127,
       "instructionRecords": 101,
       "readRecords": 13,
@@ -518,14 +640,14 @@
       "overflow": true,
       "registerA9": "0x191819",
       "outputSha256": "74f5db5540004599deb178b532d9960f1125145cd15f0f7844a1ecffdb1feac7",
-      "traceSha256": "68806f543fe8b0c0bb08338ff64ec77efbde4e413920456afb11435ff85bec74"
+      "traceSha256": "6ac25a35af3f7d474ea95bbb1ca01b024b333a140b691876a5ec8fec3173a427"
     }
   },
   "boundaries": {
     "unsupported": {
       "reason": "unsupported",
       "steps": 3,
-      "pc": "0x403776a0",
+      "pc": "0x40377820",
       "matchesStepBoundState": true
     },
     "instructionOverflow": {

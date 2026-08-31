@@ -26,25 +26,25 @@ import { sha256 } from "./lib";
 import { TRACE_KINDS, type DecodedTrace } from "./trace-abi";
 import { adaptFlexeTraceToRuntimeTiming } from "./trace-timing-adapter";
 
-const FULL_TRACE_RECORD_SHA256 = "9c17f21cef48da6284bc5ecc1764673645c6b0d63fa531170209cd8463d27830";
+const FULL_TRACE_RECORD_SHA256 = "e025823c09a8c5558dbd2147bde05e8396c6d0f4b6103ca77947d11b4bc27d2d";
 const RTC_MMIO_PAGE = 0x6000_8000;
 const REGI2C_MMIO_PAGE = 0x6000_e000;
 const SYSTEM_MMIO_PAGE = 0x600c_0000;
 const CACHE_MMIO_PAGE = 0x600c_4000;
 const PAGE_BYTES = 4096;
 const EXPECTED_SRAM_PAGES = Object.freeze([
-  0x3fca_6000,
-  0x3fca_b000,
-  0x3fca_c000,
+  0x3fc9_d000,
+  0x3fca_0000,
+  0x3fca_1000,
   0x3fce_9000,
   0x4037_4000,
   0x4037_5000,
+  0x4037_6000,
   0x4037_7000,
-  0x4037_e000,
+  0x4037_c000,
+  0x4037_d000,
   0x4037_f000,
   0x4038_0000,
-  0x4038_1000,
-  0x4038_2000,
 ]);
 const EXPECTED_FLASH_PAGES = Object.freeze([0x4200_0000, 0x4200_3000]);
 
@@ -173,13 +173,13 @@ const run = await runSparseXtensaElf(moduleBytes, image, {
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true, cpuTicksPerUs: 40 },
 });
 
-assert.equal(run.record.steps, 943);
+assert.equal(run.record.steps, 940);
 assert.equal(run.record.pc, 0x4000_1c38);
-assert.equal(run.memoryTrace.count, 1_233);
+assert.equal(run.memoryTrace.count, 1_228);
 assert.equal(traceRecordSha256(run.memoryTrace), FULL_TRACE_RECORD_SHA256);
-assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.instruction).length, 943);
+assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.instruction).length, 940);
 assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.read).length, 204);
-assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.write).length, 86);
+assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.write).length, 84);
 
 const sparsePages = buildSparseElfPages(image);
 const sparsePageByAddress = new Map(sparsePages.map((page) => [page.address, page]));
@@ -439,11 +439,11 @@ const machine = runRuntimeTimingTrace({
 }, runtimeTrace);
 assert.equal(machine.status, "blocked");
 assert.equal(machine.cores[0].status, "complete");
-assert.equal(machine.cores[0].accesses.length, 1_233);
+assert.equal(machine.cores[0].accesses.length, 1_228);
 assert(machine.cores[0].accesses.every((access) => access.status === "resolved"));
 assert.equal(machine.cores[1].accesses.length, 0);
-assert.equal(runtimeTrace.input.cpu?.length, 1_060);
-assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "cache").length, 1_182);
+assert.equal(runtimeTrace.input.cpu?.length, 1_057);
+assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "cache").length, 1_177);
 assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "mmio").length, 54);
 const cpuEvents = machine.issuedEvents.filter((event) => event.origin.kind === "cpu");
 const loadUseHazards = cpuEvents.filter((event) => event.event.id.endsWith(":pre-data-cpu"));
@@ -463,17 +463,17 @@ const exactRomCallbackEvents = romCallbackCpuEvents.filter((event) =>
   event.cost.status === "known" && event.cost.source.includes("exact") &&
   event.cost.source.includes("ROM callback class")
 );
-assert.equal(cpuEvents.length, 1_060);
+assert.equal(cpuEvents.length, 1_057);
 assert.equal(loadUseHazards.length, 87);
-assert.equal(instructionCpuEvents.length, 943);
+assert.equal(instructionCpuEvents.length, 940);
 assert.equal(exactBeqzNotTaken.length, 11);
 assert.equal(exactBeqzTaken.length, 0);
 assert.equal(romCallbackCpuEvents.length, 30);
-assert.equal(exactRomCallbackEvents.length, 11);
-assert.equal(machine.issuedEvents.length, 2_296);
+assert.equal(exactRomCallbackEvents.length, 10);
+assert.equal(machine.issuedEvents.length, 2_288);
 assert.equal(exactMmioEvents.length, 40);
-assert.equal(machine.claim.unknownCostEventIds.length, 33);
-assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 2_263);
+assert.equal(machine.claim.unknownCostEventIds.length, 34);
+assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 2_254);
 assert(machine.issuedEvents.every((event) => !event.cost.source?.includes(here)),
   "full ELF timing evidence source leaked an absolute worktree path");
 assert([...instructionCpuEvents, ...loadUseHazards].every((event) =>
@@ -543,7 +543,7 @@ assert.equal(flashLineFills.length, 3);
 assert(flashLineFills.every((event) => event.cost.status === "known" && event.cost.cycles === 204n));
 assert.equal(flashHits.length, 6);
 assert(flashHits.every((event) => event.cost.status === "known" && event.cost.cycles === 0n));
-assert.equal(cacheEvents.filter((event) => event.cost.status === "known" && event.cost.cycles === 0n).length, 1_179);
+assert.equal(cacheEvents.filter((event) => event.cost.status === "known" && event.cost.cycles === 0n).length, 1_174);
 
 const issuedProjection = machine.issuedEvents.map((issued) => ({
   issueIndex: issued.issueIndex,
@@ -586,9 +586,9 @@ const actualBaseline = {
   },
   trace: {
     records: run.memoryTrace.count,
-    instructions: 943,
+    instructions: 940,
     reads: 204,
-    writes: 86,
+    writes: 84,
     observedSramPages: EXPECTED_SRAM_PAGES.map((address) => `0x${address.toString(16)}`),
     observedFlashPages: EXPECTED_FLASH_PAGES.map((address) => `0x${address.toString(16)}`),
     observedMmioPages: [RTC_MMIO_PAGE, REGI2C_MMIO_PAGE, SYSTEM_MMIO_PAGE, CACHE_MMIO_PAGE]

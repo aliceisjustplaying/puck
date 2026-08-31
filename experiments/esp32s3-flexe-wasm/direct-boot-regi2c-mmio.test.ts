@@ -18,8 +18,8 @@ describe("ESP32-S3 direct-boot REGI2C MMIO", () => {
     expect(ESP32S3_I2C_MST_ANA_CONF0_REG).toBe(0x6000_e040);
     expect(ESP32S3_DIRECT_BOOT_I2C_MST_ANA_CONF0).toBe(0x0100_0004);
     expect(ESP32S3_DIRECT_BOOT_I2C_MST_ANA_CONF0_PROVENANCE).toEqual({
-      source: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_bbpll_configure",
-      register: "ESP-IDF v6.0.2 soc/esp32s3/include/soc/regi2c_defs.h: I2C_MST_ANA_CONF0_REG",
+      source: "ESP-IDF v6.1 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_bbpll_configure",
+      register: "ESP-IDF v6.1 soc/esp32s3/include/soc/regi2c_defs.h: I2C_MST_ANA_CONF0_REG",
       inheritedState: "prior bootloader calibration observed CAL_DONE then calibration_stop selected FORCE_HIGH",
     });
     const initial = createEsp32S3DirectBootRegi2cMmio();
@@ -34,7 +34,7 @@ describe("ESP32-S3 direct-boot REGI2C MMIO", () => {
       handled: true,
       status: "accepted",
       value: 0x0100_0004,
-      state: { anaConf0: 0x0100_0004, readCount: 1, lastReadPc: 0x4037_f6b8, writeCount: 0, lastWritePc: null },
+      state: { anaConf0: 0x0100_0004, readCount: 1, lastReadPc: 0x4037_d7f8, writeCount: 0, lastWritePc: null },
     });
     if (!firstRead.handled || firstRead.status !== "accepted") throw new Error("first REGI2C read refused");
     const clearWrite = writeEsp32S3DirectBootRegi2cMmio(firstRead.state, {
@@ -69,7 +69,7 @@ describe("ESP32-S3 direct-boot REGI2C MMIO", () => {
       handled: true,
       status: "accepted",
       value: 0x0100_0008,
-      state: { anaConf0: 0x0100_0008, readCount: 2, lastReadPc: 0x4037_f6c7, writeCount: 2, lastWritePc: 0x4037_f6d1 },
+      state: { anaConf0: 0x0100_0008, readCount: 2, lastReadPc: 0x4037_d807, writeCount: 2, lastWritePc: 0x4037_d811 },
     });
     if (!setWrite.handled || setWrite.status !== "accepted") throw new Error("REGI2C set refused");
     expect(readEsp32S3DirectBootRegi2cMmio(setWrite.state, {
@@ -94,7 +94,7 @@ describe("ESP32-S3 direct-boot REGI2C MMIO", () => {
     for (const invalid of [
       { ...read, width: 2 },
       { ...read, isWrite: true },
-      { ...read, pc: 0x4037_f6b5 },
+      { ...read, pc: 0x4037_d7f5 },
       { ...read, clockRestoreComplete: false },
     ]) expect(readEsp32S3DirectBootRegi2cMmio(initial, invalid).status).toBe("refused");
     const first = readEsp32S3DirectBootRegi2cMmio(initial, read);

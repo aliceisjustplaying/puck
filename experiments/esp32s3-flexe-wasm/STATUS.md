@@ -64,6 +64,29 @@ real-ROM loading; ISA lane adds a silicon-oracle fixture corpus (the board
 is the referee, one owner at a time); timing lane implements decision
 0008's tiers.
 
+## 2026-08-31 ESP-IDF 6.1 flag day
+
+Lane zero rebuilt the panel, demo, gate-harness, timing, and core-timing
+fixtures with ESP-IDF v6.1 and xtensa-esp-elf 15.2.0. The persistent fixture
+hashes, code addresses, ISA inventories, direct-boot contracts, and execution
+baselines now pin that toolchain. Historical v6.0.2 receipts remain scoped to
+their original pins.
+
+The silicon-architectural headlines remain 35 cycles per spilled window pair,
+1.000 cycles per straight-line instruction, and the same loop-alignment and
+MMIO slopes. IDF-owned timing changed as recorded: level-1 entry/resume moved
+228/142 to 227/143, level-3 moved 223/138 to 222/139, and median boot to first
+output moved from 0.582 s to 0.472351875 s. The cache ladders showed a
+systematic one-cycle first-line probe shift that is retained as a diagnostic,
+not adopted as a chip-cost change.
+
+Four timing boots recovered 802 passing receipts across 210 identities. The
+strict two-independent-receipt criterion is complete for 204 identities and
+incomplete for six. Two have zero receipts and four have one receipt because
+of repeated USB capture truncation. The exact identities, raw captures,
+deterministic receipt archives, hashes, and toolchain delta are in
+[`idf61-rebaseline-3db3985`](../../packs/esp32-s3-touch-amoled-18/timing/evidence/idf61-rebaseline-3db3985/README.md).
+
 ## Lane A handoff
 
 The exact-board capture request
@@ -102,14 +125,14 @@ and physical landmark evidence. No lane C request is currently filed.
 ## Integrated checkpoint
 
 - Baseline commit: `c1b91b23` (QACC, ROM/REGI2C, and browser runner integrated).
-- Real ESP-IDF boot: 943 instructions and 1,233 trace records, stopping at the
+- Real ESP-IDF boot: 940 instructions and 1,228 trace records, stopping at the
   eleventh `_xtos_set_intlevel` boundary.
-- Timing replay: 2,296 events, 2,263 classified, 33 unknown, and 12 exact ROM
+- Timing replay: 2,288 events, 2,254 classified, 34 unknown, and 10 exact ROM
   callbacks.
-- ISA coverage: 63,567 supported rows and 709 gaps in the panel corpus; 3,857
+- ISA coverage: 65,143 supported rows and 753 gaps in the panel corpus; 1,651
   unsupported rows in the full corpus.
 - WebAssembly module: 93,998 bytes, SHA-256
-  `54c601ab9fa2a57f82c62e65f0d5810889055a09ffc209010f87ac00839dc3aa`.
+  `27e547da2868c6661c7f397a43a9fb27c08c9c76b839d85ef9f0558e9777f366`.
 - Browser smoke: a real browser loads the freestanding module and a bounded
   Xtensa ELF, executes one instruction, and returns `a3 = 40` at `0x40371003`.
 - Gates: aggregate experiment suite, 293 Bun tests, headless Chrome verifier,
@@ -123,10 +146,13 @@ lane redirections.
 
 ## Persistent fixtures
 
-- `out/fixtures/esp32s3-timing`: clean panel-probe ELF from TinyDraw `4b5385a`.
-- `out/fixtures/main-flash`: clean vector demo ELF from TinyDraw `7d37d76`.
-- `out/fixtures/puck-staging`: clean gate harness from TinyDraw `a91d1d7`.
-- `out/build/esp32-vector-v2-gate-harness`: full current gate-harness ELF.
+- ESP-IDF v6.1 panel-probe ELF: SHA-256
+  `143e9f5185d010a8b5344ee5ed2c82a99928dba6839a84d746219d9045de468f`.
+- ESP-IDF v6.1 vector demo ELF: SHA-256
+  `1b0475db6ab30e1e6b6ee07ae77ae46b21c874cac64a736e5ba86604a68234ce`.
+- ESP-IDF v6.1 gate-harness ELF: SHA-256
+  `4e121a3642a6f18766cfe96c2be6adc8a0017fba4afa82105d642168ea40e2c8`.
+- All three fixtures pin TinyDraw `3db39856f0a04266a42aef8cd5ead1be6fc8eca4`.
 
 The reboot removed temporary `/private/tmp` ELFs. Fixture provenance and code
 addresses were rebaselined to the persistent clean builds; behavioral and code

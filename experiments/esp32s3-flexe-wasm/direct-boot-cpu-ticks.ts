@@ -4,7 +4,7 @@ export const ESP32S3_DIRECT_BOOT_CPU_TICKS_CALLINC = 2;
 
 export const ESP32S3_DIRECT_BOOT_CPU_TICKS_PROVENANCE = Object.freeze({
   bootloaderConfig: "bootloader/config/sdkconfig.h: CONFIG_XTAL_FREQ_40=y",
-  source: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_cpu_freq_to_xtal",
+  source: "ESP-IDF v6.1 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_cpu_freq_to_xtal",
   rom: "ESP32-S3 ROM API esp_rom_set_cpu_ticks_per_us",
 });
 

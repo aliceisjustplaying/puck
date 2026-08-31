@@ -2,34 +2,34 @@ export const ESP32S3_RTC_CNTL_MMIO_PAGE = 0x6000_8000;
 export const ESP32S3_RTC_OPTIONS0_REG = 0x6000_8000;
 export const ESP32S3_RTC_XTAL_FREQ_REG = 0x6000_80c0;
 export const ESP32S3_RTC_DATE_REG = 0x6000_81fc;
-export const ESP32S3_DIRECT_BOOT_RTC_XTAL_READ_PC = 0x4037_7159;
-export const ESP32S3_DIRECT_BOOT_RTC_DATE_READ_PC = 0x4037_7301;
-export const ESP32S3_DIRECT_BOOT_RTC_DATE_WRITE_PC = 0x4037_730f;
+export const ESP32S3_DIRECT_BOOT_RTC_XTAL_READ_PC = 0x4037_6f15;
+export const ESP32S3_DIRECT_BOOT_RTC_DATE_READ_PC = 0x4037_70bd;
+export const ESP32S3_DIRECT_BOOT_RTC_DATE_WRITE_PC = 0x4037_70cb;
 export const ESP32S3_DIRECT_BOOT_RTC_XTAL_FREQ = 0x0028_0028;
 export const ESP32S3_DIRECT_BOOT_RTC_DATE = 0x0210_1271;
 export const ESP32S3_DIRECT_BOOT_RTC_DATE_XTAL = 0x0210_f271;
 export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0 = 0x1c00_8000;
 export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_PD = 0x1c00_8540;
-export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_READ_PC = 0x4037_f7df;
-export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_WRITE_PC = 0x4037_f7e8;
-export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_READ_PC = 0x4037_f640;
-export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_WRITE_PC = 0x4037_f649;
+export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_READ_PC = 0x4037_d91f;
+export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_WRITE_PC = 0x4037_d928;
+export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_READ_PC = 0x4037_d780;
+export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_WRITE_PC = 0x4037_d789;
 
 export const ESP32S3_DIRECT_BOOT_RTC_XTAL_PROVENANCE = Object.freeze({
   bootloaderConfig: "bootloader/config/sdkconfig.h: CONFIG_XTAL_FREQ=40 and CONFIG_BOOT_ROM_LOG_ALWAYS_ON=1",
-  store: "ESP-IDF v6.0.2 esp_hal_clock/esp32s3/include/hal/clk_tree_ll.h: clk_ll_xtal_store_freq_mhz",
-  bootPath: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/rtc_clk_init.c: rtc_clk_init calls rtc_clk_xtal_freq_update",
-  register: "ESP-IDF v6.0.2 esp32s3/rom/rtc.h: RTC_XTAL_FREQ_REG is RTC_CNTL_STORE4_REG",
+  store: "ESP-IDF v6.1 esp_hal_clock/esp32s3/include/hal/clk_tree_ll.h: clk_ll_xtal_store_freq_mhz",
+  bootPath: "ESP-IDF v6.1 esp_hw_support/port/esp32s3/rtc_clk_init.c: rtc_clk_init calls rtc_clk_xtal_freq_update",
+  register: "ESP-IDF v6.1 esp32s3/rom/rtc.h: RTC_XTAL_FREQ_REG is RTC_CNTL_STORE4_REG",
 });
 export const ESP32S3_DIRECT_BOOT_RTC_DATE_PROVENANCE = Object.freeze({
-  reset: "ESP-IDF v6.0.2 soc/esp32s3/register/soc/rtc_cntl_reg.h: RTC_CNTL_DATE reset 0x02101271",
-  bootPath: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_cpu_freq_to_xtal updates RTC_CNTL_SLAVE_PD",
-  ldoField: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/include/soc/rtc.h: DEFAULT_LDO_SLAVE=7 produces 0x0000e000",
+  reset: "ESP-IDF v6.1 soc/esp32s3/register/soc/rtc_cntl_reg.h: RTC_CNTL_DATE reset 0x02101271",
+  bootPath: "ESP-IDF v6.1 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_cpu_freq_to_xtal updates RTC_CNTL_SLAVE_PD",
+  ldoField: "ESP-IDF v6.1 esp_hw_support/port/esp32s3/include/soc/rtc.h: DEFAULT_LDO_SLAVE=7 produces 0x0000e000",
 });
 export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PROVENANCE = Object.freeze({
-  reset: "ESP-IDF v6.0.2 soc/esp32s3/register/soc/rtc_cntl_reg.h: OPTIONS0 reset fields produce 0x1c00a000",
-  bootloaderInit: "ESP-IDF v6.0.2 rtc.h RTC_CONFIG_DEFAULT plus rtc_init clears XTL_FORCE_PU, producing 0x1c008000",
-  transition: "ESP-IDF v6.0.2 clk_tree_ll.h clk_ll_bbpll_disable ORs force-PD mask 0x540",
+  reset: "ESP-IDF v6.1 soc/esp32s3/register/soc/rtc_cntl_reg.h: OPTIONS0 reset fields produce 0x1c00a000",
+  bootloaderInit: "ESP-IDF v6.1 rtc.h RTC_CONFIG_DEFAULT plus rtc_init clears XTL_FORCE_PU, producing 0x1c008000",
+  transition: "ESP-IDF v6.1 clk_tree_ll.h clk_ll_bbpll_disable ORs force-PD mask 0x540",
 });
 
 export interface Esp32S3DirectBootRtcMmioState {

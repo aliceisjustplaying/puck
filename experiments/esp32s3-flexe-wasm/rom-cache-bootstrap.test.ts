@@ -445,7 +445,7 @@ describe("ESP32-S3 direct app cache bootstrap", () => {
 
   test("sets the observed instruction and data MMU table sizes after data cache resume", () => {
     expect(ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureMmuSizes).toBe(0x4000_1914);
-    expect(ESP32S3_DIRECT_APP_CACHE_MMU_SIZES).toEqual({ instructionBytes: 0x3c, dataBytes: 0x3c4 });
+    expect(ESP32S3_DIRECT_APP_CACHE_MMU_SIZES).toEqual({ instructionBytes: 0x1c, dataBytes: 0x3e4 });
     let state = createEsp32S3DirectAppCacheBootstrap();
     for (const call of ESP32S3_DIRECT_APP_CACHE_BOOTSTRAP_SEQUENCE) {
       state = accepted(state, call.pc, call.arguments).state;
@@ -477,7 +477,7 @@ describe("ESP32-S3 direct app cache bootstrap", () => {
     const configured = configureEsp32S3DirectAppCacheMmuSizes(resumed.state, {
       pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureMmuSizes,
       callinc: 2,
-      arguments: [0x3c, 0x3c4],
+      arguments: [0x1c, 0x3e4],
     });
     expect(configured.handled).toBe(true);
     expect(configured.status).toBe("accepted");
@@ -493,7 +493,7 @@ describe("ESP32-S3 direct app cache bootstrap", () => {
     const invocation = {
       pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureMmuSizes,
       callinc: 2,
-      arguments: [0x3c, 0x3c4],
+      arguments: [0x1c, 0x3e4],
     } as const;
     const initial = createEsp32S3DirectAppCacheBootstrap();
     expect(configureEsp32S3DirectAppCacheMmuSizes(initial, invocation).status).toBe("refused");
@@ -529,7 +529,7 @@ describe("ESP32-S3 direct app cache bootstrap", () => {
     for (const malformed of [
       { ...invocation, callinc: 1 },
       { ...invocation, arguments: [0x38, 0x3c8] },
-      { ...invocation, arguments: [0x3c, 0x3c0] },
+      { ...invocation, arguments: [0x1c, 0x3e0] },
       { ...invocation, arguments: [0x3d, 0x3c3] },
     ]) {
       const refused = configureEsp32S3DirectAppCacheMmuSizes(resumed.state, malformed);

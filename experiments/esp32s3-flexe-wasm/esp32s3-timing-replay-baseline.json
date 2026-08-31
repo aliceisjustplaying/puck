@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "inputs": {
-    "traceSha256": "3a977c98d067f0fc9bb84b0f9d4f163ac34f29451d9c7c9af727bcc6bef8fecc",
-    "stagingElfSha256": "55164f2c9c6ab825dba9c2d8bd05319e381e6e2ce0cb6d4272fdb2e3a7cd415f",
-    "sdkconfigSha256": "ac1749b0f5b9c54e3e8e5ffc045b37a434d6b289420a8f9cf0f37fe8a3173d9b",
+    "traceSha256": "833a31ab8b4de8a961fd08ec5836050d6989fbb88b20aea7bb923ad4361e3b8f",
+    "stagingElfSha256": "4e121a3642a6f18766cfe96c2be6adc8a0017fba4afa82105d642168ea40e2c8",
+    "sdkconfigSha256": "44c7f88aecb794db451976084dc2f57f715968ec23953a082e5e5fc01ff23cf5",
     "timingProfileSha256": "31a83ab4fe2253ef7ff5a0bcc944aa5c9ca38f90eef485f48f8f725fd790402a",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
-    "mmuSha256": "fe55f294fceb898337299c46d1400e576e65ad7216462b5b4da0b46ecfed9448",
+    "mmuSha256": "6119e6ad9db25e9f2bda9aa91760e2c960800aecd173d91ba704e9489a05a933",
     "cacheSha256": "1545e87b17e7efdc908fd8fa6be4fe81a9b7c6876229693824fe5463b323bb00"
   },
   "configuration": {
@@ -56,15 +56,15 @@
     "stores": 5,
     "cpuExecutions": 43,
     "dependentSramLoadUseHazards": 0,
-    "issuedEvents": 98,
+    "issuedEvents": 100,
     "emissions": {
-      "hit": 43,
-      "line-fill": 2,
+      "hit": 44,
+      "line-fill": 3,
       "sram-bypass": 10
     },
-    "mspiEvents": 2,
-    "totalCycles": "451",
+    "mspiEvents": 3,
+    "totalCycles": "655",
     "totalCyclesReason": "complete for caller-reported events; the observed one-cycle dependent load-use hazard is not represented by this trace",
-    "perRecordSha256": "4e2419416000a775aa913e8a28ee46e9c41137bc5b19431e0c95254a303f8c67"
+    "perRecordSha256": "579133c0aaa00d5ec666ff24599bf2873ccfcc022e0b3c9098851398823d3c22"
   }
 }

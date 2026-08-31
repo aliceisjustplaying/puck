@@ -1,26 +1,32 @@
 {
   "schemaVersion": 1,
   "inputs": {
-    "elfSha256": "e9681a8015728b95a9e948a56a0cbe4245b1abff812fa0b70b93c4ca1a29f044",
-    "fixtureElfSha256": "3cb3f1d4751a14132e5a4e6e1d936cbd81cf8b04a9a9ac3d9470a104c93c6a1b",
+    "elfSha256": "143e9f5185d010a8b5344ee5ed2c82a99928dba6839a84d746219d9045de468f",
+    "fixtureElfSha256": "1b0475db6ab30e1e6b6ee07ae77ae46b21c874cac64a736e5ba86604a68234ce",
     "objdumpSha256": "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466",
     "flexeDecoderSha256": "68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0"
   },
   "coverage": {
     "decoderNormalizedMnemonics": 397,
-    "instructionRows": 64276,
-    "supportedInstructionRows": 63567,
-    "unsupportedInstructionRows": 709,
-    "rawMnemonics": 341,
-    "supportedRawMnemonics": 335,
-    "unsupportedRawMnemonics": 6
+    "instructionRows": 65896,
+    "supportedInstructionRows": 65143,
+    "unsupportedInstructionRows": 753,
+    "rawMnemonics": 351,
+    "supportedRawMnemonics": 339,
+    "unsupportedRawMnemonics": 12
   },
   "unsupportedMnemonicRows": {
-    ".byte": 699,
-    "ee.fft.ams.s16.st.incp": 2,
-    "ee.fft.cmul.s16.ld.xp": 3,
-    "ee.fft.cmul.s16.st.xp": 3,
-    "ee.vadds.s8.st.incp": 1,
+    ".byte": 728,
+    "ee.fft.ams.s16.ld.incp.uaup": 3,
+    "ee.fft.ams.s16.ld.r32.decp": 2,
+    "ee.fft.ams.s16.st.incp": 4,
+    "ee.fft.cmul.s16.ld.xp": 4,
+    "ee.fft.cmul.s16.st.xp": 5,
+    "ee.slcxxp.2q": 1,
+    "ee.src.q.ld.ip": 2,
+    "ee.src.q.ld.xp": 1,
+    "ee.vcmp.gt.s16": 1,
+    "ee.vmulas.s16.qacc.ld.ip": 1,
     "ee.vmulas.u16.qacc.ld.xp": 1
   },
   "fixtureFirstUnsupported": null

@@ -9,7 +9,7 @@ import {
 } from "./cache";
 import type { CpuExecutionEvent, DmaEvent } from "./execution";
 import {
-  ESP32_S3_IDF_V6_0_2_MMU_METADATA,
+  ESP32_S3_IDF_V6_1_MMU_METADATA,
   ESP32_S3_MMU_ENTRY_COUNT,
   Esp32S3ExternalMmu,
   adaptExternalMmuSnapshotToAddressMap,
@@ -441,7 +441,7 @@ describe("two-core composition and shared resources", () => {
     mmuEntries[0] = { index: 0, state: "mapped", target: "flash", physicalPage: 2 };
     mmuEntries[1] = { index: 1, state: "mapped", target: "psram", physicalPage: 3 };
     const mmu = new Esp32S3ExternalMmu({
-      metadata: ESP32_S3_IDF_V6_0_2_MMU_METADATA,
+      metadata: ESP32_S3_IDF_V6_1_MMU_METADATA,
       entries: mmuEntries,
     });
     const mmuAddressMap = adaptExternalMmuSnapshotToAddressMap(mmu.snapshot());

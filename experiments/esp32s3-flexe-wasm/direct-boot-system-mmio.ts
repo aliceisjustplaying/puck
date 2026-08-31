@@ -1,21 +1,21 @@
 export const ESP32S3_SYSTEM_MMIO_PAGE = 0x600c_0000;
 export const ESP32S3_SYSTEM_CPU_PER_CONF_REG = 0x600c_0010;
 export const ESP32S3_SYSTEM_SYSCLK_CONF_REG = 0x600c_0060;
-export const ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC = 0x4037_71a5;
-export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_READ_PC = 0x4037_7275;
-export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_WRITE_PC = 0x4037_727d;
-export const ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_READ_PC = 0x4037_7294;
-export const ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_WRITE_PC = 0x4037_72a5;
-export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_ADJUST_READ_PC = 0x4037_72aa;
-export const ESP32S3_DIRECT_BOOT_SYSCLK_XTAL_WRITE_PC = 0x4037_72b8;
-export const ESP32S3_DIRECT_BOOT_SYSCLK_PLL_RESTORE_READ_PC = 0x4037_f5df;
-export const ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC = 0x4037_71d6;
-export const ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC = 0x4037_71ff;
-export const ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_READ_PC = 0x4037_f6a8;
-export const ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_WRITE_PC = 0x4037_f6b3;
+export const ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC = 0x4037_6f61;
+export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_READ_PC = 0x4037_7031;
+export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_WRITE_PC = 0x4037_7039;
+export const ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_READ_PC = 0x4037_7050;
+export const ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_WRITE_PC = 0x4037_7061;
+export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_ADJUST_READ_PC = 0x4037_7066;
+export const ESP32S3_DIRECT_BOOT_SYSCLK_XTAL_WRITE_PC = 0x4037_7074;
+export const ESP32S3_DIRECT_BOOT_SYSCLK_PLL_RESTORE_READ_PC = 0x4037_d71f;
+export const ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC = 0x4037_6f92;
+export const ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC = 0x4037_6fbb;
+export const ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_READ_PC = 0x4037_d7e8;
+export const ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_WRITE_PC = 0x4037_d7f3;
 
 /*
- * TinyDraw's ESP-IDF v6.0.2 bootloader config selects 80 MHz. The S3
+ * TinyDraw's ESP-IDF v6.1 bootloader config selects 80 MHz. The S3
  * bootloader clock path selects PLL (SOC_CLK_SEL=1) and divider 1
  * (PRE_DIV_CNT=0); system_reg.h defines every other reset field as zero.
  */
@@ -24,14 +24,14 @@ export const ESP32S3_DIRECT_BOOT_SYSCLK_CONF = 0x0000_0400;
 export const ESP32S3_DIRECT_BOOT_CPU_PER_CONF = 0x0000_0004;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_PROVENANCE = Object.freeze({
   bootloaderConfig: "bootloader/config/sdkconfig.h: CONFIG_BOOTLOADER_CPU_CLK_FREQ_MHZ=80",
-  source: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_cpu_freq_to_pll_mhz",
-  register: "ESP-IDF v6.0.2 soc/esp32s3/register/soc/system_reg.h: SYSTEM_SYSCLK_CONF_REG",
+  source: "ESP-IDF v6.1 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_cpu_freq_to_pll_mhz",
+  register: "ESP-IDF v6.1 soc/esp32s3/register/soc/system_reg.h: SYSTEM_SYSCLK_CONF_REG",
 });
 export const ESP32S3_DIRECT_BOOT_CPU_PER_PROVENANCE = Object.freeze({
   bootloaderConfig: "bootloader/config/sdkconfig.h: CONFIG_BOOTLOADER_CPU_CLK_FREQ_MHZ=80",
-  clockSource: "ESP-IDF v6.0.2 esp_hal_clock/esp32s3/include/hal/clk_tree_ll.h: clk_ll_cpu_set_freq_mhz_from_pll",
-  waitMode: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/include/soc/rtc.h + rtc_init.c: default cpu_waiti_clk_gate=1 clears WAIT_MODE_FORCE_ON",
-  register: "ESP-IDF v6.0.2 soc/esp32s3/register/soc/system_reg.h: SYSTEM_CPU_PER_CONF_REG",
+  clockSource: "ESP-IDF v6.1 esp_hal_clock/esp32s3/include/hal/clk_tree_ll.h: clk_ll_cpu_set_freq_mhz_from_pll",
+  waitMode: "ESP-IDF v6.1 esp_hw_support/port/esp32s3/include/soc/rtc.h + rtc_init.c: default cpu_waiti_clk_gate=1 clears WAIT_MODE_FORCE_ON",
+  register: "ESP-IDF v6.1 soc/esp32s3/register/soc/system_reg.h: SYSTEM_CPU_PER_CONF_REG",
 });
 
 export interface Esp32S3DirectBootSystemMmioState {

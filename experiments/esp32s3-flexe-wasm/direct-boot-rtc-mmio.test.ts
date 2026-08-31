@@ -28,13 +28,13 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
   test("reads the bootloader-persisted 40 MHz crystal frequency", () => {
     expect(ESP32S3_RTC_CNTL_MMIO_PAGE).toBe(0x6000_8000);
     expect(ESP32S3_RTC_XTAL_FREQ_REG).toBe(0x6000_80c0);
-    expect(ESP32S3_DIRECT_BOOT_RTC_XTAL_READ_PC).toBe(0x4037_7159);
+    expect(ESP32S3_DIRECT_BOOT_RTC_XTAL_READ_PC).toBe(0x4037_6f15);
     expect(ESP32S3_DIRECT_BOOT_RTC_XTAL_FREQ).toBe(0x0028_0028);
     expect(ESP32S3_DIRECT_BOOT_RTC_XTAL_PROVENANCE).toEqual({
       bootloaderConfig: "bootloader/config/sdkconfig.h: CONFIG_XTAL_FREQ=40 and CONFIG_BOOT_ROM_LOG_ALWAYS_ON=1",
-      store: "ESP-IDF v6.0.2 esp_hal_clock/esp32s3/include/hal/clk_tree_ll.h: clk_ll_xtal_store_freq_mhz",
-      bootPath: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/rtc_clk_init.c: rtc_clk_init calls rtc_clk_xtal_freq_update",
-      register: "ESP-IDF v6.0.2 esp32s3/rom/rtc.h: RTC_XTAL_FREQ_REG is RTC_CNTL_STORE4_REG",
+      store: "ESP-IDF v6.1 esp_hal_clock/esp32s3/include/hal/clk_tree_ll.h: clk_ll_xtal_store_freq_mhz",
+      bootPath: "ESP-IDF v6.1 esp_hw_support/port/esp32s3/rtc_clk_init.c: rtc_clk_init calls rtc_clk_xtal_freq_update",
+      register: "ESP-IDF v6.1 esp32s3/rom/rtc.h: RTC_XTAL_FREQ_REG is RTC_CNTL_STORE4_REG",
     });
     const initial = createEsp32S3DirectBootRtcMmio();
     expect(readEsp32S3DirectBootRtcMmio(initial, {
@@ -50,7 +50,7 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
       state: {
         xtalFreqReg: 0x0028_0028,
         readCount: 1,
-        lastReadPc: 0x4037_7159,
+        lastReadPc: 0x4037_6f15,
         dateReg: 0x0210_1271,
         dateReadCount: 0,
         dateLastReadPc: null,
@@ -69,12 +69,12 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
     expect(ESP32S3_RTC_OPTIONS0_REG).toBe(0x6000_8000);
     expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0).toBe(0x1c00_8000);
     expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_PD).toBe(0x1c00_8540);
-    expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_READ_PC).toBe(0x4037_f7df);
-    expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_WRITE_PC).toBe(0x4037_f7e8);
+    expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_READ_PC).toBe(0x4037_d91f);
+    expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_WRITE_PC).toBe(0x4037_d928);
     expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PROVENANCE).toEqual({
-      reset: "ESP-IDF v6.0.2 soc/esp32s3/register/soc/rtc_cntl_reg.h: OPTIONS0 reset fields produce 0x1c00a000",
-      bootloaderInit: "ESP-IDF v6.0.2 rtc.h RTC_CONFIG_DEFAULT plus rtc_init clears XTL_FORCE_PU, producing 0x1c008000",
-      transition: "ESP-IDF v6.0.2 clk_tree_ll.h clk_ll_bbpll_disable ORs force-PD mask 0x540",
+      reset: "ESP-IDF v6.1 soc/esp32s3/register/soc/rtc_cntl_reg.h: OPTIONS0 reset fields produce 0x1c00a000",
+      bootloaderInit: "ESP-IDF v6.1 rtc.h RTC_CONFIG_DEFAULT plus rtc_init clears XTL_FORCE_PU, producing 0x1c008000",
+      transition: "ESP-IDF v6.1 clk_tree_ll.h clk_ll_bbpll_disable ORs force-PD mask 0x540",
     });
     const initial = createEsp32S3DirectBootRtcMmio();
     const xtal = readEsp32S3DirectBootRtcMmio(initial, {
@@ -113,7 +113,7 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
     for (const invalid of [
       { ...readAccess, width: 2 },
       { ...readAccess, isWrite: true },
-      { ...readAccess, pc: 0x4037_f7dc },
+      { ...readAccess, pc: 0x4037_d91c },
       { ...readAccess, systemMmioComplete: false },
     ]) expect(readEsp32S3DirectBootRtcMmio(dateWrite.state, invalid).status).toBe("refused");
     const options = readEsp32S3DirectBootRtcMmio(dateWrite.state, readAccess);
@@ -134,7 +134,7 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
     for (const invalid of [
       { ...writeAccess, width: 2 },
       { ...writeAccess, isWrite: false },
-      { ...writeAccess, pc: 0x4037_f7e5 },
+      { ...writeAccess, pc: 0x4037_d925 },
       { ...writeAccess, value: ESP32S3_DIRECT_BOOT_RTC_OPTIONS0 },
       { ...writeAccess, systemMmioComplete: false },
     ]) expect(writeEsp32S3DirectBootRtcMmio(options.state, invalid).status).toBe("refused");
@@ -145,8 +145,8 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
     expect(written.state.optionsReg).toBe(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_PD);
     expect(writeEsp32S3DirectBootRtcMmio(written.state, writeAccess).status).toBe("refused");
 
-    expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_READ_PC).toBe(0x4037_f640);
-    expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_WRITE_PC).toBe(0x4037_f649);
+    expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_READ_PC).toBe(0x4037_d780);
+    expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_WRITE_PC).toBe(0x4037_d789);
     const restoreReadAccess = {
       ...readAccess,
       pc: ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_READ_PC,
@@ -158,7 +158,7 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
     }).status).toBe("refused");
     expect(readEsp32S3DirectBootRtcMmio(written.state, {
       ...restoreReadAccess,
-      pc: 0x4037_f63d,
+      pc: 0x4037_d77d,
     }).status).toBe("refused");
     const restoreRead = readEsp32S3DirectBootRtcMmio(written.state, restoreReadAccess);
     expect(restoreRead.status).toBe("accepted");
@@ -204,12 +204,12 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
 
   test("reads the bootloader-configured LDO slave field before the XTAL transition update", () => {
     expect(ESP32S3_RTC_DATE_REG).toBe(0x6000_81fc);
-    expect(ESP32S3_DIRECT_BOOT_RTC_DATE_READ_PC).toBe(0x4037_7301);
+    expect(ESP32S3_DIRECT_BOOT_RTC_DATE_READ_PC).toBe(0x4037_70bd);
     expect(ESP32S3_DIRECT_BOOT_RTC_DATE).toBe(0x0210_1271);
     expect(ESP32S3_DIRECT_BOOT_RTC_DATE_PROVENANCE).toEqual({
-      reset: "ESP-IDF v6.0.2 soc/esp32s3/register/soc/rtc_cntl_reg.h: RTC_CNTL_DATE reset 0x02101271",
-      bootPath: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_cpu_freq_to_xtal updates RTC_CNTL_SLAVE_PD",
-      ldoField: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/include/soc/rtc.h: DEFAULT_LDO_SLAVE=7 produces 0x0000e000",
+      reset: "ESP-IDF v6.1 soc/esp32s3/register/soc/rtc_cntl_reg.h: RTC_CNTL_DATE reset 0x02101271",
+      bootPath: "ESP-IDF v6.1 esp_hw_support/port/esp32s3/rtc_clk.c: rtc_clk_cpu_freq_to_xtal updates RTC_CNTL_SLAVE_PD",
+      ldoField: "ESP-IDF v6.1 esp_hw_support/port/esp32s3/include/soc/rtc.h: DEFAULT_LDO_SLAVE=7 produces 0x0000e000",
     });
     const initial = createEsp32S3DirectBootRtcMmio();
     const xtal = readEsp32S3DirectBootRtcMmio(initial, {
@@ -231,7 +231,7 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
     for (const invalid of [
       { ...valid, width: 2 },
       { ...valid, isWrite: true },
-      { ...valid, pc: 0x4037_72fe },
+      { ...valid, pc: 0x4037_70ba },
       { ...valid, systemMmioComplete: false },
     ]) {
       const refused = readEsp32S3DirectBootRtcMmio(xtal.state, invalid);
@@ -246,7 +246,7 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
       state: {
         ...xtal.state,
         dateReadCount: 1,
-        dateLastReadPc: 0x4037_7301,
+        dateLastReadPc: 0x4037_70bd,
       },
     });
     if (!date.handled || date.status !== "accepted") throw new Error("DATE read refused");
@@ -254,7 +254,7 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
     expect(repeated.status).toBe("refused");
     if (repeated.handled) expect(repeated.state).toBe(date.state);
 
-    expect(ESP32S3_DIRECT_BOOT_RTC_DATE_WRITE_PC).toBe(0x4037_730f);
+    expect(ESP32S3_DIRECT_BOOT_RTC_DATE_WRITE_PC).toBe(0x4037_70cb);
     expect(ESP32S3_DIRECT_BOOT_RTC_DATE_XTAL).toBe(0x0210_f271);
     const writeAccess = {
       pc: ESP32S3_DIRECT_BOOT_RTC_DATE_WRITE_PC,
@@ -269,7 +269,7 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
       { ...writeAccess, width: 2 },
       { ...writeAccess, isWrite: false },
       { ...writeAccess, value: ESP32S3_DIRECT_BOOT_RTC_DATE },
-      { ...writeAccess, pc: 0x4037_730c },
+      { ...writeAccess, pc: 0x4037_70c8 },
       { ...writeAccess, systemMmioComplete: false },
       { ...writeAccess, address: ESP32S3_RTC_XTAL_FREQ_REG },
     ]) {
@@ -286,7 +286,7 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
         ...date.state,
         dateReg: 0x0210_f271,
         dateWriteCount: 1,
-        dateLastWritePc: 0x4037_730f,
+        dateLastWritePc: 0x4037_70cb,
       },
     });
     if (!write.handled || write.status !== "accepted") throw new Error("DATE write refused");
@@ -311,7 +311,7 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
       { ...valid, width: 2 },
       { ...valid, isWrite: true },
       { ...valid, systemMmioComplete: false },
-      { ...valid, pc: 0x4037_7156 },
+      { ...valid, pc: 0x4037_6f12 },
     ]) {
       const refused = readEsp32S3DirectBootRtcMmio(initial, invalid);
       expect(refused.status).toBe("refused");

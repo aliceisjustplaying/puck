@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
   "inputs": {
-    "elfBytes": 21598616,
-    "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
-    "entryPoint": "0x40375c9c",
+    "elfBytes": 15230428,
+    "elfSha256": "4e121a3642a6f18766cfe96c2be6adc8a0017fba4afa82105d642168ea40e2c8",
+    "entryPoint": "0x40375c34",
     "loadSegments": 8,
-    "sparsePages": 625,
+    "sparsePages": 328,
     "inheritedPages": 3,
     "initialStack": "0x3fce9700",
     "initialStackProvenance": "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
-    "runnerPatchSha256": "d7ab107c10212be6331eafbf9c601da524ac889d58a07aa6ff50c36db92a8e5f",
+    "runnerPatchSha256": "f4a7a5b9b2073dcf93aa1729e190a9f85923d09ac1dc983fa5c805e96653ddc4",
     "esp32s3PatchSha256": "d843d494c37903a4e54fc03eb8fffc9337ff0f20d054bb9df5f92dd6de0ece0c",
     "moduleBytes": 93998,
-    "moduleSha256": "54c601ab9fa2a57f82c62e65f0d5810889055a09ffc209010f87ac00839dc3aa"
+    "moduleSha256": "27e547da2868c6661c7f397a43a9fb27c08c9c76b839d85ef9f0558e9777f366"
   },
   "bounded": {
     "reason": "maxSteps",
     "steps": 4,
-    "pc": "0x40375ca7",
+    "pc": "0x40375c3f",
     "trace": [
-      "0x40375c9c",
-      "0x40375c9f",
-      "0x40375ca2",
-      "0x40375ca5"
+      "0x40375c34",
+      "0x40375c37",
+      "0x40375c3a",
+      "0x40375c3d"
     ]
   },
   "firstStop": {
@@ -31,27 +31,27 @@
     "pc": "0x4000057c",
     "instructions": [
       {
-        "pc": "0x40375c9c",
+        "pc": "0x40375c34",
         "encoding": "008136"
       },
       {
-        "pc": "0x40375c9f",
-        "encoding": "fa1181"
+        "pc": "0x40375c37",
+        "encoding": "fa2c81"
       },
       {
-        "pc": "0x40375ca2",
+        "pc": "0x40375c3a",
         "encoding": "13e780"
       },
       {
-        "pc": "0x40375ca5",
+        "pc": "0x40375c3d",
         "encoding": "0a0c"
       },
       {
-        "pc": "0x40375ca7",
-        "encoding": "fa2681"
+        "pc": "0x40375c3f",
+        "encoding": "fa4181"
       },
       {
-        "pc": "0x40375caa",
+        "pc": "0x40375c42",
         "encoding": "0008e0"
       }
     ],
@@ -65,7 +65,7 @@
       "0x00000000",
       "0x00000000",
       "0x00000000",
-      "0x80375cad",
+      "0x80375c45",
       "0x00000000",
       "0x00000000",
       "0x00000000",
@@ -81,10 +81,10 @@
       1
     ],
     "reason": "unsupported",
-    "steps": 27,
-    "pc": "0x40375ce7",
+    "steps": 24,
+    "pc": "0x40375c77",
     "unsupportedEncoding": "f3e780",
-    "traceSha256": "1d92e5b4b7ed8eed6d0b4572f98f98ae8c3276fb88159b2aa1496616cdbe457e",
+    "traceSha256": "0a5fff661aab7ad9d7b0ac5c9756f4a090bdd80ee0df9b3e606b9c42812b9a80",
     "stackPointer": "0x3fce96c0",
     "registers": [
       "0x00000000",
@@ -95,7 +95,7 @@
       "0x00000000",
       "0x00000000",
       "0x00000001",
-      "0x3fcabf20",
+      "0x3fca0b98",
       "0x00000000",
       "0x50000000",
       "0x00000000",
@@ -120,9 +120,9 @@
       {
         "kind": "memset",
         "pc": "0x400011e8",
-        "destination": "0x3fcabe60",
+        "destination": "0x3fca0ac0",
         "value": 0,
-        "length": 21216
+        "length": 6352
       },
       {
         "kind": "memset",
@@ -135,12 +135,12 @@
   },
   "lx7Progress": {
     "reason": "readPermission",
-    "steps": 34,
-    "pc": "0x40375c44",
-    "traceSha256": "6cd94a59bc0643b02ba7b2fc308902384dc81d8d6c03513b8c383b573cbc8b06",
+    "steps": 31,
+    "pc": "0x40375bdc",
+    "traceSha256": "5efd4d01f3f299a64b9b817155f4add4b7f3d1ea361402676125f4493b48d017",
     "stackPointer": "0x3fce96a0",
     "registers": [
-      "0x80375cef",
+      "0x80375c7f",
       "0x3fce96a0",
       "0x50000000",
       "0x00000000",
@@ -158,7 +158,7 @@
       "0x00000000"
     ],
     "memoryFault": {
-      "pc": "0x40375c44",
+      "pc": "0x40375bdc",
       "address": "0x600c4064",
       "width": 4,
       "isWrite": false,
@@ -169,14 +169,14 @@
   },
   "cacheProgress": {
     "reason": "romRefused",
-    "steps": 943,
+    "steps": 940,
     "pc": "0x40001c38",
-    "traceSha256": "bdcf50012d96169af8459616154d44be6d61e54dcb5a968b08c2a43f5030b04b",
-    "memoryTraceRecords": 1233,
-    "memoryTraceSha256": "9c17f21cef48da6284bc5ecc1764673645c6b0d63fa531170209cd8463d27830",
+    "traceSha256": "0b9273bbe152acf41f5e3bccb74d50438653c2cabc90a1e0f3d1fdfbaaaeae1c",
+    "memoryTraceRecords": 1228,
+    "memoryTraceSha256": "e025823c09a8c5558dbd2147bde05e8396c6d0f4b6103ca77947d11b4bc27d2d",
     "stackPointer": "0x3fce95e0",
     "registers": [
-      "0x8037f02a",
+      "0x8037d18e",
       "0x3fce95e0",
       "0x00000000",
       "0x00000001",
@@ -184,8 +184,8 @@
       "0x00000002",
       "0x00000000",
       "0x00000000",
-      "0x8038182c",
-      "0x3fcac498",
+      "0x8037f958",
+      "0x3fca10f8",
       "0x00040c03",
       "0x00000000",
       "0xb33fffff",
@@ -216,43 +216,43 @@
       },
       "dataSuspendReturn": 0,
       "mmuSizes": {
-        "instructionBytes": 60,
-        "dataBytes": 964
+        "instructionBytes": 28,
+        "dataBytes": 996
       }
     },
     "systemMmio": {
       "sysclkConf": 0,
       "readCount": 6,
-      "lastReadPc": 1077409247,
+      "lastReadPc": 1077401375,
       "cpuPerConf": 4,
       "cpuPerReadCount": 5,
-      "cpuPerLastReadPc": 1077409448,
+      "cpuPerLastReadPc": 1077401576,
       "writeCount": 3,
-      "lastWritePc": 1077375672,
+      "lastWritePc": 1077375092,
       "cpuPerWriteCount": 1,
-      "cpuPerLastWritePc": 1077409459
+      "cpuPerLastWritePc": 1077401587
     },
     "rtcMmio": {
       "xtalFreqReg": 2621480,
       "readCount": 2,
-      "lastReadPc": 1077375321,
+      "lastReadPc": 1077374741,
       "dateReg": 34665073,
       "dateReadCount": 1,
-      "dateLastReadPc": 1077375745,
+      "dateLastReadPc": 1077375165,
       "dateWriteCount": 1,
-      "dateLastWritePc": 1077375759,
+      "dateLastWritePc": 1077375179,
       "optionsReg": 469794816,
       "optionsReadCount": 2,
-      "optionsLastReadPc": 1077409344,
+      "optionsLastReadPc": 1077401472,
       "optionsWriteCount": 2,
-      "optionsLastWritePc": 1077409353
+      "optionsLastWritePc": 1077401481
     },
     "regi2cMmio": {
       "anaConf0": 16777224,
       "readCount": 2,
-      "lastReadPc": 1077409479,
+      "lastReadPc": 1077401607,
       "writeCount": 2,
-      "lastWritePc": 1077409489
+      "lastWritePc": 1077401617
     },
     "intlevel": {
       "intlevel": 0,
@@ -289,9 +289,9 @@
       {
         "kind": "memset",
         "pc": "0x400011e8",
-        "destination": "0x3fcabe60",
+        "destination": "0x3fca0ac0",
         "value": 0,
-        "length": 21216
+        "length": 6352
       },
       {
         "kind": "memset",
@@ -373,54 +373,54 @@
       {
         "kind": "cacheMmuSizes",
         "pc": "0x40001914",
-        "instructionBytes": 60,
-        "dataBytes": 964
+        "instructionBytes": 28,
+        "dataBytes": 996
       },
       {
         "kind": "systemMmioRead",
-        "pc": "0x403771a5",
+        "pc": "0x40376f61",
         "address": "0x600c0060",
         "width": 4,
         "value": "0x400"
       },
       {
         "kind": "systemMmioRead",
-        "pc": "0x403771d6",
+        "pc": "0x40376f92",
         "address": "0x600c0010",
         "width": 4,
         "value": "0x4"
       },
       {
         "kind": "systemMmioRead",
-        "pc": "0x403771ff",
+        "pc": "0x40376fbb",
         "address": "0x600c0010",
         "width": 4,
         "value": "0x4"
       },
       {
         "kind": "rtcMmioRead",
-        "pc": "0x40377159",
+        "pc": "0x40376f15",
         "address": "0x600080c0",
         "width": 4,
         "value": "0x280028"
       },
       {
         "kind": "systemMmioRead",
-        "pc": "0x403771a5",
+        "pc": "0x40376f61",
         "address": "0x600c0060",
         "width": 4,
         "value": "0x400"
       },
       {
         "kind": "systemMmioRead",
-        "pc": "0x403771d6",
+        "pc": "0x40376f92",
         "address": "0x600c0010",
         "width": 4,
         "value": "0x4"
       },
       {
         "kind": "systemMmioRead",
-        "pc": "0x403771ff",
+        "pc": "0x40376fbb",
         "address": "0x600c0010",
         "width": 4,
         "value": "0x4"
@@ -433,140 +433,140 @@
       },
       {
         "kind": "systemMmioRead",
-        "pc": "0x40377275",
+        "pc": "0x40377031",
         "address": "0x600c0060",
         "width": 4,
         "value": "0x400"
       },
       {
         "kind": "systemMmioWrite",
-        "pc": "0x4037727d",
+        "pc": "0x40377039",
         "address": "0x600c0060",
         "width": 4,
         "value": "0x400"
       },
       {
         "kind": "systemMmioRead",
-        "pc": "0x40377294",
+        "pc": "0x40377050",
         "address": "0x600c0060",
         "width": 4,
         "value": "0x400"
       },
       {
         "kind": "systemMmioWrite",
-        "pc": "0x403772a5",
+        "pc": "0x40377061",
         "address": "0x600c0060",
         "width": 4,
         "value": "0x400"
       },
       {
         "kind": "systemMmioRead",
-        "pc": "0x403772aa",
+        "pc": "0x40377066",
         "address": "0x600c0060",
         "width": 4,
         "value": "0x400"
       },
       {
         "kind": "systemMmioWrite",
-        "pc": "0x403772b8",
+        "pc": "0x40377074",
         "address": "0x600c0060",
         "width": 4,
         "value": "0x0"
       },
       {
         "kind": "rtcMmioRead",
-        "pc": "0x40377301",
+        "pc": "0x403770bd",
         "address": "0x600081fc",
         "width": 4,
         "value": "0x2101271"
       },
       {
         "kind": "rtcMmioWrite",
-        "pc": "0x4037730f",
+        "pc": "0x403770cb",
         "address": "0x600081fc",
         "width": 4,
         "value": "0x210f271"
       },
       {
         "kind": "rtcMmioRead",
-        "pc": "0x4037f7df",
+        "pc": "0x4037d91f",
         "address": "0x60008000",
         "width": 4,
         "value": "0x1c008000"
       },
       {
         "kind": "rtcMmioWrite",
-        "pc": "0x4037f7e8",
+        "pc": "0x4037d928",
         "address": "0x60008000",
         "width": 4,
         "value": "0x1c008540"
       },
       {
         "kind": "systemMmioRead",
-        "pc": "0x4037f5df",
+        "pc": "0x4037d71f",
         "address": "0x600c0060",
         "width": 4,
         "value": "0x0"
       },
       {
         "kind": "rtcMmioRead",
-        "pc": "0x4037f640",
+        "pc": "0x4037d780",
         "address": "0x60008000",
         "width": 4,
         "value": "0x1c008540"
       },
       {
         "kind": "rtcMmioWrite",
-        "pc": "0x4037f649",
+        "pc": "0x4037d789",
         "address": "0x60008000",
         "width": 4,
         "value": "0x1c008000"
       },
       {
         "kind": "rtcMmioRead",
-        "pc": "0x40377159",
+        "pc": "0x40376f15",
         "address": "0x600080c0",
         "width": 4,
         "value": "0x280028"
       },
       {
         "kind": "systemMmioRead",
-        "pc": "0x4037f6a8",
+        "pc": "0x4037d7e8",
         "address": "0x600c0010",
         "width": 4,
         "value": "0x4"
       },
       {
         "kind": "systemMmioWrite",
-        "pc": "0x4037f6b3",
+        "pc": "0x4037d7f3",
         "address": "0x600c0010",
         "width": 4,
         "value": "0x4"
       },
       {
         "kind": "regi2cMmioRead",
-        "pc": "0x4037f6b8",
+        "pc": "0x4037d7f8",
         "address": "0x6000e040",
         "width": 4,
         "value": "0x1000004"
       },
       {
         "kind": "regi2cMmioWrite",
-        "pc": "0x4037f6c2",
+        "pc": "0x4037d802",
         "address": "0x6000e040",
         "width": 4,
         "value": "0x1000000"
       },
       {
         "kind": "regi2cMmioRead",
-        "pc": "0x4037f6c7",
+        "pc": "0x4037d807",
         "address": "0x6000e040",
         "width": 4,
         "value": "0x1000000"
       },
       {
         "kind": "regi2cMmioWrite",
-        "pc": "0x4037f6d1",
+        "pc": "0x4037d811",
         "address": "0x6000e040",
         "width": 4,
         "value": "0x1000008"
@@ -697,7 +697,7 @@
   "unsupportedRefusal": {
     "reason": "unsupported",
     "steps": 0,
-    "pc": "0x40375c9c",
+    "pc": "0x40375c34",
     "encoding": "0x008136",
     "length": 3
   }
