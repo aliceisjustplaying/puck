@@ -7,13 +7,13 @@
     "flexeDecoderSha256": "68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0"
   },
   "coverage": {
-    "decoderNormalizedMnemonics": 332,
+    "decoderNormalizedMnemonics": 334,
     "instructionRows": 64276,
-    "supportedInstructionRows": 63256,
-    "unsupportedInstructionRows": 1020,
+    "supportedInstructionRows": 63391,
+    "unsupportedInstructionRows": 885,
     "rawMnemonics": 341,
-    "supportedRawMnemonics": 306,
-    "unsupportedRawMnemonics": 35
+    "supportedRawMnemonics": 308,
+    "unsupportedRawMnemonics": 33
   },
   "unsupportedMnemonicRows": {
     ".byte": 699,
@@ -26,13 +26,11 @@
     "ee.ld.qacc_l.l.128.ip": 5,
     "ee.ldf.128.ip": 4,
     "ee.ldf.128.xp": 2,
-    "ee.ldf.64.xp": 59,
     "ee.ldqa.s16.128.ip": 1,
     "ee.st.accx.ip": 9,
     "ee.st.qacc_l.l.128.ip": 1,
     "ee.stf.128.ip": 1,
     "ee.stf.128.xp": 5,
-    "ee.stf.64.xp": 76,
     "ee.vadds.s8.st.incp": 1,
     "ee.vldbc.32.ip": 2,
     "ee.vmulas.s16.accx.ld.ip": 2,

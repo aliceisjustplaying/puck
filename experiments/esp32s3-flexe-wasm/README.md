@@ -68,10 +68,10 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
-decoder plus this experiment's explicit ESP32-S3 patch surface has 332
+decoder plus this experiment's explicit ESP32-S3 patch surface has 334
 normalized mnemonics. With user-register operands distinguished, it covers
-63,256 rows and 306 raw mnemonics; 1,020 rows and 35 raw mnemonics remain gaps.
-Those gaps are 34 unimplemented `ee.*` PIE forms covering 321 rows and 699
+63,391 rows and 308 raw mnemonics; 885 rows and 33 raw mnemonics remain gaps.
+Those gaps are 32 unimplemented `ee.*` PIE forms covering 186 rows and 699
 undecodable `.byte` rows. No
 known scalar, QR load/store, THREADPTR, ACCX, QACC, SAR_BYTE, or FFT_BIT_WIDTH
 mnemonic remains in the gap list, and every named user-register form is covered.
@@ -79,7 +79,7 @@ mnemonic remains in the gap list, and every named user-register form is covered.
 `0003-add-esp32s3-lx7-subset.patch` implements `s32nb`, `lsip`, `ssip`,
 `ld.qr`, `st.qr`, `ee.vld.128.ip`, `ee.vld.128.xp`, `ee.vst.128.ip`,
 `ee.vld.l.64.ip`, `ee.vld.h.64.ip`, `ee.vst.h.64.ip`, `ee.vunzip.8`, and
-`ee.vzip.8`. It selects
+`ee.vzip.8`, plus `ee.ldf.64.xp` and `ee.stf.64.xp`. It selects
 those semantics only for the ESP32-S3 experiment
 profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
 represented by flexe's core. The profile also implements per-core UR0/UR1
@@ -137,7 +137,7 @@ synthetic caller, restores its stack, and exposes the return value 4 in caller
 register `a10`. A separate fresh run capped at two instructions stops at
 `0x403808f9` before `retw.n`, proving the bound is active.
 
-Four raw conformance fixtures cover the remaining implemented data operations.
+Five raw conformance fixtures cover the remaining implemented data operations.
 The scalar fixture copies `0x12345678` with `l32i.n` and `s32nb`, then executes
 `lsip` and `ssip`; both base registers advance by four and the run returns
 after six instructions. The QR fixture copies 16 deterministic bytes with
@@ -151,6 +151,12 @@ unchanged registers,
 trace, and output. Exact code
 hashes, outputs, step counts, and post-incremented registers are pinned in the
 dynamic baseline.
+
+The floating-register pair fixture round-trips an exact NaN payload and a
+second arbitrary 32-bit word through `ee.ldf.64.xp` and `ee.stf.64.xp`. It
+proves forced eight-byte alignment, low/high register order, bit preservation,
+and independent register postincrements. The adjacent four-byte
+`ee.ldf.128.xp` form remains a fail-closed two-byte decoder collision.
 
 The THREADPTR fixture executes the real reset-path `l32r` and
 `wur.threadptr a8` encoding at `0x40375ce4`, reads UR231 back with
@@ -353,7 +359,7 @@ first undeclared 32-bit MMIO read at
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 512 executed instructions. The pinned TinyDraw ELF
-automatically installs the tracked 1,882-instruction ESP32-S3 ISA gap set before
+automatically installs the tracked 1,225-instruction ESP32-S3 ISA gap set before
 execution. Each marker must match the decoder-width bytes in loaded executable
 memory during setup; stale, mismatched, unloaded, and non-executable markers are
 refused. Once bound, reaching a marked PC stops before LX6 decoding, including
@@ -459,7 +465,7 @@ model. A real backend should let the host size and own the regions, replace
 no-op `free`, and give diagnostic logging structured arguments.
 
 That is a bounded portability and ISA patch around the core. The remaining
-project risk is architectural: 34 observed PIE forms and undecodable `.byte`
+project risk is architectural: 32 observed PIE forms and undecodable `.byte`
 rows remain explicit gaps, ROM is absent at the first
 reset-path call, and the memory map, caches, peripherals, dual-core scheduling,
 and timing remain unmodeled.
