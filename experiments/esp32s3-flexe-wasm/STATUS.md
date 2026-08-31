@@ -87,6 +87,67 @@ of repeated USB capture truncation. The exact identities, raw captures,
 deterministic receipt archives, hashes, and toolchain delta are in
 [`idf61-rebaseline-3db3985`](../../packs/esp32-s3-touch-amoled-18/timing/evidence/idf61-rebaseline-3db3985/README.md).
 
+## Lane B handoff
+
+The local esp32sim fork commit
+`e22f971430bdd40681c729deebf93a3a6fe799cb` contains the interpreter-only,
+networking-off interface specification against real esp32sim code. It defines
+the fork-owned Rust adapter and browser interface, bounded artifact streaming,
+pre-allocation quotas, primary guest-output validation before event
+construction, persistent mid-instruction scheduling, typed device deadlines,
+block-batched CCOUNT, CPU-backend observation, and a receipt-pinned timing
+ledger. It contains no product implementation.
+
+The contract carries the exact A-01/E raw efuse and strap, complete raw OpenOCD
+reset-register capture, separately hash-pinned canonical applied subset, filter
+receipt, and adoption-receipt identity. The raw capture is provenance and is
+never applied; only the derived subset reaches `Peripherals::init_regs`.
+Product boot requires the hash-pinned real mask ROM and exact complete flash
+image. HLE direct-app boot is a distinct non-product capability. Pending data
+access occurs after same-cycle device, DMA, and input events and fails closed on
+an impact that could change its value, fault, match, or side effect. Per-call
+ledger deltas extend a canonical cumulative chain independent of run slicing.
+
+The companion decision draft remains explicitly unaccepted. It proposes exact
+amendments to decision 0011's role of Puck, decision 0012's Puck-owned adapter
+wording, and roadmap revision 4 for maintainer review. It assigns the web UI
+shell to the esp32sim fork and recommends Puck `docs/decisions` as the
+cross-lane decision home. Until accepted, the existing decisions and roadmap
+remain authoritative. The schema-1 `timing.json` affine MMIO `3n - 8` claim
+remains a fail-closed blocker because the scalar profile loses the intercept
+and no reviewed event-scoped resolver exists.
+
+Lane zero's ESP-IDF 6.1 rebaseline also leaves the pooled single-core first-line
+cache class blocked pending probe diagnosis. The reported 204 to 203, 115 to
+114, and 82 to 81 cycle shifts must not enter the importer. Subsequent-line
+266, 473, and 170 cycle observations and unchanged MMIO observations remain
+eligible only through committed, accepted, exact-toolchain receipts.
+
+## Lane G handoff
+
+Lane G's primary fork deliverable is on local esp32sim branch
+`lane-g/ci-spec`: commit `196727d` adds mandatory Xtensa LX7 and RISC-V RV32IMC
+objdump corpora with provenance, visible SHA-256 and executed-case counts, and
+fail-closed handling; commit `6ba6a6d` adds the pinned Rust 1.98.0 CI matrix,
+action and ROM pins, verification contract, and rustfmt receipt. The same work
+is prepared without fork provenance on upstream-shaped branch
+`lane-g/upstream-ci` at commits `4762edc` and `3b58cc6`.
+
+A clean verification passed focused formatting, CI policy, workspace tests,
+clippy, and both mandatory decoder jobs. The logs reported 10 Xtensa cases at
+SHA-256
+`7e684d22347931c81770ddbea6c7fb1878542c8fecc0dc51340edcfc8b1c591f`
+and 9 RISC-V cases at SHA-256
+`d6ee3d1719bd31eb878667c6b742d5597d50e73cc9bc75ce4ce1efade59933ab`,
+with zero mismatches. Deliberate mutable-action, unverified-download,
+missing-corpus, and empty-corpus defects all failed their boundary checks.
+
+The sole lane G exit blocker is pre-existing whole-tree rustfmt debt. At fork
+base `aa851249`, `cargo fmt --all -- --check` exits 1 with 893 diff hunks across
+39 files. Lane G checks every Rust file it touched but does not claim the full
+Rust-format exit criterion. Maintainer disposition is required for the
+existing product-wide rewrite. Nothing was pushed and no hardware was used.
+
 ## Lane A handoff
 
 The exact-board capture request
