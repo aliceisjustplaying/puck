@@ -59,6 +59,9 @@ export interface LoadEvent extends MemoryEventBase {
 
 export interface StoreEvent extends MemoryEventBase {
   readonly kind: "store";
+  readonly storeBuffer?: Readonly<{
+    readonly retirementLatency: EventLatency;
+  }>;
 }
 
 export interface AtomicEvent extends MemoryEventBase {
@@ -82,6 +85,11 @@ export interface MmioEvent extends CoreEventBase {
 export interface CpuExecutionEvent extends CoreEventBase {
   readonly kind: "cpu";
   readonly instructionAccessId: string;
+}
+
+export interface FenceEvent extends CoreEventBase {
+  readonly kind: "fence";
+  readonly operation: "memw";
 }
 
 export type DmaEndpoint =
@@ -108,10 +116,12 @@ export type ExecutionEvent =
   | CacheOpEvent
   | MmioEvent
   | CpuExecutionEvent
+  | FenceEvent
   | DmaEvent;
 
 export type ExecutionActor =
   | Readonly<{ kind: "core"; core: CoreId }>
+  | Readonly<{ kind: "store-buffer"; core: CoreId }>
   | Readonly<{ kind: "dma"; channel: string }>;
 
 export type ReadyClock =
@@ -180,6 +190,7 @@ export interface ExecutionSchedule {
   readonly events: readonly ExecutionResult[];
   readonly finalClocks: Readonly<{
     cores: readonly [ReadyClock, ReadyClock];
+    storeBuffers?: readonly [ReadyClock, ReadyClock];
     mspi: ReadyClock;
     dma: Readonly<Record<string, ReadyClock>>;
   }>;
@@ -214,7 +225,7 @@ interface ResourceBlockedCandidate {
 
 type Candidate = KnownCandidate | ResourceBlockedCandidate;
 
-const INITIAL_CLOCK: ReadyClock = Object.freeze({
+const INITIAL_CLOCK: Extract<ReadyClock, { status: "known" }> = Object.freeze({
   status: "known",
   cycle: 0n,
   calibration: "calibrated",
@@ -332,6 +343,15 @@ function validateEvent(event: ExecutionEvent, inputIndex: number): void {
         }
         validateMspiBurst(event.mspiBurst, `events[${inputIndex}].mspiBurst`);
       }
+      if (event.kind === "store" && event.storeBuffer !== undefined) {
+        if (typeof event.storeBuffer !== "object" || event.storeBuffer === null) {
+          throw new Error(`events[${inputIndex}].storeBuffer must be an object`);
+        }
+        validateLatency(
+          event.storeBuffer.retirementLatency,
+          `events[${inputIndex}].storeBuffer.retirementLatency`,
+        );
+      }
       return;
     case "atomic":
       if (event.core !== 0 && event.core !== 1) throw new Error(`events[${inputIndex}].core must be 0 or 1`);
@@ -370,6 +390,10 @@ function validateEvent(event: ExecutionEvent, inputIndex: number): void {
       if (event.core !== 0 && event.core !== 1) throw new Error(`events[${inputIndex}].core must be 0 or 1`);
       requireNonEmpty(event.instructionAccessId, `events[${inputIndex}].instructionAccessId`);
       return;
+    case "fence":
+      if (event.core !== 0 && event.core !== 1) throw new Error(`events[${inputIndex}].core must be 0 or 1`);
+      if (event.operation !== "memw") throw new Error(`events[${inputIndex}].operation must be memw`);
+      return;
     case "dma":
       requireNonEmpty(event.channel, `events[${inputIndex}].channel`);
       if (event.earliest === undefined) {
@@ -391,7 +415,9 @@ function actorFor(event: ExecutionEvent): ExecutionActor {
 }
 
 function actorKey(actor: ExecutionActor): string {
-  return actor.kind === "core" ? `core:${actor.core}` : `dma:${actor.channel}`;
+  if (actor.kind === "core") return `core:${actor.core}`;
+  if (actor.kind === "store-buffer") return `store-buffer:${actor.core}`;
+  return `dma:${actor.channel}`;
 }
 
 function lexicalCompare(left: string, right: string): number {
@@ -402,6 +428,9 @@ function actorCompare(left: ExecutionActor, right: ExecutionActor): number {
   if (left.kind === "core" && right.kind === "core") return left.core - right.core;
   if (left.kind === "core") return -1;
   if (right.kind === "core") return 1;
+  if (left.kind === "store-buffer" && right.kind === "store-buffer") return left.core - right.core;
+  if (left.kind === "store-buffer") return -1;
+  if (right.kind === "store-buffer") return 1;
   return lexicalCompare(left.channel, right.channel);
 }
 
@@ -421,6 +450,7 @@ export function eventUsesMspi(event: ExecutionEvent): boolean {
       return event.backing === "flash" || event.backing === "psram";
     case "mmio":
     case "cpu":
+    case "fence":
       return false;
     case "dma":
       return endpointUsesMspi(event.source) || endpointUsesMspi(event.destination);
@@ -437,14 +467,40 @@ function laterCycle(...cycles: bigint[]): bigint {
   return cycles.reduce((latest, cycle) => (cycle > latest ? cycle : latest), 0n);
 }
 
+function isBufferedStore(event: ExecutionEvent): event is StoreEvent & {
+  readonly storeBuffer: Readonly<{ readonly retirementLatency: EventLatency }>;
+} {
+  return event.kind === "store" && event.storeBuffer !== undefined;
+}
+
+function waitsForStoreBuffer(event: ExecutionEvent): boolean {
+  return event.kind === "store" || event.kind === "fence";
+}
+
+function resourceForEvent(event: ExecutionEvent): "mspi" | null {
+  return !isBufferedStore(event) && eventUsesMspi(event) ? "mspi" : null;
+}
+
+function storeBufferActor(core: CoreId): ExecutionActor {
+  return Object.freeze({ kind: "store-buffer", core });
+}
+
+function drainEventFor(event: StoreEvent & {
+  readonly storeBuffer: Readonly<{ readonly retirementLatency: EventLatency }>;
+}): StoreEvent {
+  const { storeBuffer: _storeBuffer, ...drain } = event;
+  return Object.freeze({ ...drain, id: `${event.id}:drain` });
+}
+
 function candidateFor(
   queued: QueuedEvent,
   actorKeyValue: string,
+  actor: ExecutionActor,
   actorClock: Extract<ReadyClock, { status: "known" }>,
   mspiClock: ReadyClock,
+  gateClock: Extract<ReadyClock, { status: "known" }> = INITIAL_CLOCK,
 ): Candidate {
-  const actor = actorFor(queued.event);
-  const resource = eventUsesMspi(queued.event) ? "mspi" : null;
+  const resource = resourceForEvent(queued.event);
   const earliestCycle = queued.event.earliest?.cycle ?? 0n;
   const earliestCalibration = queued.event.earliest?.calibration ?? "calibrated";
   if (resource === "mspi" && mspiClock.status === "blocked") {
@@ -453,7 +509,7 @@ function candidateFor(
       actorKey: actorKeyValue,
       actor,
       resource,
-      startCycle: laterCycle(actorClock.cycle, earliestCycle, mspiClock.atCycle),
+      startCycle: laterCycle(actorClock.cycle, earliestCycle, gateClock.cycle, mspiClock.atCycle),
       startCalibration: "unknown",
       actorReadyCycle: actorClock.cycle,
       blockedResource: mspiClock,
@@ -469,10 +525,11 @@ function candidateFor(
     actorKey: actorKeyValue,
     actor,
     resource,
-    startCycle: laterCycle(actorClock.cycle, earliestCycle, resourceCycle),
+    startCycle: laterCycle(actorClock.cycle, earliestCycle, gateClock.cycle, resourceCycle),
     startCalibration: combineCalibration(
       actorClock.calibration,
       earliestCalibration,
+      gateClock.calibration,
       resourceCalibration,
     ),
     actorReadyCycle: actorClock.cycle,
@@ -503,6 +560,8 @@ function mspiBurstFor(event: ExecutionEvent): MspiBurstSelection | null {
       return event.mspiBurst ?? null;
     case "cache-op":
     case "mmio":
+    case "cpu":
+    case "fence":
     case "dma":
       return null;
     default:
@@ -580,6 +639,7 @@ export function scheduleExecution(
   input: readonly ExecutionEvent[],
   options: ScheduleExecutionOptions = {},
 ): ExecutionSchedule {
+  const hasBufferedStore = input.some(isBufferedStore);
   const sameCycleTieBreak = options.sameCycleTieBreak ?? "actor";
   if (sameCycleTieBreak !== "actor" && sameCycleTieBreak !== "input-order") {
     throw new Error("options.sameCycleTieBreak must be actor or input-order");
@@ -598,10 +658,23 @@ export function scheduleExecution(
     queues.set(key, queue);
     actors.set(key, actor);
   }
+  for (const event of input) {
+    if (isBufferedStore(event) && ids.has(`${event.id}:drain`)) {
+      throw new Error(`buffered store ${event.id} drain id collides with an input event`);
+    }
+  }
+  for (const core of [0, 1] as const) {
+    const actor = storeBufferActor(core);
+    const key = actorKey(actor);
+    queues.set(key, []);
+    actors.set(key, actor);
+  }
 
   const clocks = new Map<string, ReadyClock>([
     ["core:0", INITIAL_CLOCK],
     ["core:1", INITIAL_CLOCK],
+    ["store-buffer:0", INITIAL_CLOCK],
+    ["store-buffer:1", INITIAL_CLOCK],
   ]);
   for (const key of queues.keys()) if (!clocks.has(key)) clocks.set(key, INITIAL_CLOCK);
   let mspiClock: ReadyClock = INITIAL_CLOCK;
@@ -614,7 +687,16 @@ export function scheduleExecution(
       if (queue.length === 0) continue;
       const clock = clockForActor(clocks, key);
       if (clock.status === "blocked") continue;
-      candidates.push(candidateFor(queue[0]!, key, clock, mspiClock));
+      const actor = actors.get(key)!;
+      const event = queue[0]!.event;
+      let gateClock: Extract<ReadyClock, { status: "known" }> = INITIAL_CLOCK;
+      if (actor.kind === "core" && waitsForStoreBuffer(event)) {
+        const bufferKey = `store-buffer:${actor.core}`;
+        const bufferClock = clockForActor(clocks, bufferKey);
+        if (queues.get(bufferKey)!.length > 0 || bufferClock.status === "blocked") continue;
+        gateClock = bufferClock;
+      }
+      candidates.push(candidateFor(queue[0]!, key, actor, clock, mspiClock, gateClock));
     }
     if (candidates.length === 0) break;
     candidates.sort((left, right) => candidateCompare(left, right, sameCycleTieBreak));
@@ -638,9 +720,11 @@ export function scheduleExecution(
       continue;
     }
 
-    const latency = candidate.resource === "mspi"
-      ? serviceLatency(candidate.queued.event, previousMspiBurst)
-      : candidate.queued.event.latency;
+    const latency = isBufferedStore(candidate.queued.event)
+      ? candidate.queued.event.storeBuffer.retirementLatency
+      : candidate.resource === "mspi"
+        ? serviceLatency(candidate.queued.event, previousMspiBurst)
+        : candidate.queued.event.latency;
     if (candidate.resource === "mspi") {
       previousMspiBurst = mspiBurstFor(candidate.queued.event);
     }
@@ -697,6 +781,16 @@ export function scheduleExecution(
     const nextClock = knownClock(endCycle, endCalibration);
     clocks.set(candidate.actorKey, nextClock);
     if (candidate.resource === "mspi") mspiClock = nextClock;
+    if (isBufferedStore(candidate.queued.event)) {
+      const bufferKey = `store-buffer:${candidate.queued.event.core}`;
+      const bufferQueue = queues.get(bufferKey)!;
+      if (bufferQueue.length !== 0) throw new Error(`internal error: ${bufferKey} accepted a second store`);
+      bufferQueue.push(Object.freeze({
+        event: drainEventFor(candidate.queued.event),
+        inputIndex: candidate.queued.inputIndex,
+      }));
+      clocks.set(bufferKey, nextClock);
+    }
   }
 
   const actorKeys = [...queues.keys()].sort((left, right) => actorCompare(actors.get(left)!, actors.get(right)!));
@@ -705,16 +799,20 @@ export function scheduleExecution(
     if (queue.length === 0) continue;
     const actor = actors.get(key)!;
     const clock = clockForActor(clocks, key);
-    if (clock.status !== "blocked") throw new Error(`internal error: pending events on ready actor ${key}`);
+    let blocker = clock;
+    if (clock.status !== "blocked" && actor.kind === "core" && waitsForStoreBuffer(queue[0]!.event)) {
+      blocker = clockForActor(clocks, `store-buffer:${actor.core}`);
+    }
+    if (blocker.status !== "blocked") throw new Error(`internal error: pending events on ready actor ${key}`);
     for (const queued of queue) {
       results.push(
         blockedResult(
           queued,
           actor,
-          eventUsesMspi(queued.event) ? "mspi" : null,
+          resourceForEvent(queued.event),
           results.length,
-          clock.blockedBy,
-          `actor ${key} cannot pass ${clock.blockedBy}: ${clock.reason}`,
+          blocker.blockedBy,
+          `actor ${key} cannot pass ${blocker.blockedBy}: ${blocker.reason}`,
         ),
       );
     }
@@ -755,6 +853,14 @@ export function scheduleExecution(
         clockForActor(clocks, "core:0"),
         clockForActor(clocks, "core:1"),
       ]) as readonly [ReadyClock, ReadyClock],
+      ...(hasBufferedStore
+        ? {
+            storeBuffers: Object.freeze([
+              clockForActor(clocks, "store-buffer:0"),
+              clockForActor(clocks, "store-buffer:1"),
+            ]) as readonly [ReadyClock, ReadyClock],
+          }
+        : {}),
       mspi: mspiClock,
       dma: Object.freeze(dmaClocks),
     }),
