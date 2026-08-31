@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..55a269c
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1500 @@
+@@ -0,0 +1,1529 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -226,6 +226,8 @@ index 0000000..55a269c
 +#define ESP32S3_RTC_XTAL_FREQ_REG 0x600080c0u
 +#define ESP32S3_DIRECT_BOOT_RTC_XTAL_FREQ 0x00280028u
 +#define ESP32S3_DIRECT_BOOT_RTC_XTAL_READ_PC 0x40377159u
++#define ESP32S3_ROM_SET_CPU_TICKS_PER_US 0x40001a4cu
++#define ESP32S3_DIRECT_BOOT_CPU_TICKS_PER_US 40u
 +#define ESP32S3_CACHE_IDLE 0x001001u
 +#define ESP32S3_CACHE_AUTOLOAD_BASE 8u
 +#define ESP32S3_CACHE_EVENT_VOID UINT32_MAX
@@ -238,6 +240,7 @@ index 0000000..55a269c
 +#define ELF_ROM_EVENT_CACHE_MMU_SIZES 7u
 +#define ELF_ROM_EVENT_SYSTEM_MMIO_READ 8u
 +#define ELF_ROM_EVENT_RTC_MMIO_READ 9u
++#define ELF_ROM_EVENT_CPU_TICKS_PER_US 10u
 +#define NO_UNSUPPORTED_OFFSET UINT32_MAX
 +#define INITIAL_STACK 0x3fcaffc0u
 +#define INITIAL_SOURCE 0x3fca1000u
@@ -382,6 +385,7 @@ index 0000000..55a269c
 +static int elf_rom_reset_reason_enabled;
 +static int elf_rom_memset_enabled;
 +static int elf_rom_cache_enabled;
++static int elf_rom_cpu_ticks_enabled;
 +static uint32_t elf_rom_cache_sequence;
 +static uint32_t elf_rom_instruction_cache_mode[4];
 +static uint32_t elf_rom_data_cache_mode[4];
@@ -1088,6 +1092,25 @@ index 0000000..55a269c
 +        elf_rom_return(target_cpu, destination);
 +        return 1;
 +    }
++    if (pc == ESP32S3_ROM_SET_CPU_TICKS_PER_US && elf_rom_cpu_ticks_enabled) {
++        uint32_t callinc = (uint32_t)XT_PS_CALLINC(target_cpu->ps);
++        uint32_t ticks_per_us = elf_rom_arg(target_cpu, 0);
++        int already_called = 0;
++        for (uint32_t i = 0; i < elf_rom_event_count; i++) {
++            if (elf_rom_events[i][0] == ELF_ROM_EVENT_CPU_TICKS_PER_US) already_called = 1;
++        }
++        if (callinc != 2u || ticks_per_us != ESP32S3_DIRECT_BOOT_CPU_TICKS_PER_US ||
++            already_called || !elf_rom_cache_enabled || elf_rom_cache_mmu_sizes[0] != 1u ||
++            elf_system_mmio_read_count(ESP32S3_SYSTEM_SYSCLK_CONF) != 2u ||
++            elf_system_mmio_read_count(ESP32S3_SYSTEM_CPU_PER_CONF) != 4u ||
++            elf_rtc_mmio_read_count() != 1u ||
++            !elf_rom_record(ELF_ROM_EVENT_CPU_TICKS_PER_US, pc, ticks_per_us, callinc, 0u)) {
++            elf_rom_refused = 1;
++            return 1;
++        }
++        elf_rom_return(target_cpu, 0u);
++        return 1;
++    }
 +    return 0;
 +}
 +
@@ -1275,13 +1298,16 @@ index 0000000..55a269c
 +uint32_t flexe_wasm_elf_configure_rom(uint32_t reset_reason_core0,
 +                                       uint32_t reset_reason_core1,
 +                                       uint32_t enable_memset,
-+                                       uint32_t enable_cache_bootstrap) {
-+    if (!mem || enable_memset > 1u || enable_cache_bootstrap > 1u) return 0;
++                                       uint32_t enable_cache_bootstrap,
++                                       uint32_t enable_cpu_ticks_per_us) {
++    if (!mem || enable_memset > 1u || enable_cache_bootstrap > 1u ||
++        enable_cpu_ticks_per_us > 1u || (enable_cpu_ticks_per_us && !enable_cache_bootstrap)) return 0;
 +    elf_rom_reset_reasons[0] = reset_reason_core0;
 +    elf_rom_reset_reasons[1] = reset_reason_core1;
 +    elf_rom_reset_reason_enabled = 1;
 +    elf_rom_memset_enabled = (int)enable_memset;
 +    elf_rom_cache_enabled = (int)enable_cache_bootstrap;
++    elf_rom_cpu_ticks_enabled = (int)enable_cpu_ticks_per_us;
 +    return 1;
 +}
 +
@@ -1300,6 +1326,7 @@ index 0000000..55a269c
 +    elf_rom_reset_reason_enabled = 0;
 +    elf_rom_memset_enabled = 0;
 +    elf_rom_cache_enabled = 0;
++    elf_rom_cpu_ticks_enabled = 0;
 +    elf_rom_cache_sequence = 0;
 +    memset(elf_rom_instruction_cache_mode, 0, sizeof(elf_rom_instruction_cache_mode));
 +    memset(elf_rom_data_cache_mode, 0, sizeof(elf_rom_data_cache_mode));
@@ -1543,7 +1570,8 @@ index 0000000..55a269c
 +    ar_write(&cpu, 1, initial_stack);
 +    mem->permission_hook = elf_memory_permission;
 +    mem->permission_hook_ctx = NULL;
-+    if (elf_rom_reset_reason_enabled || elf_rom_memset_enabled || elf_rom_cache_enabled) {
++    if (elf_rom_reset_reason_enabled || elf_rom_memset_enabled || elf_rom_cache_enabled ||
++        elf_rom_cpu_ticks_enabled) {
 +        cpu.pc_hook = elf_rom_pc_hook;
 +        cpu.pc_hook_ctx = NULL;
 +    }
@@ -1556,7 +1584,8 @@ index 0000000..55a269c
 +        int configured_rom =
 +            (cpu.pc == ESP32S3_ROM_RESET_REASON && elf_rom_reset_reason_enabled) ||
 +            (cpu.pc == ESP32S3_ROM_MEMSET && elf_rom_memset_enabled) ||
-+            (elf_rom_cache_enabled && elf_cache_is_callback(cpu.pc));
++            (elf_rom_cache_enabled && elf_cache_is_callback(cpu.pc)) ||
++            (cpu.pc == ESP32S3_ROM_SET_CPU_TICKS_PER_US && elf_rom_cpu_ticks_enabled);
 +        if (!configured_rom) {
 +            int page = elf_page_index(cpu.pc);
 +            if (page < 0 || mem->page_table[cpu.pc >> 12] == NULL) {

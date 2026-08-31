@@ -565,11 +565,11 @@ assert.deepEqual(lx7Progress.memoryFault, {
 const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   ...runnerMemory,
   maxSteps: 512,
-  rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true },
+  rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true, cpuTicksPerUs: 40 },
 });
-assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
-assert(cacheProgress.record.steps > 301, "second repeated SYSTEM_CPU_PER_CONF read did not advance the real ELF");
-assert.notEqual(cacheProgress.record.pc, 0x4037_71ff);
+assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.readPermission);
+assert(cacheProgress.record.steps > 316, "CPU ticks-per-us callback did not advance the real ELF");
+assert.notEqual(cacheProgress.record.pc, 0x4000_1a4c);
 assert.deepEqual(cacheProgress.cacheBootstrap, {
   sequenceIndex: 6,
   complete: true,
@@ -643,7 +643,33 @@ assert.deepEqual(cacheProgress.rtcMmio, {
   readCount: 1,
   lastReadPc: 0x4037_7159,
 });
-assert.equal(cacheProgress.memoryFault, null);
+assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "cpuTicksPerUs"), [
+  { kind: "cpuTicksPerUs", pc: 0x4000_1a4c, ticksPerUs: 40, callinc: 2 },
+]);
+assert.deepEqual(cacheProgress.cpuTicks, {
+  configured: true,
+  ticksPerUs: 40,
+  lastPc: 0x4000_1a4c,
+});
+assert.deepEqual(cacheProgress.memoryFault, {
+  abiVersion: 1,
+  structBytes: 40,
+  pc: 0x4037_7275,
+  address: 0x600c_0060,
+  width: 4,
+  isWrite: false,
+  deniedAddress: 0x600c_0060,
+  deniedPage: 0x600c_0000,
+  deniedFlags: 0,
+});
+await assert.rejects(
+  runSparseXtensaElf(moduleBytes, image, {
+    ...runnerMemory,
+    maxSteps: 512,
+    rom: { resetReasons: [1, 1], cacheBootstrap: true, cpuTicksPerUs: 39 },
+  }),
+  /CPU ticks-per-us must match the observed 40 MHz callback/,
+);
 assert.deepEqual(
   cacheProgress.trace.filter((pc) => cacheEvents.some((event) => event.pc === pc)),
   [],
@@ -772,6 +798,14 @@ const baselineRomEvent = (event: FullElfRomEvent) => {
       value: hex(event.value),
     };
   }
+  if (event.kind === "cpuTicksPerUs") {
+    return {
+      kind: event.kind,
+      pc: hex(event.pc),
+      ticksPerUs: event.ticksPerUs,
+      callinc: event.callinc,
+    };
+  }
   return {
     kind: event.kind,
     pc: hex(event.pc),
@@ -864,6 +898,7 @@ const actualBaseline = {
     cacheBootstrap: cacheProgress.cacheBootstrap,
     systemMmio: cacheProgress.systemMmio,
     rtcMmio: cacheProgress.rtcMmio,
+    cpuTicks: cacheProgress.cpuTicks,
     events: cacheProgress.romEvents.map(baselineRomEvent),
   },
   unsupportedRefusal: {

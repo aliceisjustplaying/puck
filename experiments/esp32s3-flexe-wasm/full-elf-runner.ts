@@ -2,6 +2,11 @@ import { instantiate } from "../../src/wasm";
 import type { Elf32XtensaImage } from "./elf-image";
 import { ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY } from "./esp32s3-full-elf-unsupported";
 import {
+  configureEsp32S3DirectBootCpuTicks,
+  createEsp32S3DirectBootCpuTicks,
+  type Esp32S3DirectBootCpuTicksState,
+} from "./direct-boot-cpu-ticks";
+import {
   createEsp32S3DirectBootRtcMmio,
   readEsp32S3DirectBootRtcMmio,
   type Esp32S3DirectBootRtcMmioState,
@@ -91,6 +96,7 @@ export interface FullElfRunResult {
   readonly cacheBootstrap: Esp32S3DirectAppCacheBootstrapState | null;
   readonly systemMmio: Esp32S3DirectBootSystemMmioState | null;
   readonly rtcMmio: Esp32S3DirectBootRtcMmioState | null;
+  readonly cpuTicks: Esp32S3DirectBootCpuTicksState | null;
   readonly memoryFault: FullElfMemoryFault | null;
   readonly capturedPages: readonly CapturedElfPage[];
 }
@@ -162,6 +168,7 @@ export type FullElfRomEvent = Readonly<
       width: number;
       value: number;
     }
+  | { kind: "cpuTicksPerUs"; pc: number; ticksPerUs: number; callinc: number }
 >;
 
 interface FullElfExports {
@@ -175,6 +182,7 @@ interface FullElfExports {
     resetReasonCore1: number,
     enableMemset: number,
     enableCacheBootstrap: number,
+    enableCpuTicksPerUs: number,
   ): number;
   flexe_wasm_elf_copy_page(address: number): number;
   flexe_wasm_elf_load_page(address: number, flags: number): number;
@@ -292,6 +300,7 @@ export async function runSparseXtensaElf(
       resetReasons: readonly [number, number];
       memset?: boolean;
       cacheBootstrap?: boolean;
+      cpuTicksPerUs?: number;
     }>;
   }>,
 ): Promise<FullElfRunResult> {
@@ -366,12 +375,17 @@ export async function runSparseXtensaElf(
     for (const reason of options.rom.resetReasons) {
       assert(Number.isSafeInteger(reason) && reason >= 0 && reason <= 0xffff_ffff, "ROM reset reason is invalid");
     }
+    if (options.rom.cpuTicksPerUs !== undefined) {
+      assert(options.rom.cpuTicksPerUs === 40, "ROM CPU ticks-per-us must match the observed 40 MHz callback");
+      assert(options.rom.cacheBootstrap === true, "ROM CPU ticks-per-us requires the direct-boot clock sequence");
+    }
     assert(
       exports.flexe_wasm_elf_configure_rom(
         options.rom.resetReasons[0],
         options.rom.resetReasons[1],
         options.rom.memset ? 1 : 0,
         options.rom.cacheBootstrap ? 1 : 0,
+        options.rom.cpuTicksPerUs === 40 ? 1 : 0,
       ) === 1,
       "full ELF module refused ROM configuration",
     );
@@ -540,6 +554,13 @@ export async function runSparseXtensaElf(
         width: words[3],
         value: words[4],
       }));
+    } else if (words[0] === 10) {
+      romEvents.push(Object.freeze({
+        kind: "cpuTicksPerUs",
+        pc: words[1],
+        ticksPerUs: words[2],
+        callinc: words[3],
+      }));
     } else throw new Error(`unknown full ELF ROM event ${words[0]}`);
   }
   let cacheBootstrap = options.rom?.cacheBootstrap
@@ -550,6 +571,9 @@ export async function runSparseXtensaElf(
     : null;
   let rtcMmio = options.rom?.cacheBootstrap
     ? createEsp32S3DirectBootRtcMmio()
+    : null;
+  let cpuTicks = options.rom?.cpuTicksPerUs === 40
+    ? createEsp32S3DirectBootCpuTicks()
     : null;
   for (const event of romEvents) {
     if (event.kind === "cacheMode") {
@@ -631,6 +655,21 @@ export async function runSparseXtensaElf(
       rtcMmio = read.state;
       continue;
     }
+    if (event.kind === "cpuTicksPerUs") {
+      assert(cpuTicks !== null, "full ELF module returned unconfigured CPU ticks callback");
+      assert(systemMmio !== null && rtcMmio !== null, "CPU ticks callback preceded clock state setup");
+      const configured = configureEsp32S3DirectBootCpuTicks(cpuTicks, {
+        pc: event.pc,
+        callinc: event.callinc,
+        ticksPerUs: event.ticksPerUs,
+        systemSysclkReadCount: systemMmio.readCount,
+        systemCpuPerReadCount: systemMmio.cpuPerReadCount,
+        rtcReadCount: rtcMmio.readCount,
+      });
+      assert(configured.status === "accepted", "full ELF module violated CPU ticks-per-us contract");
+      cpuTicks = configured.state;
+      continue;
+    }
     if (event.kind !== "cache") continue;
     assert(cacheBootstrap !== null, "full ELF module returned an unconfigured cache event");
     assert(event.sequenceIndex === cacheBootstrap.sequenceIndex, "cache event sequence index differs");
@@ -707,6 +746,7 @@ export async function runSparseXtensaElf(
     cacheBootstrap,
     systemMmio,
     rtcMmio,
+    cpuTicks,
     memoryFault,
     capturedPages: Object.freeze(capturedPages),
   });

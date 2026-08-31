@@ -324,9 +324,11 @@ ordered 32-bit read of RTCCNTL `RTC_XTAL_FREQ_REG` at `0x600080c0` from PC
 `0x40377159`. TinyDraw configures a 40 MHz crystal and keeps ROM logging on, so
 the bootloader-persisted duplicated-half value is `0x00280028`. Other RTCCNTL
 addresses, access shapes, readers, orderings, and repeats are refused. The real
-image now executes 316 instructions and stops at ROM PC `0x40001a4c`
-(`esp_rom_set_cpu_ticks_per_us`) with observed argument 40; the typed event log
-contains six SYSTEM reads and one RTCCNTL read.
+The next exact ROM callback, `esp_rom_set_cpu_ticks_per_us` at `0x40001a4c`,
+accepts argument 40 with CALLINC 2 only after both clock-query cycles. The real
+image now executes 319 instructions and stops on the following
+`SYSTEM_SYSCLK_CONF` read at PC `0x40377275`; the typed event log contains the
+CPU-ticks callback, six SYSTEM reads, and one RTCCNTL read.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
@@ -353,8 +355,8 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 316-step
-cache-bootstrap boundary produces 440 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 319-step
+cache-bootstrap boundary produces 444 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
@@ -364,9 +366,9 @@ MMIO pages observed in the trace, with their ELF or inherited permissions.
 Those eight exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 440 records issue 785 timing events: 409 memory-system
-events, 34 MMIO accesses, 316 calibrated CPU issue events, and 26 calibrated
-dependent load-use events. Exactly 751 events have adopted costs, including
+literal loads. The 444 records issue 792 timing events: 413 memory-system
+events, 34 MMIO accesses, 319 calibrated CPU issue events, and 26 calibrated
+dependent load-use events. Exactly 758 events have adopted costs, including
 three exact not-taken `beqz` paths, three flash line fills, and every zero-miss
 cache hit. The baseline pins the branch classifier, hazard count, and a
 projection hash of their schedule, consumer IDs, registers, and
