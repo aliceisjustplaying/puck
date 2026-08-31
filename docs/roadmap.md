@@ -1,6 +1,6 @@
 # ESP32-S3 cycle-model roadmap
 
-Date: 2026-08-31, revision 2. Supersedes revision 1 after decision
+Date: 2026-08-31, revision 3. Revision 2 followed decision
 [0011](decisions/0011-adopt-esp32sim-execution-foundation.md) adopted
 [esp32sim](https://github.com/joakimeriksson/esp32sim) as the execution
 foundation. Companion to decisions
@@ -53,7 +53,7 @@ workloads, distribution agreement on RTC and long-window PSRAM paths.
 | --- | --- | --- | --- | --- |
 | 0 | ESP-IDF 6.1 rebaseline of this project's receipts and fixtures (checklist below) | 2 to 4, plus one board session | No, needs the board | Nothing; unchanged by 0011 |
 | A | Adoption and exact-board fidelity: pin esp32sim and fork; the `--board none` boot baseline is already recorded (`experiments/esp32sim-adoption/`). Implement the AMOLED-1.8 `BoardModel` for the maintainer's board revision exactly: CO5300-class QSPI panel device with GRAM, TE timing, and scan-out position (the GP-SPI2 master itself is already modeled upstream) (validated against the firmware's stated `te_edge=rising clock_mhz=40` contract, the measured 40 MHz receipts, and tinydraw's tearing classifiers), CST816S-family touch, QMI8658, PCF85063A, TCA9554 (upstream has it); adopt chip identity (efuses, strap, MAC, revision 2) from the physical board via upstream's JTAG flow. Radio, battery analog, and temperature stay out of scope. | 8 to 16 | Mostly; identity adoption and visual checks local | Nothing |
-| B | Measured mode: timing `Bus` wrapper, per-block cost sums, cache and line-fill models, window-exception and loop-alignment costs, tier-carrying cost types per decision 0008; differential-tested against the TypeScript timing machine on shared traces | 10 to 20 | Fully | Nothing (design spike first, see below) |
+| B | Measured mode and the backend adapter (decision 0012): the Puck-owned adapter contract, observation defined at the CPU backend level (a `Bus` wrapper alone is insufficient, review F-031), interpreter-first execution, per-block cost sums, cache and line-fill models, window-exception and loop-alignment costs, tier-carrying cost types per decision 0008; differential-tested against the TypeScript timing machine on shared traces, with a cross-mode conformance program gating any JIT participation | 10 to 20 | Fully | Nothing (design spike first, see below) |
 | C | Contention and co-simulation: measured-mode dual-core quanta, MSPI arbitration, interrupt-delivery timing; correlate against the contended receipt cohorts | 8 to 16 | Authoring yes; correlation runs local | Lane B core |
 | D | wasm JIT backend, upstream-shaped: reach browser real time; re-measure against the browser-speed probes as guards accrue | 12 to 24, long-tail risk | Correctness yes; M1 perf gates local | Lane A working browser baseline |
 | E | Silicon oracle operations: run upstream's JTAG lock-step harness against this project's board; extend it with CCOUNT-delta comparison for measured mode; remaining probe families (arbitration discrimination, PSRAM long-window distributions, cache store and writeback) | 6 to 12, hardware-serialized | Authoring and analysis only | Lane B for CCOUNT comparisons |
@@ -73,8 +73,10 @@ board image with the panel drawing in the browser at interpreter speed,
 The lane B design spike replaces the old co-simulation toy: a short,
 throwaway branch in the esp32sim fork answering how timing-driven
 execution, lazy device-time delivery, and block-batched CCOUNT reconcile
-in measured mode. Its deliverable is still an interface spec, now written
-against real code instead of a toy.
+in measured mode, and where decision 0012's adapter and CPU-level
+observation seams land in real code. Its deliverable is still an
+interface spec, now written against real code instead of a toy, run
+interpreter-only with networking off per the review's Milestone 3 shape.
 
 ## What retired, what carries over
 

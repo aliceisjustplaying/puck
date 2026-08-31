@@ -50,8 +50,13 @@ adopts [esp32sim](https://github.com/joakimeriksson/esp32sim) as the
 execution foundation and supersedes the restart plan below where it
 concerned building an engine here. This experiment is now REFERENCE
 MATERIAL: its fixture corpus, baselines, and bounded-boot evidence feed
-the esp32sim measured-mode work; no further flexe capability lanes. The
-roadmap's revision 2 is authoritative.
+the esp32sim measured-mode work; no further flexe capability lanes. An
+external adversarial review the same day
+([`docs/reviews/2026-08-31-external/`](../../docs/reviews/2026-08-31-external/RESPONSE.md))
+produced decision
+[`0012`](../../docs/decisions/0012-trust-model-and-backend-adapter.md)
+(trust model, backend adapter, CPU-level observation) and roadmap lanes G
+and H. The roadmap's revision 3 is authoritative.
 
 Lane redirections when work resumes: boot lane moves from MMIO whitelists
 toward peripheral models with reset-value provenance; ROM lane moves to
