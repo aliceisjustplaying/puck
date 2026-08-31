@@ -324,6 +324,15 @@ unsupported instruction, decoder failure, or overflow restores the CPU and
 trace checkpoint together, so no partial instruction survives. The 199-step
 cache-bootstrap boundary produces 274 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
+
+`full-elf-timing-replay-test.ts` feeds that committed boot trace through the
+same neutral adapter and `TimingMachine` used by the RGB565 replay. Its address
+map contains only the six SRAM pages observed in the trace, with their ELF or
+inherited permissions, plus the explicitly modeled cache-controller MMIO page.
+The 274 records issue 473 timing events: 248 SRAM operations, 26 MMIO accesses,
+and 199 calibrated CPU issue events. Exactly 248 events have adopted costs.
+The 199 internal-IRAM fetch costs and 26 cache-controller MMIO costs remain
+unknown, so the replay is blocked and reports no total cycle claim.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
 page count, bounded trace, unsupported-instruction refusal, and first stop,

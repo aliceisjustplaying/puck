@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "inputs": {
+    "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
+    "moduleSha256": "7719a965069916108cfc092bfe896c314f617dfe994ef43a597795c27cab3a7c",
+    "traceRecordSha256": "3727f2e81aa033362f9992813e1557d2ed32a320451bf76c8d3d3ba60fae3740",
+    "timingProfileSha256": "865ff83c74c126428cfa0b9c6d732db3f0859953489736e4c9a0a483741f30e8",
+    "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
+    "adapterSha256": "ba5aeb0305b8fc358bdc89935dcbee8ace09dede969089e3173b82d2e82d895b"
+  },
+  "trace": {
+    "records": 274,
+    "instructions": 199,
+    "reads": 51,
+    "writes": 24,
+    "observedSramPages": [
+      "0x3fcab000",
+      "0x3fce9000",
+      "0x40374000",
+      "0x40375000",
+      "0x40380000",
+      "0x40382000"
+    ],
+    "observedMmioPages": ["0x600c4000"]
+  },
+  "replay": {
+    "status": "blocked",
+    "totalCycles": null,
+    "issuedEvents": 473,
+    "sramEvents": 248,
+    "mmioEvents": 26,
+    "cpuEvents": 199,
+    "knownCostEvents": 248,
+    "unknownCostEvents": 225,
+    "issuedProjectionSha256": "579df197110724b0612f10f9af06000c20c731d6fdc8d391121b5582aaac18cf"
+  }
+}
