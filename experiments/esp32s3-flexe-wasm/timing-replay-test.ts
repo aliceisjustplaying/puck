@@ -250,6 +250,14 @@ const runtimeTrace = adaptFlexeTraceToRuntimeTiming(decodedTrace, {
     "steady-state instruction issue",
     coreCyclesSource,
   ),
+  dependentSramLoadUseHazard: {
+    internalSram: Object.freeze({ base: Number(SRAM_BASE), sizeBytes: Number(SRAM_SIZE) }),
+    latency: calibratedCost(
+      timingProfile.coreSteadyStateCycles.dependentLoadUseHazard.observedAdditionalCycles,
+      "exact dependent internal SRAM load-use",
+      coreCyclesSource,
+    ),
+  },
 });
 const accesses = runtimeTrace.input.cores[0];
 const machine = runRuntimeTimingTrace(machineConfig, runtimeTrace);
@@ -364,6 +372,10 @@ assert(cpuEvents.every((event) =>
   event.cost.cycles === 1n &&
   event.cost.calibration === "calibrated"
 ), "CPU events did not use the adopted one-cycle steady-state issue cost");
+const dependentLoadUseEvents = cpuEvents.filter((event) =>
+  event.cost.status === "known" && event.cost.cycles === 2n
+);
+assert(dependentLoadUseEvents.length === 0, "staging trace unexpectedly gained a dependent SRAM load-use pair");
 assert(machine.issuedEvents.length === 99, `expected 99 issued events, got ${machine.issuedEvents.length}`);
 assert(machine.execution.events.filter((event) => event.resource === "mspi").length === 2, "instruction misses did not reach MSPI");
 assert(machine.claim.unknownCostEventIds.length === 44, "adopted steady-state costs changed unexpectedly");
@@ -431,12 +443,12 @@ const actualBaseline = {
     loads: accesses.filter((access) => access.kind === "load").length,
     stores: accesses.filter((access) => access.kind === "store").length,
     cpuExecutions: cpuEvents.length,
+    dependentSramLoadUseHazards: dependentLoadUseEvents.length,
     issuedEvents: machine.issuedEvents.length,
     emissions: counts,
     mspiEvents: machine.execution.events.filter((event) => event.resource === "mspi").length,
     totalCycles: null,
-    totalCyclesReason:
-      "cache-hit latency remains unadopted and the observed dependent SRAM load-use hazard is unmodeled",
+    totalCyclesReason: "cache-hit latency remains unadopted",
     perRecordSha256
   }
 };

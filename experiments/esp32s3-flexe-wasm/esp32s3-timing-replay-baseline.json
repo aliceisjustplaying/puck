@@ -47,6 +47,7 @@
     "loads": 5,
     "stores": 5,
     "cpuExecutions": 43,
+    "dependentSramLoadUseHazards": 0,
     "issuedEvents": 99,
     "emissions": {
       "hit": 44,
@@ -55,7 +56,7 @@
     },
     "mspiEvents": 2,
     "totalCycles": null,
-    "totalCyclesReason": "cache-hit latency remains unadopted and the observed dependent SRAM load-use hazard is unmodeled",
+    "totalCyclesReason": "cache-hit latency remains unadopted",
     "perRecordSha256": "e5052d3394365f869432c8b953f87dc87edf0c4254f7ac82a96ab700c237086e"
   }
 }
