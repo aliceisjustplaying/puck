@@ -44,11 +44,16 @@ TINYDRAW_LIVE_FAIL reason=bootstrap canvas=1 log=1 presenter=0 touch=0 builder=1
   own examples are IDF 5.5).
 - Octal PSRAM, QIO flash, USB console, and the whole boot path need no
   work.
-- The complete missing list for a drawing, touchable TinyDraw is:
-  the GP-SPI (SPI2) master, an SH8601-class QSPI panel model plus the
-  board's TE line, and the touch controller as an I2C device (the firmware
-  also expects the PCF85063A RTC, whose driver already initializes against
-  the current I2C model). Unknown-register traffic during boot is limited
+- The complete missing list for a drawing, touchable TinyDraw is a board
+  model and its devices, not a bus: esp32sim already models the GP-SPI2/3
+  master (`esp32s3/src/periph.rs`, `GpSpi`), which is why no SPI2
+  registers appear in the unknown-register log. What is absent is the
+  CO5300-class panel device answering on that bus (the `configure` stage's
+  `ESP_ERR_INVALID_RESPONSE` is an unanswered panel ID read), the TCA9554
+  instance that gates panel power (a device upstream models but
+  `--board none` does not instantiate), the touch controller as an I2C
+  device, and the QMI8658 (the PCF85063A RTC driver already initializes
+  against the current I2C model). Unknown-register traffic during boot is limited
   to SENSITIVE, APB_SARADC, ASSIST_DEBUG, and radio blocks, all tolerating
   the log-and-ignore default.
 - The firmware states its own panel expectations in the log
