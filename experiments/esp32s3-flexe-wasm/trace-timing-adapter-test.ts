@@ -251,6 +251,8 @@ assert(
 const L32I_A3_A2 = 0x002232;
 const ADDX4_A4_A3_A5 = 0xa04350;
 const ADDX4_A4_A6_A5 = 0xa04650;
+const S32C1I_A4_A2 = 0x00e242;
+const SUB_A3_A3_A4 = 0xc03340;
 const loadUseOptions = {
   instructionCpuCost: {
     status: "known" as const,
@@ -376,6 +378,55 @@ assert(
   fourByteProducer.input.cpu?.length === 2,
   "four-byte float load was misclassified as a scalar GPR load-use producer",
 );
+
+function atomicLoadUseTrace(writeWidth = 4): DecodedTrace {
+  return {
+    ...loadUseTrace(SUB_A3_A3_A4),
+    count: 4,
+    records: [
+      {
+        kind: TRACE_KINDS.instruction,
+        pc: 0x4037e0ec,
+        address: 0,
+        value: 0,
+        width: 3,
+        instruction: S32C1I_A4_A2,
+      },
+      {
+        kind: TRACE_KINDS.read,
+        pc: 0x4037e0ec,
+        address: 0x3fca6a44,
+        value: 0xb34448ff,
+        width: 4,
+        instruction: 0,
+      },
+      {
+        kind: TRACE_KINDS.write,
+        pc: 0x4037e0ec,
+        address: 0x3fca6a44,
+        value: 0,
+        width: writeWidth,
+        instruction: 0,
+      },
+      {
+        kind: TRACE_KINDS.instruction,
+        pc: 0x4037e0ef,
+        address: 0,
+        value: 0,
+        width: 3,
+        instruction: SUB_A3_A3_A4,
+      },
+    ],
+  };
+}
+
+const atomicLoadUse = adaptLoadUse(atomicLoadUseTrace());
+assert(
+  atomicLoadUse.input.cpu?.length === 3 &&
+    atomicLoadUse.input.cpu[1]?.latency.source?.includes("a4 0x4037e0ec -> 0x4037e0ef"),
+  "exact dependent S32C1I SRAM read/write lost its load-use hazard",
+);
+expectLoadUseFailure(atomicLoadUseTrace(2), "S32C1I read/write shape");
 
 const BEQZ_A2_PLUS_8 = 0x004216;
 function beqzTrace(nextPc: number): DecodedTrace {

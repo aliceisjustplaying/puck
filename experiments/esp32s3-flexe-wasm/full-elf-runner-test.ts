@@ -761,11 +761,11 @@ assert.deepEqual(lx7Progress.memoryFault, {
 
 const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   ...runnerMemory,
-  maxSteps: 512,
+  maxSteps: 768,
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true, cpuTicksPerUs: 40 },
 });
 assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
-assert.equal(cacheProgress.record.pc, 0x4000_1c38);
+assert.equal(cacheProgress.record.pc, 0x4000_5d60);
 assert(cacheProgress.record.steps > 356, "RTC_CNTL_DATE XTAL write did not advance the real ELF");
 assert.notEqual(cacheProgress.record.pc, 0x4037_730f);
 assert.deepEqual(cacheProgress.cacheBootstrap, {
@@ -890,6 +890,14 @@ assert.deepEqual(cacheProgress.regi2cMmio, {
   writeCount: 2,
   lastWritePc: 0x4037_f6d1,
 });
+assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "intlevelRestore")), [{
+  kind: "intlevelRestore",
+  pc: 0x4000_1c38,
+  restorePs: 0x0004_0c00,
+  previousPs: 0x0004_0c03,
+  callinc: 2,
+}]);
+assert.deepEqual(cacheProgress.intlevel, { intlevel: 0, restoreCount: 1, lastPc: 0x4000_1c38 });
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "cpuTicksPerUs")), [
   { kind: "cpuTicksPerUs", pc: 0x4000_1a4c, ticksPerUs: 40, callinc: 2 },
 ]);
@@ -959,8 +967,8 @@ assert.equal(nonExecutableEntry.record.reason, FULL_ELF_STOP_REASONS.nonExecutab
 assert.equal(nonExecutableEntry.record.steps, 0);
 
 await assert.rejects(
-  runSparseXtensaElf(moduleBytes, image, { ...runnerMemory, maxSteps: 513 }),
-  /exceeds trace capacity 512/,
+  runSparseXtensaElf(moduleBytes, image, { ...runnerMemory, maxSteps: 1025 }),
+  /exceeds trace capacity 1024/,
 );
 
 const hex = (value: number): string => `0x${value.toString(16)}`;
@@ -1048,6 +1056,15 @@ const baselineRomEvent = (event: FullElfRomEvent) => {
       kind: event.kind,
       pc: hex(event.pc),
       ticksPerUs: event.ticksPerUs,
+      callinc: event.callinc,
+    };
+  }
+  if (event.kind === "intlevelRestore") {
+    return {
+      kind: event.kind,
+      pc: hex(event.pc),
+      restorePs: hex(event.restorePs),
+      previousPs: hex(event.previousPs),
       callinc: event.callinc,
     };
   }
@@ -1144,6 +1161,7 @@ const actualBaseline = {
     systemMmio: cacheProgress.systemMmio,
     rtcMmio: cacheProgress.rtcMmio,
     regi2cMmio: cacheProgress.regi2cMmio,
+    intlevel: cacheProgress.intlevel,
     cpuTicks: cacheProgress.cpuTicks,
     events: cacheProgress.romEvents.map(baselineRomEvent),
   },

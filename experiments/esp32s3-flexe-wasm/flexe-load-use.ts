@@ -29,6 +29,24 @@ interface InstructionGroup {
   readonly data: readonly Readonly<{ recordIndex: number; record: TraceRecord }>[];
 }
 
+function isExactS32c1i(instruction: TraceRecord): boolean {
+  return instruction.width === 3 &&
+    (instruction.instruction & 0xf) === 2 &&
+    ((instruction.instruction >>> 12) & 0xf) === 14;
+}
+
+function validateS32c1iReadWrite(group: InstructionGroup): void {
+  const [read, write] = group.data;
+  if (!isExactS32c1i(group.instruction) || group.data.length !== 2 ||
+      read?.record.kind !== TRACE_KINDS.read || write?.record.kind !== TRACE_KINDS.write ||
+      read.record.width !== 4 || write.record.width !== 4 ||
+      read.record.address !== write.record.address) {
+    throw new Error(
+      `flexe trace instruction ${group.recordIndex} must have an exact S32C1I read/write shape`,
+    );
+  }
+}
+
 function requireUint32(value: unknown, path: string): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > 0xffff_ffff) {
     throw new Error(`${path} must be an unsigned 32-bit integer`);
@@ -120,7 +138,7 @@ function exactLoadDestination(instruction: TraceRecord, dataWidth: number, recor
   }
   if (instruction.width === 3 && op0 === 2) {
     const r = (encoding >>> 12) & 0xf;
-    const width = r === 0 ? 1 : r === 1 || r === 9 ? 2 : r === 2 || r === 11 ? 4 : null;
+    const width = r === 0 ? 1 : r === 1 || r === 9 ? 2 : r === 2 || r === 11 || r === 14 ? 4 : null;
     if (width === null) {
       throw new Error(
         `flexe trace instruction ${recordIndex} encoding 0x${encoding.toString(16)} ` +
@@ -354,11 +372,12 @@ export function detectFlexeDependentSramLoadUseHazards(
     });
     const internalLoads = overlapping.filter(({ record }) => record.kind === TRACE_KINDS.read);
     if (internalLoads.length === 0) continue;
-    if (internalLoads.length !== 1 || group.data.length !== 1) {
+    if (internalLoads.length !== 1) {
       throw new Error(
         `flexe trace instruction ${group.recordIndex} must own exactly one data read for load-use classification`,
       );
     }
+    if (group.data.length !== 1) validateS32c1iReadWrite(group);
     const next = groups[groupIndex + 1];
     if (next === undefined) {
       throw new Error(`flexe trace SRAM load instruction ${group.recordIndex} has no observed successor`);

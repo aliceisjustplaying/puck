@@ -26,6 +26,11 @@ import {
   type Esp32S3DirectBootRegi2cMmioState,
 } from "./direct-boot-regi2c-mmio";
 import {
+  createEsp32S3DirectBootIntlevel,
+  restoreEsp32S3DirectBootIntlevel,
+  type Esp32S3DirectBootIntlevelState,
+} from "./direct-boot-intlevel";
+import {
   ESP32S3_ROM_CACHE_MODE_CALLBACKS,
   ESP32S3_ROM_CACHE_CALLINC,
   advanceEsp32S3DirectAppCacheBootstrap,
@@ -106,6 +111,7 @@ export interface FullElfRunResult {
   readonly systemMmio: Esp32S3DirectBootSystemMmioState | null;
   readonly rtcMmio: Esp32S3DirectBootRtcMmioState | null;
   readonly regi2cMmio: Esp32S3DirectBootRegi2cMmioState | null;
+  readonly intlevel: Esp32S3DirectBootIntlevelState | null;
   readonly cpuTicks: Esp32S3DirectBootCpuTicksState | null;
   readonly memoryFault: FullElfMemoryFault | null;
   readonly capturedPages: readonly CapturedElfPage[];
@@ -182,6 +188,7 @@ export type FullElfRomEvent = Readonly<
   | { kind: "rtcMmioWrite"; pc: number; address: number; width: number; value: number }
   | { kind: "regi2cMmioRead"; pc: number; address: number; width: number; value: number }
   | { kind: "regi2cMmioWrite"; pc: number; address: number; width: number; value: number }
+  | { kind: "intlevelRestore"; pc: number; restorePs: number; previousPs: number; callinc: number }
   | { kind: "cpuTicksPerUs"; pc: number; ticksPerUs: number; callinc: number }
   | { kind: "systemMmioWrite"; pc: number; address: number; width: number; value: number }
   )
@@ -616,6 +623,15 @@ export async function runSparseXtensaElf(
         value: words[4],
         afterInstructionCount,
       }));
+    } else if (words[0] === 15) {
+      romEvents.push(Object.freeze({
+        kind: "intlevelRestore",
+        pc: words[1],
+        restorePs: words[2],
+        previousPs: words[3],
+        callinc: words[4],
+        afterInstructionCount,
+      }));
     } else throw new Error(`unknown full ELF ROM event ${words[0]}`);
   }
   let cacheBootstrap = options.rom?.cacheBootstrap
@@ -629,6 +645,9 @@ export async function runSparseXtensaElf(
     : null;
   let regi2cMmio = options.rom?.cacheBootstrap
     ? createEsp32S3DirectBootRegi2cMmio()
+    : null;
+  let intlevel = options.rom?.cacheBootstrap
+    ? createEsp32S3DirectBootIntlevel()
     : null;
   let cpuTicks = options.rom?.cpuTicksPerUs === 40
     ? createEsp32S3DirectBootCpuTicks()
@@ -794,6 +813,20 @@ export async function runSparseXtensaElf(
       regi2cMmio = dispatched.state;
       continue;
     }
+    if (event.kind === "intlevelRestore") {
+      assert(intlevel !== null && regi2cMmio?.readCount === 2 && regi2cMmio.writeCount === 2,
+        "interrupt-level restore preceded BBPLL calibration start");
+      const restored = restoreEsp32S3DirectBootIntlevel(intlevel, {
+        pc: event.pc,
+        callinc: event.callinc,
+        restorePs: event.restorePs,
+        regi2cCalibrationStarted: true,
+      });
+      assert(restored.status === "accepted", "full ELF module violated interrupt-level restore contract");
+      assert(restored.returnValue === event.previousPs, "interrupt-level restore return PS differs");
+      intlevel = restored.state;
+      continue;
+    }
     if (event.kind !== "cache") continue;
     assert(cacheBootstrap !== null, "full ELF module returned an unconfigured cache event");
     assert(event.sequenceIndex === cacheBootstrap.sequenceIndex, "cache event sequence index differs");
@@ -894,6 +927,7 @@ export async function runSparseXtensaElf(
     systemMmio,
     rtcMmio,
     regi2cMmio,
+    intlevel,
     cpuTicks,
     memoryFault,
     capturedPages: Object.freeze(capturedPages),

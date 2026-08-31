@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..55a269c
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1811 @@
+@@ -0,0 +1,1835 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -190,7 +190,7 @@ index 0000000..55a269c
 +#define DATA_CAPACITY 4096u
 +#define PAGE_BYTES 4096u
 +#define ELF_PAGE_CAPACITY 768u
-+#define ELF_TRACE_CAPACITY 512u
++#define ELF_TRACE_CAPACITY 1024u
 +#define ELF_MEMORY_TRACE_CAPACITY 1024u
 +#define ELF_UNSUPPORTED_CAPACITY 2048u
 +#define ELF_ROM_EVENT_CAPACITY 64u
@@ -254,6 +254,9 @@ index 0000000..55a269c
 +#define ESP32S3_DIRECT_BOOT_I2C_MST_START_CLEAR_WRITE_PC 0x4037f6c2u
 +#define ESP32S3_DIRECT_BOOT_I2C_MST_START_SET_READ_PC 0x4037f6c7u
 +#define ESP32S3_DIRECT_BOOT_I2C_MST_START_SET_WRITE_PC 0x4037f6d1u
++#define ESP32S3_ROM_SET_INTLEVEL 0x40001c38u
++#define ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS 0x00040c00u
++#define ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS 0x00040c03u
 +#define ESP32S3_ROM_SET_CPU_TICKS_PER_US 0x40001a4cu
 +#define ESP32S3_DIRECT_BOOT_CPU_TICKS_PER_US 40u
 +#define ESP32S3_CACHE_IDLE 0x001001u
@@ -273,6 +276,7 @@ index 0000000..55a269c
 +#define ELF_ROM_EVENT_RTC_MMIO_WRITE 12u
 +#define ELF_ROM_EVENT_REGI2C_MMIO_READ 13u
 +#define ELF_ROM_EVENT_REGI2C_MMIO_WRITE 14u
++#define ELF_ROM_EVENT_INTLEVEL_RESTORE 15u
 +#define NO_UNSUPPORTED_OFFSET UINT32_MAX
 +#define INITIAL_STACK 0x3fcaffc0u
 +#define INITIAL_SOURCE 0x3fca1000u
@@ -1337,6 +1341,25 @@ index 0000000..55a269c
 +        elf_rom_return(target_cpu, 0u);
 +        return 1;
 +    }
++    if (pc == ESP32S3_ROM_SET_INTLEVEL && elf_rom_cache_enabled) {
++        uint32_t callinc = (uint32_t)XT_PS_CALLINC(target_cpu->ps);
++        uint32_t restore_ps = elf_rom_arg(target_cpu, 0);
++        uint32_t previous_ps = target_cpu->ps & ~(3u << 16);
++        if (callinc != 2u || restore_ps != ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS ||
++            previous_ps != ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS ||
++            XT_PS_INTLEVEL(target_cpu->ps) != 3u ||
++            elf_regi2c_mmio_event_count(ELF_ROM_EVENT_REGI2C_MMIO_READ) != 2u ||
++            elf_regi2c_mmio_event_count(ELF_ROM_EVENT_REGI2C_MMIO_WRITE) != 2u ||
++            elf_regi2c_mmio_event_count(ELF_ROM_EVENT_INTLEVEL_RESTORE) != 0u ||
++            !elf_rom_record(ELF_ROM_EVENT_INTLEVEL_RESTORE, pc, restore_ps,
++                            previous_ps, callinc)) {
++            elf_rom_refused = 1;
++            return 1;
++        }
++        XT_PS_SET_INTLEVEL(target_cpu->ps, restore_ps);
++        elf_rom_return(target_cpu, previous_ps);
++        return 1;
++    }
 +    return 0;
 +}
 +
@@ -1867,7 +1890,8 @@ index 0000000..55a269c
 +            (cpu.pc == ESP32S3_ROM_RESET_REASON && elf_rom_reset_reason_enabled) ||
 +            (cpu.pc == ESP32S3_ROM_MEMSET && elf_rom_memset_enabled) ||
 +            (elf_rom_cache_enabled && elf_cache_is_callback(cpu.pc)) ||
-+            (cpu.pc == ESP32S3_ROM_SET_CPU_TICKS_PER_US && elf_rom_cpu_ticks_enabled);
++            (cpu.pc == ESP32S3_ROM_SET_CPU_TICKS_PER_US && elf_rom_cpu_ticks_enabled) ||
++            (cpu.pc == ESP32S3_ROM_SET_INTLEVEL && elf_rom_cache_enabled);
 +        if (!configured_rom) {
 +            int page = elf_page_index(cpu.pc);
 +            if (page < 0 || mem->page_table[cpu.pc >> 12] == NULL) {

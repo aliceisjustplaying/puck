@@ -287,9 +287,9 @@ provide one exact SRAM range or an ordered list of exact non-overlapping ranges,
 the one-cycle measured hazard cost, and a known instruction issue cost.
 `flexe-load-use.ts` then requires a complete trace,
 matches every data record to its instruction by the ABI issuer PC, decodes a
-bounded set of scalar load destinations and immediate consumer source
-registers, and adds one cycle only on an exact register dependency. Unsupported
-register forms, nonsequential successors, multi-access load instructions, and
+bounded set of scalar load destinations plus the exact `S32C1I` read/write
+shape and immediate consumer source registers, and adds one cycle only on an
+exact register dependency. Unsupported register forms, nonsequential successors, other multi-access load instructions, and
 accesses that enter an undeclared range gap are refused. The default bridge
 remains unchanged.
 
@@ -402,10 +402,11 @@ Other RTCCNTL addresses, access shapes, readers, orderings, and repeats
 are refused. The next
 exact ROM callback, `esp_rom_set_cpu_ticks_per_us` at `0x40001a4c`,
 accepts argument 40 with CALLINC 2 only after both clock-query cycles. The real
-image now executes 455 instructions and stops at the following unloaded ROM
-callback `_xtos_set_intlevel` at `0x40001c38`; the typed event log contains the
-CPU-ticks callback, eleven SYSTEM reads, four SYSTEM writes, five RTCCNTL reads,
-three RTCCNTL writes, and the two REGI2C reads and writes.
+image then restores interrupt level zero through `_xtos_set_intlevel` at
+`0x40001c38`, requiring exact saved PS `0x00040c00`, previous PS `0x00040c03`,
+CALLINC 2, and the completed REGI2C sequence. It now executes 523 instructions
+and stops at the following unloaded ROM callback `rom_i2c_writeReg` at
+`0x40005d60`; the typed event log also contains the interrupt-level restore.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
@@ -417,7 +418,7 @@ first undeclared 32-bit MMIO read at
 `0x600c4064` with flags zero. No cache or MMIO behavior is implied.
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
-markers, 64 ROM events, and 512 executed instructions. The pinned TinyDraw ELF
+markers, 64 ROM events, and 1,024 executed instructions. The pinned TinyDraw ELF
 automatically installs the tracked 926-instruction ESP32-S3 ISA gap set before
 execution. Each marker must match the decoder-width bytes in loaded executable
 memory during setup; stale, mismatched, unloaded, and non-executable markers are
@@ -432,26 +433,26 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 455-step
-REGI2C calibration-start boundary produces 622 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 523-step
+interrupt-restore boundary produces 706 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
 same neutral adapter and `TimingMachine` used by the RGB565 replay. Its address
-map contains only the eleven SRAM pages, two flash pages, and four controller
+map contains only the twelve SRAM pages, two flash pages, and four controller
 MMIO pages observed in the trace, with their ELF or inherited permissions.
-Those eleven exact 4 KiB SRAM ranges opt into the
+Those twelve exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 622 records issue 1,127 timing events: 571 memory-system
-events, 54 MMIO accesses, 455 calibrated CPU issue events, and 31 calibrated
-dependent load-use events, plus 16 configured ROM callback boundaries with
-explicitly unknown CPU durations. Exactly 1,085 events have adopted costs,
-including 28 exact MMIO reads, three exact not-taken `beqz` paths, three flash
+literal loads. The 706 records issue 1,286 timing events: 655 memory-system
+events, 54 MMIO accesses, 523 calibrated CPU issue events, and 37 calibrated
+dependent load-use events, plus 17 configured ROM callback boundaries with
+explicitly unknown CPU durations. Exactly 1,243 events have adopted costs,
+including 28 exact MMIO reads, five exact not-taken `beqz` paths, three flash
 line fills, and every zero-miss cache hit. The baseline pins the branch
 classifier, hazard count, and a projection hash of their schedule, consumer
 IDs, registers, and producer/consumer PCs, plus the ROM callback boundary
-provenance. The 26 controller MMIO costs and 16 ROM callback durations keep the
+provenance. The 26 controller MMIO costs and 17 ROM callback durations keep the
 replay blocked with no total cycle claim. The baseline also pins the exact
 address, direction, width, peripheral, and count of all observed MMIO access
 classes so hardware-adopted costs cannot silently broaden their scope.
