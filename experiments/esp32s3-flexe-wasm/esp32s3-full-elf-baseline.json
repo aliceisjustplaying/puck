@@ -6,9 +6,9 @@
     "entryPoint": "0x40375c9c",
     "loadSegments": 8,
     "sparsePages": 625,
-    "runnerPatchSha256": "1d93a1f1e03f0fdd8190510d2f7386ae5d8ed87740f58278f7ede6675fc35508",
-    "moduleBytes": 44366,
-    "moduleSha256": "9ca240843ef02d135c87d88d4ac11f88dbf2b8da917af46d840ae8c3430b4893"
+    "runnerPatchSha256": "8f0a753263dd7cbba66a18aaa0338cf7ab2aa1be9567eb21ddfa9097ed097d90",
+    "moduleBytes": 46153,
+    "moduleSha256": "72486f5537995a5cb84cd48e3c13b4fceb44a18eb713ff1fa15eab6f7c06b2d0"
   },
   "bounded": {
     "reason": "maxSteps",

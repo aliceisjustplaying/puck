@@ -8,7 +8,7 @@ index df40210..d09ee70 100644
  typedef void     (*mmio_write_fn)(void *ctx, uint32_t addr, uint32_t val);
 +typedef int      (*mem_access_hook_fn)(void *ctx, uint32_t addr, uint32_t value,
 +                                       uint32_t width, int is_write, int mapped);
- 
+
  /* Constants for struct definition */
  #define MEM_PERIPH_PAGES    128         /* 512KB / 4KB */
 @@ -36,6 +38,8 @@ struct xtensa_mem {
@@ -18,10 +18,10 @@ index df40210..d09ee70 100644
 +    mem_access_hook_fn access_hook;
 +    void *access_hook_ctx;
  };
- 
+
  typedef struct xtensa_mem xtensa_mem_t;
 @@ -89,8 +93,12 @@ static inline uint8_t *mem_get_ptr_w(xtensa_mem_t *mem, uint32_t addr) {
- 
+
  static inline uint8_t mem_read8(xtensa_mem_t *mem, uint32_t addr) {
      uint8_t *page = mem->page_table[addr >> 12];
 -    if (__builtin_expect(page != NULL, 1))
@@ -34,7 +34,7 @@ index df40210..d09ee70 100644
 +    if (mem->access_hook && mem->access_hook(mem->access_hook_ctx, addr, 0, 1, 0, 0)) return 0;
      return mem_read8_slow(mem, addr);
  }
- 
+
 @@ -99,8 +107,10 @@ static inline uint16_t mem_read16(xtensa_mem_t *mem, uint32_t addr) {
      if (__builtin_expect(page != NULL, 1)) {
          uint16_t val;
@@ -45,7 +45,7 @@ index df40210..d09ee70 100644
 +    if (mem->access_hook && mem->access_hook(mem->access_hook_ctx, addr, 0, 2, 0, 0)) return 0;
      return mem_read16_slow(mem, addr);
  }
- 
+
 @@ -109,27 +119,31 @@ static inline uint32_t mem_read32(xtensa_mem_t *mem, uint32_t addr) {
      if (__builtin_expect(page != NULL, 1)) {
          uint32_t val;
@@ -56,7 +56,7 @@ index df40210..d09ee70 100644
 +    if (mem->access_hook && mem->access_hook(mem->access_hook_ctx, addr, 0, 4, 0, 0)) return 0;
      return mem_read32_slow(mem, addr);
  }
- 
+
  static inline void mem_write8(xtensa_mem_t *mem, uint32_t addr, uint8_t val) {
      uint8_t *page = mem->page_table[addr >> 12];
 +    if (mem->access_hook && mem->access_hook(mem->access_hook_ctx, addr, val, 1, 1, page != NULL)) return;
@@ -68,7 +68,7 @@ index df40210..d09ee70 100644
      }
 -    mem_write8_slow(mem, addr, val);
  }
- 
+
  static inline void mem_write16(xtensa_mem_t *mem, uint32_t addr, uint16_t val) {
      uint8_t *page = mem->page_table[addr >> 12];
 +    if (mem->access_hook && mem->access_hook(mem->access_hook_ctx, addr, val, 2, 1, page != NULL)) return;
@@ -80,7 +80,7 @@ index df40210..d09ee70 100644
      }
 -    mem_write16_slow(mem, addr, val);
  }
- 
+
  extern uint32_t g_dbg_pc;
 @@ -161,11 +175,12 @@ static inline void mem_write32(xtensa_mem_t *mem, uint32_t addr, uint32_t val) {
                  g_dbg_pc, addr, val, g_dbg_core);
@@ -95,14 +95,14 @@ index df40210..d09ee70 100644
      }
 -    mem_write32_slow(mem, addr, val);
  }
- 
+
  #endif /* MEMORY_H */
 diff --git a/src/xtensa.c b/src/xtensa.c
 index 24c9792..0c1ba0f 100644
 --- a/src/xtensa.c
 +++ b/src/xtensa.c
 @@ -2208,7 +2208,12 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
- 
+
      /* Invalid PC trap. Slow-path body lives in a noinline helper so
       * the hot-path branch is just a single range compare. */
 -    if (__builtin_expect(cpu->pc < 0x40000000u || cpu->pc >= 0x40500000u, 0)) {
@@ -118,14 +118,14 @@ index 24c9792..0c1ba0f 100644
 @@ -2296,6 +2301,10 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
  have_insn:
  #endif
- 
+
 +    if (cpu->instruction_hook &&
 +        cpu->instruction_hook(cpu, cpu->pc, insn, ilen, cpu->instruction_hook_ctx))
 +        return -2;
 +
      cpu->_pc_written = false;
      cpu->pc += (uint32_t)ilen;
- 
+
 diff --git a/src/xtensa.h b/src/xtensa.h
 index 7f70ab1..09e3182 100644
 --- a/src/xtensa.h
@@ -133,7 +133,7 @@ index 7f70ab1..09e3182 100644
 @@ -12,6 +12,10 @@ typedef struct xtensa_cpu xtensa_cpu_t;
  /* PC hook: return non-zero to skip normal fetch/execute for this cycle */
  typedef int (*xtensa_pc_hook_fn)(xtensa_cpu_t *cpu, uint32_t pc, void *ctx);
- 
+
 +/* Instruction hook: return non-zero to stop before executing the instruction. */
 +typedef int (*xtensa_instruction_hook_fn)(xtensa_cpu_t *cpu, uint32_t pc,
 +                                          uint32_t insn, int length, void *ctx);
@@ -152,4 +152,641 @@ index 7f70ab1..09e3182 100644
      uint32_t         *predecode;        /* Pre-decoded instruction table (heap, 20MB) */
      /* AOT static-recompiled function table.
       * `aot` is opaque to xtensa.c; xtensa_step_impl just calls
-
+diff --git a/src/wasm_probe.c b/src/wasm_probe.c
+new file mode 100644
+index 0000000..7f9fc82
+--- /dev/null
++++ b/src/wasm_probe.c
+@@ -0,0 +1,632 @@
++/*
++ * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
++ * This file is applied to a temporary copy of the pinned upstream sources.
++ */
++#include "xtensa.h"
++#include "memory.h"
++#include <stdint.h>
++#include <string.h>
++
++#ifdef FLEXE_PROBE_NATIVE
++#include <stdio.h>
++#define FLEXE_EXPORT(name)
++#else
++#define FLEXE_EXPORT(name) __attribute__((export_name(name)))
++#endif
++
++#define FIXTURE_PC 0x40070000u
++#define INPUT_CAPACITY 4096u
++#define DATA_CAPACITY 4096u
++#define PAGE_BYTES 4096u
++#define ELF_PAGE_CAPACITY 768u
++#define ELF_TRACE_CAPACITY 256u
++#define ELF_UNSUPPORTED_CAPACITY 2048u
++#define NO_UNSUPPORTED_OFFSET UINT32_MAX
++#define INITIAL_STACK 0x3fcaffc0u
++#define INITIAL_SOURCE 0x3fca1000u
++#define INITIAL_DESTINATION 0x3fca2000u
++#define WINDOW_CALLINC 2u
++#define RESULT_ABI_VERSION 1u
++#define TRACE_ABI_VERSION 1u
++#define TRACE_CAPACITY 128u
++
++enum probe_stop_reason {
++    PROBE_STOP_RETURNED = 1,
++    PROBE_STOP_MAX_STEPS = 2,
++    PROBE_STOP_UNSUPPORTED = 3,
++    PROBE_STOP_STEP_ERROR = 4,
++    PROBE_STOP_INVALID_ARGUMENT = 5,
++    PROBE_STOP_ALLOCATION_FAILED = 6,
++    PROBE_STOP_CPU_STOPPED = 7,
++    PROBE_STOP_TRACE_OVERFLOW = 8,
++    PROBE_STOP_UNMAPPED_ACCESS = 9,
++    PROBE_STOP_UNLOADED_PAGE = 10,
++    PROBE_STOP_NON_EXECUTABLE_PAGE = 11,
++};
++
++enum probe_trace_kind {
++    PROBE_TRACE_INSTRUCTION = 1,
++    PROBE_TRACE_READ = 2,
++    PROBE_TRACE_WRITE = 3,
++};
++
++struct probe_stop_record {
++    uint32_t abi_version;
++    uint32_t struct_bytes;
++    uint32_t reason;
++    uint32_t steps;
++    uint32_t start_pc;
++    uint32_t pc;
++    uint32_t return_pc;
++    uint32_t unsupported_pc;
++    uint32_t unsupported_encoding;
++    uint32_t unsupported_length;
++    uint32_t stack_pointer;
++    uint32_t registers[16];
++};
++
++struct unsupported_marker {
++    uint32_t pc;
++    uint32_t encoding;
++    uint32_t observed_pc;
++    uint32_t observed_encoding;
++    uint32_t observed_length;
++    int enabled;
++    int hit;
++};
++
++struct probe_trace_header {
++    uint32_t abi_version;
++    uint32_t header_bytes;
++    uint32_t record_bytes;
++    uint32_t count;
++    uint32_t capacity;
++    uint32_t overflow;
++};
++
++struct probe_trace_record {
++    uint32_t kind;
++    uint32_t pc;
++    uint32_t address;
++    uint32_t value;
++    uint32_t width;
++    uint32_t instruction;
++};
++
++struct probe_trace_buffer {
++    struct probe_trace_header header;
++    struct probe_trace_record records[TRACE_CAPACITY];
++};
++
++struct probe_write_undo {
++    uint8_t *pointer;
++    uint32_t previous;
++    uint32_t width;
++};
++
++struct probe_step_transaction {
++    uint32_t trace_start;
++    uint32_t undo_count;
++    int memory_overflow;
++    int access_refused;
++    struct probe_write_undo undo[TRACE_CAPACITY];
++};
++
++struct unsupported_entry {
++    uint32_t pc;
++    uint32_t encoding;
++};
++
++static xtensa_cpu_t cpu;
++static xtensa_mem_t *mem;
++static uint8_t input[INPUT_CAPACITY];
++static uint8_t data_input[DATA_CAPACITY];
++static uint8_t data_output[DATA_CAPACITY];
++static uint8_t code_page[PAGE_BYTES];
++static uint8_t source_page[PAGE_BYTES];
++static uint8_t destination_page[PAGE_BYTES];
++static uint8_t elf_page_input[PAGE_BYTES];
++static uint8_t elf_pages[ELF_PAGE_CAPACITY][PAGE_BYTES];
++static uint32_t elf_page_addresses[ELF_PAGE_CAPACITY];
++static uint32_t elf_page_flags[ELF_PAGE_CAPACITY];
++static uint32_t elf_page_count;
++static uint32_t elf_trace[ELF_TRACE_CAPACITY];
++static uint32_t elf_trace_count;
++static struct unsupported_entry elf_unsupported[ELF_UNSUPPORTED_CAPACITY];
++static uint32_t elf_unsupported_count;
++static struct unsupported_marker elf_unsupported_hit;
++static struct probe_stop_record result;
++static struct probe_trace_buffer trace_buffer;
++static struct probe_step_transaction step_transaction;
++static xtensa_cpu_t cpu_checkpoint;
++
++static uint32_t probe_mmio_read(void *context, uint32_t unused_address) {
++    (void)unused_address;
++    uint8_t *side_effect = context;
++    side_effect[0]++;
++    return 0xa5a5a5a5u;
++}
++
++static void trace_reset(void) {
++    memset(&trace_buffer, 0, sizeof(trace_buffer));
++    trace_buffer.header.abi_version = TRACE_ABI_VERSION;
++    trace_buffer.header.header_bytes = (uint32_t)sizeof(trace_buffer.header);
++    trace_buffer.header.record_bytes = (uint32_t)sizeof(trace_buffer.records[0]);
++    trace_buffer.header.capacity = TRACE_CAPACITY;
++}
++
++static int trace_append(uint32_t kind, uint32_t pc, uint32_t address,
++                        uint32_t value, uint32_t width, uint32_t instruction) {
++    if (trace_buffer.header.count >= TRACE_CAPACITY) {
++        trace_buffer.header.overflow = 1;
++        return -1;
++    }
++    struct probe_trace_record *record =
++        &trace_buffer.records[trace_buffer.header.count++];
++    record->kind = kind;
++    record->pc = pc;
++    record->address = address;
++    record->value = value;
++    record->width = width;
++    record->instruction = instruction;
++    return 0;
++}
++
++static void finish_record(uint32_t reason, uint32_t steps, uint32_t start_pc,
++                          uint32_t return_pc, const struct unsupported_marker *marker) {
++    result.abi_version = RESULT_ABI_VERSION;
++    result.struct_bytes = (uint32_t)sizeof(result);
++    result.reason = reason;
++    result.steps = steps;
++    result.start_pc = start_pc;
++    result.pc = cpu.pc;
++    result.return_pc = return_pc;
++    result.unsupported_pc = marker ? marker->observed_pc : 0;
++    result.unsupported_encoding = marker ? marker->observed_encoding : 0;
++    result.unsupported_length = marker ? marker->observed_length : 0;
++    result.stack_pointer = ar_read(&cpu, 1);
++    for (int i = 0; i < 16; i++) result.registers[i] = ar_read(&cpu, i);
++}
++
++static int trace_instruction(xtensa_cpu_t *unused_cpu, uint32_t pc, uint32_t insn,
++                             int length, void *context) {
++    (void)unused_cpu;
++    struct unsupported_marker *marker = context;
++    if (marker->enabled && pc == marker->pc && insn == marker->encoding) {
++        marker->hit = 1;
++        marker->observed_pc = pc;
++        marker->observed_encoding = insn;
++        marker->observed_length = (uint32_t)length;
++        return 1;
++    }
++    return trace_append(PROBE_TRACE_INSTRUCTION, pc, 0, 0,
++                        (uint32_t)length, insn) != 0;
++}
++
++static int trace_memory_access(void *context, uint32_t address,
++                               uint32_t value, uint32_t width, int is_write,
++                               int mapped) {
++    struct probe_step_transaction *transaction = context;
++    if (!mapped) {
++        transaction->access_refused = 1;
++        return 1;
++    }
++    if (trace_append(is_write ? PROBE_TRACE_WRITE : PROBE_TRACE_READ,
++                     g_dbg_pc, address, value, width, 0) != 0) {
++        transaction->memory_overflow = 1;
++        return 1;
++    }
++    if (is_write) {
++        uint8_t *page = mem->page_table[address >> 12];
++        if (page) {
++            if (transaction->undo_count >= TRACE_CAPACITY) {
++                trace_buffer.header.overflow = 1;
++                transaction->memory_overflow = 1;
++                return 1;
++            }
++            struct probe_write_undo *undo = &transaction->undo[transaction->undo_count++];
++            undo->pointer = page + (address & (PAGE_BYTES - 1u));
++            undo->width = width;
++            undo->previous = 0;
++            memcpy(&undo->previous, undo->pointer, width);
++        }
++    }
++    return 0;
++}
++
++static void rollback_step(void) {
++    while (step_transaction.undo_count > 0) {
++        struct probe_write_undo *undo = &step_transaction.undo[--step_transaction.undo_count];
++        memcpy(undo->pointer, &undo->previous, undo->width);
++    }
++    cpu = cpu_checkpoint;
++    trace_buffer.header.count = step_transaction.trace_start;
++}
++
++static int stop_elf_unsupported(xtensa_cpu_t *unused_cpu, uint32_t pc, uint32_t insn,
++                                int length, void *unused_context) {
++    (void)unused_cpu;
++    (void)unused_context;
++    uint32_t low = 0;
++    uint32_t high = elf_unsupported_count;
++    while (low < high) {
++        uint32_t middle = low + (high - low) / 2u;
++        if (elf_unsupported[middle].pc < pc) low = middle + 1u;
++        else high = middle;
++    }
++    if (low >= elf_unsupported_count || elf_unsupported[low].pc != pc) return 0;
++    if (elf_unsupported[low].encoding != insn) return 0;
++    elf_unsupported_hit.hit = 1;
++    elf_unsupported_hit.observed_pc = pc;
++    elf_unsupported_hit.observed_encoding = insn;
++    elf_unsupported_hit.observed_length = (uint32_t)length;
++    elf_unsupported_hit.encoding = elf_unsupported[low].encoding;
++    return 1;
++}
++
++static int elf_page_index(uint32_t address) {
++    uint32_t page = address & ~(PAGE_BYTES - 1u);
++    uint32_t low = 0;
++    uint32_t high = elf_page_count;
++    while (low < high) {
++        uint32_t middle = low + (high - low) / 2u;
++        if (elf_page_addresses[middle] < page) low = middle + 1u;
++        else high = middle;
++    }
++    return low < elf_page_count && elf_page_addresses[low] == page ? (int)low : -1;
++}
++
++FLEXE_EXPORT("flexe_wasm_input")
++uint32_t flexe_wasm_input(void) {
++    return (uint32_t)(uintptr_t)input;
++}
++
++FLEXE_EXPORT("flexe_wasm_input_capacity")
++uint32_t flexe_wasm_input_capacity(void) {
++    return INPUT_CAPACITY;
++}
++
++FLEXE_EXPORT("flexe_wasm_data_input")
++uint32_t flexe_wasm_data_input(void) {
++    return (uint32_t)(uintptr_t)data_input;
++}
++
++FLEXE_EXPORT("flexe_wasm_data_output")
++uint32_t flexe_wasm_data_output(void) {
++    return (uint32_t)(uintptr_t)data_output;
++}
++
++FLEXE_EXPORT("flexe_wasm_data_capacity")
++uint32_t flexe_wasm_data_capacity(void) {
++    return DATA_CAPACITY;
++}
++
++FLEXE_EXPORT("flexe_wasm_trace")
++uint32_t flexe_wasm_trace(void) {
++    return (uint32_t)(uintptr_t)&trace_buffer;
++}
++
++FLEXE_EXPORT("flexe_wasm_trace_bytes")
++uint32_t flexe_wasm_trace_bytes(void) {
++    return (uint32_t)sizeof(trace_buffer.header) +
++           trace_buffer.header.count * (uint32_t)sizeof(trace_buffer.records[0]);
++}
++
++FLEXE_EXPORT("flexe_wasm_trace_capacity")
++uint32_t flexe_wasm_trace_capacity(void) {
++    return TRACE_CAPACITY;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_page_input")
++uint32_t flexe_wasm_elf_page_input(void) {
++    return (uint32_t)(uintptr_t)elf_page_input;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_page_capacity")
++uint32_t flexe_wasm_elf_page_capacity(void) {
++    return ELF_PAGE_CAPACITY;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_trace")
++uint32_t flexe_wasm_elf_trace(void) {
++    return (uint32_t)(uintptr_t)elf_trace;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_trace_count")
++uint32_t flexe_wasm_elf_trace_count(void) {
++    return elf_trace_count;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_trace_capacity")
++uint32_t flexe_wasm_elf_trace_capacity(void) {
++    return ELF_TRACE_CAPACITY;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_unsupported_input")
++uint32_t flexe_wasm_elf_unsupported_input(void) {
++    return (uint32_t)(uintptr_t)elf_unsupported;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_unsupported_capacity")
++uint32_t flexe_wasm_elf_unsupported_capacity(void) {
++    return ELF_UNSUPPORTED_CAPACITY;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_begin")
++uint32_t flexe_wasm_elf_begin(void) {
++    if (!mem) mem = mem_create();
++    if (!mem) return 0;
++    mem_reset(mem);
++    memset(mem->page_table, 0, sizeof(mem->page_table));
++    elf_page_count = 0;
++    elf_trace_count = 0;
++    elf_unsupported_count = 0;
++    memset(&elf_unsupported_hit, 0, sizeof(elf_unsupported_hit));
++    return 1;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_load_page")
++uint32_t flexe_wasm_elf_load_page(uint32_t address, uint32_t flags) {
++    if (!mem) return 0;
++    if ((address & (PAGE_BYTES - 1u)) != 0 || (flags & ~7u) != 0) return 2;
++    if (elf_page_count >= ELF_PAGE_CAPACITY) return 3;
++    if (elf_page_count > 0 && address <= elf_page_addresses[elf_page_count - 1u]) return 4;
++    memcpy(elf_pages[elf_page_count], elf_page_input, PAGE_BYTES);
++    elf_page_addresses[elf_page_count] = address;
++    elf_page_flags[elf_page_count] = flags;
++    mem->page_table[address >> 12] = elf_pages[elf_page_count];
++    elf_page_count++;
++    return 1;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_set_unsupported")
++uint32_t flexe_wasm_elf_set_unsupported(uint32_t count) {
++    if (!mem) return 0;
++    if (count > ELF_UNSUPPORTED_CAPACITY) return 2;
++    for (uint32_t i = 0; i < count; i++) {
++        if (elf_unsupported[i].encoding > 0xffffffu) return 3;
++        if (i > 0 && elf_unsupported[i - 1u].pc >= elf_unsupported[i].pc) return 4;
++    }
++    elf_unsupported_count = count;
++    return 1;
++}
++
++static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_steps,
++                             uint32_t unsupported_offset, uint32_t unsupported_encoding,
++                             uint32_t data_length) {
++    memset(&result, 0, sizeof(result));
++    memset(&cpu, 0, sizeof(cpu));
++    memset(data_output, 0, sizeof(data_output));
++    trace_reset();
++    result.abi_version = RESULT_ABI_VERSION;
++    result.struct_bytes = (uint32_t)sizeof(result);
++    result.start_pc = pc;
++    result.pc = pc;
++    if (code_length == 0 || code_length > INPUT_CAPACITY || max_steps == 0 ||
++        data_length > DATA_CAPACITY || (data_length & 1u) != 0 ||
++        (pc & (PAGE_BYTES - 1u)) + code_length > PAGE_BYTES ||
++        (unsupported_offset != NO_UNSUPPORTED_OFFSET && unsupported_offset >= code_length)) {
++        result.reason = PROBE_STOP_INVALID_ARGUMENT;
++        return (uint32_t)(uintptr_t)&result;
++    }
++
++    if (!mem) mem = mem_create();
++    if (!mem) {
++        result.reason = PROBE_STOP_ALLOCATION_FAILED;
++        return (uint32_t)(uintptr_t)&result;
++    }
++    mem->access_hook = NULL;
++    mem->access_hook_ctx = NULL;
++    mem_reset(mem);
++    if (mem_register_mmio_range(mem, 0x3ff40000u, PAGE_BYTES,
++                                probe_mmio_read, NULL, destination_page) != 0) {
++        result.reason = PROBE_STOP_ALLOCATION_FAILED;
++        return (uint32_t)(uintptr_t)&result;
++    }
++    memset(code_page, 0, sizeof(code_page));
++    memcpy(code_page + (pc & (PAGE_BYTES - 1u)), input, code_length);
++    mem->page_table[pc >> 12] = code_page;
++    if (data_length > 0) {
++        memset(source_page, 0, sizeof(source_page));
++        memset(destination_page, 0, sizeof(destination_page));
++        memcpy(source_page, data_input, data_length);
++        mem->page_table[INITIAL_SOURCE >> 12] = source_page;
++        mem->page_table[INITIAL_DESTINATION >> 12] = destination_page;
++    }
++
++    xtensa_cpu_init(&cpu);
++    cpu.mem = mem;
++    cpu.pc = pc;
++    cpu.running = true;
++    cpu.ps = (1u << 18) | (WINDOW_CALLINC << 16);
++    cpu.windowbase = 0;
++    cpu.windowstart = 1;
++    cpu.window_callsize[0] = WINDOW_CALLINC;
++    cpu.external_exec_begin = pc & ~(PAGE_BYTES - 1u);
++    cpu.external_exec_end = cpu.external_exec_begin + PAGE_BYTES;
++
++    uint32_t return_pc = (pc & ~(PAGE_BYTES - 1u)) + PAGE_BYTES;
++    ar_write(&cpu, 1, INITIAL_STACK);
++    ar_write(&cpu, 8, (WINDOW_CALLINC << 30) | (return_pc & 0x3fffffffu));
++    ar_write(&cpu, 10, INITIAL_SOURCE);
++    ar_write(&cpu, 11, INITIAL_DESTINATION);
++    ar_write(&cpu, 12, data_length > 0 ? data_length / 2u : 1u);
++
++    struct unsupported_marker marker = {
++        .pc = pc + unsupported_offset,
++        .encoding = unsupported_encoding,
++        .enabled = unsupported_offset != NO_UNSUPPORTED_OFFSET,
++    };
++    cpu.instruction_hook = trace_instruction;
++    cpu.instruction_hook_ctx = &marker;
++    mem->access_hook = trace_memory_access;
++    mem->access_hook_ctx = &step_transaction;
++
++    uint32_t steps = 0;
++    uint32_t reason = PROBE_STOP_MAX_STEPS;
++    while (1) {
++        if (cpu.pc == return_pc) {
++            reason = PROBE_STOP_RETURNED;
++            break;
++        }
++        if (steps >= max_steps) break;
++        memset(&step_transaction, 0, sizeof(step_transaction));
++        step_transaction.trace_start = trace_buffer.header.count;
++        cpu_checkpoint = cpu;
++        int step_result = xtensa_step(&cpu);
++        if (marker.hit) {
++            rollback_step();
++            reason = PROBE_STOP_UNSUPPORTED;
++            break;
++        }
++        if (step_transaction.access_refused) {
++            rollback_step();
++            reason = PROBE_STOP_UNMAPPED_ACCESS;
++            break;
++        }
++        if (step_transaction.memory_overflow) {
++            rollback_step();
++            reason = PROBE_STOP_TRACE_OVERFLOW;
++            break;
++        }
++        if (trace_buffer.header.overflow) {
++            rollback_step();
++            reason = PROBE_STOP_TRACE_OVERFLOW;
++            break;
++        }
++        if (step_result != 0) {
++            reason = PROBE_STOP_STEP_ERROR;
++            break;
++        }
++        steps++;
++        if (!cpu.running) {
++            reason = PROBE_STOP_CPU_STOPPED;
++            break;
++        }
++    }
++
++    mem->access_hook = NULL;
++    mem->access_hook_ctx = NULL;
++    if (data_length > 0) memcpy(data_output, destination_page, data_length);
++    finish_record(reason, steps, pc, return_pc, marker.hit ? &marker : NULL);
++    return (uint32_t)(uintptr_t)&result;
++}
++
++FLEXE_EXPORT("flexe_wasm_run")
++uint32_t flexe_wasm_run(uint32_t pc, uint32_t code_length, uint32_t max_steps,
++                        uint32_t unsupported_offset, uint32_t unsupported_encoding) {
++    return run_internal(pc, code_length, max_steps, unsupported_offset,
++                        unsupported_encoding, 0);
++}
++
++FLEXE_EXPORT("flexe_wasm_run_data")
++uint32_t flexe_wasm_run_data(uint32_t pc, uint32_t code_length, uint32_t max_steps,
++                             uint32_t unsupported_offset, uint32_t unsupported_encoding,
++                             uint32_t data_length) {
++    return run_internal(pc, code_length, max_steps, unsupported_offset,
++                        unsupported_encoding, data_length);
++}
++
++FLEXE_EXPORT("flexe_wasm_run_elf")
++uint32_t flexe_wasm_run_elf(uint32_t entry, uint32_t max_steps) {
++    memset(&result, 0, sizeof(result));
++    memset(&cpu, 0, sizeof(cpu));
++    memset(&elf_unsupported_hit, 0, sizeof(elf_unsupported_hit));
++    elf_trace_count = 0;
++    result.abi_version = RESULT_ABI_VERSION;
++    result.struct_bytes = (uint32_t)sizeof(result);
++    result.start_pc = entry;
++    result.pc = entry;
++    if (!mem || elf_page_count == 0 || max_steps == 0 || max_steps > ELF_TRACE_CAPACITY) {
++        result.reason = PROBE_STOP_INVALID_ARGUMENT;
++        return (uint32_t)(uintptr_t)&result;
++    }
++
++    int entry_page = elf_page_index(entry);
++    if (entry_page < 0) {
++        result.reason = PROBE_STOP_UNLOADED_PAGE;
++        return (uint32_t)(uintptr_t)&result;
++    }
++    if ((elf_page_flags[entry_page] & 1u) == 0) {
++        result.reason = PROBE_STOP_NON_EXECUTABLE_PAGE;
++        return (uint32_t)(uintptr_t)&result;
++    }
++
++    xtensa_cpu_init(&cpu);
++    cpu.mem = mem;
++    cpu.pc = entry;
++    cpu.running = true;
++    cpu.ps = (1u << 18) | (WINDOW_CALLINC << 16);
++    cpu.windowbase = 0;
++    cpu.windowstart = 1;
++    cpu.window_callsize[0] = WINDOW_CALLINC;
++    ar_write(&cpu, 1, INITIAL_STACK);
++    if (elf_unsupported_count > 0) {
++        cpu.instruction_hook = stop_elf_unsupported;
++        cpu.instruction_hook_ctx = NULL;
++    }
++
++    uint32_t steps = 0;
++    uint32_t reason = PROBE_STOP_MAX_STEPS;
++    while (steps < max_steps) {
++        int page = elf_page_index(cpu.pc);
++        if (page < 0 || mem->page_table[cpu.pc >> 12] == NULL) {
++            reason = PROBE_STOP_UNLOADED_PAGE;
++            break;
++        }
++        if ((elf_page_flags[page] & 1u) == 0) {
++            reason = PROBE_STOP_NON_EXECUTABLE_PAGE;
++            break;
++        }
++        uint8_t first = mem->page_table[cpu.pc >> 12][cpu.pc & (PAGE_BYTES - 1u)];
++        uint32_t instruction_length = (first & 8u) != 0 ? 2u : 3u;
++        if ((cpu.pc & (PAGE_BYTES - 1u)) + instruction_length > PAGE_BYTES &&
++            elf_page_index(cpu.pc + instruction_length - 1u) < 0) {
++            reason = PROBE_STOP_UNLOADED_PAGE;
++            break;
++        }
++
++        uint32_t executed_pc = cpu.pc;
++        int step_result = xtensa_step(&cpu);
++        if (elf_unsupported_hit.hit) {
++            reason = PROBE_STOP_UNSUPPORTED;
++            break;
++        }
++        if (step_result != 0) {
++            reason = PROBE_STOP_STEP_ERROR;
++            break;
++        }
++        elf_trace[elf_trace_count++] = executed_pc;
++        steps++;
++        if (!cpu.running) {
++            reason = PROBE_STOP_CPU_STOPPED;
++            break;
++        }
++    }
++
++    finish_record(reason, steps, entry, 0,
++                  elf_unsupported_hit.hit ? &elf_unsupported_hit : NULL);
++    return (uint32_t)(uintptr_t)&result;
++}
++
++FLEXE_EXPORT("flexe_wasm_probe")
++uint32_t flexe_wasm_probe(void) {
++    static const uint8_t fixture[] = {
++        0x32, 0xa0, 0x28,
++        0x32, 0xc3, 0x02,
++    };
++    memcpy(input, fixture, sizeof(fixture));
++    (void)flexe_wasm_run(FIXTURE_PC, (uint32_t)sizeof(fixture), 2,
++                         NO_UNSUPPORTED_OFFSET, 0);
++    if (result.reason != PROBE_STOP_MAX_STEPS || result.pc != FIXTURE_PC + sizeof(fixture))
++        return 0xdead0001u;
++    return result.registers[3];
++}
++
++#ifdef FLEXE_PROBE_NATIVE
++int main(void) {
++    uint32_t probe_result = flexe_wasm_probe();
++    printf("%u\n", probe_result);
++    return probe_result == 42u ? 0 : 1;
++}
++#endif

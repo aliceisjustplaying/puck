@@ -180,13 +180,13 @@ instructions, five 16-bit reads from `0x3fca1000` through `0x3fca1008`, and
 five 16-bit writes to `0x3fca2000` through `0x3fca2008`. The test asserts the
 complete interleaved PC, instruction, address, width, and value sequence. The
 1,296-byte trace has SHA-256
-`ae24fd0b6d4e84dcbbad7e393c0be39058e5a04b2386f099bde1e0127103b9b4`
+`5de26fe4432e5af5c95d99d32ee0d3d68260e712bb5dd20c60eb1315f295c4eb`
 and is written to ignored `dist/rgb565-execution-trace.bin`.
 
 Capacity is fixed at 128 records. A separate 14-pixel run with three prefixed
 `nop.n` instructions reaches capacity while issuing a 16-bit read. The runner
 rolls the whole instruction back, retains the 127 records for 101 completed
-instructions, and stops at the instruction boundary `0x420d4e24` with
+instructions, and stops at the instruction boundary `0x42058244` with
 `traceOverflow`. The overflowing read does not update registers or memory and
 no partial instruction enters the trace. These records are execution facts
 only; they contain no cycle counts or timing estimates.
@@ -211,9 +211,9 @@ cache emission, resource, cost provenance, and execution status for each trace
 record.
 
 The replay uses the gate-harness sdkconfig at SHA-256
-`65cfb5deebc36666fb3247ec5bc91aaf9de2d9a8c2642eb1666ec5b3e485bb92`:
+`ac1749b0f5b9c54e3e8e5ffc045b37a434d6b289420a8f9cf0f37fe8a3173d9b`:
 16 KiB, 8-way, 32-byte-line instruction cache and 32 KiB, 8-way,
-64-byte-line data cache. IROM MMU entry 13 is mapped to flash physical page 0
+64-byte-line data cache. IROM MMU entry 5 is mapped to flash physical page 0
 only to exercise the flash, cache, and MSPI route. That physical page is an
 experiment input, not an observed hardware MMU snapshot. The two 4 KiB runner
 data pages are covered by one explicit internal-SRAM experiment region.
@@ -221,9 +221,9 @@ data pages are covered by one explicit internal-SRAM experiment region.
 The replay resolves all 43 instruction fetches, five loads, and five stores.
 It emits 44 instruction-cache hits, two line fills on MSPI, and ten SRAM bypass
 events. There are 44 hit emissions because the three-byte instruction at
-`0x420d4e1e` crosses the 32-byte cache-line boundary and touches both lines.
+`0x4205823e` crosses the 32-byte cache-line boundary and touches both lines.
 The per-record evidence SHA-256 is
-`33f124d74e42944bb6901970c6c1cf674b92f5b78a579bc82963b6b33edc2462`.
+`655c9212cd71726aa8f3382c164a7d27f2b0dee0888f732f06663c07020c75ff`.
 
 The timing profile supplies no adopted instruction-cache, line-fill, or SRAM
 cycle costs. Every one of the 56 issued costs stays explicitly unknown, the
@@ -292,8 +292,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 44,366 bytes with Zig 0.16.0, SHA-256
-`9ca240843ef02d135c87d88d4ac11f88dbf2b8da917af46d840ae8c3430b4893`.
+The stripped freestanding module is 46,153 bytes with Zig 0.16.0, SHA-256
+`72486f5537995a5cb84cd48e3c13b4fceb44a18eb713ff1fa15eab6f7c06b2d0`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the instruction and memory trace
