@@ -131,8 +131,11 @@ byte for byte. Its adoption status remains `unreviewed`.
   instructions through six cache ROM callbacks. It does not provide the next
   ROM callback, the complete ESP32-S3 data map, interrupt matrix, peripherals,
   ESP-IDF boot, or real dual-core execution.
-- Cache-hit latency, dependent load-use hazards, dirty writeback, DMA ordering,
+- Cache-store hits, dependent load-use modeling, dirty writeback, DMA ordering,
   interrupts, and dual-core correlation still need hardware-backed treatment.
+  Hot zero-miss instruction fetches and flash/PSRAM loads have adopted zero
+  additive costs; the observed common one-cycle dependency hazard remains
+  outside the runtime trace vocabulary.
 - Hardware receipts are bounded CCOUNT microbenchmarks. Mapping them to
   architectural instruction, cache, or bus costs remains
   `microbenchmarkToArchitecturalCost: "unreviewed"`.

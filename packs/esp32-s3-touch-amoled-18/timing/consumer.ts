@@ -76,6 +76,7 @@ export interface TimingProfileV1 {
     evidence: string;
     instructionIssueCycles: 1;
     independentSramAccessAdditiveCycles: Readonly<{
+      instructionFetch: 0;
       load: 0;
       store: 0;
     }>;
@@ -111,6 +112,13 @@ export interface TimingProfileV1 {
       flash: CacheLineFillProfileCost;
       psram: CacheLineFillProfileCost;
     }>;
+  }>;
+  readonly cacheHitAdditiveCycles: Readonly<{
+    status: "partially-calibrated";
+    evidence: string;
+    instructionFetch: 0;
+    load: 0;
+    store: null;
   }>;
   readonly panel: Readonly<{
     interface: string;
@@ -364,6 +372,7 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
       "psram",
       "flash",
       "cacheLineFillCycles",
+      "cacheHitAdditiveCycles",
       "panel",
     ],
     "timing profile",
@@ -430,8 +439,13 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
   );
   exactKeys(
     sramAdditive,
-    ["load", "store"],
+    ["instructionFetch", "load", "store"],
     "timing profile.coreSteadyStateCycles.independentSramAccessAdditiveCycles",
+  );
+  literal(
+    sramAdditive.instructionFetch,
+    0,
+    "timing profile.coreSteadyStateCycles.independentSramAccessAdditiveCycles.instructionFetch",
   );
   literal(
     sramAdditive.load,
@@ -543,6 +557,29 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
     "timing profile.cacheLineFillCycles.data.psram",
   );
 
+  const cacheHit = objectAt(profile.cacheHitAdditiveCycles, "timing profile.cacheHitAdditiveCycles");
+  exactKeys(
+    cacheHit,
+    ["status", "evidence", "instructionFetch", "load", "store"],
+    "timing profile.cacheHitAdditiveCycles",
+  );
+  literal(
+    cacheHit.status,
+    "partially-calibrated",
+    "timing profile.cacheHitAdditiveCycles.status",
+  );
+  const cacheHitEvidence = stringAt(
+    cacheHit.evidence,
+    "timing profile.cacheHitAdditiveCycles.evidence",
+  );
+  literal(
+    cacheHit.instructionFetch,
+    0,
+    "timing profile.cacheHitAdditiveCycles.instructionFetch",
+  );
+  literal(cacheHit.load, 0, "timing profile.cacheHitAdditiveCycles.load");
+  literal(cacheHit.store, null, "timing profile.cacheHitAdditiveCycles.store");
+
   const panel = objectAt(profile.panel, "timing profile.panel");
   exactKeys(
     panel,
@@ -588,7 +625,7 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
       status: "partially-calibrated",
       evidence: coreCyclesEvidence,
       instructionIssueCycles: 1,
-      independentSramAccessAdditiveCycles: Object.freeze({ load: 0, store: 0 }),
+      independentSramAccessAdditiveCycles: Object.freeze({ instructionFetch: 0, load: 0, store: 0 }),
       dependentLoadUseHazard: Object.freeze({
         status: "unmodeled",
         observedAdditionalCycles: 1,
@@ -615,6 +652,13 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
       evidence: cacheLineFillEvidence,
       instruction: Object.freeze({ flash: instructionFlashLineFill, psram: null }),
       data: Object.freeze({ flash: dataFlashLineFill, psram: dataPsramLineFill }),
+    }),
+    cacheHitAdditiveCycles: Object.freeze({
+      status: "partially-calibrated",
+      evidence: cacheHitEvidence,
+      instructionFetch: 0,
+      load: 0,
+      store: null,
     }),
     panel: Object.freeze({
       interface: panelInterface,

@@ -153,6 +153,7 @@ const addressMap: AddressMapConfiguration = Object.freeze({
 });
 
 const timingProfile = parseTimingProfile(JSON.parse(readFileSync(timingProfilePath, "utf8")));
+assert.equal(timingProfile.coreSteadyStateCycles.dependentLoadUseHazard.status, "unmodeled");
 const costSource = `timing profile ${timingProfilePath} SHA-256 ${sha256(timingProfilePath)}`;
 const coreCostSource = `${costSource}; evidence ${timingProfile.coreSteadyStateCycles.evidence}`;
 const unknown = unknownCost("unused cache path", costSource);
@@ -186,7 +187,11 @@ const cache: CacheConfiguration = Object.freeze({
     writeThrough: unknown,
     uncached: Object.freeze({ instructionFetch: unknown, load: unknown, store: unknown }),
     sram: Object.freeze({
-      instructionFetch: unknownCost("internal SRAM instruction fetch", costSource),
+      instructionFetch: calibratedCost(
+        timingProfile.coreSteadyStateCycles.independentSramAccessAdditiveCycles.instructionFetch,
+        "independent internal SRAM instruction fetch additive cost",
+        coreCostSource,
+      ),
       load: calibratedCost(
         timingProfile.coreSteadyStateCycles.independentSramAccessAdditiveCycles.load,
         "independent SRAM load additive cost",
@@ -228,14 +233,14 @@ assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "cache
 assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "mmio").length, 27);
 assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "cpu").length, 216);
 assert.equal(machine.issuedEvents.length, 513);
-assert.equal(machine.claim.unknownCostEventIds.length, 243);
-assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 270);
+assert.equal(machine.claim.unknownCostEventIds.length, 27);
+assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 486);
 assert(machine.issuedEvents.filter((event) => event.origin.kind === "cpu").every((event) =>
   event.cost.status === "known" && event.cost.cycles === 1n && event.cost.calibration === "calibrated"
 ));
-assert(machine.issuedEvents.filter((event) =>
-  event.origin.kind === "cache" && event.event.kind !== "instruction-fetch"
-).every((event) => event.cost.status === "known" && event.cost.cycles === 0n));
+assert(machine.issuedEvents.filter((event) => event.origin.kind === "cache").every((event) =>
+  event.cost.status === "known" && event.cost.cycles === 0n
+));
 
 const issuedProjection = machine.issuedEvents.map((issued) => ({
   issueIndex: issued.issueIndex,
