@@ -7,8 +7,8 @@
     "loadSegments": 8,
     "sparsePages": 625,
     "runnerPatchSha256": "1d93a1f1e03f0fdd8190510d2f7386ae5d8ed87740f58278f7ede6675fc35508",
-    "moduleBytes": 42210,
-    "moduleSha256": "99ae868419a6c6868bd5ecb6f93a0abd39c1664f33b9ae17d234ce7cbb96ced2"
+    "moduleBytes": 44366,
+    "moduleSha256": "9ca240843ef02d135c87d88d4ac11f88dbf2b8da917af46d840ae8c3430b4893"
   },
   "bounded": {
     "reason": "maxSteps",

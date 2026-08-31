@@ -61,13 +61,13 @@ calibration, and hardware acceptance criteria are documented and satisfied.
 
 ## Current blockers
 
-- The pinned flexe interpreter is an ESP32 LX6 core, not an ESP32-S3 LX7 core.
-  The current ELF inventory contains 47 unsupported raw mnemonics, including
-  41 PIE `ee.*` forms and undecodable `.byte` rows. Static decoder coverage is
-  not execution coverage.
-- The experiment maps bounded code, source, and destination pages. It does not
-  yet provide the ESP32-S3 data map, ROM and boot flow, interrupt matrix,
-  peripherals, or a complete ESP-IDF image loader.
+- The pinned flexe interpreter has a bounded ESP32-S3 patch, not a complete LX7
+  core. The current ELF inventory contains 74 unsupported raw mnemonics: 38 PIE
+  `ee.*` forms, 35 user-register forms, and undecodable `.byte` rows. Static
+  decoder coverage is not execution coverage.
+- The experiment loads bounded real-ELF `PT_LOAD` pages and reaches the first
+  reset-path ROM call. It does not yet provide that ROM, the complete ESP32-S3
+  data map, interrupt matrix, peripherals, or an ESP-IDF boot.
 - The address, cache, and timing-machine components accept explicit
   architecture and cost sources, but their current ESP32-S3 claims remain
   uncalibrated. Cache geometry, fill latency, replacement behavior, write

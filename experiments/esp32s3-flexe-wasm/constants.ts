@@ -25,6 +25,8 @@ export const DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF = process.env.TINYDRAW_ESP32S3
   TINYDRAW_ROOT,
   "out/build/esp32-vector-v2-gate-harness/tinydraw_esp32.elf"
 );
+export const DEFAULT_TINYDRAW_ESP32S3_FULL_ELF =
+  process.env.TINYDRAW_ESP32S3_FULL_ELF ?? DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF;
 export const DEFAULT_TINYDRAW_ESP32S3_STAGING_SYMBOL =
   "_ZN8tinydraw5esp3212gate_harness12_GLOBAL__N_1L34stage_pixels_swapped_scalar_oracleEPKtPti";
 

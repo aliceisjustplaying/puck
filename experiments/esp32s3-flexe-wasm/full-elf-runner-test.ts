@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF } from "./constants";
+import { DEFAULT_TINYDRAW_ESP32S3_FULL_ELF } from "./constants";
 import { parseXtensaElf32 } from "./elf-image";
 import { FULL_ELF_STOP_REASONS, buildSparseElfPages, runSparseXtensaElf } from "./full-elf-runner";
 
@@ -11,7 +11,7 @@ const modulePath = resolve(
   "flexe-probe-freestanding.wasm",
 );
 const moduleBytes = await Bun.file(modulePath).arrayBuffer();
-const image = parseXtensaElf32(readFileSync(DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF));
+const image = parseXtensaElf32(readFileSync(DEFAULT_TINYDRAW_ESP32S3_FULL_ELF));
 const pages = buildSparseElfPages(image);
 const pageByAddress = new Map(pages.map((page) => [page.address, page]));
 
