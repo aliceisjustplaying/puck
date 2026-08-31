@@ -68,7 +68,7 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
-decoder plus this experiment's explicit ESP32-S3 patch surface has 354
+decoder plus this experiment's explicit ESP32-S3 patch surface has 356
 normalized mnemonics. With user-register operands distinguished, it covers
 63,415 rows and 316 raw mnemonics; 861 rows and 25 raw mnemonics remain gaps.
 Those gaps are 24 unimplemented `ee.*` PIE forms covering 162 rows and 699
@@ -82,7 +82,7 @@ mnemonic remains in the gap list, and every named user-register form is covered.
 `ee.vzip.8`, `ee.ldf.64.xp`, `ee.stf.64.xp`, `ee.ld.accx.ip`, and
 `ee.st.accx.ip`, all eight `ee.[ld/st].qacc_[h/l].[h.32/l.128].ip`
 transfers, `ee.[ld/st].ua_state.ip`, `ee.ld.128.usar.ip`, `ee.vldbc.32.ip`,
-`ee.ldqa.s16.128.ip`, `ee.movi.32.q`, `ee.zero.q`, `ee.ld.128.usar.xp`,
+`ee.ldqa.[s16/u16/u8].128.ip`, `ee.movi.32.q`, `ee.zero.q`, `ee.ld.128.usar.xp`,
 `ee.vldbc.16.ip`, and `ee.vst.l.64.ip`. It selects
 those semantics only for the ESP32-S3 experiment
 profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
@@ -141,7 +141,7 @@ synthetic caller, restores its stack, and exposes the return value 4 in caller
 register `a10`. A separate fresh run capped at two instructions stops at
 `0x403808f9` before `retw.n`, proving the bound is active.
 
-Twelve raw conformance fixtures cover the remaining implemented data operations.
+Fourteen raw conformance fixtures cover the remaining implemented data operations.
 The scalar fixture copies `0x12345678` with `l32i.n` and `s32nb`, then executes
 `lsip` and `ssip`; both base registers advance by four and the run returns
 after six instructions. The QR fixture copies 16 deterministic bytes with
@@ -179,9 +179,10 @@ its signed scaled immediate to the unaligned base. It also proves
 `ee.vldbc.32.ip` broadcasts one aligned word to all four QR lanes. The adjacent
 register-postincrement USAR form remains fail-closed.
 
-The signed QACC lane fixture loads eight deliberately mixed-sign 16-bit lanes,
-sign-extends each to 40 bits, and pins their exact packed QACC_L/QACC_H user
-register words. The adjacent unsigned lane form remains fail-closed.
+The QACC lane fixtures load deliberately mixed-sign 16-bit lanes and arbitrary
+8-bit lanes. They pin exact signed 40-bit, unsigned 40-bit, and unsigned 20-bit
+QACC_L/QACC_H packing. The adjacent unsigned register-postincrement form remains
+fail-closed.
 
 The QR scalar fixture clears a QR, writes all four 32-bit selectors from
 different address registers, and round-trips the result. The adjacent

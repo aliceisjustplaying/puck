@@ -4,9 +4,9 @@
     "flexeCommit": "34ea9eb6eef921b59a55e6a435c7fc55c5727835",
     "runnerPatchSha256": "f539d71f47dd869ae1fb7171a1fa2e001abd875053adb13ca1eae5490734f8ce",
     "freestandingPatchSha256": "dbd2c623bfc9f9f33c4e4a98adcf06dec1d9034c659ad3c7afe94d373c48636d",
-    "esp32s3PatchSha256": "d21b3dde58985927125002696c636735da59e95e30500f4bba436e84e9f099dd",
-    "moduleBytes": 62067,
-    "moduleSha256": "763f3e77de1120a058cb213404236da8c4ddea341793cdf4f9fa98d1cc5924e6",
+    "esp32s3PatchSha256": "226272df2a4930bae21b0e6ff35e5c1abbdf037000f27d0dc594f3b1973d405a",
+    "moduleBytes": 62636,
+    "moduleSha256": "f150cb02078d94a113b168cb5fdb763a79980ca9469e2396a91345a01097ff70",
     "objdumpSha256": "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466",
     "scalarElfSha256": "a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644",
     "pieElfSha256": "591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742",
@@ -86,10 +86,7 @@
     "sourceAfter": "0x3fca0ffb",
     "destinationAfter": "0x3fca1ffb",
     "lowValue": "0x12345678",
-    "highValue": "0xef",
-    "unsupportedCodeSha256": "e537843695cccde80e2d44e1169616cd905a256faf9facd6c8addb63e5d6e290",
-    "unsupportedReason": "unsupported",
-    "unsupportedEncoding": "0x501a4"
+    "highValue": "0xef"
   },
   "qaccMemoryIsa": {
     "codeSha256": "3e98a92964b990c0b7fc2ccdc38fcc1def69c804041283f02cb3c841795bdfc8",
@@ -139,6 +136,17 @@
     "sourceAfter": "0x3fca0ff5",
     "lowWords": ["0x1", "0x7fff00", "0x80000000", "0xffffffff", "0xffffffff"],
     "highWords": ["0x1234", "0xfffedc00", "0x4000ffff", "0x0", "0xffffffc0"]
+  },
+  "unsignedQaccLoadIsa": {
+    "u16CodeSha256": "f4877796b6d9ab801d4b78a3c521848d22945eb8e1c9e6a5728c41693f51cce7",
+    "u16SourceAfter": "0x3fca0ff5",
+    "u16Words": ["0x1", "0x7fff00", "0x80000000", "0xff000000", "0xff", "0x1234", "0xfedc00", "0x40000000", "0x0", "0xc0"],
+    "u8CodeSha256": "f4d9213f3f0e64b5d31f4e2cc092c8099773c1cf791a39d9938424b921159b84",
+    "u8SourceAfter": "0x3fca1025",
+    "u8Words": ["0x7f00001", "0xf0008000", "0x12000f", "0x40000fe0", "0xc0000", "0x5500002", "0x9000aa00", "0x110009", "0x33000220", "0x44000"],
+    "unsupportedCodeSha256": "e4504bce4ed1f26407dee222ad7dedc4aef00d970b642a3148f47f155f133ad8",
+    "unsupportedReason": "unsupported",
+    "unsupportedEncoding": "0x7a4ca4"
   },
   "threadptrIsa": {
     "codeSha256": "b8fc713dd1f67f2ece4f2a7d61c0a6d6a44ec425dcfc276d3ad48acf21ddc016",

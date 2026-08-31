@@ -694,12 +694,76 @@ assert(
   "signed QACC load packed or sign-extended a 40-bit lane incorrectly"
 );
 
-const unsupportedQaccLaneFixture = conformanceFixture("esp32s3_unsupported_ldqa_u16_128_ip", [0xa4, 0x01, 0x05]);
+const unsignedQaccU16Fixture = conformanceFixture("esp32s3_unsigned_qacc_u16_load", [
+  0x5b, 0xaa,
+  0xa4, 0x7f, 0x45,
+  0x70, 0x20, 0xe3,
+  0x80, 0x30, 0xe3,
+  0x90, 0x40, 0xe3,
+  0xa0, 0x50, 0xe3,
+  0xb0, 0x60, 0xe3,
+  0x20, 0x70, 0xe3,
+  0x30, 0x80, 0xe3,
+  0x40, 0x90, 0xe3,
+  0x50, 0xc0, 0xe3,
+  0x60, 0xd0, 0xe3
+]);
+const unsignedQaccU16Run = await runFresh(moduleBytes, unsignedQaccU16Fixture, {
+  data: signedQaccLoadInput,
+  maxSteps: 12
+});
+const unsignedQaccU16Expected = [
+  0x00000001, 0x007fff00, 0x80000000, 0xff000000, 0x000000ff,
+  0x00001234, 0x00fedc00, 0x40000000, 0x00000000, 0x000000c0
+];
+assert(unsignedQaccU16Run.record.reason === STOP_REASONS.maxSteps, "unsigned U16 QACC fixture did not finish");
+assert(unsignedQaccU16Run.record.steps === 12, "unsigned U16 QACC fixture executed the wrong instruction count");
+assert(unsignedQaccU16Run.record.registers[10] === (INITIAL_SOURCE - 11) >>> 0, "unsigned U16 QACC load applied the wrong postincrement");
+assert(
+  signedQaccRegisters.every((register, index) => unsignedQaccU16Run.record.registers[register] === unsignedQaccU16Expected[index]),
+  "unsigned U16 QACC load packed or zero-extended a 40-bit lane incorrectly"
+);
+
+const unsignedQaccU8Input = Uint8Array.from([
+  0x01, 0x7f, 0x80, 0xff, 0x12, 0xfe, 0x40, 0xc0,
+  0x02, 0x55, 0xaa, 0x99, 0x11, 0x22, 0x33, 0x44
+]);
+const unsignedQaccU8Fixture = conformanceFixture("esp32s3_unsigned_qacc_u8_load", [
+  0x5b, 0xaa,
+  0xa4, 0x02, 0x15,
+  0x70, 0x20, 0xe3,
+  0x80, 0x30, 0xe3,
+  0x90, 0x40, 0xe3,
+  0xa0, 0x50, 0xe3,
+  0xb0, 0x60, 0xe3,
+  0x20, 0x70, 0xe3,
+  0x30, 0x80, 0xe3,
+  0x40, 0x90, 0xe3,
+  0x50, 0xc0, 0xe3,
+  0x60, 0xd0, 0xe3
+]);
+const unsignedQaccU8Run = await runFresh(moduleBytes, unsignedQaccU8Fixture, {
+  data: unsignedQaccU8Input,
+  maxSteps: 12
+});
+const unsignedQaccU8Expected = [
+  0x07f00001, 0xf0008000, 0x0012000f, 0x40000fe0, 0x000c0000,
+  0x05500002, 0x9000aa00, 0x00110009, 0x33000220, 0x00044000
+];
+assert(unsignedQaccU8Run.record.reason === STOP_REASONS.maxSteps, "unsigned U8 QACC fixture did not finish");
+assert(unsignedQaccU8Run.record.steps === 12, "unsigned U8 QACC fixture executed the wrong instruction count");
+assert(unsignedQaccU8Run.record.registers[10] === INITIAL_SOURCE + 37, "unsigned U8 QACC load applied the wrong postincrement");
+assert(
+  signedQaccRegisters.every((register, index) => unsignedQaccU8Run.record.registers[register] === unsignedQaccU8Expected[index]),
+  "unsigned U8 QACC load packed or zero-extended a 20-bit lane incorrectly"
+);
+
+const unsupportedQaccLaneFixture = conformanceFixture("esp32s3_unsupported_ldqa_u16_128_xp", [0xa4, 0x4c, 0x7a]);
 const unsupportedQaccLaneRun = await runFresh(moduleBytes, unsupportedQaccLaneFixture, {
   maxSteps: 1,
-  unsupported: { offset: 0, encoding: 0x0501a4 }
+  unsupported: { offset: 0, encoding: 0x7a4ca4 }
 });
-assert(unsupportedQaccLaneRun.record.reason === STOP_REASONS.unsupported, "adjacent unsigned QACC load did not fail closed");
+assert(unsupportedQaccLaneRun.record.reason === STOP_REASONS.unsupported, "adjacent unsigned QACC XP load did not fail closed");
 assert(unsupportedQaccLaneRun.record.steps === 0, "adjacent unsigned QACC load was counted as executed");
 assert(unsupportedQaccLaneRun.trace.count === 0, "adjacent unsigned QACC refusal leaked a trace record");
 assert(unsupportedQaccLaneRun.dataOutput.length === 0, "adjacent unsigned QACC refusal exposed data output");
@@ -1141,10 +1205,7 @@ const actualBaseline = {
     sourceAfter: `0x${accxMemoryRun.record.registers[10].toString(16)}`,
     destinationAfter: `0x${accxMemoryRun.record.registers[11].toString(16)}`,
     lowValue: `0x${accxMemoryRun.record.registers[2].toString(16)}`,
-    highValue: `0x${accxMemoryRun.record.registers[3].toString(16)}`,
-    unsupportedCodeSha256: unsupportedQaccLaneFixture.codeSha256,
-    unsupportedReason: unsupportedQaccLaneRun.record.reasonName,
-    unsupportedEncoding: `0x${unsupportedQaccLaneRun.record.unsupportedEncoding.toString(16)}`
+    highValue: `0x${accxMemoryRun.record.registers[3].toString(16)}`
   },
   qaccMemoryIsa: {
     codeSha256: qaccMemoryFixture.codeSha256,
@@ -1194,6 +1255,17 @@ const actualBaseline = {
     sourceAfter: `0x${signedQaccLoadRun.record.registers[10].toString(16)}`,
     lowWords: signedQaccRegisters.slice(0, 5).map((register) => `0x${signedQaccLoadRun.record.registers[register].toString(16)}`),
     highWords: signedQaccRegisters.slice(5).map((register) => `0x${signedQaccLoadRun.record.registers[register].toString(16)}`)
+  },
+  unsignedQaccLoadIsa: {
+    u16CodeSha256: unsignedQaccU16Fixture.codeSha256,
+    u16SourceAfter: `0x${unsignedQaccU16Run.record.registers[10].toString(16)}`,
+    u16Words: signedQaccRegisters.map((register) => `0x${unsignedQaccU16Run.record.registers[register].toString(16)}`),
+    u8CodeSha256: unsignedQaccU8Fixture.codeSha256,
+    u8SourceAfter: `0x${unsignedQaccU8Run.record.registers[10].toString(16)}`,
+    u8Words: signedQaccRegisters.map((register) => `0x${unsignedQaccU8Run.record.registers[register].toString(16)}`),
+    unsupportedCodeSha256: unsupportedQaccLaneFixture.codeSha256,
+    unsupportedReason: unsupportedQaccLaneRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedQaccLaneRun.record.unsupportedEncoding.toString(16)}`
   },
   threadptrIsa: {
     codeSha256: threadptrFixture.codeSha256,
@@ -1332,6 +1404,7 @@ assert(
     alignedLoadIsa: baseline.alignedLoadIsa,
     alignedMoreIsa: baseline.alignedMoreIsa,
     signedQaccLoadIsa: baseline.signedQaccLoadIsa,
+    unsignedQaccLoadIsa: baseline.unsignedQaccLoadIsa,
     threadptrIsa: baseline.threadptrIsa,
     accxIsa: baseline.accxIsa,
     qaccIsa: baseline.qaccIsa,

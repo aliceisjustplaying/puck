@@ -56,6 +56,8 @@ assert(surface.normalizedMnemonics.includes("ee.ld.128.usar.ip"), "ESP32-S3 PIE 
 assert(surface.normalizedMnemonics.includes("ee.ld.128.usar.xp"), "ESP32-S3 PIE patch surface lost USAR register-postincrement load");
 assert(surface.normalizedMnemonics.includes("ee.movi.32.q"), "ESP32-S3 PIE patch surface lost scalar-to-QR move");
 assert(surface.normalizedMnemonics.includes("ee.ldqa.s16.128.ip"), "ESP32-S3 PIE patch surface lost signed QACC load");
+assert(surface.normalizedMnemonics.includes("ee.ldqa.u16.128.ip"), "ESP32-S3 PIE patch surface lost unsigned halfword QACC load");
+assert(surface.normalizedMnemonics.includes("ee.ldqa.u8.128.ip"), "ESP32-S3 PIE patch surface lost unsigned byte QACC load");
 assert(surface.normalizedMnemonics.includes("ee.st.accx.ip"), "ESP32-S3 PIE patch surface lost ACCX store");
 assert(surface.normalizedMnemonics.includes("ee.ld.qacc_h.h.32.ip"), "ESP32-S3 PIE patch surface lost QACC high-word load");
 assert(surface.normalizedMnemonics.includes("ee.ld.qacc_h.l.128.ip"), "ESP32-S3 PIE patch surface lost QACC high-bank low-part load");
