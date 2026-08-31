@@ -2,6 +2,7 @@ export const ESP32S3_SYSTEM_MMIO_PAGE = 0x600c_0000;
 export const ESP32S3_SYSTEM_CPU_PER_CONF_REG = 0x600c_0010;
 export const ESP32S3_SYSTEM_SYSCLK_CONF_REG = 0x600c_0060;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC = 0x4037_71a5;
+export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_READ_PC = 0x4037_7275;
 export const ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC = 0x4037_71d6;
 export const ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC = 0x4037_71ff;
 
@@ -40,6 +41,7 @@ export interface Esp32S3DirectBootSystemMmioAccess {
   readonly width: number;
   readonly isWrite: boolean;
   readonly rtcMmioComplete: boolean;
+  readonly cpuTicksConfigured?: boolean;
 }
 
 export type Esp32S3DirectBootSystemMmioDispatch =
@@ -89,6 +91,9 @@ export function readEsp32S3DirectBootSystemMmio(
     if (state.cpuPerReadCount >= 4) {
       return refuse(state, "SYSTEM_CPU_PER_CONF direct-boot reads already occurred");
     }
+    if (access.cpuTicksConfigured) {
+      return refuse(state, "SYSTEM_CPU_PER_CONF read followed CPU ticks configuration");
+    }
     const repeatedSequence = state.cpuPerReadCount >= 2;
     if (repeatedSequence
       ? state.readCount !== 2 || !access.rtcMmioComplete
@@ -118,16 +123,23 @@ export function readEsp32S3DirectBootSystemMmio(
   if (access.width !== 4 || access.isWrite) {
     return refuse(state, "SYSTEM_SYSCLK_CONF permits only the observed aligned 32-bit read");
   }
-  if (access.pc !== ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC) {
+  const expectedPc = state.readCount === 2
+    ? ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_READ_PC
+    : ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC;
+  if (access.pc !== expectedPc) {
     return refuse(state, `unexpected SYSTEM_SYSCLK_CONF reader 0x${access.pc.toString(16)}`);
   }
-  if (state.readCount >= 2) return refuse(state, "SYSTEM_SYSCLK_CONF direct-boot reads already occurred");
-  if (state.readCount === 0 && access.rtcMmioComplete) {
+  if (state.readCount >= 3) return refuse(state, "SYSTEM_SYSCLK_CONF direct-boot reads already occurred");
+  if (state.readCount === 0 && (access.rtcMmioComplete || access.cpuTicksConfigured)) {
     return refuse(state, "initial SYSTEM_SYSCLK_CONF read followed RTC_XTAL_FREQ");
   }
   if (state.readCount === 1 &&
-      (!access.rtcMmioComplete || state.cpuPerReadCount !== 2)) {
+      (!access.rtcMmioComplete || access.cpuTicksConfigured || state.cpuPerReadCount !== 2)) {
     return refuse(state, "repeated SYSTEM_SYSCLK_CONF read preceded RTC_XTAL_FREQ");
+  }
+  if (state.readCount === 2 &&
+      (!access.rtcMmioComplete || !access.cpuTicksConfigured || state.cpuPerReadCount !== 4)) {
+    return refuse(state, "post-ticks SYSTEM_SYSCLK_CONF read preceded CPU ticks configuration");
   }
   return Object.freeze({
     handled: true,

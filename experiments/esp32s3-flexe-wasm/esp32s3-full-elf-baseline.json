@@ -9,10 +9,10 @@
     "inheritedPages": 3,
     "initialStack": "0x3fce9700",
     "initialStackProvenance": "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
-    "runnerPatchSha256": "1c2fe9f76c7017fef4109eec24ce9071886654f4a95ce360c0326c1152b62657",
+    "runnerPatchSha256": "855d26195860ee692a8d646c409c7dad3573f1705d3c4a040741cc007a8279db",
     "esp32s3PatchSha256": "f78637e4444762898043a70c0b37bca6387dfe078ebd12c0e23c57aff19f35e2",
-    "moduleBytes": 61837,
-    "moduleSha256": "1c2319bcfc6db0cea85174515b3885a2f09a85e8bf5b07d3ec52c2c77bbe7786"
+    "moduleBytes": 62855,
+    "moduleSha256": "8c9d1b4ee7997552e4c0926109c5112f267dd05f17a19e37a7273eb27ed97231"
   },
   "bounded": {
     "reason": "maxSteps",
@@ -84,17 +84,17 @@
     }
   },
   "cacheProgress": {
-    "reason": "readPermission",
-    "steps": 319,
-    "pc": "0x40377275",
-    "traceSha256": "5e52ccd5defe5b354747bfd05a4701e9044525e422d2fc95fb3714e0c6324fa1",
+    "reason": "writePermission",
+    "steps": 322,
+    "pc": "0x4037727d",
+    "traceSha256": "1f4f8d324c9cc3187a7d38410236c17c68a7b281d2bd3f835fd2a1bdfe1ee9fa",
     "stackPointer": "0x3fce95e0",
-    "memoryTraceRecords": 444,
-    "memoryTraceSha256": "6e438a77bfebfd1ded2ace0b0e36464a48a6db0bab37f85ad7026bfd530f11a2",
+    "memoryTraceRecords": 448,
+    "memoryTraceSha256": "4550f885c861248f3ebb95286d67e60c1e3721d45ebdcc67e513bef1aeeb948f",
     "registers": [
       "0x80377320", "0x3fce95e0", "0x00000028", "0x00000001",
       "0x00000000", "0x00000000", "0x00000000", "0x00000000",
-      "0x600c0060", "0x3fce95b0", "0xfffffc00", "0x00000000",
+      "0x600c0060", "0x00000400", "0xfffffc00", "0x00000000",
       "0x00000000", "0x00000000", "0x00000000", "0x00000000"
     ],
     "cacheBootstrap": {
@@ -147,12 +147,13 @@
       { "kind": "systemMmioRead", "pc": "0x403771a5", "address": "0x600c0060", "width": 4, "value": "0x400" },
       { "kind": "systemMmioRead", "pc": "0x403771d6", "address": "0x600c0010", "width": 4, "value": "0x4" },
       { "kind": "systemMmioRead", "pc": "0x403771ff", "address": "0x600c0010", "width": 4, "value": "0x4" },
-      { "kind": "cpuTicksPerUs", "pc": "0x40001a4c", "ticksPerUs": 40, "callinc": 2 }
+      { "kind": "cpuTicksPerUs", "pc": "0x40001a4c", "ticksPerUs": 40, "callinc": 2 },
+      { "kind": "systemMmioRead", "pc": "0x40377275", "address": "0x600c0060", "width": 4, "value": "0x400" }
     ],
     "systemMmio": {
       "sysclkConf": 1024,
-      "readCount": 2,
-      "lastReadPc": 1077375397,
+      "readCount": 3,
+      "lastReadPc": 1077375605,
       "cpuPerConf": 4,
       "cpuPerReadCount": 4,
       "cpuPerLastReadPc": 1077375487

@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "inputs": {
     "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
-    "moduleSha256": "1c2319bcfc6db0cea85174515b3885a2f09a85e8bf5b07d3ec52c2c77bbe7786",
-    "traceRecordSha256": "6e438a77bfebfd1ded2ace0b0e36464a48a6db0bab37f85ad7026bfd530f11a2",
+    "moduleSha256": "8c9d1b4ee7997552e4c0926109c5112f267dd05f17a19e37a7273eb27ed97231",
+    "traceRecordSha256": "4550f885c861248f3ebb95286d67e60c1e3721d45ebdcc67e513bef1aeeb948f",
     "timingProfileSha256": "fa2ce865eb19f45b6bd49baf41232753132ce6f046654a9f07b667e76cae4f4b",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
     "neutralAdapterSha256": "337da62ff6c9a4f4aab9a09e419d250de22f0cc7fc04110826dd90bc8bf4430c",
@@ -12,9 +12,9 @@
     "beqzClassifierSha256": "05fc756b4fe8c1cc69fe3787e413dece79b02cc920d4a3f9340c7bf3bfea3fc9"
   },
   "trace": {
-    "records": 444,
-    "instructions": 319,
-    "reads": 77,
+    "records": 448,
+    "instructions": 322,
+    "reads": 78,
     "writes": 48,
     "observedSramPages": [
       "0x3fcab000",
@@ -34,9 +34,9 @@
     "totalCycles": null,
     "exactBeqzNotTaken": 3,
     "exactBeqzTaken": 0,
-    "issuedEvents": 792,
-    "memoryEvents": 413,
-    "mmioEvents": 34,
+    "issuedEvents": 799,
+    "memoryEvents": 416,
+    "mmioEvents": 35,
     "mmioAccessBreakdown": [
       {
         "address": "0x600080c0",
@@ -57,7 +57,7 @@
         "operation": "read",
         "bytes": 4,
         "peripheral": "system-controller",
-        "count": 2
+        "count": 3
       },
       {
         "address": "0x600c4004",
@@ -109,11 +109,11 @@
         "count": 1
       }
     ],
-    "cpuEvents": 345,
+    "cpuEvents": 348,
     "dependentSramLoadUseHazards": 26,
-    "knownCostEvents": 758,
-    "unknownCostEvents": 34,
-    "issuedProjectionSha256": "a4491afd60e59e658530bb5c456515807eb39a0d1b8f3949429dba177dab27a9",
+    "knownCostEvents": 764,
+    "unknownCostEvents": 35,
+    "issuedProjectionSha256": "53b16acf44b6f666dd89c85fd951dced0cadf59f60340bb9e1811f5b2d728bb7",
     "loadUseEvidenceSha256": "deeebce965700068af325d700928b5ad7c473ac911f60ba3bb5d9449b0993cb5"
   }
 }

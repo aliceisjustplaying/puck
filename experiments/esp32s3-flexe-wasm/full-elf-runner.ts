@@ -633,6 +633,7 @@ export async function runSparseXtensaElf(
         width: event.width,
         isWrite: false,
         rtcMmioComplete: rtcMmio?.readCount === 1,
+        cpuTicksConfigured: cpuTicks?.configured === true,
       });
       assert(read.handled && read.status === "accepted", "full ELF module violated system MMIO contract");
       assert(read.value === event.value, "system MMIO read value differs");
