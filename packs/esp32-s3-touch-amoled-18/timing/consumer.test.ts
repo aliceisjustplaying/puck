@@ -33,6 +33,11 @@ function profileObject(): Record<string, unknown> {
         observedAdditionalCycles: 1,
         reason: "synthetic traces have no register dependencies",
       },
+      conditionalBranchCycles: {
+        status: "partially-calibrated",
+        evidence: "timing/evidence/synthetic-beqz-adoption.json",
+        beqz: { notTaken: 1, taken: 3 },
+      },
     },
     psram: {
       mode: "octal",
@@ -237,6 +242,12 @@ describe("timing profile claim boundary", () => {
         observedAdditionalCycles: 1,
         reason: "runtime traces do not identify register dependencies",
       },
+      conditionalBranchCycles: {
+        status: "partially-calibrated",
+        evidence:
+          "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-2bf3ffd-beqz-adoption.json",
+        beqz: { notTaken: 1, taken: 3 },
+      },
     });
   });
 
@@ -297,6 +308,14 @@ describe("timing profile claim boundary", () => {
     changedHazardValue.observedAdditionalCycles = 2;
     expect(() => parseTimingProfile(changedHazard)).toThrow(
       "dependentLoadUseHazard.observedAdditionalCycles must be 1",
+    );
+
+    const changedBeqz = clone(profileObject());
+    const beqz = ((changedBeqz.coreSteadyStateCycles as Record<string, unknown>)
+      .conditionalBranchCycles as Record<string, unknown>).beqz as Record<string, unknown>;
+    beqz.taken = 2;
+    expect(() => parseTimingProfile(changedBeqz)).toThrow(
+      "conditionalBranchCycles.beqz.taken must be 3",
     );
   });
 });

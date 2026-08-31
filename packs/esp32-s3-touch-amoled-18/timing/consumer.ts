@@ -85,6 +85,14 @@ export interface TimingProfileV1 {
       observedAdditionalCycles: 1;
       reason: string;
     }>;
+    conditionalBranchCycles: Readonly<{
+      status: "partially-calibrated";
+      evidence: string;
+      beqz: Readonly<{
+        notTaken: 1;
+        taken: 3;
+      }>;
+    }>;
   }>;
   readonly psram: Readonly<{
     mode: string;
@@ -416,6 +424,7 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
       "instructionIssueCycles",
       "independentSramAccessAdditiveCycles",
       "dependentLoadUseHazard",
+      "conditionalBranchCycles",
     ],
     "timing profile.coreSteadyStateCycles",
   );
@@ -479,6 +488,43 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
   const loadUseHazardReason = stringAt(
     loadUseHazard.reason,
     "timing profile.coreSteadyStateCycles.dependentLoadUseHazard.reason",
+  );
+  const conditionalBranchCycles = objectAt(
+    coreCycles.conditionalBranchCycles,
+    "timing profile.coreSteadyStateCycles.conditionalBranchCycles",
+  );
+  exactKeys(
+    conditionalBranchCycles,
+    ["status", "evidence", "beqz"],
+    "timing profile.coreSteadyStateCycles.conditionalBranchCycles",
+  );
+  literal(
+    conditionalBranchCycles.status,
+    "partially-calibrated",
+    "timing profile.coreSteadyStateCycles.conditionalBranchCycles.status",
+  );
+  const conditionalBranchEvidence = stringAt(
+    conditionalBranchCycles.evidence,
+    "timing profile.coreSteadyStateCycles.conditionalBranchCycles.evidence",
+  );
+  const beqzCycles = objectAt(
+    conditionalBranchCycles.beqz,
+    "timing profile.coreSteadyStateCycles.conditionalBranchCycles.beqz",
+  );
+  exactKeys(
+    beqzCycles,
+    ["notTaken", "taken"],
+    "timing profile.coreSteadyStateCycles.conditionalBranchCycles.beqz",
+  );
+  literal(
+    beqzCycles.notTaken,
+    1,
+    "timing profile.coreSteadyStateCycles.conditionalBranchCycles.beqz.notTaken",
+  );
+  literal(
+    beqzCycles.taken,
+    3,
+    "timing profile.coreSteadyStateCycles.conditionalBranchCycles.beqz.taken",
   );
 
   const psram = objectAt(profile.psram, "timing profile.psram");
@@ -630,6 +676,11 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
         status: "unmodeled",
         observedAdditionalCycles: 1,
         reason: loadUseHazardReason,
+      }),
+      conditionalBranchCycles: Object.freeze({
+        status: "partially-calibrated",
+        evidence: conditionalBranchEvidence,
+        beqz: Object.freeze({ notTaken: 1, taken: 3 }),
       }),
     }),
     psram: Object.freeze({

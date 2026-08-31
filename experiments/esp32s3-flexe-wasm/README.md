@@ -364,10 +364,11 @@ Exact three-byte `L32R` encodings classify their owned reads as instruction-side
 literal loads. The 405 records issue 723 timing events: 377 memory-system
 events, 31 MMIO accesses, 290 calibrated CPU issue events, and 25 calibrated
 dependent load-use events. Exactly 692 events have adopted costs, including
-three flash line fills and every zero-miss cache hit. The baseline pins the
-hazard count and a projection hash of their schedule, consumer IDs, registers,
-and producer/consumer PCs. Only the 31 controller MMIO costs remain unknown,
-so the replay is blocked and reports no total cycle claim.
+three exact not-taken `beqz` paths, three flash line fills, and every zero-miss
+cache hit. The baseline pins the branch classifier, hazard count, and a
+projection hash of their schedule, consumer IDs, registers, and
+producer/consumer PCs. Only the 31 controller MMIO costs remain unknown, so the
+replay is blocked and reports no total cycle claim.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
 page count, bounded trace, unsupported-instruction refusal, and first stop,

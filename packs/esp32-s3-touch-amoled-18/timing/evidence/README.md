@@ -90,6 +90,19 @@ dependent SRAM load-use hazard remain uncalibrated or unmodeled.
 values and claim boundaries. The adjacent instruction-cache and data-cache
 analysis files contain the complete fitted ladders and source receipt hashes.
 
+`captures-2bf3ffd/` and `receipts-2bf3ffd/` retain two clean boots of matched
+conditional-branch probes from TinyDraw commit `2bf3ffd861115b95451df1860623618c06e22dcf`.
+The baseline and not-taken `beqz` paths each measured exactly 28,692 cycles in
+all 100 samples of both boots. The taken path measured exactly 36,884 cycles.
+Each path executes 4,096 matched body iterations, so the 8,192-cycle delta is
+two additional cycles per taken branch. All five cache-counter deltas are zero.
+
+`esp32s3-rev02-tinydraw-2bf3ffd-beqz-adoption.json` pins the firmware, ELF,
+sdkconfig, raw capture, receipt, and boot identities. It adopts a one-cycle
+not-taken cost and three-cycle taken cost only for the exact measured `beqz`
+encoding and observed route. Other conditional branches, interrupts, and
+whole-core timing remain outside the claim.
+
 Regenerate the report with:
 
 ```sh

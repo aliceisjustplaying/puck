@@ -8,9 +8,10 @@ not simulated chip time.
 [`../timing.json`](../timing.json) is the device profile and machine-readable
 claim boundary. It records configured CPU, PSRAM, and flash clocks, the measured
 panel bus clock, measured cache-line fill ladders, steady-state instruction
-issue, independent SRAM access costs, and explicit calibration state. These
-bounded costs do not calibrate cache hits, dependent pipeline hazards,
-interrupts, peripherals, or the whole-machine result.
+issue, independent SRAM access costs, hot cache-hit costs, exact `beqz` path
+costs, and explicit calibration state. These bounded costs do not calibrate
+all instructions, dependent pipeline hazards, interrupts, peripherals, or the
+whole-machine result.
 
 ## What is here
 
@@ -154,8 +155,9 @@ byte for byte. Its adoption status remains `unreviewed`.
 - Cache-store hits, dependent load-use modeling, dirty writeback, DMA ordering,
   interrupts, and dual-core correlation still need hardware-backed treatment.
   Hot zero-miss instruction fetches and flash/PSRAM loads have adopted zero
-  additive costs. The exact opt-in Flexe classifier covers observed register
-  dependencies, while general runtime traces still lack that vocabulary.
+  additive costs. Exact Flexe classifiers cover observed register dependencies
+  and measured `beqz` taken/not-taken routes, while general runtime traces and
+  other conditional branches still lack that vocabulary.
 - Hardware receipts are bounded CCOUNT microbenchmarks. Mapping them to
   architectural instruction, cache, or bus costs remains
   `microbenchmarkToArchitecturalCost: "unreviewed"`.

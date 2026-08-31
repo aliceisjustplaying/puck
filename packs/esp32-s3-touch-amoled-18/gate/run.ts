@@ -279,6 +279,15 @@ const timingProfile: Check = {
           observedAdditionalCycles: 1,
           reason: "runtime traces do not identify register dependencies",
         },
+        conditionalBranchCycles: {
+          status: "partially-calibrated",
+          evidence:
+            "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-2bf3ffd-beqz-adoption.json",
+          beqz: {
+            notTaken: 1,
+            taken: 3,
+          },
+        },
       },
       psram: {
         mode: "octal",

@@ -113,6 +113,7 @@ const timingMachinePath = join(here, "../../packs/esp32-s3-touch-amoled-18/timin
 const neutralAdapterPath = join(here, "../../packs/esp32-s3-touch-amoled-18/timing/trace-adapter.ts");
 const adapterPath = join(here, "trace-timing-adapter.ts");
 const loadUseClassifierPath = join(here, "flexe-load-use.ts");
+const beqzClassifierPath = join(here, "flexe-beqz.ts");
 const moduleBytes = await Bun.file(modulePath).arrayBuffer();
 const image = parseXtensaElf32(readFileSync(DEFAULT_TINYDRAW_ESP32S3_FULL_ELF));
 const run = await runSparseXtensaElf(moduleBytes, image, {
@@ -214,6 +215,8 @@ const timingProfile = parseTimingProfile(JSON.parse(readFileSync(timingProfilePa
 assert.equal(timingProfile.coreSteadyStateCycles.dependentLoadUseHazard.status, "unmodeled");
 const costSource = `timing profile ${timingProfilePath} SHA-256 ${sha256(timingProfilePath)}`;
 const coreCostSource = `${costSource}; evidence ${timingProfile.coreSteadyStateCycles.evidence}`;
+const branchCostSource =
+  `${costSource}; evidence ${timingProfile.coreSteadyStateCycles.conditionalBranchCycles.evidence}`;
 const cacheLineFillSource = `${costSource}; evidence ${timingProfile.cacheLineFillCycles.evidence}`;
 const cacheHitSource = `${costSource}; evidence ${timingProfile.cacheHitAdditiveCycles.evidence}`;
 const unknown = unknownCost("unused cache path", costSource);
@@ -317,6 +320,18 @@ const runtimeTrace = adaptFlexeTraceToRuntimeTiming(run.memoryTrace, {
       coreCostSource,
     ),
   },
+  beqzCpuCost: {
+    notTaken: calibratedCost(
+      timingProfile.coreSteadyStateCycles.conditionalBranchCycles.beqz.notTaken,
+      "exact beqz not-taken CPU cost",
+      branchCostSource,
+    ),
+    taken: calibratedCost(
+      timingProfile.coreSteadyStateCycles.conditionalBranchCycles.beqz.taken,
+      "exact beqz taken CPU cost",
+      branchCostSource,
+    ),
+  },
 });
 const machine = runRuntimeTimingTrace({
   addressMap,
@@ -335,9 +350,17 @@ assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "mmio"
 const cpuEvents = machine.issuedEvents.filter((event) => event.origin.kind === "cpu");
 const loadUseHazards = cpuEvents.filter((event) => event.event.id.endsWith(":pre-data-cpu"));
 const instructionCpuEvents = cpuEvents.filter((event) => event.event.id.endsWith(":cpu"));
+const exactBeqzNotTaken = instructionCpuEvents.filter((event) =>
+  event.cost.status === "known" && event.cost.source.includes("exact beqz not-taken")
+);
+const exactBeqzTaken = instructionCpuEvents.filter((event) =>
+  event.cost.status === "known" && event.cost.source.includes("exact beqz taken")
+);
 assert.equal(cpuEvents.length, 315);
 assert.equal(loadUseHazards.length, 25);
 assert.equal(instructionCpuEvents.length, 290);
+assert.equal(exactBeqzNotTaken.length, 3);
+assert.equal(exactBeqzTaken.length, 0);
 assert.equal(machine.issuedEvents.length, 723);
 assert.equal(machine.claim.unknownCostEventIds.length, 31);
 assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 692);
@@ -400,6 +423,7 @@ const actualBaseline = {
     neutralAdapterSha256: sha256(neutralAdapterPath),
     adapterSha256: sha256(adapterPath),
     loadUseClassifierSha256: sha256(loadUseClassifierPath),
+    beqzClassifierSha256: sha256(beqzClassifierPath),
   },
   trace: {
     records: run.memoryTrace.count,
@@ -419,6 +443,8 @@ const actualBaseline = {
     mmioEvents: machine.issuedEvents.filter((event) => event.origin.kind === "mmio").length,
     cpuEvents: cpuEvents.length,
     dependentSramLoadUseHazards: loadUseHazards.length,
+    exactBeqzNotTaken: exactBeqzNotTaken.length,
+    exactBeqzTaken: exactBeqzTaken.length,
     knownCostEvents: machine.issuedEvents.filter((event) => event.cost.status === "known").length,
     unknownCostEvents: machine.claim.unknownCostEventIds.length,
     issuedProjectionSha256: createHash("sha256").update(JSON.stringify(issuedProjection)).digest("hex"),
