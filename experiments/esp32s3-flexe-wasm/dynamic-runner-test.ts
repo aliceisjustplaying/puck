@@ -432,6 +432,38 @@ assert(
   `QR scalar fixture output changed: ${Buffer.from(qrScalarRun.dataOutput).toString("hex")}`
 );
 
+const qrBitwiseFixture = conformanceFixture("esp32s3_qr_bitwise_logic", [
+  0xa4, 0x01, 0x93,
+  0xa4, 0x81, 0x93,
+  0x64, 0x34, 0xed,
+  0xa4, 0xf4, 0xed,
+  0x94, 0x35, 0xfd,
+  0xc4, 0xff, 0xfd,
+  0xb4, 0x01, 0xaa,
+  0xb4, 0x81, 0xaa,
+  0xb4, 0x01, 0xba,
+  0xb4, 0x81, 0xba
+]);
+const qrBitwiseInput = Uint8Array.from({ length: 64 }, (_, index) => (index * 29 + 7) & 0xff);
+const qrBitwiseExpected = new Uint8Array(64);
+for (let index = 0; index < 16; index++) {
+  const x = qrBitwiseInput[index]!;
+  const y = qrBitwiseInput[index + 16]!;
+  qrBitwiseExpected[index] = x & y;
+  qrBitwiseExpected[index + 16] = y;
+  qrBitwiseExpected[index + 32] = x ^ y;
+  qrBitwiseExpected[index + 48] = (~(x ^ y)) & 0xff;
+}
+const qrBitwiseRun = await runFresh(moduleBytes, qrBitwiseFixture, { data: qrBitwiseInput, maxSteps: 10 });
+assert(qrBitwiseRun.record.reason === STOP_REASONS.maxSteps, "QR bitwise fixture did not finish");
+assert(qrBitwiseRun.record.steps === 10, "QR bitwise fixture executed the wrong instruction count");
+assert(
+  qrBitwiseRun.dataOutput.every((byte, index) => byte === qrBitwiseExpected[index]),
+  `QR bitwise fixture output changed: ${Buffer.from(qrBitwiseRun.dataOutput).toString("hex")}`
+);
+assert(qrBitwiseRun.record.registers[10] === INITIAL_SOURCE + 32, "QR bitwise loads applied the wrong postincrements");
+assert(qrBitwiseRun.record.registers[11] === INITIAL_DESTINATION + 64, "QR bitwise stores applied the wrong postincrements");
+
 const unsupportedQrNeighborFixture = conformanceFixture("esp32s3_unsupported_zero_qacc", [0x44, 0x08, 0x25]);
 const unsupportedQrNeighborRun = await runFresh(moduleBytes, unsupportedQrNeighborFixture, {
   maxSteps: 1,
@@ -1175,6 +1207,14 @@ const actualBaseline = {
     unsupportedReason: unsupportedQrNeighborRun.record.reasonName,
     unsupportedEncoding: `0x${unsupportedQrNeighborRun.record.unsupportedEncoding.toString(16)}`
   },
+  qrBitwiseIsa: {
+    codeSha256: qrBitwiseFixture.codeSha256,
+    outputHex: Buffer.from(qrBitwiseRun.dataOutput).toString("hex"),
+    reason: qrBitwiseRun.record.reasonName,
+    steps: qrBitwiseRun.record.steps,
+    sourceAfter: `0x${qrBitwiseRun.record.registers[10].toString(16)}`,
+    destinationAfter: `0x${qrBitwiseRun.record.registers[11].toString(16)}`
+  },
   qrXpIsa: {
     codeSha256: qrXpFixture.codeSha256,
     outputHex: Buffer.from(qrXpRun.dataOutput).toString("hex"),
@@ -1408,6 +1448,7 @@ assert(
     scalarIsa: baseline.scalarIsa,
     qrIsa: baseline.qrIsa,
     qrScalarIsa: baseline.qrScalarIsa,
+    qrBitwiseIsa: baseline.qrBitwiseIsa,
     qrXpIsa: baseline.qrXpIsa,
     halfQrIsa: baseline.halfQrIsa,
     halfQrXpIsa: baseline.halfQrXpIsa,

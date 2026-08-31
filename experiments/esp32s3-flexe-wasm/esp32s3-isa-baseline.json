@@ -7,7 +7,7 @@
     "flexeDecoderSha256": "68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0"
   },
   "coverage": {
-    "decoderNormalizedMnemonics": 360,
+    "decoderNormalizedMnemonics": 364,
     "instructionRows": 64276,
     "supportedInstructionRows": 63415,
     "unsupportedInstructionRows": 861,

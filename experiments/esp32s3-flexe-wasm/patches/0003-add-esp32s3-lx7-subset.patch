@@ -199,7 +199,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2165,346 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2165,370 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -381,6 +381,30 @@ index 67dca18..e72666d 100644
 +        memset(cpu->qr[q], 0, 16);
 +        return 1;
 +    }
++    if ((insn & 0xcf7f2fu) == 0xcd7f04u) {
++        unsigned destination = esp32s3_qr(insn);
++        unsigned source = (((insn >> 6) & 3u) << 1) | ((insn >> 4) & 1u);
++        for (unsigned i = 0; i < 16; i++) cpu->qr[destination][i] = ~cpu->qr[source][i];
++        return 1;
++    }
++    uint32_t logical_opcode = insn & 0xcf730fu;
++    if (logical_opcode == 0xcd3004u || logical_opcode == 0xcd7004u ||
++        logical_opcode == 0xcd3104u) {
++        unsigned destination = esp32s3_qr(insn);
++        unsigned source_x = (((insn >> 6) & 3u) << 1) | ((insn >> 4) & 1u);
++        unsigned source_y = (((insn >> 10) & 3u) << 1) | ((insn >> 5) & 1u);
++        for (unsigned i = 0; i < 16; i++) {
++            uint8_t x = cpu->qr[source_x][i];
++            uint8_t y = cpu->qr[source_y][i];
++            if (logical_opcode == 0xcd3004u)
++                cpu->qr[destination][i] = x & y;
++            else if (logical_opcode == 0xcd7004u)
++                cpu->qr[destination][i] = x | y;
++            else
++                cpu->qr[destination][i] = x ^ y;
++        }
++        return 1;
++    }
 +    if ((insn & 0xcf730fu) == 0xcd3204u) {
 +        unsigned q = esp32s3_qr(insn);
 +        uint32_t value = ar_read(cpu, XT_T(insn));
@@ -546,7 +570,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2744,8 @@ have_insn:
+@@ -2319,6 +2768,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -555,7 +579,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +2772,16 @@ have_insn:
+@@ -2345,14 +2796,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -576,7 +600,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +2795,8 @@ have_insn:
+@@ -2366,6 +2819,8 @@ have_insn:
          }
      }
 
