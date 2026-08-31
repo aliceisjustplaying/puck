@@ -7,6 +7,26 @@ Date: 2026-08-31. Companion to decisions
 course-correction section of
 [`experiments/esp32s3-flexe-wasm/STATUS.md`](../experiments/esp32s3-flexe-wasm/STATUS.md).
 
+## Lane plan at a glance
+
+| Lane | Scope | Agent-hours | Cloud-viable | Blocked by |
+| --- | --- | --- | --- | --- |
+| 0 | ESP-IDF 6.1 rebaseline (checklist below) | 2 to 4, plus one board session | No, needs the board | Nothing; run first |
+| 1 | Real ROM plus peripheral models to `app_main` | 8 to 16 | About 95 percent | Nothing |
+| 2 | Co-simulation toy and executor-to-timing interface spec | 1 to 3 | Fully | Nothing |
+| 3 | Rust interpreter tier to differential parity | 12 to 24 | About 90 percent | Only its scheduler sub-lane waits on lane 2 |
+| 4 | JIT tier to real time | 12 to 24, long-tail risk | Correctness yes, performance gates local | Lane 3 |
+| 5 | Board peripheral models (panel, GDMA, touch, IMU) | 8 to 16 | Fully for models | Engine wiring waits on lane 3 |
+| 6 | Probes, calibration, correlation suite | 6 to 12, hardware-serialized | Authoring and analysis only | Suite execution waits on lane 3 |
+| 7 | Integration and ship | 4 to 8 | Mostly | Lanes 4 and 5 |
+
+Total roughly 50 to 100 agent-hours. The critical path is lanes 2, 3, 4:
+about 25 to 50 of those hours. Lanes 1, 2, 3, 5, and 6 start immediately
+and in parallel. Demo milestone (real ELF plus real ROM booting in a
+browser tab, panel drawing, interpreter speed): about 10 to 20 agent-hours
+in. Wall-clock completion is the critical path plus maintainer review
+bandwidth plus the hardware queue, not the sum of the table.
+
 ## Definition of done
 
 The puck page boots the board's real merged firmware image (real ELF plus

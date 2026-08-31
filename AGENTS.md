@@ -174,6 +174,11 @@ tools/          verify-bundle.ts (the listing verifier),
                 its own build command, take the artifact - used by the
                 verifier and by anything else that later needs an
                 external module) and ci-verify-registry.ts.
+experiments/    throwaway, bounded experiment code for the opt-in ESP32-S3
+                cycle-model path (decisions 0006, 0007, 0010): the flexe
+                LX7 spike and its STATUS ledger, the QEMU oracle contract,
+                and the browser-speed probes. Read an experiment's README
+                before touching it; each carries its own claim boundary.
 docs/           abi.md (the ABI as a page), requirements.md, agent-loop.md
                 (the optional freeze/annotate layer, plus the failed-
                 regression-check export), harness.md (also covers the

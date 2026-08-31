@@ -68,10 +68,9 @@ is the referee, one owner at a time); timing lane implements decision
   experiment typecheck pass.
 
 The integrated boot now accepts the first `esp_rom_regi2c_write_mask` DR1
-callback. Active parallel lanes cover remaining ISA families, later ROM/cache
-boot callbacks, resumable cycle feedback, flash-image boot mapping, cache and
-MSPI timing, FFT workload execution, hardware calibration corpus generation,
-and physical ESP32-S3 measurements.
+callback. All lanes are stopped; the course-correction section above and
+[`docs/roadmap.md`](../../docs/roadmap.md) define the restart plan and
+lane redirections.
 
 ## Persistent fixtures
 
