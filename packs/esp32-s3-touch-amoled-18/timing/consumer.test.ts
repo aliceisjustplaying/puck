@@ -73,6 +73,26 @@ function profileObject(): Record<string, unknown> {
       load: 0,
       store: null,
     },
+    mmioAccessCycles: {
+      status: "partially-calibrated",
+      evidence: "timing/evidence/synthetic-mmio-adoption.json",
+      entries: [
+        {
+          address: "0x600c0010",
+          operation: "read",
+          bytes: 4,
+          peripheral: "system-controller",
+          cycles: 8,
+        },
+        {
+          address: "0x600c4130",
+          operation: "read",
+          bytes: 4,
+          peripheral: "cache-controller",
+          cycles: 8,
+        },
+      ],
+    },
     panel: {
       interface: "qspi",
       lanes: 4,
@@ -231,6 +251,27 @@ describe("timing profile claim boundary", () => {
       load: 0,
       store: null,
     });
+    expect(profile.mmioAccessCycles).toEqual({
+      status: "partially-calibrated",
+      evidence:
+        "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-6f22350-mmio-adoption.json",
+      entries: [
+        {
+          address: "0x600c0010",
+          operation: "read",
+          bytes: 4,
+          peripheral: "system-controller",
+          cycles: 8,
+        },
+        {
+          address: "0x600c4130",
+          operation: "read",
+          bytes: 4,
+          peripheral: "cache-controller",
+          cycles: 8,
+        },
+      ],
+    });
     expect(profile.coreSteadyStateCycles).toEqual({
       status: "partially-calibrated",
       evidence:
@@ -317,6 +358,20 @@ describe("timing profile claim boundary", () => {
     expect(() => parseTimingProfile(changedBeqz)).toThrow(
       "conditionalBranchCycles.beqz.taken must be 3",
     );
+
+    const broadMmioAddress = clone(profileObject());
+    const broadEntries = (broadMmioAddress.mmioAccessCycles as Record<string, unknown>).entries as
+      Record<string, unknown>[];
+    broadEntries[0]!.address = "0x600c0000/0x1000";
+    expect(() => parseTimingProfile(broadMmioAddress)).toThrow(
+      "address must be one canonical lowercase 32-bit hex address",
+    );
+
+    const duplicateMmio = clone(profileObject());
+    const duplicateEntries = (duplicateMmio.mmioAccessCycles as Record<string, unknown>).entries as
+      Record<string, unknown>[];
+    duplicateEntries[1] = structuredClone(duplicateEntries[0]!);
+    expect(() => parseTimingProfile(duplicateMmio)).toThrow("must not contain duplicate access classes");
   });
 });
 

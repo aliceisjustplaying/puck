@@ -142,14 +142,24 @@ octal PSRAM and 80 MHz QIO flash. The exact input receipts are retained under
 [`evidence/receipts/`](evidence/receipts/), so the report can be regenerated
 byte for byte. Its adoption status remains `unreviewed`.
 
+The first exact MMIO adoption is checked in as
+[`evidence/esp32s3-rev02-tinydraw-6f22350-mmio-adoption.json`](evidence/esp32s3-rev02-tinydraw-6f22350-mmio-adoption.json).
+Two clean boots and twelve strict receipts establish an 8-cycle incremental
+cost for exact 32-bit reads of SYSTEM `0x600c0010` and EXTMEM `0x600c4130`.
+The raw boot logs and receipts are retained beside the manifest. RTC reads are
+excluded because their instruction-bus activity and cycles vary. The measured
+EXTMEM counter-clear write delta is retained as `12280 / 4096` and excluded
+because it is not an integral per-access cost.
+
 ## What remains before a cycle-accurate claim
 
 - A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core has a
   bounded S3 patch and fail-closed markers for 1,985 decoded inventory gaps.
   Static inventory is not whole-program execution coverage.
-- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 290 real
-  instructions through 11 cache ROM callbacks and four source-backed clock
-  register reads across SYSTEM and RTCCNTL. It does not provide the complete
+- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 325 real
+  instructions. Its current timing replay emits 806 events and adopts exact
+  costs for 775, including five matched MMIO reads. The remaining 31 MMIO
+  events block a total. It does not provide the complete
   ESP32-S3 data map, interrupt matrix,
   peripherals, ESP-IDF boot, or real dual-core execution.
 - Cache-store hits, dependent load-use modeling, dirty writeback, DMA ordering,

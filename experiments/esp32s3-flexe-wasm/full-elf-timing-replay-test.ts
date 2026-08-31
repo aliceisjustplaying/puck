@@ -219,6 +219,11 @@ const branchCostSource =
   `${costSource}; evidence ${timingProfile.coreSteadyStateCycles.conditionalBranchCycles.evidence}`;
 const cacheLineFillSource = `${costSource}; evidence ${timingProfile.cacheLineFillCycles.evidence}`;
 const cacheHitSource = `${costSource}; evidence ${timingProfile.cacheHitAdditiveCycles.evidence}`;
+const mmioCostSource = `${costSource}; evidence ${timingProfile.mmioAccessCycles.evidence}`;
+const mmioCostsByAccess = new Map(timingProfile.mmioAccessCycles.entries.map((entry) => [
+  `${entry.address}:${entry.operation}:${entry.bytes}:${entry.peripheral}`,
+  entry,
+]));
 const unknown = unknownCost("unused cache path", costSource);
 const cache: CacheConfiguration = Object.freeze({
   addressBits: 32,
@@ -336,7 +341,16 @@ const runtimeTrace = adaptFlexeTraceToRuntimeTiming(run.memoryTrace, {
 const machine = runRuntimeTimingTrace({
   addressMap,
   cache,
-  mmioCost: () => unknownCost("boot-controller MMIO access", costSource),
+  mmioCost: (segment, access) => {
+    const operation = access.kind === "load" ? "read" : access.kind === "store" ? "write" : null;
+    const address = `0x${segment.virtualAddress.toString(16).padStart(8, "0")}`;
+    const entry = operation === null || segment.peripheral === null
+      ? undefined
+      : mmioCostsByAccess.get(`${address}:${operation}:${segment.bytes}:${segment.peripheral}`);
+    return entry === undefined
+      ? unknownCost("no exact matched boot-controller MMIO access receipt", costSource)
+      : calibratedCost(entry.cycles, "exact matched ESP32-S3 MMIO access", mmioCostSource);
+  },
 }, runtimeTrace);
 
 assert.equal(machine.status, "blocked");
@@ -356,14 +370,19 @@ const exactBeqzNotTaken = instructionCpuEvents.filter((event) =>
 const exactBeqzTaken = instructionCpuEvents.filter((event) =>
   event.cost.status === "known" && event.cost.source.includes("exact beqz taken")
 );
+const exactMmioEvents = machine.issuedEvents.filter((event) =>
+  event.origin.kind === "mmio" && event.cost.status === "known" &&
+  event.cost.source.includes("exact matched ESP32-S3 MMIO access")
+);
 assert.equal(cpuEvents.length, 351);
 assert.equal(loadUseHazards.length, 26);
 assert.equal(instructionCpuEvents.length, 325);
 assert.equal(exactBeqzNotTaken.length, 3);
 assert.equal(exactBeqzTaken.length, 0);
 assert.equal(machine.issuedEvents.length, 806);
-assert.equal(machine.claim.unknownCostEventIds.length, 36);
-assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 770);
+assert.equal(exactMmioEvents.length, 5);
+assert.equal(machine.claim.unknownCostEventIds.length, 31);
+assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 775);
 assert(cpuEvents.every((event) =>
   event.cost.status === "known" && event.cost.cycles === 1n && event.cost.calibration === "calibrated"
 ));
@@ -378,7 +397,7 @@ assert.equal(machine.issuedEvents.filter((event) =>
 ).length, 0);
 assert.equal(machine.issuedEvents.filter((event) =>
   event.origin.kind === "mmio" && event.cost.status === "unknown"
-).length, 36);
+).length, 31);
 const cacheEvents = machine.issuedEvents.filter((event) => event.origin.kind === "cache");
 assert(cacheEvents.every((event) => event.cost.status === "known"));
 const mmioBreakdownByKey = new Map<string, {
@@ -475,6 +494,7 @@ const actualBaseline = {
     dependentSramLoadUseHazards: loadUseHazards.length,
     exactBeqzNotTaken: exactBeqzNotTaken.length,
     exactBeqzTaken: exactBeqzTaken.length,
+    exactMmioEvents: exactMmioEvents.length,
     knownCostEvents: machine.issuedEvents.filter((event) => event.cost.status === "known").length,
     unknownCostEvents: machine.claim.unknownCostEventIds.length,
     issuedProjectionSha256: createHash("sha256").update(JSON.stringify(issuedProjection)).digest("hex"),

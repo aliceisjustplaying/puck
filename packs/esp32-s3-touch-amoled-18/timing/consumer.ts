@@ -128,6 +128,11 @@ export interface TimingProfileV1 {
     load: 0;
     store: null;
   }>;
+  readonly mmioAccessCycles: Readonly<{
+    status: "partially-calibrated";
+    evidence: string;
+    entries: readonly MmioAccessProfileCost[];
+  }>;
   readonly panel: Readonly<{
     interface: string;
     lanes: number;
@@ -144,6 +149,14 @@ export interface TimingProfileV1 {
 export interface CacheLineFillProfileCost {
   readonly firstLineCycles: number;
   readonly subsequentLineCycles: number;
+}
+
+export interface MmioAccessProfileCost {
+  readonly address: string;
+  readonly operation: "read" | "write";
+  readonly bytes: 1 | 2 | 4;
+  readonly peripheral: string;
+  readonly cycles: number;
 }
 
 export type TimingAvailability =
@@ -381,6 +394,7 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
       "flash",
       "cacheLineFillCycles",
       "cacheHitAdditiveCycles",
+      "mmioAccessCycles",
       "panel",
     ],
     "timing profile",
@@ -626,6 +640,52 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
   literal(cacheHit.load, 0, "timing profile.cacheHitAdditiveCycles.load");
   literal(cacheHit.store, null, "timing profile.cacheHitAdditiveCycles.store");
 
+  const mmioAccess = objectAt(profile.mmioAccessCycles, "timing profile.mmioAccessCycles");
+  exactKeys(
+    mmioAccess,
+    ["status", "evidence", "entries"],
+    "timing profile.mmioAccessCycles",
+  );
+  literal(
+    mmioAccess.status,
+    "partially-calibrated",
+    "timing profile.mmioAccessCycles.status",
+  );
+  const mmioAccessEvidence = stringAt(
+    mmioAccess.evidence,
+    "timing profile.mmioAccessCycles.evidence",
+  );
+  if (!Array.isArray(mmioAccess.entries) || mmioAccess.entries.length === 0) {
+    throw new Error("timing profile.mmioAccessCycles.entries must be a non-empty array");
+  }
+  const mmioAccessEntries = mmioAccess.entries.map((entry, index): MmioAccessProfileCost => {
+    const path = `timing profile.mmioAccessCycles.entries[${index}]`;
+    const object = objectAt(entry, path);
+    exactKeys(object, ["address", "operation", "bytes", "peripheral", "cycles"], path);
+    const address = stringAt(object.address, `${path}.address`);
+    if (!/^0x[0-9a-f]{8}$/.test(address)) {
+      throw new Error(`${path}.address must be one canonical lowercase 32-bit hex address`);
+    }
+    if (object.operation !== "read" && object.operation !== "write") {
+      throw new Error(`${path}.operation must be read or write`);
+    }
+    if (object.bytes !== 1 && object.bytes !== 2 && object.bytes !== 4) {
+      throw new Error(`${path}.bytes must be 1, 2, or 4`);
+    }
+    const peripheral = stringAt(object.peripheral, `${path}.peripheral`);
+    const cycles = positiveSafeInteger(object.cycles, `${path}.cycles`);
+    return Object.freeze({ address, operation: object.operation, bytes: object.bytes, peripheral, cycles });
+  });
+  const mmioKeys = mmioAccessEntries.map((entry) =>
+    `${entry.address}:${entry.operation}:${entry.bytes}:${entry.peripheral}`
+  );
+  if (new Set(mmioKeys).size !== mmioKeys.length) {
+    throw new Error("timing profile.mmioAccessCycles.entries must not contain duplicate access classes");
+  }
+  if (JSON.stringify(mmioKeys) !== JSON.stringify([...mmioKeys].sort())) {
+    throw new Error("timing profile.mmioAccessCycles.entries must be sorted by exact access class");
+  }
+
   const panel = objectAt(profile.panel, "timing profile.panel");
   exactKeys(
     panel,
@@ -710,6 +770,11 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
       instructionFetch: 0,
       load: 0,
       store: null,
+    }),
+    mmioAccessCycles: Object.freeze({
+      status: "partially-calibrated",
+      evidence: mmioAccessEvidence,
+      entries: Object.freeze(mmioAccessEntries),
     }),
     panel: Object.freeze({
       interface: panelInterface,

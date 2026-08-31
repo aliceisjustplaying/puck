@@ -174,7 +174,10 @@ The ESP32-S3 pack also has a separate, opt-in
 [`timing lab`](packs/esp32-s3-touch-amoled-18/timing/README.md) and a bounded
 full-system experiment. Their current outputs are uncalibrated and explicitly
 `cycleAccurate: false`; they do not change the default emulator or turn a model
-result into a hardware performance claim. See
+result into a hardware performance claim. The pinned 325-instruction boot
+replay currently adopts exact costs for 775 of 806 issued events, including
+five address-, operation-, width-, and peripheral-matched MMIO reads. The 31
+remaining MMIO events keep its total blocked. See
 [`docs/requirements.md`](docs/requirements.md)'s "What this emulator does not
 model."
 

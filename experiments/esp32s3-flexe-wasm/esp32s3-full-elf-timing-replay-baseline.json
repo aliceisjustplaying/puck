@@ -4,7 +4,7 @@
     "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
     "moduleSha256": "58d624e3baf596f708acbfa234c9fdfcc69076bbfd97b78d629af95db1c8bbaa",
     "traceRecordSha256": "0d9f26750adc068b155c4da6e900f4680bceb8ef60246d79ab1f8a59927a632b",
-    "timingProfileSha256": "fa2ce865eb19f45b6bd49baf41232753132ce6f046654a9f07b667e76cae4f4b",
+    "timingProfileSha256": "8dfbf2f51aa77d69eb98a0eed87d8d2442a2a9584ac21c5d238291398918f15b",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
     "neutralAdapterSha256": "337da62ff6c9a4f4aab9a09e419d250de22f0cc7fc04110826dd90bc8bf4430c",
     "adapterSha256": "2c77902bc5ea89505f459de96f987de007c29f98070a95e86c2c5d1dc527a010",
@@ -34,6 +34,7 @@
     "totalCycles": null,
     "exactBeqzNotTaken": 3,
     "exactBeqzTaken": 0,
+    "exactMmioEvents": 5,
     "issuedEvents": 806,
     "memoryEvents": 419,
     "mmioEvents": 36,
@@ -118,9 +119,9 @@
     ],
     "cpuEvents": 351,
     "dependentSramLoadUseHazards": 26,
-    "knownCostEvents": 770,
-    "unknownCostEvents": 36,
-    "issuedProjectionSha256": "1feeb58b25c95dcb599ac0c1759b1309536cb5e7b9089210e4b58383b42cc257",
+    "knownCostEvents": 775,
+    "unknownCostEvents": 31,
+    "issuedProjectionSha256": "4fd57e10789a9dfce103cd97df36b9cfa9ea941a116c56c834b44e4cf90fb753",
     "loadUseEvidenceSha256": "deeebce965700068af325d700928b5ad7c473ac911f60ba3bb5d9449b0993cb5"
   }
 }
