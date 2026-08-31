@@ -3,12 +3,14 @@ import {
   ESP32S3_DIRECT_APP_CACHE_BOOTSTRAP_SEQUENCE,
   ESP32S3_DIRECT_APP_CACHE_REGISTERS,
   ESP32S3_DIRECT_APP_INSTRUCTION_CACHE_MODE,
+  ESP32S3_DIRECT_APP_DATA_CACHE_MODE,
   ESP32S3_CACHE_REGISTER_ADDRESSES,
   ESP32S3_ROM_CACHE_CALLBACKS,
   ESP32S3_ROM_CACHE_CALLINC,
   ESP32S3_ROM_CACHE_MODE_CALLBACKS,
   advanceEsp32S3DirectAppCacheBootstrap,
   configureEsp32S3DirectAppInstructionCache,
+  configureEsp32S3DirectAppDataCache,
   createEsp32S3DirectAppCacheBootstrap,
   suspendEsp32S3DirectAppDataCache,
   type Esp32S3DirectAppCacheBootstrapState,
@@ -282,5 +284,76 @@ describe("ESP32-S3 direct app cache bootstrap", () => {
     const suspended = suspendEsp32S3DirectAppDataCache(configured.state, invocation);
     if (!suspended.handled || suspended.status !== "accepted") throw new Error("suspend was refused");
     expect(suspendEsp32S3DirectAppDataCache(suspended.state, invocation).status).toBe("refused");
+  });
+
+  test("configures the observed data cache geometry while data cache is suspended", () => {
+    expect(ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureData).toBe(0x4000_1a28);
+    expect(ESP32S3_DIRECT_APP_DATA_CACHE_MODE).toEqual({ sizeBytes: 0x8000, ways: 8, lineBytes: 64 });
+    let state = createEsp32S3DirectAppCacheBootstrap();
+    for (const call of ESP32S3_DIRECT_APP_CACHE_BOOTSTRAP_SEQUENCE) {
+      state = accepted(state, call.pc, call.arguments).state;
+    }
+    const instructionMode = configureEsp32S3DirectAppInstructionCache(state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureInstruction,
+      callinc: 2,
+      arguments: [0x4000, 8, 32],
+    });
+    if (!instructionMode.handled || instructionMode.status !== "accepted") throw new Error("mode refused");
+    const suspended = suspendEsp32S3DirectAppDataCache(instructionMode.state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.suspendData,
+      callinc: 2,
+      arguments: [],
+    });
+    if (!suspended.handled || suspended.status !== "accepted") throw new Error("suspend refused");
+    const configured = configureEsp32S3DirectAppDataCache(suspended.state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureData,
+      callinc: 2,
+      arguments: [0x8000, 8, 64],
+    });
+    expect(configured.handled).toBe(true);
+    expect(configured.status).toBe("accepted");
+    if (configured.handled && configured.status === "accepted") {
+      expect(configured.returnValue).toBeNull();
+      expect(configured.state.dataMode).toEqual(ESP32S3_DIRECT_APP_DATA_CACHE_MODE);
+      expect(configured.state.dataSuspended).toBe(true);
+    }
+  });
+
+  test("refuses early, repeated, or malformed data cache mode calls", () => {
+    const initial = createEsp32S3DirectAppCacheBootstrap();
+    const invocation = {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureData,
+      callinc: 2,
+      arguments: [0x8000, 8, 64],
+    } as const;
+    expect(configureEsp32S3DirectAppDataCache(initial, invocation).status).toBe("refused");
+
+    let state = initial;
+    for (const call of ESP32S3_DIRECT_APP_CACHE_BOOTSTRAP_SEQUENCE) {
+      state = accepted(state, call.pc, call.arguments).state;
+    }
+    const instructionMode = configureEsp32S3DirectAppInstructionCache(state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureInstruction,
+      callinc: 2,
+      arguments: [0x4000, 8, 32],
+    });
+    if (!instructionMode.handled || instructionMode.status !== "accepted") throw new Error("mode refused");
+    const suspended = suspendEsp32S3DirectAppDataCache(instructionMode.state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.suspendData,
+      callinc: 2,
+      arguments: [],
+    });
+    if (!suspended.handled || suspended.status !== "accepted") throw new Error("suspend refused");
+    for (const malformed of [
+      { ...invocation, callinc: 1 },
+      { ...invocation, arguments: [0x4000, 8, 64] },
+      { ...invocation, arguments: [0x8000, 4, 64] },
+      { ...invocation, arguments: [0x8000, 8, 32] },
+    ]) {
+      expect(configureEsp32S3DirectAppDataCache(suspended.state, malformed).status).toBe("refused");
+    }
+    const configured = configureEsp32S3DirectAppDataCache(suspended.state, invocation);
+    if (!configured.handled || configured.status !== "accepted") throw new Error("data mode refused");
+    expect(configureEsp32S3DirectAppDataCache(configured.state, invocation).status).toBe("refused");
   });
 });

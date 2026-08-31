@@ -85,16 +85,16 @@
   },
   "cacheProgress": {
     "reason": "unloadedPage",
-    "steps": 213,
-    "pc": "0x40001a28",
-    "traceSha256": "d4a6ab338a01c9db320cbaecf2033d55938b092949ddd4669683d24548b7258e",
+    "steps": 216,
+    "pc": "0x400018c0",
+    "traceSha256": "d87d2060d7eec3522a3c50ce5423bd786372118c53cf9c081709f802f849efa1",
     "memoryTraceRecords": 0,
     "memoryTraceSha256": "",
     "stackPointer": "0x3fce96c0",
     "registers": [
       "0x00000000", "0x3fce96c0", "0x00000000", "0x00000000",
       "0x00000000", "0x00000000", "0x00000002", "0x00000000",
-      "0x80375d29", "0x3fce96a0", "0x00008000", "0x00000008",
+      "0x80375d31", "0x3fce96a0", "0x00000000", "0x00000008",
       "0x00000040", "0x600c4064", "0x600c4004", "0x00000000"
     ],
     "cacheBootstrap": {
@@ -112,7 +112,12 @@
         "ways": 8,
         "lineBytes": 32
       },
-      "dataSuspended": true
+      "dataSuspended": true,
+      "dataMode": {
+        "sizeBytes": 32768,
+        "ways": 8,
+        "lineBytes": 64
+      }
     },
     "events": [
       { "kind": "resetReason", "pc": "0x4000057c", "core": 0, "result": 1 },
@@ -125,8 +130,9 @@
       { "kind": "cache", "pc": "0x40001890", "sequenceIndex": 3, "argument": 0, "returnValue": null },
       { "kind": "cache", "pc": "0x40001878", "sequenceIndex": 4, "argument": 0, "returnValue": null },
       { "kind": "cache", "pc": "0x40001890", "sequenceIndex": 5, "argument": 0, "returnValue": null },
-      { "kind": "cacheMode", "pc": "0x40001a1c", "sizeBytes": 16384, "ways": 8, "lineBytes": 32 },
-      { "kind": "cacheSuspend", "pc": "0x400018b4", "cache": "data", "returnValue": 0 }
+      { "kind": "cacheMode", "pc": "0x40001a1c", "cache": "instruction", "sizeBytes": 16384, "ways": 8, "lineBytes": 32 },
+      { "kind": "cacheSuspend", "pc": "0x400018b4", "cache": "data", "returnValue": 0 },
+      { "kind": "cacheMode", "pc": "0x40001a28", "cache": "data", "sizeBytes": 32768, "ways": 8, "lineBytes": 64 }
     ]
   },
   "unsupportedRefusal": {
