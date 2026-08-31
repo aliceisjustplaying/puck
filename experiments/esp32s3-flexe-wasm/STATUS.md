@@ -7,21 +7,21 @@ the integration branch is `codex/esp32s3-timing-model`, and the GitHub remote is
 
 ## Integrated checkpoint
 
-- Baseline commit: `f9c61d1e` (QACC QUP load/MAC family integrated).
-- Real ESP-IDF boot: 837 instructions and 1,105 trace records, stopping at the
-  ninth `_xtos_set_intlevel` boundary.
-- Timing replay: 2,049 events, 2,017 classified, 32 unknown, and 9 exact ROM
+- Baseline commit: `8b141357` (QACC plus the next ROM/REGI2C slice integrated).
+- Real ESP-IDF boot: 943 instructions and 1,233 trace records, stopping at the
+  eleventh `_xtos_set_intlevel` boundary.
+- Timing replay: 2,296 events, 2,263 classified, 33 unknown, and 12 exact ROM
   callbacks.
 - ISA coverage: 63,567 supported rows and 709 gaps in the panel corpus; 3,857
   unsupported rows in the full corpus.
-- WebAssembly module: 92,802 bytes, SHA-256
-  `cf24d125e02486a0eb8334d942c6a86a032ba47c41198c4bacd63c9a9f1608c9`.
-- Gates: aggregate experiment suite, 289 Bun tests, root typecheck, and
+- WebAssembly module: 93,998 bytes, SHA-256
+  `54c601ab9fa2a57f82c62e65f0d5810889055a09ffc209010f87ac00839dc3aa`.
+- Gates: aggregate experiment suite, 290 Bun tests, root typecheck, and
   experiment typecheck pass.
 
-The ROM lane has an unintegrated 943-instruction checkpoint that accepts the
-first `esp_rom_regi2c_write_mask` DR1 callback. Active parallel lanes cover
-remaining ISA families, ROM/cache boot callbacks, browser execution, cache and
+The integrated boot now accepts the first `esp_rom_regi2c_write_mask` DR1
+callback. Active parallel lanes cover remaining ISA families, later ROM/cache
+boot callbacks, browser execution, cache and
 MSPI timing, FFT workload execution, hardware calibration corpus generation,
 and physical ESP32-S3 measurements.
 
@@ -41,7 +41,7 @@ byte assertions remain enforced.
 Run the complete experiment gate from the repository root:
 
 ```text
-bun run experiments/esp32s3-flexe-wasm/aggregate-test.ts
+bun run experiments/esp32s3-flexe-wasm/test.ts
 ```
 
 The experiment README contains the focused inventory, boot, replay, and build
