@@ -1,28 +1,35 @@
 diff --git a/src/memory.h b/src/memory.h
-index df40210..d09ee70 100644
+index df40210..b4a61a8 100644
 --- a/src/memory.h
 +++ b/src/memory.h
-@@ -13,6 +13,8 @@
+@@ -13,6 +13,10 @@
  /* MMIO callback types */
  typedef uint32_t (*mmio_read_fn)(void *ctx, uint32_t addr);
  typedef void     (*mmio_write_fn)(void *ctx, uint32_t addr, uint32_t val);
 +typedef int      (*mem_access_hook_fn)(void *ctx, uint32_t addr, uint32_t value,
 +                                       uint32_t width, int is_write, int mapped);
++typedef int      (*mem_permission_hook_fn)(void *ctx, uint32_t addr,
++                                           uint32_t width, int is_write);
 
  /* Constants for struct definition */
  #define MEM_PERIPH_PAGES    128         /* 512KB / 4KB */
-@@ -36,6 +38,8 @@ struct xtensa_mem {
+@@ -36,6 +40,10 @@ struct xtensa_mem {
      uint8_t *psram;
      mmio_handler_t mmio[MEM_PERIPH_PAGES];
      uint8_t *page_table[MEM_PAGE_TABLE_SIZE];
 +    mem_access_hook_fn access_hook;
 +    void *access_hook_ctx;
++    mem_permission_hook_fn permission_hook;
++    void *permission_hook_ctx;
  };
 
  typedef struct xtensa_mem xtensa_mem_t;
-@@ -89,8 +93,12 @@ static inline uint8_t *mem_get_ptr_w(xtensa_mem_t *mem, uint32_t addr) {
+@@ -88,48 +96,93 @@ static inline uint8_t *mem_get_ptr_w(xtensa_mem_t *mem, uint32_t addr) {
+ }
 
  static inline uint8_t mem_read8(xtensa_mem_t *mem, uint32_t addr) {
++    if (mem->permission_hook &&
++        mem->permission_hook(mem->permission_hook_ctx, addr, 1, 0)) return 0;
      uint8_t *page = mem->page_table[addr >> 12];
 -    if (__builtin_expect(page != NULL, 1))
 -        return page[addr & 0xFFF];
@@ -35,10 +42,20 @@ index df40210..d09ee70 100644
      return mem_read8_slow(mem, addr);
  }
 
-@@ -99,8 +107,10 @@ static inline uint16_t mem_read16(xtensa_mem_t *mem, uint32_t addr) {
-     if (__builtin_expect(page != NULL, 1)) {
+ static inline uint16_t mem_read16(xtensa_mem_t *mem, uint32_t addr) {
++    if (mem->permission_hook &&
++        mem->permission_hook(mem->permission_hook_ctx, addr, 2, 0)) return 0;
+     uint8_t *page = mem->page_table[addr >> 12];
+-    if (__builtin_expect(page != NULL, 1)) {
++    uint32_t offset = addr & 0xFFF;
++    uint8_t *next_page = offset <= 0xFFEu ? page :
++                         (addr != UINT32_MAX ? mem->page_table[(addr >> 12) + 1u] : NULL);
++    int mapped = page != NULL && next_page != NULL;
++    if (__builtin_expect(mapped, 1)) {
          uint16_t val;
-         memcpy(&val, page + (addr & 0xFFF), 2);
+-        memcpy(&val, page + (addr & 0xFFF), 2);
++        if (offset <= 0xFFEu) memcpy(&val, page + offset, 2);
++        else val = (uint16_t)page[offset] | ((uint16_t)next_page[0] << 8);
 +        if (mem->access_hook) (void)mem->access_hook(mem->access_hook_ctx, addr, val, 2, 0, 1);
          return val;
      }
@@ -46,10 +63,28 @@ index df40210..d09ee70 100644
      return mem_read16_slow(mem, addr);
  }
 
-@@ -109,27 +119,31 @@ static inline uint32_t mem_read32(xtensa_mem_t *mem, uint32_t addr) {
-     if (__builtin_expect(page != NULL, 1)) {
-         uint32_t val;
-         memcpy(&val, page + (addr & 0xFFF), 4);
+ static inline uint32_t mem_read32(xtensa_mem_t *mem, uint32_t addr) {
++    if (mem->permission_hook &&
++        mem->permission_hook(mem->permission_hook_ctx, addr, 4, 0)) return 0;
+     uint8_t *page = mem->page_table[addr >> 12];
+-    if (__builtin_expect(page != NULL, 1)) {
+-        uint32_t val;
+-        memcpy(&val, page + (addr & 0xFFF), 4);
++    uint32_t offset = addr & 0xFFF;
++    int range_valid = addr <= UINT32_MAX - 3u;
++    uint8_t *next_page = offset <= 0xFFCu ? page :
++                         (range_valid ? mem->page_table[(addr >> 12) + 1u] : NULL);
++    int mapped = page != NULL && next_page != NULL;
++    if (__builtin_expect(mapped, 1)) {
++        uint32_t val = 0;
++        if (offset <= 0xFFCu) memcpy(&val, page + offset, 4);
++        else {
++            for (uint32_t index = 0; index < 4; index++) {
++                uint32_t byte_offset = offset + index;
++                uint8_t byte = byte_offset < 0x1000u ? page[byte_offset] : next_page[byte_offset - 0x1000u];
++                val |= (uint32_t)byte << (index * 8u);
++            }
++        }
 +        if (mem->access_hook) (void)mem->access_hook(mem->access_hook_ctx, addr, val, 4, 0, 1);
          return val;
      }
@@ -58,6 +93,8 @@ index df40210..d09ee70 100644
  }
 
  static inline void mem_write8(xtensa_mem_t *mem, uint32_t addr, uint8_t val) {
++    if (mem->permission_hook &&
++        mem->permission_hook(mem->permission_hook_ctx, addr, 1, 1)) return;
      uint8_t *page = mem->page_table[addr >> 12];
 +    if (mem->access_hook && mem->access_hook(mem->access_hook_ctx, addr, val, 1, 1, page != NULL)) return;
      if (__builtin_expect(page != NULL, 1)) {
@@ -70,11 +107,23 @@ index df40210..d09ee70 100644
  }
 
  static inline void mem_write16(xtensa_mem_t *mem, uint32_t addr, uint16_t val) {
++    if (mem->permission_hook &&
++        mem->permission_hook(mem->permission_hook_ctx, addr, 2, 1)) return;
      uint8_t *page = mem->page_table[addr >> 12];
-+    if (mem->access_hook && mem->access_hook(mem->access_hook_ctx, addr, val, 2, 1, page != NULL)) return;
-     if (__builtin_expect(page != NULL, 1)) {
-         memcpy(page + (addr & 0xFFF), &val, 2);
+-    if (__builtin_expect(page != NULL, 1)) {
+-        memcpy(page + (addr & 0xFFF), &val, 2);
 -        return;
++    uint32_t offset = addr & 0xFFF;
++    uint8_t *next_page = offset <= 0xFFEu ? page :
++                         (addr != UINT32_MAX ? mem->page_table[(addr >> 12) + 1u] : NULL);
++    int mapped = page != NULL && next_page != NULL;
++    if (mem->access_hook && mem->access_hook(mem->access_hook_ctx, addr, val, 2, 1, mapped)) return;
++    if (__builtin_expect(mapped, 1)) {
++        if (offset <= 0xFFEu) memcpy(page + offset, &val, 2);
++        else {
++            page[offset] = (uint8_t)val;
++            next_page[0] = (uint8_t)(val >> 8);
++        }
 +    } else {
 +        mem_write16_slow(mem, addr, val);
      }
@@ -82,14 +131,31 @@ index df40210..d09ee70 100644
  }
 
  extern uint32_t g_dbg_pc;
-@@ -161,11 +175,12 @@ static inline void mem_write32(xtensa_mem_t *mem, uint32_t addr, uint32_t val) {
+@@ -160,12 +213,27 @@ static inline void mem_write32(xtensa_mem_t *mem, uint32_t addr, uint32_t val) {
+         fprintf(stderr, "[PW] pc=0x%08X store 0x%08X <- 0x%08X core%d\n",
                  g_dbg_pc, addr, val, g_dbg_core);
      }
++    if (mem->permission_hook &&
++        mem->permission_hook(mem->permission_hook_ctx, addr, 4, 1)) return;
      uint8_t *page = mem->page_table[addr >> 12];
-+    if (mem->access_hook && mem->access_hook(mem->access_hook_ctx, addr, val, 4, 1, page != NULL)) return;
-     if (__builtin_expect(page != NULL, 1)) {
-         memcpy(page + (addr & 0xFFF), &val, 4);
+-    if (__builtin_expect(page != NULL, 1)) {
+-        memcpy(page + (addr & 0xFFF), &val, 4);
 -        return;
++    uint32_t offset = addr & 0xFFF;
++    int range_valid = addr <= UINT32_MAX - 3u;
++    uint8_t *next_page = offset <= 0xFFCu ? page :
++                         (range_valid ? mem->page_table[(addr >> 12) + 1u] : NULL);
++    int mapped = page != NULL && next_page != NULL;
++    if (mem->access_hook && mem->access_hook(mem->access_hook_ctx, addr, val, 4, 1, mapped)) return;
++    if (__builtin_expect(mapped, 1)) {
++        if (offset <= 0xFFCu) memcpy(page + offset, &val, 4);
++        else {
++            for (uint32_t index = 0; index < 4; index++) {
++                uint32_t byte_offset = offset + index;
++                uint8_t *target = byte_offset < 0x1000u ? page + byte_offset : next_page + byte_offset - 0x1000u;
++                *target = (uint8_t)(val >> (index * 8u));
++            }
++        }
 +    } else {
 +        mem_write32_slow(mem, addr, val);
      }
@@ -97,98 +163,12 @@ index df40210..d09ee70 100644
  }
 
  #endif /* MEMORY_H */
-diff --git a/src/xtensa.c b/src/xtensa.c
-index 24c9792..67dca18 100644
---- a/src/xtensa.c
-+++ b/src/xtensa.c
-@@ -138,14 +138,23 @@ static inline __attribute__((always_inline))
- int xtensa_fetch_inline(const xtensa_cpu_t *cpu, uint32_t addr, uint32_t *insn_out) {
-     uint8_t *page = cpu->mem->page_table[addr >> 12];
-     if (__builtin_expect(!page, 0)) return 0;
--    const uint8_t *ptr = page + (addr & 0xFFF);
--    if (ptr[0] & 0x8) {
--        *insn_out = ptr[0] | ((uint32_t)ptr[1] << 8);
--        return 2;
--    } else {
--        *insn_out = ptr[0] | ((uint32_t)ptr[1] << 8) | ((uint32_t)ptr[2] << 16);
--        return 3;
-+    uint32_t offset = addr & 0xFFF;
-+    uint8_t first = page[offset];
-+    uint32_t length = (first & 0x8) ? 2u : 3u;
-+    if (__builtin_expect(offset + length <= 0x1000u, 1)) {
-+        const uint8_t *ptr = page + offset;
-+        *insn_out = ptr[0] | ((uint32_t)ptr[1] << 8) |
-+                    (length == 3u ? (uint32_t)ptr[2] << 16 : 0u);
-+        return (int)length;
-     }
-+    if (addr > UINT32_MAX - (length - 1u)) return 0;
-+    uint8_t *next_page = cpu->mem->page_table[(addr >> 12) + 1u];
-+    if (!next_page) return 0;
-+    uint8_t second = offset == 0xFFFu ? next_page[0] : page[offset + 1u];
-+    uint8_t third = offset == 0xFFFu ? next_page[1] : next_page[0];
-+    *insn_out = first | ((uint32_t)second << 8) |
-+                (length == 3u ? (uint32_t)third << 16 : 0u);
-+    return (int)length;
- }
-
- /* External version for disasm/trace callers (not performance-critical) */
-@@ -2208,7 +2217,12 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
-
-     /* Invalid PC trap. Slow-path body lives in a noinline helper so
-      * the hot-path branch is just a single range compare. */
--    if (__builtin_expect(cpu->pc < 0x40000000u || cpu->pc >= 0x40500000u, 0)) {
-+    bool external_exec = (cpu->external_exec_begin < cpu->external_exec_end &&
-+                          cpu->pc >= cpu->external_exec_begin &&
-+                          cpu->pc < cpu->external_exec_end) ||
-+                         cpu->mem->page_table[cpu->pc >> 12] != NULL;
-+    if (__builtin_expect((cpu->pc < 0x40000000u || cpu->pc >= 0x40500000u) &&
-+                         !external_exec, 0)) {
-         cpu->cycle_count = *local_cc;
-         xtensa_invalid_pc_trap(cpu);
-         return -1;
-@@ -2296,6 +2310,10 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
- have_insn:
- #endif
-
-+    if (cpu->instruction_hook &&
-+        cpu->instruction_hook(cpu, cpu->pc, insn, ilen, cpu->instruction_hook_ctx))
-+        return -2;
-+
-     cpu->_pc_written = false;
-     cpu->pc += (uint32_t)ilen;
-
-diff --git a/src/xtensa.h b/src/xtensa.h
-index 7f70ab1..09e3182 100644
---- a/src/xtensa.h
-+++ b/src/xtensa.h
-@@ -12,6 +12,10 @@ typedef struct xtensa_cpu xtensa_cpu_t;
- /* PC hook: return non-zero to skip normal fetch/execute for this cycle */
- typedef int (*xtensa_pc_hook_fn)(xtensa_cpu_t *cpu, uint32_t pc, void *ctx);
-
-+/* Instruction hook: return non-zero to stop before executing the instruction. */
-+typedef int (*xtensa_instruction_hook_fn)(xtensa_cpu_t *cpu, uint32_t pc,
-+                                          uint32_t insn, int length, void *ctx);
-+
- /* Pre-decoded instruction table: entire firmware decoded at load time.
-  * Direct-indexed by (pc - PREDECODE_BASE), no tags, no cache misses.
-  * Packed: bits 0-23 = instruction word, bits 24-25 = ilen (2 or 3).
-@@ -248,6 +252,10 @@ struct xtensa_cpu {
-     xtensa_pc_hook_fn pc_hook;          /* PC hook (for ROM stubs etc.) */
-     void             *pc_hook_ctx;
-     const uint64_t   *pc_hook_bitmap;   /* Fast-path bitmap: skip hook if bit not set */
-+    xtensa_instruction_hook_fn instruction_hook;
-+    void                       *instruction_hook_ctx;
-+    uint32_t                    external_exec_begin;
-+    uint32_t                    external_exec_end;
-     uint32_t         *predecode;        /* Pre-decoded instruction table (heap, 20MB) */
-     /* AOT static-recompiled function table.
-      * `aot` is opaque to xtensa.c; xtensa_step_impl just calls
 diff --git a/src/wasm_probe.c b/src/wasm_probe.c
 new file mode 100644
-index 0000000..074376a
+index 0000000..8550176
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,779 @@
+@@ -0,0 +1,884 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -227,6 +207,7 @@ index 0000000..074376a
 +#define RESULT_ABI_VERSION 1u
 +#define TRACE_ABI_VERSION 1u
 +#define TRACE_CAPACITY 128u
++#define ELF_MEMORY_FAULT_ABI_VERSION 1u
 +
 +enum probe_stop_reason {
 +    PROBE_STOP_RETURNED = 1,
@@ -241,6 +222,8 @@ index 0000000..074376a
 +    PROBE_STOP_UNLOADED_PAGE = 10,
 +    PROBE_STOP_NON_EXECUTABLE_PAGE = 11,
 +    PROBE_STOP_ROM_REFUSED = 12,
++    PROBE_STOP_READ_PERMISSION = 13,
++    PROBE_STOP_WRITE_PERMISSION = 14,
 +};
 +
 +enum probe_trace_kind {
@@ -316,6 +299,19 @@ index 0000000..074376a
 +    uint32_t encoding;
 +};
 +
++struct elf_memory_fault_record {
++    uint32_t abi_version;
++    uint32_t struct_bytes;
++    uint32_t pc;
++    uint32_t address;
++    uint32_t width;
++    uint32_t is_write;
++    uint32_t denied_address;
++    uint32_t denied_page;
++    uint32_t denied_flags;
++    int hit;
++};
++
 +static xtensa_cpu_t cpu;
 +static xtensa_mem_t *mem;
 +static uint8_t input[INPUT_CAPACITY];
@@ -340,6 +336,7 @@ index 0000000..074376a
 +static int elf_rom_reset_reason_enabled;
 +static int elf_rom_memset_enabled;
 +static int elf_rom_refused;
++static struct elf_memory_fault_record elf_memory_fault;
 +static struct probe_stop_record result;
 +static struct probe_trace_buffer trace_buffer;
 +static struct probe_step_transaction step_transaction;
@@ -422,18 +419,25 @@ index 0000000..074376a
 +        return 1;
 +    }
 +    if (is_write) {
-+        uint8_t *page = mem->page_table[address >> 12];
-+        if (page) {
++        uint32_t remaining = width;
++        uint32_t current = address;
++        while (remaining > 0) {
++            uint8_t *page = mem->page_table[current >> 12];
++            if (!page) break;
 +            if (transaction->undo_count >= TRACE_CAPACITY) {
 +                trace_buffer.header.overflow = 1;
 +                transaction->memory_overflow = 1;
 +                return 1;
 +            }
++            uint32_t chunk = PAGE_BYTES - (current & (PAGE_BYTES - 1u));
++            if (chunk > remaining) chunk = remaining;
 +            struct probe_write_undo *undo = &transaction->undo[transaction->undo_count++];
-+            undo->pointer = page + (address & (PAGE_BYTES - 1u));
-+            undo->width = width;
++            undo->pointer = page + (current & (PAGE_BYTES - 1u));
++            undo->width = chunk;
 +            undo->previous = 0;
-+            memcpy(&undo->previous, undo->pointer, width);
++            memcpy(&undo->previous, undo->pointer, chunk);
++            current += chunk;
++            remaining -= chunk;
 +        }
 +    }
 +    return 0;
@@ -479,6 +483,51 @@ index 0000000..074376a
 +        else high = middle;
 +    }
 +    return low < elf_page_count && elf_page_addresses[low] == page ? (int)low : -1;
++}
++
++static int elf_memory_permission(void *unused_context, uint32_t address,
++                                 uint32_t width, int is_write) {
++    (void)unused_context;
++    uint32_t required = is_write ? 2u : 4u;
++    uint32_t denied_address = address;
++    int denied_page = -1;
++    uint32_t denied_flags = 0;
++    if ((width != 1u && width != 2u && width != 4u) ||
++        address > UINT32_MAX - (width - 1u)) {
++        goto denied;
++    }
++    uint32_t remaining = width;
++    uint32_t current = address;
++    while (remaining > 0) {
++        int page = elf_page_index(current);
++        uint32_t flags = page >= 0 ? elf_page_flags[page] : 0u;
++        if (page >= 0 && mem->page_table[current >> 12] != NULL &&
++            (flags & required) == 0) {
++            denied_address = current;
++            denied_page = page;
++            denied_flags = flags;
++            goto denied;
++        }
++        uint32_t chunk = PAGE_BYTES - (current & (PAGE_BYTES - 1u));
++        if (chunk > remaining) chunk = remaining;
++        current += chunk;
++        remaining -= chunk;
++    }
++    return 0;
++
++denied:
++    memset(&elf_memory_fault, 0, sizeof(elf_memory_fault));
++    elf_memory_fault.abi_version = ELF_MEMORY_FAULT_ABI_VERSION;
++    elf_memory_fault.struct_bytes = (uint32_t)sizeof(elf_memory_fault);
++    elf_memory_fault.pc = g_dbg_pc;
++    elf_memory_fault.address = address;
++    elf_memory_fault.width = width;
++    elf_memory_fault.is_write = (uint32_t)is_write;
++    elf_memory_fault.denied_address = denied_address;
++    elf_memory_fault.denied_page = denied_address & ~(PAGE_BYTES - 1u);
++    elf_memory_fault.denied_flags = denied_flags;
++    elf_memory_fault.hit = 1;
++    return 1;
 +}
 +
 +static uint32_t elf_rom_arg(xtensa_cpu_t *target_cpu, int argument) {
@@ -612,6 +661,20 @@ index 0000000..074376a
 +    return ELF_PAGE_CAPACITY;
 +}
 +
++FLEXE_EXPORT("flexe_wasm_elf_copy_page")
++uint32_t flexe_wasm_elf_copy_page(uint32_t address) {
++    if ((address & (PAGE_BYTES - 1u)) != 0) return 0;
++    int page = elf_page_index(address);
++    if (page < 0) return 0;
++    memcpy(elf_page_input, elf_pages[page], PAGE_BYTES);
++    return 1;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_memory_fault")
++uint32_t flexe_wasm_elf_memory_fault(void) {
++    return (uint32_t)(uintptr_t)&elf_memory_fault;
++}
++
 +FLEXE_EXPORT("flexe_wasm_elf_trace")
 +uint32_t flexe_wasm_elf_trace(void) {
 +    return (uint32_t)(uintptr_t)elf_trace;
@@ -677,6 +740,9 @@ index 0000000..074376a
 +    elf_rom_reset_reason_enabled = 0;
 +    elf_rom_memset_enabled = 0;
 +    elf_rom_refused = 0;
++    memset(&elf_memory_fault, 0, sizeof(elf_memory_fault));
++    mem->permission_hook = NULL;
++    mem->permission_hook_ctx = NULL;
 +    memset(&elf_unsupported_hit, 0, sizeof(elf_unsupported_hit));
 +    return 1;
 +}
@@ -733,6 +799,8 @@ index 0000000..074376a
 +    }
 +    mem->access_hook = NULL;
 +    mem->access_hook_ctx = NULL;
++    mem->permission_hook = NULL;
++    mem->permission_hook_ctx = NULL;
 +    mem_reset(mem);
 +    if (mem_register_mmio_range(mem, 0x3ff40000u, PAGE_BYTES,
 +                                probe_mmio_read, NULL, destination_page) != 0) {
@@ -852,6 +920,7 @@ index 0000000..074376a
 +    elf_trace_count = 0;
 +    elf_rom_event_count = 0;
 +    elf_rom_refused = 0;
++    memset(&elf_memory_fault, 0, sizeof(elf_memory_fault));
 +    result.abi_version = RESULT_ABI_VERSION;
 +    result.struct_bytes = (uint32_t)sizeof(result);
 +    result.start_pc = entry;
@@ -880,6 +949,8 @@ index 0000000..074376a
 +    cpu.windowstart = 1;
 +    cpu.window_callsize[0] = WINDOW_CALLINC;
 +    ar_write(&cpu, 1, initial_stack);
++    mem->permission_hook = elf_memory_permission;
++    mem->permission_hook_ctx = NULL;
 +    if (elf_rom_reset_reason_enabled || elf_rom_memset_enabled) {
 +        cpu.pc_hook = elf_rom_pc_hook;
 +        cpu.pc_hook_ctx = NULL;
@@ -907,6 +978,10 @@ index 0000000..074376a
 +            }
 +            uint8_t first = mem->page_table[cpu.pc >> 12][cpu.pc & (PAGE_BYTES - 1u)];
 +            uint32_t instruction_length = (first & 8u) != 0 ? 2u : 3u;
++            if (cpu.pc > UINT32_MAX - (instruction_length - 1u)) {
++                reason = PROBE_STOP_UNLOADED_PAGE;
++                break;
++            }
 +            if ((cpu.pc & (PAGE_BYTES - 1u)) + instruction_length > PAGE_BYTES) {
 +                int trailing_page = elf_page_index(cpu.pc + instruction_length - 1u);
 +                if (trailing_page < 0) {
@@ -921,7 +996,14 @@ index 0000000..074376a
 +        }
 +
 +        uint32_t executed_pc = cpu.pc;
++        cpu_checkpoint = cpu;
 +        int step_result = xtensa_step(&cpu);
++        if (elf_memory_fault.hit) {
++            cpu = cpu_checkpoint;
++            reason = elf_memory_fault.is_write ? PROBE_STOP_WRITE_PERMISSION :
++                                                 PROBE_STOP_READ_PERMISSION;
++            break;
++        }
 +        if (elf_rom_refused) {
 +            reason = PROBE_STOP_ROM_REFUSED;
 +            break;
@@ -941,6 +1023,9 @@ index 0000000..074376a
 +            break;
 +        }
 +    }
++
++    mem->permission_hook = NULL;
++    mem->permission_hook_ctx = NULL;
 +
 +    finish_record(reason, steps, entry, 0,
 +                  elf_unsupported_hit.hit ? &elf_unsupported_hit : NULL);
@@ -968,3 +1053,89 @@ index 0000000..074376a
 +    return probe_result == 42u ? 0 : 1;
 +}
 +#endif
+diff --git a/src/xtensa.c b/src/xtensa.c
+index 24c9792..67dca18 100644
+--- a/src/xtensa.c
++++ b/src/xtensa.c
+@@ -138,14 +138,23 @@ static inline __attribute__((always_inline))
+ int xtensa_fetch_inline(const xtensa_cpu_t *cpu, uint32_t addr, uint32_t *insn_out) {
+     uint8_t *page = cpu->mem->page_table[addr >> 12];
+     if (__builtin_expect(!page, 0)) return 0;
+-    const uint8_t *ptr = page + (addr & 0xFFF);
+-    if (ptr[0] & 0x8) {
+-        *insn_out = ptr[0] | ((uint32_t)ptr[1] << 8);
+-        return 2;
+-    } else {
+-        *insn_out = ptr[0] | ((uint32_t)ptr[1] << 8) | ((uint32_t)ptr[2] << 16);
+-        return 3;
++    uint32_t offset = addr & 0xFFF;
++    uint8_t first = page[offset];
++    uint32_t length = (first & 0x8) ? 2u : 3u;
++    if (__builtin_expect(offset + length <= 0x1000u, 1)) {
++        const uint8_t *ptr = page + offset;
++        *insn_out = ptr[0] | ((uint32_t)ptr[1] << 8) |
++                    (length == 3u ? (uint32_t)ptr[2] << 16 : 0u);
++        return (int)length;
+     }
++    if (addr > UINT32_MAX - (length - 1u)) return 0;
++    uint8_t *next_page = cpu->mem->page_table[(addr >> 12) + 1u];
++    if (!next_page) return 0;
++    uint8_t second = offset == 0xFFFu ? next_page[0] : page[offset + 1u];
++    uint8_t third = offset == 0xFFFu ? next_page[1] : next_page[0];
++    *insn_out = first | ((uint32_t)second << 8) |
++                (length == 3u ? (uint32_t)third << 16 : 0u);
++    return (int)length;
+ }
+
+ /* External version for disasm/trace callers (not performance-critical) */
+@@ -2208,7 +2217,12 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
+
+     /* Invalid PC trap. Slow-path body lives in a noinline helper so
+      * the hot-path branch is just a single range compare. */
+-    if (__builtin_expect(cpu->pc < 0x40000000u || cpu->pc >= 0x40500000u, 0)) {
++    bool external_exec = (cpu->external_exec_begin < cpu->external_exec_end &&
++                          cpu->pc >= cpu->external_exec_begin &&
++                          cpu->pc < cpu->external_exec_end) ||
++                         cpu->mem->page_table[cpu->pc >> 12] != NULL;
++    if (__builtin_expect((cpu->pc < 0x40000000u || cpu->pc >= 0x40500000u) &&
++                         !external_exec, 0)) {
+         cpu->cycle_count = *local_cc;
+         xtensa_invalid_pc_trap(cpu);
+         return -1;
+@@ -2296,6 +2310,10 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
+ have_insn:
+ #endif
+
++    if (cpu->instruction_hook &&
++        cpu->instruction_hook(cpu, cpu->pc, insn, ilen, cpu->instruction_hook_ctx))
++        return -2;
++
+     cpu->_pc_written = false;
+     cpu->pc += (uint32_t)ilen;
+
+diff --git a/src/xtensa.h b/src/xtensa.h
+index 7f70ab1..09e3182 100644
+--- a/src/xtensa.h
++++ b/src/xtensa.h
+@@ -12,6 +12,10 @@ typedef struct xtensa_cpu xtensa_cpu_t;
+ /* PC hook: return non-zero to skip normal fetch/execute for this cycle */
+ typedef int (*xtensa_pc_hook_fn)(xtensa_cpu_t *cpu, uint32_t pc, void *ctx);
+
++/* Instruction hook: return non-zero to stop before executing the instruction. */
++typedef int (*xtensa_instruction_hook_fn)(xtensa_cpu_t *cpu, uint32_t pc,
++                                          uint32_t insn, int length, void *ctx);
++
+ /* Pre-decoded instruction table: entire firmware decoded at load time.
+  * Direct-indexed by (pc - PREDECODE_BASE), no tags, no cache misses.
+  * Packed: bits 0-23 = instruction word, bits 24-25 = ilen (2 or 3).
+@@ -248,6 +252,10 @@ struct xtensa_cpu {
+     xtensa_pc_hook_fn pc_hook;          /* PC hook (for ROM stubs etc.) */
+     void             *pc_hook_ctx;
+     const uint64_t   *pc_hook_bitmap;   /* Fast-path bitmap: skip hook if bit not set */
++    xtensa_instruction_hook_fn instruction_hook;
++    void                       *instruction_hook_ctx;
++    uint32_t                    external_exec_begin;
++    uint32_t                    external_exec_end;
+     uint32_t         *predecode;        /* Pre-decoded instruction table (heap, 20MB) */
+     /* AOT static-recompiled function table.
+      * `aot` is opaque to xtensa.c; xtensa_step_impl just calls
