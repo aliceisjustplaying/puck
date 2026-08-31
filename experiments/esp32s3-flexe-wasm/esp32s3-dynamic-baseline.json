@@ -4,12 +4,13 @@
     "flexeCommit": "34ea9eb6eef921b59a55e6a435c7fc55c5727835",
     "runnerPatchSha256": "6001efaec9fc83efa0356240b2001482ef79f7f5b92c682aae4c6c4d32c98445",
     "freestandingPatchSha256": "dbd2c623bfc9f9f33c4e4a98adcf06dec1d9034c659ad3c7afe94d373c48636d",
+    "esp32s3PatchSha256": "2b3cb06f6c75135521a11033263dde98000fbb043d52183a0bac18ad95d2db2d",
     "moduleBytes": 45847,
     "moduleSha256": "a5878cc8b166ae808169722878b382e2c47804b6f91c508b2e35e6fdc0640add",
     "objdumpSha256": "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466",
-    "scalarElfSha256": "87d6a00ffdf18c9bcb7dd3742658b5a1786212f939f5cbafe1b82562a350f70f",
-    "pieElfSha256": "2293fb3d35ba2f785e4dce5dfb35d2f33e452150167dc8d24f0e091cfa3e6d53",
-    "stagingElfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5"
+    "scalarElfSha256": "a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644",
+    "pieElfSha256": "591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742",
+    "stagingElfSha256": "522b33cb491bbc9c8a61a364b3c986c7f1d013bcdf228f79791981f7fcad1491"
   },
   "scalar": {
     "symbol": "tlsf_alloc_overhead",
@@ -24,19 +25,36 @@
     "boundedSteps": 2,
     "boundedPc": "0x403808f9"
   },
+  "scalarIsa": {
+    "codeSha256": "8d6505274b14a19b6722bddd78e435d15010389f9e7ca51948333fcbe113575e",
+    "outputHex": "78563412",
+    "reason": "returned",
+    "steps": 6,
+    "sourceAfter": "0x3fca1004",
+    "destinationAfter": "0x3fca2004"
+  },
+  "entry": {
+    "symbol": "call_start_cpu0",
+    "pc": "0x40375a54",
+    "codeSha256": "a29017f57f57d4a02c87b4e63e0ade179c21e3382b264bf5cd4217defc984aaf",
+    "literalPageSha256": "f2f990dd3f25c373615b4d0d9bb58e372d32a19db242ebf7c9c2e999c61e3b2e",
+    "reason": "maxSteps",
+    "steps": 5,
+    "stopPc": "0x40375a62",
+    "nextRomTarget": "0x4000057c"
+  },
   "pie": {
     "symbol": "tinydraw_stage_pixels_swapped_pie",
-    "pc": "0x40377a4c",
+    "pc": "0x40377698",
     "codeSha256": "f0503e09af131793fa0dfdf9077a9d433225c08962672d7f492f1496b15d1c75",
-    "reason": "unsupported",
-    "supportedSteps": 3,
-    "unsupportedPc": "0x40377a54",
-    "unsupportedObjdumpEncoding": "830124",
-    "unsupportedLength": 3
+    "reason": "returned",
+    "supportedSteps": 10,
+    "outputHex": "1234",
+    "firstUnsupported": null
   },
   "staging": {
     "symbol": "_ZN8tinydraw5esp3212gate_harness12_GLOBAL__N_1L34stage_pixels_swapped_scalar_oracleEPKtPti",
-    "pc": "0x420d4e10",
+    "pc": "0x42058230",
     "codeSha256": "a545acd197c5b75f0351256aa6a9c8a7028cb42f91e617c28317fa560d873877",
     "outputSha256": "6d007b52dcec2b7b879b7a749e164e7991fd49e44d05edd26b2a3675805b7581",
     "mnemonics": [

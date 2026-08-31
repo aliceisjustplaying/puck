@@ -28,7 +28,8 @@ try {
 
   const patches = [
     join(here, "patches", "0001-add-wasi-probe.patch"),
-    join(here, "patches", "0002-add-freestanding-shim.patch")
+    join(here, "patches", "0002-add-freestanding-shim.patch"),
+    join(here, "patches", "0003-add-esp32s3-lx7-subset.patch")
   ];
   for (const patch of patches) {
     requireSuccess(run(["git", "apply", "--check", patch], stage));
@@ -88,6 +89,7 @@ try {
         "-Wl,--export=flexe_wasm_elf_unsupported_capacity",
         "-Wl,--export=flexe_wasm_elf_unsupported_input",
         "-Wl,--export=flexe_wasm_run_elf",
+        "-Wl,--export=flexe_wasm_run_auxiliary",
         "-Wl,--export-memory",
         "-Wl,--strip-all",
         "-o",
@@ -135,6 +137,7 @@ try {
         "-Wl,--export=flexe_wasm_elf_unsupported_capacity",
         "-Wl,--export=flexe_wasm_elf_unsupported_input",
         "-Wl,--export=flexe_wasm_run_elf",
+        "-Wl,--export=flexe_wasm_run_auxiliary",
         "-Wl,--export-memory",
         "-Wl,--strip-all",
         "-o",

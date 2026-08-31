@@ -27,6 +27,18 @@ export interface DecoderSurface {
   normalizedMnemonics: string[];
 }
 
+export const ESP32S3_PATCHED_MNEMONICS = [
+  "ee.vld.128.ip",
+  "ee.vst.128.ip",
+  "ee.vunzip.8",
+  "ee.vzip.8",
+  "ld.qr",
+  "lsip",
+  "s32nb",
+  "ssip",
+  "st.qr"
+] as const;
+
 interface SectionRow {
   name: string;
   size: number;
@@ -91,7 +103,7 @@ export interface InventoryReport {
   fixturePath: {
     definition: string;
     instructionsBeforeGap: Array<Pick<InstructionRow, "address" | "objdumpEncoding" | "rawMnemonic" | "operands">>;
-    firstUnsupported: Pick<InstructionRow, "address" | "objdumpEncoding" | "rawMnemonic" | "normalizedMnemonic" | "operands">;
+    firstUnsupported: Pick<InstructionRow, "address" | "objdumpEncoding" | "rawMnemonic" | "normalizedMnemonic" | "operands"> | null;
   };
 }
 
@@ -123,6 +135,7 @@ export function parseFlexeDecoderSurface(sourceText: string, sourceSha256: strin
       for (const suffix of q) mnemonics.add(`${operation}.${source}.${suffix}`);
     }
   }
+  for (const mnemonic of ESP32S3_PATCHED_MNEMONICS) mnemonics.add(mnemonic);
 
   return { sourceSha256, normalizedMnemonics: [...mnemonics].sort() };
 }
@@ -399,8 +412,7 @@ export function buildInventoryReport(options: ToolOptions): InventoryReport {
     throw new Error(`fixture symbol ${options.fixtureSymbol} has no disassembly rows`);
   }
   const gapIndex = fixtureInstructions.findIndex((row) => !supported.has(row.normalizedMnemonic));
-  if (gapIndex < 0) throw new Error(`fixture symbol ${options.fixtureSymbol} has no decoder gap`);
-  const firstUnsupported = fixtureInstructions[gapIndex];
+  const firstUnsupported = gapIndex < 0 ? null : fixtureInstructions[gapIndex];
 
   const version = run([options.objdump, "--version"]);
   requireSuccess(version);
@@ -452,7 +464,7 @@ export function buildInventoryReport(options: ToolOptions): InventoryReport {
     fixturePath: {
       definition:
         `Linear path from ${options.fixtureSymbol} with a4 nonzero, so loopnez enters its body.`,
-      instructionsBeforeGap: fixtureInstructions.slice(0, gapIndex).map(
+      instructionsBeforeGap: (gapIndex < 0 ? fixtureInstructions : fixtureInstructions.slice(0, gapIndex)).map(
         ({ address, objdumpEncoding, rawMnemonic, operands }) => ({
           address,
           objdumpEncoding,
@@ -460,13 +472,13 @@ export function buildInventoryReport(options: ToolOptions): InventoryReport {
           operands
         })
       ),
-      firstUnsupported: {
+      firstUnsupported: firstUnsupported ? {
         address: firstUnsupported.address,
         objdumpEncoding: firstUnsupported.objdumpEncoding,
         rawMnemonic: firstUnsupported.rawMnemonic,
         normalizedMnemonic: firstUnsupported.normalizedMnemonic,
         operands: firstUnsupported.operands
-      }
+      } : null
     }
   };
 }
