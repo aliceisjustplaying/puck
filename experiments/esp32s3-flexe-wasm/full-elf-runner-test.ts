@@ -764,8 +764,9 @@ const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   maxSteps: 768,
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true, cpuTicksPerUs: 40 },
 });
-assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
-assert.equal(cacheProgress.record.pc, 0x4000_5d60);
+assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.romRefused);
+assert.equal(cacheProgress.record.steps, 535);
+assert.equal(cacheProgress.record.pc, 0x4000_1c38);
 assert(cacheProgress.record.steps > 356, "RTC_CNTL_DATE XTAL write did not advance the real ELF");
 assert.notEqual(cacheProgress.record.pc, 0x4037_730f);
 assert.deepEqual(cacheProgress.cacheBootstrap, {
@@ -898,6 +899,19 @@ assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) =>
   callinc: 2,
 }]);
 assert.deepEqual(cacheProgress.intlevel, { intlevel: 0, restoreCount: 1, lastPc: 0x4000_1c38 });
+assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "bbpllRomWrite")), [{
+  kind: "bbpllRomWrite",
+  pc: 0x4000_5d60,
+  block: 0x66,
+  hostId: 1,
+  register: 4,
+  data: 0x6b,
+  callinc: 2,
+  currentIntlevel: 3,
+  priorIntlevelRestoreCount: 1,
+  priorBbpllWriteCount: 0,
+}]);
+assert.deepEqual(cacheProgress.bbpllRom, { modeHf: 0x6b, writeCount: 1, lastPc: 0x4000_5d60 });
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "cpuTicksPerUs")), [
   { kind: "cpuTicksPerUs", pc: 0x4000_1a4c, ticksPerUs: 40, callinc: 2 },
 ]);
@@ -1068,6 +1082,20 @@ const baselineRomEvent = (event: FullElfRomEvent) => {
       callinc: event.callinc,
     };
   }
+  if (event.kind === "bbpllRomWrite") {
+    return {
+      kind: event.kind,
+      pc: hex(event.pc),
+      block: hex(event.block),
+      hostId: event.hostId,
+      register: event.register,
+      data: hex(event.data),
+      callinc: event.callinc,
+      currentIntlevel: event.currentIntlevel,
+      priorIntlevelRestoreCount: event.priorIntlevelRestoreCount,
+      priorBbpllWriteCount: event.priorBbpllWriteCount,
+    };
+  }
   return {
     kind: event.kind,
     pc: hex(event.pc),
@@ -1162,6 +1190,7 @@ const actualBaseline = {
     rtcMmio: cacheProgress.rtcMmio,
     regi2cMmio: cacheProgress.regi2cMmio,
     intlevel: cacheProgress.intlevel,
+    bbpllRom: cacheProgress.bbpllRom,
     cpuTicks: cacheProgress.cpuTicks,
     events: cacheProgress.romEvents.map(baselineRomEvent),
   },

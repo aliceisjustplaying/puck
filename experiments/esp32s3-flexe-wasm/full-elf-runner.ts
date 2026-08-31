@@ -31,6 +31,11 @@ import {
   type Esp32S3DirectBootIntlevelState,
 } from "./direct-boot-intlevel";
 import {
+  createEsp32S3DirectBootBbpllRom,
+  writeEsp32S3DirectBootBbpllRom,
+  type Esp32S3DirectBootBbpllRomState,
+} from "./direct-boot-bbpll-rom";
+import {
   ESP32S3_ROM_CACHE_MODE_CALLBACKS,
   ESP32S3_ROM_CACHE_CALLINC,
   advanceEsp32S3DirectAppCacheBootstrap,
@@ -112,6 +117,7 @@ export interface FullElfRunResult {
   readonly rtcMmio: Esp32S3DirectBootRtcMmioState | null;
   readonly regi2cMmio: Esp32S3DirectBootRegi2cMmioState | null;
   readonly intlevel: Esp32S3DirectBootIntlevelState | null;
+  readonly bbpllRom: Esp32S3DirectBootBbpllRomState | null;
   readonly cpuTicks: Esp32S3DirectBootCpuTicksState | null;
   readonly memoryFault: FullElfMemoryFault | null;
   readonly capturedPages: readonly CapturedElfPage[];
@@ -189,6 +195,7 @@ export type FullElfRomEvent = Readonly<
   | { kind: "regi2cMmioRead"; pc: number; address: number; width: number; value: number }
   | { kind: "regi2cMmioWrite"; pc: number; address: number; width: number; value: number }
   | { kind: "intlevelRestore"; pc: number; restorePs: number; previousPs: number; callinc: number }
+  | { kind: "bbpllRomWrite"; pc: number; block: number; hostId: number; register: number; data: number; callinc: number; currentIntlevel: number; priorIntlevelRestoreCount: number; priorBbpllWriteCount: number }
   | { kind: "cpuTicksPerUs"; pc: number; ticksPerUs: number; callinc: number }
   | { kind: "systemMmioWrite"; pc: number; address: number; width: number; value: number }
   )
@@ -632,6 +639,20 @@ export async function runSparseXtensaElf(
         callinc: words[4],
         afterInstructionCount,
       }));
+    } else if (words[0] === 16) {
+      romEvents.push(Object.freeze({
+        kind: "bbpllRomWrite",
+        pc: words[1],
+        block: words[2] & 0xff,
+        priorIntlevelRestoreCount: (words[2] >>> 8) & 0xff,
+        priorBbpllWriteCount: (words[2] >>> 16) & 0xff,
+        hostId: (words[3] >>> 16) & 0xff,
+        register: (words[3] >>> 8) & 0xff,
+        data: words[3] & 0xff,
+        callinc: words[4] >>> 8,
+        currentIntlevel: words[4] & 0xf,
+        afterInstructionCount,
+      }));
     } else throw new Error(`unknown full ELF ROM event ${words[0]}`);
   }
   let cacheBootstrap = options.rom?.cacheBootstrap
@@ -648,6 +669,9 @@ export async function runSparseXtensaElf(
     : null;
   let intlevel = options.rom?.cacheBootstrap
     ? createEsp32S3DirectBootIntlevel()
+    : null;
+  let bbpllRom = options.rom?.cacheBootstrap
+    ? createEsp32S3DirectBootBbpllRom()
     : null;
   let cpuTicks = options.rom?.cpuTicksPerUs === 40
     ? createEsp32S3DirectBootCpuTicks()
@@ -827,6 +851,25 @@ export async function runSparseXtensaElf(
       intlevel = restored.state;
       continue;
     }
+    if (event.kind === "bbpllRomWrite") {
+      assert(bbpllRom !== null && intlevel?.restoreCount === 1,
+        "BBPLL ROM write preceded interrupt-level restore");
+      const written = writeEsp32S3DirectBootBbpllRom(bbpllRom, {
+        pc: event.pc,
+        callinc: event.callinc,
+        block: event.block,
+        hostId: event.hostId,
+        register: event.register,
+        data: event.data,
+        currentIntlevel: event.currentIntlevel,
+        interruptLevelRestored: true,
+        priorIntlevelRestoreCount: event.priorIntlevelRestoreCount,
+        priorWriteCount: event.priorBbpllWriteCount,
+      });
+      assert(written.status === "accepted", "full ELF module violated BBPLL ROM-write contract");
+      bbpllRom = written.state;
+      continue;
+    }
     if (event.kind !== "cache") continue;
     assert(cacheBootstrap !== null, "full ELF module returned an unconfigured cache event");
     assert(event.sequenceIndex === cacheBootstrap.sequenceIndex, "cache event sequence index differs");
@@ -928,6 +971,7 @@ export async function runSparseXtensaElf(
     rtcMmio,
     regi2cMmio,
     intlevel,
+    bbpllRom,
     cpuTicks,
     memoryFault,
     capturedPages: Object.freeze(capturedPages),
