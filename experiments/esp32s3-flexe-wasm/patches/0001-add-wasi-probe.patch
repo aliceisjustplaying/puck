@@ -102,7 +102,7 @@ new file mode 100644
 index 0000000..0c17432
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,772 @@
+@@ -0,0 +1,773 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -758,7 +758,8 @@ index 0000000..0c17432
 +}
 +
 +FLEXE_EXPORT("flexe_wasm_run_elf")
-+uint32_t flexe_wasm_run_elf(uint32_t entry, uint32_t max_steps) {
++uint32_t flexe_wasm_run_elf(uint32_t entry, uint32_t max_steps,
++                            uint32_t initial_stack) {
 +    memset(&result, 0, sizeof(result));
 +    memset(&cpu, 0, sizeof(cpu));
 +    memset(&elf_unsupported_hit, 0, sizeof(elf_unsupported_hit));
@@ -792,7 +793,7 @@ index 0000000..0c17432
 +    cpu.windowbase = 0;
 +    cpu.windowstart = 1;
 +    cpu.window_callsize[0] = WINDOW_CALLINC;
-+    ar_write(&cpu, 1, INITIAL_STACK);
++    ar_write(&cpu, 1, initial_stack);
 +    if (elf_rom_reset_reason_enabled || elf_rom_memset_enabled) {
 +        cpu.pc_hook = elf_rom_pc_hook;
 +        cpu.pc_hook_ctx = NULL;
