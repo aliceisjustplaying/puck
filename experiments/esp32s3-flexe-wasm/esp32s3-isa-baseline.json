@@ -9,11 +9,11 @@
   "coverage": {
     "decoderNormalizedMnemonics": 328,
     "instructionRows": 64276,
-    "supportedInstructionRows": 63210,
-    "unsupportedInstructionRows": 1066,
+    "supportedInstructionRows": 63213,
+    "unsupportedInstructionRows": 1063,
     "rawMnemonics": 341,
-    "supportedRawMnemonics": 267,
-    "unsupportedRawMnemonics": 74
+    "supportedRawMnemonics": 270,
+    "unsupportedRawMnemonics": 71
   },
   "unsupportedMnemonicRows": {
     ".byte": 699,
@@ -55,7 +55,6 @@
     "ee.vmulas.u8.qacc.ld.ip.qup": 6,
     "ee.vmulas.u8.qacc.ld.xp.qup": 4,
     "ee.vst.h.64.ip": 1,
-    "rur.accx_1": 1,
     "rur.fft_bit_width": 1,
     "rur.qacc_h_0": 1,
     "rur.qacc_h_1": 1,
@@ -72,8 +71,6 @@
     "rur.ua_state_1": 1,
     "rur.ua_state_2": 1,
     "rur.ua_state_3": 1,
-    "wur.accx_0": 1,
-    "wur.accx_1": 1,
     "wur.fft_bit_width": 1,
     "wur.qacc_h_0": 1,
     "wur.qacc_h_1": 1,

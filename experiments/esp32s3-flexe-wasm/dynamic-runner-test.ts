@@ -417,7 +417,19 @@ assert(
   `THREADPTR round trip returned 0x${threadptrRun.record.registers[10].toString(16)}`
 );
 
-const unknownUserRegisterFixture = conformanceFixture("esp32s3_unknown_user_register", [0x30, 0x00, 0xf3]);
+const accxFixture = conformanceFixture("esp32s3_accx_roundtrip", [
+  0xa0, 0x00, 0xf3,
+  0xb0, 0x01, 0xf3,
+  0x00, 0xc0, 0xe3,
+  0x10, 0xd0, 0xe3
+]);
+const accxRun = await runFresh(moduleBytes, accxFixture, { maxSteps: 4 });
+assert(accxRun.record.reason === STOP_REASONS.maxSteps, `ACCX fixture stopped with ${accxRun.record.reasonName}`);
+assert(accxRun.record.steps === 4, `ACCX fixture executed ${accxRun.record.steps} instructions`);
+assert(accxRun.record.registers[12] === INITIAL_SOURCE, "ACCX_0 round trip changed its value");
+assert(accxRun.record.registers[13] === INITIAL_DESTINATION, "ACCX_1 round trip changed its value");
+
+const unknownUserRegisterFixture = conformanceFixture("esp32s3_unknown_user_register", [0x80, 0x02, 0xf3]);
 const unknownUserRegisterRun = await runFresh(moduleBytes, unknownUserRegisterFixture, { maxSteps: 1 });
 assert(
   unknownUserRegisterRun.record.reason === STOP_REASONS.stepError,
@@ -741,6 +753,13 @@ const actualBaseline = {
     unknownSteps: unknownUserRegisterRun.record.steps,
     unknownPc: `0x${unknownUserRegisterRun.record.pc.toString(16)}`
   },
+  accxIsa: {
+    codeSha256: accxFixture.codeSha256,
+    reason: accxRun.record.reasonName,
+    steps: accxRun.record.steps,
+    lowValue: `0x${accxRun.record.registers[12].toString(16)}`,
+    highValue: `0x${accxRun.record.registers[13].toString(16)}`
+  },
   entry: {
     symbol: entry.symbol,
     pc: `0x${entry.pc.toString(16)}`,
@@ -830,6 +849,7 @@ assert(
     scalarIsa: baseline.scalarIsa,
     qrIsa: baseline.qrIsa,
     threadptrIsa: baseline.threadptrIsa,
+    accxIsa: baseline.accxIsa,
     entry: baseline.entry,
     pie: baseline.pie,
     staging: baseline.staging,
