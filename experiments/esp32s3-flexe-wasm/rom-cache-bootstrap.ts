@@ -14,6 +14,7 @@ export const ESP32S3_ROM_CACHE_MODE_CALLBACKS = Object.freeze({
   configureInstruction: 0x4000_1a1c,
   suspendData: 0x4000_18b4,
   configureData: 0x4000_1a28,
+  resumeData: 0x4000_18c0,
 });
 
 export const ESP32S3_CACHE_REGISTER_ADDRESSES = Object.freeze({
@@ -58,7 +59,8 @@ export type Esp32S3RomCacheOperation =
   | "enable-data"
   | "configure-instruction"
   | "suspend-data"
-  | "configure-data";
+  | "configure-data"
+  | "resume-data";
 
 export interface Esp32S3RomCacheCall {
   readonly pc: number;
@@ -115,6 +117,7 @@ export interface Esp32S3DirectAppCacheBootstrapState {
   readonly instructionMode: Esp32S3InstructionCacheMode | null;
   readonly dataSuspended: boolean;
   readonly dataMode: Esp32S3InstructionCacheMode | null;
+  readonly dataSuspendReturn: number | null;
 }
 
 export interface Esp32S3InstructionCacheMode {
@@ -130,7 +133,7 @@ export interface Esp32S3RomCacheInvocation {
 }
 
 export type Esp32S3RomCacheDispatch =
-  | Readonly<{ handled: false }>
+  | Readonly<{ handled: false; status?: never }>
   | Readonly<{
       handled: true;
       status: "refused";
@@ -151,6 +154,7 @@ function freezeState(
   instructionMode: Esp32S3InstructionCacheMode | null = null,
   dataSuspended = false,
   dataMode: Esp32S3InstructionCacheMode | null = null,
+  dataSuspendReturn: number | null = null,
 ): Esp32S3DirectAppCacheBootstrapState {
   return Object.freeze({
     sequenceIndex,
@@ -159,6 +163,7 @@ function freezeState(
     instructionMode: instructionMode ? Object.freeze({ ...instructionMode }) : null,
     dataSuspended,
     dataMode: dataMode ? Object.freeze({ ...dataMode }) : null,
+    dataSuspendReturn,
   });
 }
 
@@ -174,7 +179,7 @@ function refuse(
 }
 
 function isKnownCallback(pc: number): boolean {
-  return Object.values(ESP32S3_ROM_CACHE_CALLBACKS).includes(pc);
+  return (Object.values(ESP32S3_ROM_CACHE_CALLBACKS) as readonly number[]).includes(pc);
 }
 
 function sameArguments(actual: readonly number[], expected: readonly number[]): boolean {
@@ -246,6 +251,7 @@ export function advanceEsp32S3DirectAppCacheBootstrap(
       state.instructionMode,
       state.dataSuspended,
       state.dataMode,
+      state.dataSuspendReturn,
     ),
   });
 }
@@ -286,6 +292,7 @@ export function configureEsp32S3DirectAppInstructionCache(
       ESP32S3_DIRECT_APP_INSTRUCTION_CACHE_MODE,
       state.dataSuspended,
       state.dataMode,
+      state.dataSuspendReturn,
     ),
   });
 }
@@ -316,7 +323,14 @@ export function suspendEsp32S3DirectAppDataCache(
     status: "accepted",
     operation: "suspend-data",
     returnValue,
-    state: freezeState(state.sequenceIndex, registers, state.instructionMode, true, state.dataMode),
+    state: freezeState(
+      state.sequenceIndex,
+      registers,
+      state.instructionMode,
+      true,
+      state.dataMode,
+      returnValue,
+    ),
   });
 }
 
@@ -357,6 +371,57 @@ export function configureEsp32S3DirectAppDataCache(
       state.instructionMode,
       state.dataSuspended,
       ESP32S3_DIRECT_APP_DATA_CACHE_MODE,
+      state.dataSuspendReturn,
+    ),
+  });
+}
+
+export function resumeEsp32S3DirectAppDataCache(
+  state: Esp32S3DirectAppCacheBootstrapState,
+  invocation: Esp32S3RomCacheInvocation,
+): Esp32S3RomCacheDispatch {
+  if (invocation.pc !== ESP32S3_ROM_CACHE_MODE_CALLBACKS.resumeData) {
+    return Object.freeze({ handled: false });
+  }
+  if (invocation.callinc !== ESP32S3_ROM_CACHE_CALLINC) {
+    return refuse(state, `cache callback CALLINC must be ${ESP32S3_ROM_CACHE_CALLINC}`);
+  }
+  if (!state.instructionMode || !state.dataMode || !state.dataSuspended) {
+    return refuse(state, "data cache resume requires configured suspended data cache");
+  }
+  if (state.dataSuspendReturn === null) {
+    return refuse(state, "data cache resume requires the suspension return token");
+  }
+  const registers = state.registers;
+  if (registers.dataControl1 !== 3 ||
+      registers.dataAutoloadControl !== ESP32S3_DIRECT_APP_CACHE_REGISTERS.dataAutoloadControl ||
+      registers.instructionControl1 !== ESP32S3_DIRECT_APP_CACHE_REGISTERS.instructionControl1 ||
+      registers.instructionAutoloadControl !== ESP32S3_DIRECT_APP_CACHE_REGISTERS.instructionAutoloadControl ||
+      registers.cacheState !== ESP32S3_DIRECT_APP_CACHE_REGISTERS.cacheState) {
+    return refuse(state, "data cache resume requires observed suspended register state");
+  }
+  if (!sameArguments(invocation.arguments, [state.dataSuspendReturn])) {
+    return refuse(state, `unexpected data cache resume token: expected ${state.dataSuspendReturn}`);
+  }
+
+  const resumedRegisters = {
+    ...registers,
+    dataControl1: registers.dataControl1 & ~AUTOLOAD_ENABLE,
+    dataAutoloadControl:
+      (registers.dataAutoloadControl & ~AUTOLOAD_ENABLE) | state.dataSuspendReturn,
+  };
+  return Object.freeze({
+    handled: true,
+    status: "accepted",
+    operation: "resume-data",
+    returnValue: null,
+    state: freezeState(
+      state.sequenceIndex,
+      resumedRegisters,
+      state.instructionMode,
+      false,
+      state.dataMode,
+      state.dataSuspendReturn,
     ),
   });
 }
