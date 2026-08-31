@@ -156,6 +156,7 @@ export interface MmioAccessProfileCost {
   readonly operation: "read" | "write";
   readonly bytes: 1 | 2 | 4;
   readonly peripheral: string;
+  readonly writeEffect?: "same-value";
   readonly cycles: number;
 }
 
@@ -661,7 +662,11 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
   const mmioAccessEntries = mmioAccess.entries.map((entry, index): MmioAccessProfileCost => {
     const path = `timing profile.mmioAccessCycles.entries[${index}]`;
     const object = objectAt(entry, path);
-    exactKeys(object, ["address", "operation", "bytes", "peripheral", "cycles"], path);
+    exactKeys(
+      object,
+      ["address", "operation", "bytes", "peripheral", "cycles", ...("writeEffect" in object ? ["writeEffect"] : [])],
+      path,
+    );
     const address = stringAt(object.address, `${path}.address`);
     if (!/^0x[0-9a-f]{8}$/.test(address)) {
       throw new Error(`${path}.address must be one canonical lowercase 32-bit hex address`);
@@ -673,11 +678,26 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
       throw new Error(`${path}.bytes must be 1, 2, or 4`);
     }
     const peripheral = stringAt(object.peripheral, `${path}.peripheral`);
+    if (object.writeEffect !== undefined) {
+      if (object.operation !== "write") {
+        throw new Error(`${path}.writeEffect is only valid for a write operation`);
+      }
+      if (object.writeEffect !== "same-value") {
+        throw new Error(`${path}.writeEffect must be same-value`);
+      }
+    }
     const cycles = positiveSafeInteger(object.cycles, `${path}.cycles`);
-    return Object.freeze({ address, operation: object.operation, bytes: object.bytes, peripheral, cycles });
+    return Object.freeze({
+      address,
+      operation: object.operation,
+      bytes: object.bytes,
+      peripheral,
+      ...(object.writeEffect === undefined ? {} : { writeEffect: object.writeEffect }),
+      cycles,
+    });
   });
   const mmioKeys = mmioAccessEntries.map((entry) =>
-    `${entry.address}:${entry.operation}:${entry.bytes}:${entry.peripheral}`
+    `${entry.address}:${entry.operation}:${entry.bytes}:${entry.peripheral}:${entry.writeEffect ?? "any"}`
   );
   if (new Set(mmioKeys).size !== mmioKeys.length) {
     throw new Error("timing profile.mmioAccessCycles.entries must not contain duplicate access classes");

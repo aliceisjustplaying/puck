@@ -72,6 +72,26 @@ assert(trace.claim.cycleAccurate === false, "flexe bridge made a cycle claim");
 assert(accesses[2]?.storeBuffer === undefined, "flexe bridge enabled store buffering by default");
 assert(trace.input.fence === undefined, "flexe bridge invented a default fence");
 
+const sameValueTrace = adaptFlexeTraceToRuntimeTiming({
+  ...decoded,
+  count: 4,
+  records: [
+    { kind: TRACE_KINDS.read, pc: 0x42000000, address: 0x600c0060, value: 0x1234, width: 4, instruction: 0 },
+    { kind: TRACE_KINDS.write, pc: 0x42000003, address: 0x600c0060, value: 0x1234, width: 4, instruction: 0 },
+    { kind: TRACE_KINDS.write, pc: 0x42000006, address: 0x600c0060, value: 0x5678, width: 4, instruction: 0 },
+    { kind: TRACE_KINDS.write, pc: 0x42000009, address: 0x600c0064, value: 0, width: 4, instruction: 0 },
+  ],
+}, {
+  source: "synthetic same-value trace",
+  sha256,
+  core: 0,
+});
+assert(
+  sameValueTrace.input.cores[0].map((access) => access.writeEffect ?? null).join(",") ===
+    ",same-value,,",
+  "flexe bridge classified a changed or prior-state-unknown write as same-value",
+);
+
 const callbackTrace = adaptFlexeTraceToRuntimeTiming(decoded, {
   source: "synthetic flexe trace",
   sha256,

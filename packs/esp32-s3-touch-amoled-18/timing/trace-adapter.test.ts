@@ -223,6 +223,22 @@ describe("bounded neutral timing trace adapter", () => {
     }]))).toThrow("neutral trace observations[0].cpuCost is only valid for an instruction observation");
   });
 
+  test("propagates only the exact same-value write effect", () => {
+    const write: NeutralTraceObservation = {
+      ...observation("same", 0, 0, "write", 0x600c0060n, 4),
+      writeEffect: "same-value",
+    };
+    expect(adaptNeutralTimingTrace(neutral([write])).input.cores[0][0]?.writeEffect).toBe("same-value");
+    expect(() => adaptNeutralTimingTrace(neutral([{
+      ...observation("read", 0, 0, "read", 0x600c0060n, 4),
+      writeEffect: "same-value",
+    }]))).toThrow("writeEffect is only valid for a write observation");
+    expect(() => adaptNeutralTimingTrace(neutral([{
+      ...write,
+      writeEffect: "changed-value" as unknown as "same-value",
+    }]))).toThrow("writeEffect must be same-value");
+  });
+
   test("keeps literal loads behind a caller-sourced read extension", () => {
     const ordinary = observation("ordinary", 0, 0, "read", 0x1000n, 4);
     const literal: NeutralTraceObservation = {

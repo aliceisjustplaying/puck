@@ -31,6 +31,8 @@ export interface NeutralTraceObservation {
   readonly kind: NeutralTraceKind;
   readonly address: bigint;
   readonly width: number;
+  /** Write-only classification derived from an observed exact prior value. */
+  readonly writeEffect?: "same-value";
   /** Instruction-only CPU duration. Omission becomes an explicit unknown cost. */
   readonly cpuCost?: EventLatency;
   /** Optional CPU delay issued after this fetch and before any owned data. */
@@ -170,6 +172,14 @@ function memoryObservation(
   if (observation.cpuCost !== undefined && observation.kind !== "instruction") {
     throw new Error(`${path}.cpuCost is only valid for an instruction observation`);
   }
+  if (observation.writeEffect !== undefined) {
+    if (observation.kind !== "write") {
+      throw new Error(`${path}.writeEffect is only valid for a write observation`);
+    }
+    if (observation.writeEffect !== "same-value") {
+      throw new Error(`${path}.writeEffect must be same-value`);
+    }
+  }
   if (observation.preDataCpuCost !== undefined) {
     if (observation.kind !== "instruction") {
       throw new Error(`${path}.preDataCpuCost is only valid for an instruction observation`);
@@ -223,6 +233,7 @@ function memoryObservation(
           : "load",
     address: observation.address,
     bytes,
+    ...(observation.writeEffect === undefined ? {} : { writeEffect: observation.writeEffect }),
     ...(observation.kind === "write" && storeBuffer !== null
       ? { storeBuffer: Object.freeze({ retirementLatency: storeBuffer.retirementLatency }) }
       : {}),

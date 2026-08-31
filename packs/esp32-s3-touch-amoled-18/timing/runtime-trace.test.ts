@@ -262,6 +262,32 @@ describe("runtime observation seam", () => {
 });
 
 describe("runtime trace refusal boundary", () => {
+  test("retains only a store same-value write effect", () => {
+    const recorder = new RuntimeTimingTraceRecorder("write-effect-test");
+    recorder.recordMemory({
+      core: 0,
+      kind: "store",
+      address: 0x600c0060n,
+      bytes: 4,
+      writeEffect: "same-value",
+    });
+    expect(recorder.snapshot().input.cores[0][0]?.writeEffect).toBe("same-value");
+    expect(() => recorder.recordMemory({
+      core: 0,
+      kind: "load",
+      address: 0x600c0060n,
+      bytes: 4,
+      writeEffect: "same-value",
+    } as unknown as RuntimeMemoryObservation)).toThrow("writeEffect is only valid for a store");
+    expect(() => recorder.recordMemory({
+      core: 0,
+      kind: "store",
+      address: 0x600c0060n,
+      bytes: 4,
+      writeEffect: "changed-value",
+    } as unknown as RuntimeMemoryObservation)).toThrow("writeEffect must be same-value");
+  });
+
   test("rejects malformed observations and duplicate event IDs", () => {
     expect(() => new RuntimeTimingTraceRecorder("")).toThrow(
       "runtime trace source must be a non-empty string",

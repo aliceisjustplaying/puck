@@ -254,7 +254,7 @@ describe("timing profile claim boundary", () => {
     expect(profile.mmioAccessCycles).toEqual({
       status: "partially-calibrated",
       evidence:
-        "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-545f823-mmio-adoption.json",
+        "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-e8a9f0e-mmio-write-adoption.json",
       entries: [
         {
           address: "0x600c0010",
@@ -271,11 +271,27 @@ describe("timing profile claim boundary", () => {
           cycles: 8,
         },
         {
+          address: "0x600c0060",
+          operation: "write",
+          bytes: 4,
+          peripheral: "system-controller",
+          writeEffect: "same-value",
+          cycles: 3,
+        },
+        {
           address: "0x600c4004",
           operation: "read",
           bytes: 4,
           peripheral: "cache-controller",
           cycles: 8,
+        },
+        {
+          address: "0x600c4004",
+          operation: "write",
+          bytes: 4,
+          peripheral: "cache-controller",
+          writeEffect: "same-value",
+          cycles: 3,
         },
         {
           address: "0x600c404c",
@@ -290,6 +306,14 @@ describe("timing profile claim boundary", () => {
           bytes: 4,
           peripheral: "cache-controller",
           cycles: 8,
+        },
+        {
+          address: "0x600c4064",
+          operation: "write",
+          bytes: 4,
+          peripheral: "cache-controller",
+          writeEffect: "same-value",
+          cycles: 3,
         },
         {
           address: "0x600c40a0",
@@ -407,6 +431,27 @@ describe("timing profile claim boundary", () => {
       Record<string, unknown>[];
     duplicateEntries[1] = structuredClone(duplicateEntries[0]!);
     expect(() => parseTimingProfile(duplicateMmio)).toThrow("must not contain duplicate access classes");
+
+    const readWriteEffect = clone(profileObject());
+    const readWriteEffectEntries = (readWriteEffect.mmioAccessCycles as Record<string, unknown>).entries as
+      Record<string, unknown>[];
+    readWriteEffectEntries[0]!.writeEffect = "same-value";
+    expect(() => parseTimingProfile(readWriteEffect)).toThrow(
+      "writeEffect is only valid for a write operation",
+    );
+
+    const invalidWriteEffect = clone(profileObject());
+    const invalidWriteEntries = (invalidWriteEffect.mmioAccessCycles as Record<string, unknown>).entries as
+      Record<string, unknown>[];
+    invalidWriteEntries.splice(1, 0, {
+      address: "0x600c0010",
+      operation: "write",
+      bytes: 4,
+      peripheral: "system-controller",
+      writeEffect: "changed-value",
+      cycles: 3,
+    });
+    expect(() => parseTimingProfile(invalidWriteEffect)).toThrow("writeEffect must be same-value");
   });
 });
 

@@ -79,7 +79,7 @@
   },
   "mmioAccessCycles": {
     "status": "partially-calibrated",
-    "evidence": "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-545f823-mmio-adoption.json",
+    "evidence": "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-e8a9f0e-mmio-write-adoption.json",
     "entries": [
       {
         "address": "0x600c0010",
@@ -96,11 +96,27 @@
         "cycles": 8
       },
       {
+        "address": "0x600c0060",
+        "operation": "write",
+        "bytes": 4,
+        "peripheral": "system-controller",
+        "writeEffect": "same-value",
+        "cycles": 3
+      },
+      {
         "address": "0x600c4004",
         "operation": "read",
         "bytes": 4,
         "peripheral": "cache-controller",
         "cycles": 8
+      },
+      {
+        "address": "0x600c4004",
+        "operation": "write",
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "writeEffect": "same-value",
+        "cycles": 3
       },
       {
         "address": "0x600c404c",
@@ -115,6 +131,14 @@
         "bytes": 4,
         "peripheral": "cache-controller",
         "cycles": 8
+      },
+      {
+        "address": "0x600c4064",
+        "operation": "write",
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "writeEffect": "same-value",
+        "cycles": 3
       },
       {
         "address": "0x600c40a0",

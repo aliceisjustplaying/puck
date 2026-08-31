@@ -232,7 +232,7 @@ const cacheLineFillSource = `${costSource}; evidence ${timingProfile.cacheLineFi
 const cacheHitSource = `${costSource}; evidence ${timingProfile.cacheHitAdditiveCycles.evidence}`;
 const mmioCostSource = `${costSource}; evidence ${timingProfile.mmioAccessCycles.evidence}`;
 const mmioCostsByAccess = new Map(timingProfile.mmioAccessCycles.entries.map((entry) => [
-  `${entry.address}:${entry.operation}:${entry.bytes}:${entry.peripheral}`,
+  `${entry.address}:${entry.operation}:${entry.bytes}:${entry.peripheral}:${entry.writeEffect ?? "any"}`,
   entry,
 ]));
 const unknown = unknownCost("unused cache path", costSource);
@@ -367,7 +367,11 @@ const machine = runRuntimeTimingTrace({
     const address = `0x${segment.virtualAddress.toString(16).padStart(8, "0")}`;
     const entry = operation === null || segment.peripheral === null
       ? undefined
-      : mmioCostsByAccess.get(`${address}:${operation}:${segment.bytes}:${segment.peripheral}`);
+      : mmioCostsByAccess.get(
+          `${address}:${operation}:${segment.bytes}:${segment.peripheral}:${access.writeEffect ?? "any"}`,
+        ) ?? mmioCostsByAccess.get(
+          `${address}:${operation}:${segment.bytes}:${segment.peripheral}:any`,
+        );
     return entry === undefined
       ? unknownCost("no exact matched boot-controller MMIO access receipt", costSource)
       : calibratedCost(entry.cycles, "exact matched ESP32-S3 MMIO access", mmioCostSource);
@@ -402,9 +406,9 @@ assert.equal(exactBeqzNotTaken.length, 5);
 assert.equal(exactBeqzTaken.length, 0);
 assert.equal(romCallbackCpuEvents.length, 17);
 assert.equal(machine.issuedEvents.length, 1286);
-assert.equal(exactMmioEvents.length, 28);
-assert.equal(machine.claim.unknownCostEventIds.length, 43);
-assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 1243);
+assert.equal(exactMmioEvents.length, 40);
+assert.equal(machine.claim.unknownCostEventIds.length, 31);
+assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 1255);
 assert([...instructionCpuEvents, ...loadUseHazards].every((event) =>
   event.cost.status === "known" && event.cost.cycles === 1n && event.cost.calibration === "calibrated"
 ));
@@ -424,12 +428,13 @@ assert.equal(machine.issuedEvents.filter((event) =>
 ).length, 0);
 assert.equal(machine.issuedEvents.filter((event) =>
   event.origin.kind === "mmio" && event.cost.status === "unknown"
-).length, 26);
+).length, 14);
 const cacheEvents = machine.issuedEvents.filter((event) => event.origin.kind === "cache");
 assert(cacheEvents.every((event) => event.cost.status === "known"));
 const mmioBreakdownByKey = new Map<string, {
   address: string;
   operation: "read" | "write";
+  writeEffect: "same-value" | null;
   bytes: number;
   peripheral: string;
   count: number;
@@ -440,11 +445,13 @@ for (const issued of machine.issuedEvents) {
   assert(access?.status === "resolved");
   assert(issued.event.kind === "mmio");
   const address = `0x${access.access.address.toString(16)}`;
-  const key = `${address}:${issued.event.operation}:${issued.event.bytes}:${issued.event.peripheral}`;
+  const writeEffect = access.access.writeEffect ?? null;
+  const key = `${address}:${issued.event.operation}:${writeEffect ?? "any"}:${issued.event.bytes}:${issued.event.peripheral}`;
   const previous = mmioBreakdownByKey.get(key);
   mmioBreakdownByKey.set(key, {
     address,
     operation: issued.event.operation,
+    writeEffect,
     bytes: issued.event.bytes,
     peripheral: issued.event.peripheral,
     count: (previous?.count ?? 0) + 1,
@@ -453,6 +460,7 @@ for (const issued of machine.issuedEvents) {
 const mmioAccessBreakdown = [...mmioBreakdownByKey.values()].sort((left, right) =>
   left.address.localeCompare(right.address) ||
   left.operation.localeCompare(right.operation) ||
+  String(left.writeEffect).localeCompare(String(right.writeEffect)) ||
   left.peripheral.localeCompare(right.peripheral)
 );
 assert.equal(mmioAccessBreakdown.reduce((sum, entry) => sum + entry.count, 0), 54);

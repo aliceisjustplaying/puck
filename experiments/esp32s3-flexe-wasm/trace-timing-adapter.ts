@@ -180,6 +180,16 @@ export function adaptFlexeTraceToRuntimeTiming(
     options.storeBuffer !== undefined ||
     options.dependentSramLoadUseHazard !== undefined ||
     options.beqzCpuCost !== undefined;
+  const sameValueWrites = new Set<number>();
+  const lastDataValues = new Map<string, number>();
+  for (const [sequence, record] of decoded.records.entries()) {
+    if (record.kind !== TRACE_KINDS.read && record.kind !== TRACE_KINDS.write) continue;
+    const key = `${record.address}:${record.width}`;
+    if (record.kind === TRACE_KINDS.write && lastDataValues.get(key) === record.value) {
+      sameValueWrites.add(sequence);
+    }
+    lastDataValues.set(key, record.value);
+  }
   const observations = decoded.records.map((record, sequence) => {
     const kind = kindFor(record, sequence);
     const literalLoad = kind === "read" && l32rPcs.has(record.pc);
@@ -222,8 +232,11 @@ export function adaptFlexeTraceToRuntimeTiming(
               ? {}
               : { preDataCpuCost: Object.freeze({ ...loadUseHazard.latency }) }),
           }
-        : {
+          : {
             issuingInstructionAddress: BigInt(record.pc),
+            ...(kind === "write" && sameValueWrites.has(sequence)
+              ? { writeEffect: "same-value" as const }
+              : {}),
             ...(literalLoad
               ? {
                   extension: Object.freeze({

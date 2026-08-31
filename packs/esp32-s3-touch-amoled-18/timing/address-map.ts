@@ -43,6 +43,8 @@ export interface VirtualMemoryAccess {
   readonly core: CoreId;
   readonly address: bigint;
   readonly bytes: number;
+  /** Proven only when the bounded trace observed the exact prior value. */
+  readonly writeEffect?: "same-value";
   readonly storeBuffer?: Readonly<StoreBufferTiming>;
 }
 

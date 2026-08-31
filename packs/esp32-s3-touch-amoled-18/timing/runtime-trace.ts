@@ -20,6 +20,7 @@ export interface RuntimeMemoryObservation {
   readonly core: VirtualMemoryAccess["core"];
   readonly address: bigint;
   readonly bytes: number;
+  readonly writeEffect?: "same-value";
   readonly storeBuffer?: Readonly<StoreBufferTiming>;
 }
 
@@ -114,6 +115,14 @@ function validateMemoryObservation(value: RuntimeMemoryObservation): void {
   }
   if (!Number.isSafeInteger(value.bytes) || value.bytes <= 0) {
     throw new Error("runtime memory observation bytes must be a positive safe integer");
+  }
+  if (value.writeEffect !== undefined) {
+    if (value.kind !== "store") {
+      throw new Error("runtime memory observation writeEffect is only valid for a store");
+    }
+    if (value.writeEffect !== "same-value") {
+      throw new Error("runtime memory observation writeEffect must be same-value");
+    }
   }
   if (value.storeBuffer !== undefined) {
     if (value.kind !== "store") {
@@ -247,6 +256,7 @@ export class RuntimeTimingTraceRecorder {
       core: observation.core,
       address: observation.address,
       bytes: observation.bytes,
+      ...(observation.writeEffect === undefined ? {} : { writeEffect: observation.writeEffect }),
       ...(observation.storeBuffer === undefined
         ? {}
         : {

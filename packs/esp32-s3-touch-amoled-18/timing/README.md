@@ -161,15 +161,24 @@ The stable same-value write aggregate remains excluded because `12280 / 4096`
 is not an integer scalar. AUTOLOAD writes remain excluded after an exploratory
 write left the following cache preparation in an invalid state.
 
+The affine same-value write extension is checked in as
+[`evidence/esp32s3-rev02-tinydraw-e8a9f0e-mmio-write-adoption.json`](evidence/esp32s3-rev02-tinydraw-e8a9f0e-mmio-write-adoption.json).
+Two new clean boots and twenty strict receipts measure both 2,048- and
+4,096-access cells. Subtracting matched SRAM write loops produces deltas of
+6,136 and 12,280 cycles: an exact 3-cycle slope with a shared -8-cycle loop
+intercept. This adopts only trace-proven same-value 32-bit writes to SYSTEM
+`0x600c0060` and EXTMEM `0x600c4004` and `0x600c4064`; writes without an
+observed exact prior value, value-changing writes, AUTOLOAD, and RTC remain excluded.
+
 ## What remains before a cycle-accurate claim
 
 - A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core has a
   bounded S3 patch and fail-closed markers for 1,069 decoded inventory gaps.
   Static inventory is not whole-program execution coverage.
-- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 376 real
-  instructions. Its current timing replay emits 948 events and adopts exact
-  costs for 914, including 26 matched MMIO reads. The remaining 18 MMIO
-  costs and 16 ROM callback durations block a total. It does not provide the complete
+- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 523 real
+  instructions. Its current timing replay emits 1,286 events and adopts exact
+  costs for 1,255, including 40 matched MMIO accesses. The remaining 14 MMIO
+  costs and 17 ROM callback durations block a total. It does not provide the complete
   ESP32-S3 data map, interrupt matrix,
   peripherals, ESP-IDF boot, or real dual-core execution.
 - Cache-store hits, dependent load-use modeling, dirty writeback, DMA ordering,
