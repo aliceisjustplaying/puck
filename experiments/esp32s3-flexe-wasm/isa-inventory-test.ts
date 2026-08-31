@@ -34,6 +34,8 @@ const surface = parseFlexeDecoderSurface(
 );
 assert(surface.normalizedMnemonics.includes("entry"), "literal decoder surface lost entry");
 assert(surface.normalizedMnemonics.includes("rsr"), "literal decoder surface lost rsr");
+assert(surface.normalizedMnemonics.includes("s32nb"), "ESP32-S3 scalar patch surface lost s32nb");
+assert(surface.normalizedMnemonics.includes("ee.vld.128.ip"), "ESP32-S3 PIE patch surface lost vector load");
 assert(!surface.normalizedMnemonics.includes("??gap"), "unknown decoder diagnostics are not instructions");
 
 const report = buildInventoryReport({
@@ -46,11 +48,11 @@ const report = buildInventoryReport({
 });
 const baseline = JSON.parse(readFileSync(join(import.meta.dir, "esp32s3-isa-baseline.json"), "utf8"));
 assert(
-  report.inputs.elf.sha256 === "87d6a00ffdf18c9bcb7dd3742658b5a1786212f939f5cbafe1b82562a350f70f",
+  report.inputs.elf.sha256 === "a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644",
   "current panel-probe ELF changed, regenerate and review the inventory"
 );
 assert(
-  report.inputs.fixtureElf.sha256 === "2293fb3d35ba2f785e4dce5dfb35d2f33e452150167dc8d24f0e091cfa3e6d53",
+  report.inputs.fixtureElf.sha256 === "591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742",
   "SIMD fixture ELF changed, regenerate and review the first gap"
 );
 assert(
@@ -58,10 +60,12 @@ assert(
   "ESP32-S3 objdump changed, regenerate and review the inventory"
 );
 assert(report.inputs.flexe.decoderSha256 === FLEXE_DISASSEMBLER_SHA256, "flexe decoder hash changed");
-assert(report.fixturePath.instructionsBeforeGap.map((row) => row.rawMnemonic).join(",") === "entry,nop.n,loopnez", "fixture prefix changed");
-assert(report.fixturePath.firstUnsupported.address === "0x40377a54", "first gap address changed");
-assert(report.fixturePath.firstUnsupported.objdumpEncoding === "830124", "first gap encoding changed");
-assert(report.fixturePath.firstUnsupported.rawMnemonic === "ee.vld.128.ip", "first gap mnemonic changed");
+assert(
+  report.fixturePath.instructionsBeforeGap.map((row) => row.rawMnemonic).join(",") ===
+    "entry,nop.n,loopnez,ee.vld.128.ip,ee.vld.128.ip,ee.vunzip.8,ee.vzip.8,ee.vst.128.ip,ee.vst.128.ip,retw.n",
+  "fixture covered path changed"
+);
+assert(report.fixturePath.firstUnsupported === null, "PIE fixture still has an unsupported instruction");
 const actualBaseline = {
   inputs: {
     elfSha256: report.inputs.elf.sha256,
@@ -83,12 +87,7 @@ const actualBaseline = {
       .filter((row) => !row.supportedByFlexeDecoder)
       .map((row) => [row.rawMnemonic, row.count])
   ),
-  fixtureFirstUnsupported: {
-    address: report.fixturePath.firstUnsupported.address,
-    objdumpEncoding: report.fixturePath.firstUnsupported.objdumpEncoding,
-    rawMnemonic: report.fixturePath.firstUnsupported.rawMnemonic,
-    operands: report.fixturePath.firstUnsupported.operands
-  }
+  fixtureFirstUnsupported: report.fixturePath.firstUnsupported
 };
 assert(
   JSON.stringify(actualBaseline) === JSON.stringify({
