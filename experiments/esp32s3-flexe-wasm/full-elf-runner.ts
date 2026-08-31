@@ -2,6 +2,11 @@ import { instantiate } from "../../src/wasm";
 import type { Elf32XtensaImage } from "./elf-image";
 import { ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY } from "./esp32s3-full-elf-unsupported";
 import {
+  createEsp32S3DirectBootSystemMmio,
+  readEsp32S3DirectBootSystemMmio,
+  type Esp32S3DirectBootSystemMmioState,
+} from "./direct-boot-system-mmio";
+import {
   ESP32S3_ROM_CACHE_MODE_CALLBACKS,
   ESP32S3_ROM_CACHE_CALLINC,
   advanceEsp32S3DirectAppCacheBootstrap,
@@ -75,6 +80,7 @@ export interface FullElfRunResult {
   readonly logs: readonly string[];
   readonly romEvents: readonly FullElfRomEvent[];
   readonly cacheBootstrap: Esp32S3DirectAppCacheBootstrapState | null;
+  readonly systemMmio: Esp32S3DirectBootSystemMmioState | null;
   readonly memoryFault: FullElfMemoryFault | null;
   readonly capturedPages: readonly CapturedElfPage[];
 }
@@ -132,12 +138,20 @@ export type FullElfRomEvent = Readonly<
       instructionBytes: number;
       dataBytes: number;
     }
+  | {
+      kind: "systemMmioRead";
+      pc: number;
+      address: number;
+      width: number;
+      value: number;
+    }
 >;
 
 interface FullElfExports {
   memory: WebAssembly.Memory;
   flexe_wasm_elf_begin(): number;
   flexe_wasm_elf_cache_state(): number;
+  flexe_wasm_elf_system_mmio_state(): number;
   flexe_wasm_elf_configure_rom(
     resetReasonCore0: number,
     resetReasonCore1: number,
@@ -267,6 +281,7 @@ export async function runSparseXtensaElf(
   for (const name of [
     "flexe_wasm_elf_begin",
     "flexe_wasm_elf_cache_state",
+    "flexe_wasm_elf_system_mmio_state",
     "flexe_wasm_elf_configure_rom",
     "flexe_wasm_elf_copy_page",
     "flexe_wasm_elf_load_page",
@@ -459,10 +474,21 @@ export async function runSparseXtensaElf(
         instructionBytes: words[2],
         dataBytes: words[3],
       }));
+    } else if (words[0] === 8) {
+      romEvents.push(Object.freeze({
+        kind: "systemMmioRead",
+        pc: words[1],
+        address: words[2],
+        width: words[3],
+        value: words[4],
+      }));
     } else throw new Error(`unknown full ELF ROM event ${words[0]}`);
   }
   let cacheBootstrap = options.rom?.cacheBootstrap
     ? createEsp32S3DirectAppCacheBootstrap()
+    : null;
+  let systemMmio = options.rom?.cacheBootstrap
+    ? createEsp32S3DirectBootSystemMmio()
     : null;
   for (const event of romEvents) {
     if (event.kind === "cacheMode") {
@@ -513,6 +539,20 @@ export async function runSparseXtensaElf(
       cacheBootstrap = configured.state;
       continue;
     }
+    if (event.kind === "systemMmioRead") {
+      assert(cacheBootstrap?.mmuSizes != null, "system MMIO read preceded cache MMU size setup");
+      assert(systemMmio !== null, "full ELF module returned unconfigured system MMIO");
+      const read = readEsp32S3DirectBootSystemMmio(systemMmio, {
+        pc: event.pc,
+        address: event.address,
+        width: event.width,
+        isWrite: false,
+      });
+      assert(read.handled && read.status === "accepted", "full ELF module violated system MMIO contract");
+      assert(read.value === event.value, "system MMIO read value differs");
+      systemMmio = read.state;
+      continue;
+    }
     if (event.kind !== "cache") continue;
     assert(cacheBootstrap !== null, "full ELF module returned an unconfigured cache event");
     assert(event.sequenceIndex === cacheBootstrap.sequenceIndex, "cache event sequence index differs");
@@ -551,6 +591,13 @@ export async function runSparseXtensaElf(
     assert(stateWords[17] === (cacheBootstrap.mmuSizes?.instructionBytes ?? 0), "instruction MMU size differs");
     assert(stateWords[18] === (cacheBootstrap.mmuSizes?.dataBytes ?? 0), "data MMU size differs");
   }
+  if (systemMmio) {
+    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_system_mmio_state(), 12, "ELF system MMIO state");
+    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 3);
+    assert(stateWords[0] === systemMmio.sysclkConf, "SYSTEM_SYSCLK_CONF state differs");
+    assert(stateWords[1] === systemMmio.readCount, "SYSTEM_SYSCLK_CONF read count differs");
+    assert(stateWords[2] === (systemMmio.lastReadPc ?? 0), "SYSTEM_SYSCLK_CONF reader differs");
+  }
   const captureAddresses = [...(options.capturePages ?? [])];
   assert(new Set(captureAddresses).size === captureAddresses.length, "captured ELF pages must be unique");
   const capturedPages = captureAddresses.map((address) => {
@@ -569,6 +616,7 @@ export async function runSparseXtensaElf(
     logs: Object.freeze(logs),
     romEvents: Object.freeze(romEvents),
     cacheBootstrap,
+    systemMmio,
     memoryFault,
     capturedPages: Object.freeze(capturedPages),
   });

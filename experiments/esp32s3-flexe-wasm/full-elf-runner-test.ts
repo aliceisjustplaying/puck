@@ -376,6 +376,27 @@ assert.deepEqual(genericCacheMmio.memoryFault, {
   deniedPage: 0x600c_4000,
   deniedFlags: 0,
 });
+const undeclaredSystemMmioImage: Elf32XtensaImage = Object.freeze({
+  ...cacheMmioProbeImage,
+  elfSha256: "synthetic-undeclared-system-mmio-read",
+  loadSegments: Object.freeze(cacheMmioProbeImage.loadSegments.map((segment) =>
+    segment.index === 1
+      ? syntheticSegment(1, 0x4037_4514, [0x64, 0x00, 0x0c, 0x60], 4, {
+          read: true,
+          write: false,
+          execute: false,
+        })
+      : segment
+  )),
+});
+const undeclaredSystemMmio = await runSparseXtensaElf(moduleBytes, undeclaredSystemMmioImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 2,
+  rom: { resetReasons: [1, 1], cacheBootstrap: true },
+});
+assert.equal(undeclaredSystemMmio.record.reason, FULL_ELF_STOP_REASONS.readPermission);
+assert.equal(undeclaredSystemMmio.record.steps, 1);
+assert.equal(undeclaredSystemMmio.memoryFault?.address, 0x600c_0064);
 
 assert.equal(image.entryPoint, 0x4037_5c9c);
 assert.equal(image.elfSha256, "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5");
@@ -460,8 +481,8 @@ const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true },
 });
 assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.readPermission);
-assert(cacheProgress.record.steps > 225, "MMU size callback did not advance the real ELF");
-assert.notEqual(cacheProgress.record.pc, 0x4000_1914);
+assert(cacheProgress.record.steps > 238, "SYSTEM_SYSCLK_CONF read did not advance the real ELF");
+assert.notEqual(cacheProgress.record.pc, 0x4037_71a5);
 assert.deepEqual(cacheProgress.cacheBootstrap, {
   sequenceIndex: 6,
   complete: true,
@@ -511,14 +532,22 @@ assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "cache
 assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "cacheMmuSizes"), [
   { kind: "cacheMmuSizes", pc: 0x4000_1914, instructionBytes: 0x3c, dataBytes: 0x3c4 },
 ]);
+assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "systemMmioRead"), [
+  { kind: "systemMmioRead", pc: 0x4037_71a5, address: 0x600c_0060, width: 4, value: 0x400 },
+]);
+assert.deepEqual(cacheProgress.systemMmio, {
+  sysclkConf: 0x400,
+  readCount: 1,
+  lastReadPc: 0x4037_71a5,
+});
 assert.deepEqual(cacheProgress.memoryFault, {
   abiVersion: 1,
   structBytes: 40,
-  pc: 0x4037_71a5,
-  address: 0x600c_0060,
+  pc: 0x4037_71d6,
+  address: 0x600c_0010,
   width: 4,
   isWrite: false,
-  deniedAddress: 0x600c_0060,
+  deniedAddress: 0x600c_0010,
   deniedPage: 0x600c_0000,
   deniedFlags: 0,
 });
@@ -616,6 +645,15 @@ const baselineRomEvent = (event: FullElfRomEvent) => {
       dataBytes: event.dataBytes,
     };
   }
+  if (event.kind === "systemMmioRead") {
+    return {
+      kind: event.kind,
+      pc: hex(event.pc),
+      address: hex(event.address),
+      width: event.width,
+      value: hex(event.value),
+    };
+  }
   return {
     kind: event.kind,
     pc: hex(event.pc),
@@ -704,6 +742,7 @@ const actualBaseline = {
     stackPointer: hex(cacheProgress.record.stackPointer),
     registers: cacheProgress.record.registers.map(paddedHex),
     cacheBootstrap: cacheProgress.cacheBootstrap,
+    systemMmio: cacheProgress.systemMmio,
     events: cacheProgress.romEvents.map(baselineRomEvent),
   },
   unsupportedRefusal: {
