@@ -845,6 +845,7 @@ export async function runSparseXtensaElf(
         callinc: event.callinc,
         restorePs: event.restorePs,
         regi2cCalibrationStarted: true,
+        bbpllModeWritten: bbpllRom?.writeCount === 1,
       });
       assert(restored.status === "accepted", "full ELF module violated interrupt-level restore contract");
       assert(restored.returnValue === event.previousPs, "interrupt-level restore return PS differs");

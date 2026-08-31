@@ -415,10 +415,14 @@ exact ROM callback, `esp_rom_set_cpu_ticks_per_us` at `0x40001a4c`,
 accepts argument 40 with CALLINC 2 only after both clock-query cycles. The real
 image then restores interrupt level zero through `_xtos_set_intlevel` at
 `0x40001c38`, requiring exact saved PS `0x00040c00`, previous PS `0x00040c03`,
-CALLINC 2, and the completed REGI2C sequence. It then executes the exact
-one-shot `rom_i2c_writeReg(0x66, 1, 4, 0x6b)` callback and now reaches 535
-instructions before refusing the next `_xtos_set_intlevel` call at
-`0x40001c38`; the typed event log retains both callback boundaries.
+CALLINC 2, and the completed REGI2C sequence. It now executes 523 instructions
+before the source-backed `rom_i2c_writeReg` call at `0x40005d60` programs
+BBPLL block `0x66`, host 1, mode register 4 to the 480 MHz value `0x6b` with
+CALLINC 2 while the critical section holds interrupt level 3. The runner then
+accepts the three following `_xtos_set_intlevel` calls in their observed
+`0x00040c03`, `0x00040c00`, `0x00040c00` restore order. It executes 659
+instructions and refuses the second `rom_i2c_writeReg` call, whose next exact
+observed arguments are block `0x66`, host 1, register 2, data `0x50`.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
@@ -445,8 +449,8 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 535-step
-second interrupt-level boundary produces 721 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 659-step
+second-BBPLL-write boundary produces 878 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
@@ -456,19 +460,14 @@ MMIO pages observed in the trace, with their ELF or inherited permissions.
 Those twelve exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 721 records issue 1,316 timing events: 670 memory-system
-events, 54 MMIO accesses, 535 calibrated CPU issue events, and 39 calibrated
-dependent load-use events, plus 18 configured ROM callback boundaries: four
-exact and 14 explicitly unknown. Exactly 1,288 events have adopted costs,
-including 28 exact MMIO reads, 12 exact same-value MMIO writes, five exact
-not-taken `beqz` paths, three flash line fills, every zero-miss cache hit, and
-four exact argument-matched ROM callbacks. The baseline pins the branch
-classifier, hazard count, and a projection hash of their schedule, consumer
-IDs, registers, and producer/consumer PCs, plus the ROM callback boundary
-provenance. The 14 controller MMIO costs and 14 ROM callback durations keep the
-replay blocked with no total cycle claim. The baseline also pins the exact
-address, direction, observed write effect, width, peripheral, and count of all observed MMIO access
-classes so hardware-adopted costs cannot silently broaden their scope.
+literal loads. The 878 records issue 1,614 timing events: 827 memory-system
+events, 54 MMIO accesses, 659 calibrated CPU issue events, and 53 calibrated
+dependent load-use events, plus 21 configured ROM callback boundaries. The
+replay adopts seven exact not-taken `beqz` paths, 40 exact MMIO accesses, and
+four exact ROM callback classes. Exactly 1,583 events have adopted costs; 14
+controller MMIO costs and 17 ROM callback durations remain unknown, so no total
+cycle claim is made. The baseline pins exact branch, MMIO, load-use, and
+callback evidence projections.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
 page count, bounded trace, unsupported-instruction refusal, and first stop,

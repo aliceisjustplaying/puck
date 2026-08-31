@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..55a269c
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1882 @@
+@@ -0,0 +1,1901 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -256,6 +256,7 @@ index 0000000..55a269c
 +#define ESP32S3_DIRECT_BOOT_I2C_MST_START_SET_WRITE_PC 0x4037f6d1u
 +#define ESP32S3_ROM_SET_INTLEVEL 0x40001c38u
 +#define ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS 0x00040c00u
++#define ESP32S3_DIRECT_BOOT_INTLEVEL_PRESERVE_PS 0x00040c03u
 +#define ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS 0x00040c03u
 +#define ESP32S3_ROM_I2C_WRITE_REG 0x40005d60u
 +#define ESP32S3_I2C_BBPLL 0x66u
@@ -692,8 +693,15 @@ index 0000000..55a269c
 +}
 +
 +static int elf_bbpll_rom_event_accepted(void) {
-+    if (elf_rom_event_count == 0u) return 0;
-+    uint32_t *event = elf_rom_events[elf_rom_event_count - 1u];
++    uint32_t count = 0u;
++    uint32_t *event = NULL;
++    for (uint32_t i = 0; i < elf_rom_event_count; i++) {
++        if (elf_rom_events[i][0] == ELF_ROM_EVENT_BBPLL_ROM_WRITE) {
++            count++;
++            event = elf_rom_events[i];
++        }
++    }
++    if (count != 1u || event == NULL) return 0;
 +    uint32_t block_and_order = event[2];
 +    uint32_t packed_args = event[3];
 +    uint32_t call_state = event[4];
@@ -1368,12 +1376,16 @@ index 0000000..55a269c
 +        uint32_t callinc = (uint32_t)XT_PS_CALLINC(target_cpu->ps);
 +        uint32_t restore_ps = elf_rom_arg(target_cpu, 0);
 +        uint32_t previous_ps = target_cpu->ps & ~(3u << 16);
-+        if (callinc != 2u || restore_ps != ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS ||
++        uint32_t restore_count = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_INTLEVEL_RESTORE);
++        uint32_t expected_restore_ps = restore_count == 1u
++                                           ? ESP32S3_DIRECT_BOOT_INTLEVEL_PRESERVE_PS
++                                           : ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS;
++        if (callinc != 2u || restore_count >= 4u || restore_ps != expected_restore_ps ||
 +            previous_ps != ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS ||
 +            XT_PS_INTLEVEL(target_cpu->ps) != 3u ||
 +            elf_regi2c_mmio_event_count(ELF_ROM_EVENT_REGI2C_MMIO_READ) != 2u ||
 +            elf_regi2c_mmio_event_count(ELF_ROM_EVENT_REGI2C_MMIO_WRITE) != 2u ||
-+            elf_regi2c_mmio_event_count(ELF_ROM_EVENT_INTLEVEL_RESTORE) != 0u ||
++            (restore_count > 0u && !elf_bbpll_rom_event_accepted()) ||
 +            !elf_rom_record(ELF_ROM_EVENT_INTLEVEL_RESTORE, pc, restore_ps,
 +                            previous_ps, callinc)) {
 +            elf_rom_refused = 1;
@@ -1392,6 +1404,13 @@ index 0000000..55a269c
 +        uint32_t packed = (host_id << 16) | (reg << 8) | data;
 +        uint32_t intlevel_restores = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_INTLEVEL_RESTORE);
 +        uint32_t bbpll_writes = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_BBPLL_ROM_WRITE);
++        if (callinc != 2u || block != ESP32S3_I2C_BBPLL ||
++            host_id != ESP32S3_I2C_BBPLL_HOST_ID || reg != ESP32S3_BBPLL_MODE_HF ||
++            data != ESP32S3_BBPLL_MODE_HF_480M || XT_PS_INTLEVEL(target_cpu->ps) != 3u ||
++            intlevel_restores != 1u || bbpll_writes != 0u) {
++            elf_rom_refused = 1;
++            return 1;
++        }
 +        int recorded = elf_rom_record(ELF_ROM_EVENT_BBPLL_ROM_WRITE, pc,
 +                                      block | (intlevel_restores << 8) | (bbpll_writes << 16), packed,
 +                                      (callinc << 8) | XT_PS_INTLEVEL(target_cpu->ps));
@@ -1975,7 +1994,7 @@ index 0000000..55a269c
 +        mem->access_hook = NULL;
 +        mem->access_hook_ctx = NULL;
 +        if (configured_rom && executed_pc == ESP32S3_ROM_I2C_WRITE_REG &&
-+            elf_rom_event_count > 0u &&
++            elf_rom_event_count == rom_event_checkpoint + 1u &&
 +            elf_rom_events[elf_rom_event_count - 1u][0] == ELF_ROM_EVENT_BBPLL_ROM_WRITE &&
 +            elf_bbpll_rom_event_accepted()) {
 +            elf_rom_refused = 0;

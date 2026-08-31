@@ -1,5 +1,6 @@
 export const ESP32S3_ROM_SET_INTLEVEL = 0x4000_1c38;
 export const ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS = 0x0004_0c00;
+export const ESP32S3_DIRECT_BOOT_INTLEVEL_PRESERVE_PS = 0x0004_0c03;
 export const ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS = 0x0004_0c03;
 
 export interface Esp32S3DirectBootIntlevelState {
@@ -13,6 +14,7 @@ export interface Esp32S3DirectBootIntlevelAccess {
   readonly callinc: number;
   readonly restorePs: number;
   readonly regi2cCalibrationStarted: boolean;
+  readonly bbpllModeWritten: boolean;
 }
 
 export type Esp32S3DirectBootIntlevelDispatch =
@@ -37,9 +39,18 @@ export function restoreEsp32S3DirectBootIntlevel(
   state: Esp32S3DirectBootIntlevelState,
   access: Esp32S3DirectBootIntlevelAccess,
 ): Esp32S3DirectBootIntlevelDispatch {
+  const expectedRestorePs = state.restoreCount === 1
+    ? ESP32S3_DIRECT_BOOT_INTLEVEL_PRESERVE_PS
+    : ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS;
+  const validOrder = state.restoreCount === 0
+    ? state.intlevel === 3 && !access.bbpllModeWritten
+    : state.restoreCount === 1
+      ? state.intlevel === 0 && access.bbpllModeWritten
+      : state.restoreCount === 2
+        ? state.intlevel === 3 && access.bbpllModeWritten
+        : state.restoreCount === 3 && state.intlevel === 0 && access.bbpllModeWritten;
   if (access.pc !== ESP32S3_ROM_SET_INTLEVEL || access.callinc !== 2 ||
-      access.restorePs !== ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS ||
-      !access.regi2cCalibrationStarted || state.intlevel !== 3 || state.restoreCount !== 0) {
+      access.restorePs !== expectedRestorePs || !access.regi2cCalibrationStarted || !validOrder) {
     return Object.freeze({
       handled: true,
       status: "refused",
@@ -51,6 +62,10 @@ export function restoreEsp32S3DirectBootIntlevel(
     handled: true,
     status: "accepted",
     returnValue: ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS,
-    state: Object.freeze({ intlevel: access.restorePs & 0xf, restoreCount: 1, lastPc: access.pc }),
+    state: Object.freeze({
+      intlevel: access.restorePs & 0xf,
+      restoreCount: state.restoreCount + 1,
+      lastPc: access.pc,
+    }),
   });
 }
