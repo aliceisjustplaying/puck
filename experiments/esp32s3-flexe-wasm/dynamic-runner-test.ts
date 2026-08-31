@@ -163,6 +163,16 @@ function reasonName(value: number): keyof typeof STOP_REASONS {
   return match[0] as keyof typeof STOP_REASONS;
 }
 
+function initialRegisters(returnPc: number): number[] {
+  const registers = Array<number>(16).fill(0);
+  registers[1] = INITIAL_STACK;
+  registers[8] = ((2 << 30) | (returnPc & 0x3fff_ffff)) >>> 0;
+  registers[10] = INITIAL_SOURCE;
+  registers[11] = INITIAL_DESTINATION;
+  registers[12] = 1;
+  return registers;
+}
+
 function traceKindName(value: number): keyof typeof TRACE_KINDS {
   const match = Object.entries(TRACE_KINDS).find(([, number]) => number === value);
   if (!match) throw new Error(`unknown trace kind ${value}`);
@@ -472,25 +482,24 @@ assert(
 assert(halfQrRun.record.registers[10] === INITIAL_SOURCE + 21, "QR half loads did not apply signed post-increments");
 assert(halfQrRun.record.registers[11] === INITIAL_DESTINATION + 11, "QR half store did not apply its signed post-increment");
 
-const unsupportedXpFixture = conformanceFixture("esp32s3_unsupported_vld_l_64_xp", [0xa4, 0x3c, 0x8d]);
-const unsupportedXpRun = await runFresh(moduleBytes, unsupportedXpFixture, {
-  maxSteps: 1,
-  unsupported: { offset: 0, encoding: 0x8d3ca4 }
-});
-assert(unsupportedXpRun.record.reason === STOP_REASONS.unsupported, "adjacent half XP form did not fail closed");
-assert(unsupportedXpRun.record.steps === 0, "adjacent half XP form was counted as executed");
-assert(unsupportedXpRun.trace.count === 0, "adjacent half XP refusal leaked a trace record");
-assert(unsupportedXpRun.dataOutput.length === 0, "adjacent half XP refusal exposed data output");
-const unsupportedXpRegisters = Array<number>(16).fill(0);
-unsupportedXpRegisters[1] = INITIAL_STACK;
-unsupportedXpRegisters[8] = ((2 << 30) | (unsupportedXpRun.record.returnPc & 0x3fff_ffff)) >>> 0;
-unsupportedXpRegisters[10] = INITIAL_SOURCE;
-unsupportedXpRegisters[11] = INITIAL_DESTINATION;
-unsupportedXpRegisters[12] = 1;
+const halfQrXpFixture = conformanceFixture("esp32s3_qr_half_register_postincrement", [
+  0xa4, 0xbc, 0x9d,
+  0xa4, 0x6c, 0xad,
+  0xb4, 0xcc, 0xdd,
+  0xb4, 0x0c, 0xed
+]);
+const halfQrXpExpected = new Uint8Array(32);
+halfQrXpExpected.set(halfQrInput.slice(0, 8), 0);
+halfQrXpExpected.set(halfQrInput.slice(16, 24), 16);
+const halfQrXpRun = await runFresh(moduleBytes, halfQrXpFixture, { data: halfQrInput, maxSteps: 4 });
+assert(halfQrXpRun.record.reason === STOP_REASONS.maxSteps, "QR half XP fixture did not finish");
+assert(halfQrXpRun.record.steps === 4, "QR half XP fixture executed the wrong instruction count");
 assert(
-  unsupportedXpRun.record.registers.every((value, index) => value === unsupportedXpRegisters[index]),
-  "adjacent half XP refusal changed registers"
+  halfQrXpRun.dataOutput.every((byte, index) => byte === halfQrXpExpected[index]),
+  `QR half XP fixture output changed: ${Buffer.from(halfQrXpRun.dataOutput).toString("hex")}`
 );
+assert(halfQrXpRun.record.registers[10] === INITIAL_SOURCE + 32, "QR half XP loads applied the wrong register increments");
+assert(halfQrXpRun.record.registers[11] === INITIAL_DESTINATION + 32, "QR half XP stores applied the wrong register increments");
 
 const float64XpFixture = conformanceFixture("esp32s3_float_pair_register_postincrement", [
   0x3b, 0xaa,
@@ -519,7 +528,9 @@ assert(unsupportedFloat128Run.record.steps === 0, "adjacent float-128 XP form wa
 assert(unsupportedFloat128Run.trace.count === 0, "adjacent float-128 XP refusal leaked a trace record");
 assert(unsupportedFloat128Run.dataOutput.length === 0, "adjacent float-128 XP refusal exposed data output");
 assert(
-  unsupportedFloat128Run.record.registers.every((value, index) => value === unsupportedXpRegisters[index]),
+  unsupportedFloat128Run.record.registers.every(
+    (value, index) => value === initialRegisters(unsupportedFloat128Run.record.returnPc)[index]
+  ),
   "adjacent float-128 XP refusal changed registers"
 );
 
@@ -768,7 +779,9 @@ assert(unsupportedQaccLaneRun.record.steps === 0, "adjacent unsigned QACC load w
 assert(unsupportedQaccLaneRun.trace.count === 0, "adjacent unsigned QACC refusal leaked a trace record");
 assert(unsupportedQaccLaneRun.dataOutput.length === 0, "adjacent unsigned QACC refusal exposed data output");
 assert(
-  unsupportedQaccLaneRun.record.registers.every((value, index) => value === unsupportedXpRegisters[index]),
+  unsupportedQaccLaneRun.record.registers.every(
+    (value, index) => value === initialRegisters(unsupportedQaccLaneRun.record.returnPc)[index]
+  ),
   "adjacent unsigned QACC refusal changed registers"
 );
 
@@ -855,12 +868,7 @@ assert(
 assert(unknownUserRegisterRun.record.steps === 0, "unknown user register was counted as executed");
 assert(unknownUserRegisterRun.record.pc === unknownUserRegisterFixture.pc, "failed decoder step changed PC");
 assert(unknownUserRegisterRun.trace.count === 0, "failed decoder step leaked a trace record");
-const failedStepRegisters = Array<number>(16).fill(0);
-failedStepRegisters[1] = INITIAL_STACK;
-failedStepRegisters[8] = ((2 << 30) | (unknownUserRegisterRun.record.returnPc & 0x3fff_ffff)) >>> 0;
-failedStepRegisters[10] = INITIAL_SOURCE;
-failedStepRegisters[11] = INITIAL_DESTINATION;
-failedStepRegisters[12] = 1;
+const failedStepRegisters = initialRegisters(unknownUserRegisterRun.record.returnPc);
 assert(
   unknownUserRegisterRun.record.registers.every((value, index) => value === failedStepRegisters[index]),
   "failed decoder step changed registers",
@@ -1181,10 +1189,15 @@ const actualBaseline = {
     reason: halfQrRun.record.reasonName,
     steps: halfQrRun.record.steps,
     sourceAfter: `0x${halfQrRun.record.registers[10].toString(16)}`,
-    destinationAfter: `0x${halfQrRun.record.registers[11].toString(16)}`,
-    unsupportedCodeSha256: unsupportedXpFixture.codeSha256,
-    unsupportedReason: unsupportedXpRun.record.reasonName,
-    unsupportedEncoding: `0x${unsupportedXpRun.record.unsupportedEncoding.toString(16)}`
+    destinationAfter: `0x${halfQrRun.record.registers[11].toString(16)}`
+  },
+  halfQrXpIsa: {
+    codeSha256: halfQrXpFixture.codeSha256,
+    outputHex: Buffer.from(halfQrXpRun.dataOutput).toString("hex"),
+    reason: halfQrXpRun.record.reasonName,
+    steps: halfQrXpRun.record.steps,
+    sourceAfter: `0x${halfQrXpRun.record.registers[10].toString(16)}`,
+    destinationAfter: `0x${halfQrXpRun.record.registers[11].toString(16)}`
   },
   float64XpIsa: {
     codeSha256: float64XpFixture.codeSha256,
@@ -1397,6 +1410,7 @@ assert(
     qrScalarIsa: baseline.qrScalarIsa,
     qrXpIsa: baseline.qrXpIsa,
     halfQrIsa: baseline.halfQrIsa,
+    halfQrXpIsa: baseline.halfQrXpIsa,
     float64XpIsa: baseline.float64XpIsa,
     accxMemoryIsa: baseline.accxMemoryIsa,
     qaccMemoryIsa: baseline.qaccMemoryIsa,

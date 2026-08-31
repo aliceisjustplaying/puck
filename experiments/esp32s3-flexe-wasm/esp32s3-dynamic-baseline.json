@@ -4,9 +4,9 @@
     "flexeCommit": "34ea9eb6eef921b59a55e6a435c7fc55c5727835",
     "runnerPatchSha256": "f539d71f47dd869ae1fb7171a1fa2e001abd875053adb13ca1eae5490734f8ce",
     "freestandingPatchSha256": "dbd2c623bfc9f9f33c4e4a98adcf06dec1d9034c659ad3c7afe94d373c48636d",
-    "esp32s3PatchSha256": "226272df2a4930bae21b0e6ff35e5c1abbdf037000f27d0dc594f3b1973d405a",
-    "moduleBytes": 62636,
-    "moduleSha256": "f150cb02078d94a113b168cb5fdb763a79980ca9469e2396a91345a01097ff70",
+    "esp32s3PatchSha256": "c7320f54969a8f1fdf16b65b49e0f44953f2abe646ff5f9b0b84d4fb21bbd520",
+    "moduleBytes": 63183,
+    "moduleSha256": "de3c0323a282f99fadc6252a9ab7175e1567a1c81b668a818f4fb591115255c1",
     "objdumpSha256": "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466",
     "scalarElfSha256": "a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644",
     "pieElfSha256": "591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742",
@@ -62,10 +62,15 @@
     "reason": "maxSteps",
     "steps": 8,
     "sourceAfter": "0x3fca1015",
-    "destinationAfter": "0x3fca200b",
-    "unsupportedCodeSha256": "eb6cfe068d7703e82ef4dfa05d9765f7c3535fe6f8f8c1d24c3828f78c1907ab",
-    "unsupportedReason": "unsupported",
-    "unsupportedEncoding": "0x8d3ca4"
+    "destinationAfter": "0x3fca200b"
+  },
+  "halfQrXpIsa": {
+    "codeSha256": "7d2615af84a7fcb46d36b9204d7789bc61c048c5b8b5638b9cc3f9e213a5aff2",
+    "outputHex": "030a11181f262d340000000000000000737a81888f969da40000000000000000",
+    "reason": "maxSteps",
+    "steps": 4,
+    "sourceAfter": "0x3fca1020",
+    "destinationAfter": "0x3fca2020"
   },
   "float64XpIsa": {
     "codeSha256": "54b0cd3653d8af6c3f6ba6d9bdce925b94e280c92e710842fa34d2f3886a6445",

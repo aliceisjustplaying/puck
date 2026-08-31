@@ -13,7 +13,7 @@ export const ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY: Esp32s3FullElfUnsupportedIn
   elfSha256: "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
   objdumpSha256: "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466",
   flexeDecoderSha256: "68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0",
-  unsupportedRows: 4736,
+  unsupportedRows: 4735,
   excludedByteRows: 3712,
   markers: Object.freeze<readonly [number, number][]>([
     [0x40375399, 0x3f],
@@ -892,7 +892,6 @@ export const ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY: Esp32s3FullElfUnsupportedIn
     [0x420b839e, 0xfe],
     [0x420b8826, 0x200e],
     [0x420b88aa, 0x1dfe],
-    [0x420b8ea9, 0xbdb2e4],
     [0x420b98d1, 0x29e],
     [0x420b999a, 0xe22e],
     [0x420b9f65, 0xff],

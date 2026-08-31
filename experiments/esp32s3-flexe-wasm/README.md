@@ -68,7 +68,7 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
-decoder plus this experiment's explicit ESP32-S3 patch surface has 356
+decoder plus this experiment's explicit ESP32-S3 patch surface has 360
 normalized mnemonics. With user-register operands distinguished, it covers
 63,415 rows and 316 raw mnemonics; 861 rows and 25 raw mnemonics remain gaps.
 Those gaps are 24 unimplemented `ee.*` PIE forms covering 162 rows and 699
@@ -78,12 +78,12 @@ mnemonic remains in the gap list, and every named user-register form is covered.
 
 `0003-add-esp32s3-lx7-subset.patch` implements `s32nb`, `lsip`, `ssip`,
 `ld.qr`, `st.qr`, `ee.vld.128.ip`, `ee.vld.128.xp`, `ee.vst.128.ip`,
-`ee.vld.l.64.ip`, `ee.vld.h.64.ip`, `ee.vst.h.64.ip`, `ee.vunzip.8`, and
+`ee.vld.[l/h].64.[ip/xp]`, `ee.vst.[l/h].64.[ip/xp]`, `ee.vunzip.8`, and
 `ee.vzip.8`, `ee.ldf.64.xp`, `ee.stf.64.xp`, `ee.ld.accx.ip`, and
 `ee.st.accx.ip`, all eight `ee.[ld/st].qacc_[h/l].[h.32/l.128].ip`
 transfers, `ee.[ld/st].ua_state.ip`, `ee.ld.128.usar.ip`, `ee.vldbc.32.ip`,
 `ee.ldqa.[s16/u16/u8].128.ip`, `ee.movi.32.q`, `ee.zero.q`, `ee.ld.128.usar.xp`,
-`ee.vldbc.16.ip`, and `ee.vst.l.64.ip`. It selects
+and `ee.vldbc.16.ip`. It selects
 those semantics only for the ESP32-S3 experiment
 profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
 represented by flexe's core. The profile also implements per-core UR0/UR1
@@ -141,18 +141,16 @@ synthetic caller, restores its stack, and exposes the return value 4 in caller
 register `a10`. A separate fresh run capped at two instructions stops at
 `0x403808f9` before `retw.n`, proving the bound is active.
 
-Fourteen raw conformance fixtures cover the remaining implemented data operations.
+Fifteen raw conformance fixtures cover the remaining implemented data operations.
 The scalar fixture copies `0x12345678` with `l32i.n` and `s32nb`, then executes
 `lsip` and `ssip`; both base registers advance by four and the run returns
 after six instructions. The QR fixture copies 16 deterministic bytes with
 `ld.qr` and `st.qr` and returns after four instructions. A register-postincrement
 fixture loads q7 through an intentionally unaligned base and proves that the
-aligned access and AR increment are independent. A half-QR fixture
-proves low-half load, high-half load, and high-half store preservation, forced
-eight-byte address alignment, and sign-extended negative post-increments. The
-adjacent unimplemented `ee.vld.l.64.xp` encoding stops before execution with
-unchanged registers,
-trace, and output. Exact code
+aligned access and AR increment are independent. Half-QR fixtures cover all
+low/high immediate and register-postincrement load/store paths, forced
+eight-byte address alignment, preservation of the untouched half, and both
+signed immediate and register increments. Exact code
 hashes, outputs, step counts, and post-incremented registers are pinned in the
 dynamic baseline.
 

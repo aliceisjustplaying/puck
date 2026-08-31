@@ -10,9 +10,9 @@
     "initialStack": "0x3fce9700",
     "initialStackProvenance": "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
     "runnerPatchSha256": "f539d71f47dd869ae1fb7171a1fa2e001abd875053adb13ca1eae5490734f8ce",
-    "esp32s3PatchSha256": "226272df2a4930bae21b0e6ff35e5c1abbdf037000f27d0dc594f3b1973d405a",
-    "moduleBytes": 62636,
-    "moduleSha256": "f150cb02078d94a113b168cb5fdb763a79980ca9469e2396a91345a01097ff70"
+    "esp32s3PatchSha256": "c7320f54969a8f1fdf16b65b49e0f44953f2abe646ff5f9b0b84d4fb21bbd520",
+    "moduleBytes": 63183,
+    "moduleSha256": "de3c0323a282f99fadc6252a9ab7175e1567a1c81b668a818f4fb591115255c1"
   },
   "bounded": {
     "reason": "maxSteps",
