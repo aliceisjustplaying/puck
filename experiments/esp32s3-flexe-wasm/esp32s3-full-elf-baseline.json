@@ -9,10 +9,10 @@
     "inheritedPages": 3,
     "initialStack": "0x3fce9700",
     "initialStackProvenance": "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
-    "runnerPatchSha256": "cca49b2ba1f6662babd3c6ba5ed9cc306793048f21ca8b50f9f8c2586218a391",
+    "runnerPatchSha256": "c3ff8a56ef085069280b3abe356750bbea63e78dda1a929954c02e33ca744b09",
     "esp32s3PatchSha256": "8c6a836a8103dcf013a6f241e7255b6d6f4de407956d5a8a47deb454a3914b79",
-    "moduleBytes": 90405,
-    "moduleSha256": "9063cca2ba89ef7a92fe19a478d0595fa219c5bd2bda037bd8298fac3268e58b"
+    "moduleBytes": 90201,
+    "moduleSha256": "3b43d0430c4c517ded1e1523984a4dab4eb9b78c73d93d2eced83c044399b986"
   },
   "bounded": {
     "reason": "maxSteps",
@@ -85,17 +85,17 @@
   },
   "cacheProgress": {
     "reason": "romRefused",
-    "steps": 659,
-    "pc": "0x40005d60",
-    "traceSha256": "fe5f831f4f30d6e79b2a955f907a469daf42509d0b413604f332bb5f97d4fddd",
-    "stackPointer": "0x3fce9600",
-    "memoryTraceRecords": 878,
-    "memoryTraceSha256": "954b16b06f10b93662c984f1a26072cf36ca6953960a7233085150ed3ab0f2dd",
+    "steps": 671,
+    "pc": "0x40001c38",
+    "traceSha256": "8cf554d7aec091ea0bcf159d642f804d23477229f2118d9b9e0d749f500d5bb7",
+    "stackPointer": "0x3fce95e0",
+    "memoryTraceRecords": 893,
+    "memoryTraceSha256": "189d757f0eba0c681a75ef9f727ab047167d827570aa871a6b852363824702eb",
     "registers": [
-      "0x8037f72e", "0x3fce9600", "0x00000066", "0x00000001",
-      "0x00000002", "0x00000050", "0x00000000", "0x00000000",
-      "0x8037efe7", "0x3fce95e0", "0x00000066", "0x00000001",
-      "0x00000002", "0x00000050", "0x00000000", "0x00040c03"
+      "0x8037efea", "0x3fce95e0", "0x00000000", "0x00000001",
+      "0x00000002", "0x00000050", "0x00000000", "0x00040c03",
+      "0x8038182c", "0x3fcac498", "0x00040c03", "0x00000000",
+      "0xb33fffff", "0x00000000", "0x00000000", "0x00000000"
     ],
     "cacheBootstrap": {
       "sequenceIndex": 6,
@@ -172,7 +172,8 @@
       { "kind": "bbpllRomWrite", "pc": "0x40005d60", "block": "0x66", "hostId": 1, "register": 4, "data": "0x6b", "callinc": 2, "currentIntlevel": 3, "priorIntlevelRestoreCount": 1, "priorBbpllWriteCount": 0 },
       { "kind": "intlevelRestore", "pc": "0x40001c38", "restorePs": "0x40c03", "previousPs": "0x40c03", "callinc": 2 },
       { "kind": "intlevelRestore", "pc": "0x40001c38", "restorePs": "0x40c00", "previousPs": "0x40c03", "callinc": 2 },
-      { "kind": "intlevelRestore", "pc": "0x40001c38", "restorePs": "0x40c00", "previousPs": "0x40c03", "callinc": 2 }
+      { "kind": "intlevelRestore", "pc": "0x40001c38", "restorePs": "0x40c00", "previousPs": "0x40c03", "callinc": 2 },
+      { "kind": "bbpllRomWrite", "pc": "0x40005d60", "block": "0x66", "hostId": 1, "register": 2, "data": "0x50", "callinc": 2, "currentIntlevel": 3, "priorIntlevelRestoreCount": 4, "priorBbpllWriteCount": 1 }
     ],
     "systemMmio": {
       "sysclkConf": 0,
@@ -215,7 +216,8 @@
     },
     "bbpllRom": {
       "modeHf": 107,
-      "writeCount": 1,
+      "refDiv": 80,
+      "writeCount": 2,
       "lastPc": 1073765728
     },
     "cpuTicks": {

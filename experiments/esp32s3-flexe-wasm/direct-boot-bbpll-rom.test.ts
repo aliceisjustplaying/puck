@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   ESP32S3_BBPLL_MODE_HF,
   ESP32S3_BBPLL_MODE_HF_480M,
+  ESP32S3_BBPLL_OC_REF_DIV,
+  ESP32S3_BBPLL_OC_REF_DIV_480M,
   ESP32S3_I2C_BBPLL,
   ESP32S3_I2C_BBPLL_HOST_ID,
   ESP32S3_ROM_I2C_WRITE_REG,
@@ -28,7 +30,24 @@ describe("ESP32-S3 direct-boot BBPLL ROM write", () => {
       handled: true,
       status: "accepted",
       returnValue: 0,
-      state: { modeHf: 0x6b, writeCount: 1, lastPc: 0x4000_5d60 },
+      state: { modeHf: 0x6b, refDiv: null, writeCount: 1, lastPc: 0x4000_5d60 },
+    });
+  });
+
+  test("records the following exact 40 MHz-reference divider write", () => {
+    const mode = writeEsp32S3DirectBootBbpllRom(createEsp32S3DirectBootBbpllRom(), access);
+    if (mode.status !== "accepted") throw new Error("BBPLL mode write refused");
+    expect(writeEsp32S3DirectBootBbpllRom(mode.state, {
+      ...access,
+      register: ESP32S3_BBPLL_OC_REF_DIV,
+      data: ESP32S3_BBPLL_OC_REF_DIV_480M,
+      priorIntlevelRestoreCount: 4,
+      priorWriteCount: 1,
+    })).toEqual({
+      handled: true,
+      status: "accepted",
+      returnValue: 0,
+      state: { modeHf: 0x6b, refDiv: 0x50, writeCount: 2, lastPc: 0x4000_5d60 },
     });
   });
 
@@ -49,5 +68,22 @@ describe("ESP32-S3 direct-boot BBPLL ROM write", () => {
     const accepted = writeEsp32S3DirectBootBbpllRom(initial, access);
     if (accepted.status !== "accepted") throw new Error("BBPLL ROM write refused");
     expect(writeEsp32S3DirectBootBbpllRom(accepted.state, access).status).toBe("refused");
+    const refDiv = {
+      ...access,
+      register: ESP32S3_BBPLL_OC_REF_DIV,
+      data: ESP32S3_BBPLL_OC_REF_DIV_480M,
+      priorIntlevelRestoreCount: 4,
+      priorWriteCount: 1,
+    } as const;
+    for (const invalid of [
+      { ...refDiv, register: 3 },
+      { ...refDiv, data: 0x51 },
+      { ...refDiv, currentIntlevel: 0 },
+      { ...refDiv, priorIntlevelRestoreCount: 3 },
+      { ...refDiv, priorWriteCount: 0 },
+    ]) expect(writeEsp32S3DirectBootBbpllRom(accepted.state, invalid).status).toBe("refused");
+    const second = writeEsp32S3DirectBootBbpllRom(accepted.state, refDiv);
+    if (second.status !== "accepted") throw new Error("BBPLL reference-divider write refused");
+    expect(writeEsp32S3DirectBootBbpllRom(second.state, refDiv).status).toBe("refused");
   });
 });
