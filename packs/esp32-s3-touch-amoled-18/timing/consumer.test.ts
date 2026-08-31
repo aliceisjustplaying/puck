@@ -38,6 +38,18 @@ function profileObject(): Record<string, unknown> {
       calibrated: false,
       throughputBytesPerSecond: null,
     },
+    cacheLineFillCycles: {
+      status: "calibrated",
+      evidence: "timing/evidence/synthetic-cache-burst-adoption.json",
+      instruction: {
+        flash: { firstLineCycles: 204, subsequentLineCycles: 266 },
+        psram: null,
+      },
+      data: {
+        flash: { firstLineCycles: 115, subsequentLineCycles: 473 },
+        psram: { firstLineCycles: 82, subsequentLineCycles: 170 },
+      },
+    },
     panel: {
       interface: "qspi",
       lanes: 4,
@@ -182,7 +194,12 @@ describe("decodeOptionalTimingExports", () => {
 describe("timing profile claim boundary", () => {
   test("parses the checked-in timing profile", async () => {
     const value = await Bun.file(join(import.meta.dir, "..", "timing.json")).json();
-    expect(parseTimingProfile(value).claimBoundary.mode).toBe("shadow-ledger");
+    const profile = parseTimingProfile(value);
+    expect(profile.claimBoundary.mode).toBe("shadow-ledger");
+    expect(profile.cacheLineFillCycles.data.flash).toEqual({
+      firstLineCycles: 115,
+      subsequentLineCycles: 473,
+    });
   });
 
   test("rejects cycle, host-time, memory, and panel-throughput overclaims", () => {
@@ -201,6 +218,12 @@ describe("timing profile claim boundary", () => {
     const panel = clone(profileObject());
     (panel.panel as Record<string, unknown>).throughputCalibrated = true;
     expect(() => parseTimingProfile(panel)).toThrow("panel.throughputCalibrated must be false");
+
+    const incompleteCache = clone(profileObject());
+    (incompleteCache.cacheLineFillCycles as Record<string, unknown>).status = "candidate";
+    expect(() => parseTimingProfile(incompleteCache)).toThrow(
+      'cacheLineFillCycles.status must be "calibrated"',
+    );
   });
 });
 

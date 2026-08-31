@@ -11,6 +11,10 @@ import {
   type CacheConfiguration,
   type CacheLatency
 } from "../../packs/esp32-s3-touch-amoled-18/timing/cache";
+import {
+  parseTimingProfile,
+  type CacheLineFillProfileCost
+} from "../../packs/esp32-s3-touch-amoled-18/timing/consumer";
 import type { TimingMachineConfiguration } from "../../packs/esp32-s3-touch-amoled-18/timing/machine";
 import { runRuntimeTimingTrace } from "../../packs/esp32-s3-touch-amoled-18/timing/runtime-trace";
 import {
@@ -63,6 +67,25 @@ function unknownCost(component: string, source: string): CacheLatency {
   });
 }
 
+function calibratedLineFill(
+  cost: CacheLineFillProfileCost,
+  source: string,
+): Readonly<{
+  firstLineLatency: CacheLatency;
+  subsequentLineServiceInterval: CacheLatency;
+}> {
+  const known = (cycles: number, component: string): CacheLatency => Object.freeze({
+    status: "known",
+    cycles: BigInt(cycles),
+    calibration: "calibrated",
+    source: `${source}; ${component}`,
+  });
+  return Object.freeze({
+    firstLineLatency: known(cost.firstLineCycles, "first line"),
+    subsequentLineServiceInterval: known(cost.subsequentLineCycles, "contiguous subsequent line"),
+  });
+}
+
 const here = import.meta.dir;
 const dist = join(here, "dist");
 const tracePath = join(dist, "rgb565-execution-trace.bin");
@@ -74,8 +97,8 @@ const cachePath = join(here, "../../packs/esp32-s3-touch-amoled-18/timing/cache.
 const sdkconfigPath = join(dirname(DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF), "sdkconfig");
 const decodedTrace = decodeTrace(new Uint8Array(await Bun.file(tracePath).arrayBuffer()));
 const trace = decodedTrace.records;
-const timingProfile = JSON.parse(readFileSync(timingProfilePath, "utf8"));
-assert(timingProfile.claimBoundary?.cycleAccurate === false, "timing profile claim boundary changed");
+const timingProfile = parseTimingProfile(JSON.parse(readFileSync(timingProfilePath, "utf8")));
+assert(timingProfile.claimBoundary.cycleAccurate === false, "timing profile claim boundary changed");
 
 const sdkconfig = readFileSync(sdkconfigPath, "utf8");
 for (const line of [
@@ -126,6 +149,8 @@ const addressMap: AddressMapConfiguration = Object.freeze({
 });
 
 const costSource = `timing profile ${TIMING_PROFILE_SOURCE} SHA-256 ${sha256(timingProfilePath)}`;
+const cacheLineFillSource =
+  `${costSource}; evidence ${timingProfile.cacheLineFillCycles.evidence}`;
 const cache: CacheConfiguration = Object.freeze({
   addressBits: 32,
   metadata: Object.freeze({
@@ -155,7 +180,25 @@ const cache: CacheConfiguration = Object.freeze({
       load: unknownCost("data-cache load hit", costSource),
       store: unknownCost("data-cache store hit", costSource)
     }),
-    lineFill: unknownCost("MSPI cache-line fill", costSource),
+    lineFill: Object.freeze({
+      instruction: Object.freeze({
+        flash: calibratedLineFill(
+          timingProfile.cacheLineFillCycles.instruction.flash,
+          `${cacheLineFillSource}; instruction flash`,
+        ),
+        psram: unknownCost("instruction-cache PSRAM line fill", costSource),
+      }),
+      data: Object.freeze({
+        flash: calibratedLineFill(
+          timingProfile.cacheLineFillCycles.data.flash,
+          `${cacheLineFillSource}; data flash`,
+        ),
+        psram: calibratedLineFill(
+          timingProfile.cacheLineFillCycles.data.psram,
+          `${cacheLineFillSource}; data PSRAM`,
+        ),
+      }),
+    }),
     dirtyWriteback: unknownCost("MSPI dirty writeback", costSource),
     writeThrough: unknownCost("MSPI write-through", costSource),
     uncached: Object.freeze({
@@ -291,7 +334,16 @@ const cpuEvents = machine.issuedEvents.filter((issued) => issued.origin.kind ===
 assert(cpuEvents.length === 43, `expected 43 CPU events, got ${cpuEvents.length}`);
 assert(machine.issuedEvents.length === 99, `expected 99 issued events, got ${machine.issuedEvents.length}`);
 assert(machine.execution.events.filter((event) => event.resource === "mspi").length === 2, "instruction misses did not reach MSPI");
-assert(machine.claim.unknownCostEventIds.length === 99, "an event acquired an unproven cycle cost");
+assert(machine.claim.unknownCostEventIds.length === 97, "adopted line-fill costs changed unexpectedly");
+const calibratedLineFills = perRecord.flatMap((record) =>
+  record.timing.emissions.filter((emission) => emission.kind === "line-fill")
+);
+assert(calibratedLineFills.length === 2, "expected two calibrated instruction-cache line fills");
+assert(calibratedLineFills.every((emission) =>
+  emission.cost.status === "known" &&
+  emission.cost.calibration === "calibrated" &&
+  (emission.cost.cycles === "204" || emission.cost.cycles === "266")
+), "instruction-cache line fill did not use adopted hardware evidence");
 const crossingFetch = perRecord.find((record) => record.trace.pc === "0x420d4e1e");
 assert(crossingFetch !== undefined, "trace lost the cache-line crossing fetch");
 assert(
@@ -326,7 +378,7 @@ const actualBaseline = {
     sramBytes: Number(SRAM_SIZE),
     instructionCache: { bytes: 16_384, lineBytes: 32, sets: 64, ways: 8 },
     dataCache: { bytes: 32_768, lineBytes: 64, sets: 64, ways: 8 },
-    latencyStatus: "unknown"
+    latencyStatus: "partially-calibrated"
   },
   summary: {
     status: machine.status,
@@ -339,7 +391,7 @@ const actualBaseline = {
     emissions: counts,
     mspiEvents: machine.execution.events.filter((event) => event.resource === "mspi").length,
     totalCycles: null,
-    totalCyclesReason: "all CPU, cache, and SRAM latency costs remain unadopted",
+    totalCyclesReason: "CPU, cache-hit, and SRAM latency costs remain unadopted; cache line fills are calibrated",
     perRecordSha256
   }
 };

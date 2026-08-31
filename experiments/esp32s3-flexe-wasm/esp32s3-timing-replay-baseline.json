@@ -4,7 +4,7 @@
     "traceSha256": "ae24fd0b6d4e84dcbbad7e393c0be39058e5a04b2386f099bde1e0127103b9b4",
     "stagingElfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
     "sdkconfigSha256": "65cfb5deebc36666fb3247ec5bc91aaf9de2d9a8c2642eb1666ec5b3e485bb92",
-    "timingProfileSha256": "61a7611e07980af23cb9cf6f06270d7fe7e4d9e6c8481d6d188693f997619c1b",
+    "timingProfileSha256": "58a8a3662953c5c00dadb3636bff05328829e006fe4ea0726011e7c042ef5d03",
     "timingMachineSha256": "963a4106588cc0ba36cf3d19d1392363c106daf9812e5e328cf6d499aa92ded0",
     "mmuSha256": "fe55f294fceb898337299c46d1400e576e65ad7216462b5b4da0b46ecfed9448",
     "cacheSha256": "785fefde2aaff0b97c497b68dc6da3e5efa337f7b0a443028f3f279a3b756a70"
@@ -26,7 +26,7 @@
       "sets": 64,
       "ways": 8
     },
-    "latencyStatus": "unknown"
+    "latencyStatus": "partially-calibrated"
   },
   "summary": {
     "status": "blocked",
@@ -43,7 +43,7 @@
     },
     "mspiEvents": 2,
     "totalCycles": null,
-    "totalCyclesReason": "all CPU, cache, and SRAM latency costs remain unadopted",
-    "perRecordSha256": "0d176093d0822a07e293466185b6da924d4a576fc080c304adfcb94905707e55"
+    "totalCyclesReason": "CPU, cache-hit, and SRAM latency costs remain unadopted; cache line fills are calibrated",
+    "perRecordSha256": "583e18674aa69a0a7d47f5f084294929c4081d5dab4131ebb661b18e397b0278"
   }
 }

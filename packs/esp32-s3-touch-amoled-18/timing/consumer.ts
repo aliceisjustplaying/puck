@@ -86,6 +86,18 @@ export interface TimingProfileV1 {
     calibrated: false;
     throughputBytesPerSecond: null;
   }>;
+  readonly cacheLineFillCycles: Readonly<{
+    status: "calibrated";
+    evidence: string;
+    instruction: Readonly<{
+      flash: CacheLineFillProfileCost;
+      psram: null;
+    }>;
+    data: Readonly<{
+      flash: CacheLineFillProfileCost;
+      psram: CacheLineFillProfileCost;
+    }>;
+  }>;
   readonly panel: Readonly<{
     interface: string;
     lanes: number;
@@ -97,6 +109,11 @@ export interface TimingProfileV1 {
     throughputCalibrated: false;
     payloadStatus: string;
   }>;
+}
+
+export interface CacheLineFillProfileCost {
+  readonly firstLineCycles: number;
+  readonly subsequentLineCycles: number;
 }
 
 export type TimingAvailability =
@@ -323,7 +340,11 @@ export function decodeOptionalTimingExports(exportsValue: unknown): TimingAvaila
 
 export function parseTimingProfile(value: unknown): TimingProfileV1 {
   const profile = objectAt(value, "timing profile");
-  exactKeys(profile, ["schemaVersion", "claimBoundary", "cpu", "psram", "flash", "panel"], "timing profile");
+  exactKeys(
+    profile,
+    ["schemaVersion", "claimBoundary", "cpu", "psram", "flash", "cacheLineFillCycles", "panel"],
+    "timing profile",
+  );
   literal(profile.schemaVersion, 1, "timing profile.schemaVersion");
 
   const claim = objectAt(profile.claimBoundary, "timing profile.claimBoundary");
@@ -375,6 +396,57 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
   const flashFrequencyStatus = stringAt(flash.frequencyStatus, "timing profile.flash.frequencyStatus");
   literal(flash.calibrated, false, "timing profile.flash.calibrated");
   literal(flash.throughputBytesPerSecond, null, "timing profile.flash.throughputBytesPerSecond");
+
+  const cacheLineFill = objectAt(profile.cacheLineFillCycles, "timing profile.cacheLineFillCycles");
+  exactKeys(
+    cacheLineFill,
+    ["status", "evidence", "instruction", "data"],
+    "timing profile.cacheLineFillCycles",
+  );
+  literal(cacheLineFill.status, "calibrated", "timing profile.cacheLineFillCycles.status");
+  const cacheLineFillEvidence = stringAt(
+    cacheLineFill.evidence,
+    "timing profile.cacheLineFillCycles.evidence",
+  );
+  const parseLineFillCost = (value: unknown, path: string): CacheLineFillProfileCost => {
+    const cost = objectAt(value, path);
+    exactKeys(cost, ["firstLineCycles", "subsequentLineCycles"], path);
+    return Object.freeze({
+      firstLineCycles: positiveSafeInteger(cost.firstLineCycles, `${path}.firstLineCycles`),
+      subsequentLineCycles: positiveSafeInteger(
+        cost.subsequentLineCycles,
+        `${path}.subsequentLineCycles`,
+      ),
+    });
+  };
+  const instructionLineFill = objectAt(
+    cacheLineFill.instruction,
+    "timing profile.cacheLineFillCycles.instruction",
+  );
+  exactKeys(
+    instructionLineFill,
+    ["flash", "psram"],
+    "timing profile.cacheLineFillCycles.instruction",
+  );
+  const instructionFlashLineFill = parseLineFillCost(
+    instructionLineFill.flash,
+    "timing profile.cacheLineFillCycles.instruction.flash",
+  );
+  literal(
+    instructionLineFill.psram,
+    null,
+    "timing profile.cacheLineFillCycles.instruction.psram",
+  );
+  const dataLineFill = objectAt(cacheLineFill.data, "timing profile.cacheLineFillCycles.data");
+  exactKeys(dataLineFill, ["flash", "psram"], "timing profile.cacheLineFillCycles.data");
+  const dataFlashLineFill = parseLineFillCost(
+    dataLineFill.flash,
+    "timing profile.cacheLineFillCycles.data.flash",
+  );
+  const dataPsramLineFill = parseLineFillCost(
+    dataLineFill.psram,
+    "timing profile.cacheLineFillCycles.data.psram",
+  );
 
   const panel = objectAt(profile.panel, "timing profile.panel");
   exactKeys(
@@ -431,6 +503,12 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
       frequencyStatus: flashFrequencyStatus,
       calibrated: false,
       throughputBytesPerSecond: null,
+    }),
+    cacheLineFillCycles: Object.freeze({
+      status: "calibrated",
+      evidence: cacheLineFillEvidence,
+      instruction: Object.freeze({ flash: instructionFlashLineFill, psram: null }),
+      data: Object.freeze({ flash: dataFlashLineFill, psram: dataPsramLineFill }),
     }),
     panel: Object.freeze({
       interface: panelInterface,
