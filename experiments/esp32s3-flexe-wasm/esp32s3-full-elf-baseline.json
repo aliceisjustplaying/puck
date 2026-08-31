@@ -9,10 +9,10 @@
     "inheritedPages": 3,
     "initialStack": "0x3fce9700",
     "initialStackProvenance": "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
-    "runnerPatchSha256": "e1d64c0610a79c278e319912cab5db788ea555c4d88802d17ae95b0c7e430a97",
+    "runnerPatchSha256": "80dded94166a0c4e36d4cc7ce3ed8d3a1b8a3d0319f3786e43df5943834b6b9b",
     "esp32s3PatchSha256": "815f8ac67279aaa55775e470b66c7954c895d41d5388fa8de9c6b035e91fea0c",
-    "moduleBytes": 55497,
-    "moduleSha256": "355af8bc3967d6ad5a687aaf313546687c933d14eb65894be4f9c3ccd31b4b31"
+    "moduleBytes": 56855,
+    "moduleSha256": "4b56fa628222fcbc899fc3f46b45aa0d1300eb8e66a328ea2105aedffb7fc2d0"
   },
   "bounded": {
     "reason": "maxSteps",
@@ -84,18 +84,18 @@
     }
   },
   "cacheProgress": {
-    "reason": "unloadedPage",
-    "steps": 216,
-    "pc": "0x400018c0",
-    "traceSha256": "d87d2060d7eec3522a3c50ce5423bd786372118c53cf9c081709f802f849efa1",
-    "memoryTraceRecords": 297,
-    "memoryTraceSha256": "7c762ad8b09dbaa762d0a4274d256525353810d3b057f190cb5ce53fecb1a320",
-    "stackPointer": "0x3fce96c0",
+    "reason": "readPermission",
+    "steps": 238,
+    "pc": "0x403771a5",
+    "traceSha256": "66e5d121efdd6e11cba15e22cefbf684254c887737a9bf55553eae70edc4236c",
+    "memoryTraceRecords": 325,
+    "memoryTraceSha256": "e278adc72c086dc8e132a15fcd48ed180b995f36ae1897fa5ff6047af73a3d55",
+    "stackPointer": "0x3fce9620",
     "registers": [
-      "0x00000000", "0x3fce96c0", "0x00000000", "0x00000000",
-      "0x00000000", "0x00000000", "0x00000002", "0x00000000",
-      "0x80375d31", "0x3fce96a0", "0x00000000", "0x00000008",
-      "0x00000040", "0x600c4064", "0x600c4004", "0x00000000"
+      "0x80375e1d", "0x3fce9620", "0x3fce9650", "0x00000000",
+      "0x00000000", "0x00000000", "0x00000000", "0x00000000",
+      "0x00000000", "0x600c0060", "0x00000000", "0x00000000",
+      "0x00000000", "0x00000000", "0x00000000", "0x00000000"
     ],
     "cacheBootstrap": {
       "sequenceIndex": 6,
@@ -112,11 +112,16 @@
         "ways": 8,
         "lineBytes": 32
       },
-      "dataSuspended": true,
+      "dataSuspended": false,
       "dataMode": {
         "sizeBytes": 32768,
         "ways": 8,
         "lineBytes": 64
+      },
+      "dataSuspendReturn": 0,
+      "mmuSizes": {
+        "instructionBytes": 60,
+        "dataBytes": 964
       }
     },
     "events": [
@@ -132,7 +137,9 @@
       { "kind": "cache", "pc": "0x40001890", "sequenceIndex": 5, "argument": 0, "returnValue": null },
       { "kind": "cacheMode", "pc": "0x40001a1c", "cache": "instruction", "sizeBytes": 16384, "ways": 8, "lineBytes": 32 },
       { "kind": "cacheSuspend", "pc": "0x400018b4", "cache": "data", "returnValue": 0 },
-      { "kind": "cacheMode", "pc": "0x40001a28", "cache": "data", "sizeBytes": 32768, "ways": 8, "lineBytes": 64 }
+      { "kind": "cacheMode", "pc": "0x40001a28", "cache": "data", "sizeBytes": 32768, "ways": 8, "lineBytes": 64 },
+      { "kind": "cacheResume", "pc": "0x400018c0", "cache": "data", "argument": 0 },
+      { "kind": "cacheMmuSizes", "pc": "0x40001914", "instructionBytes": 60, "dataBytes": 964 }
     ]
   },
   "unsupportedRefusal": {
