@@ -156,6 +156,35 @@
       }
     ]
   },
+  "romCallbackCycles": {
+    "status": "partially-calibrated",
+    "evidence": "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-0b187a0-rom-callback-adoption.json",
+    "entries": [
+      {
+        "kind": "memset",
+        "pc": "0x400011e8",
+        "destination": "0x3fcabe60",
+        "value": 0,
+        "length": 21216,
+        "cycles": 6659
+      },
+      {
+        "kind": "memset",
+        "pc": "0x400011e8",
+        "destination": "0x50000000",
+        "value": 0,
+        "length": 0,
+        "cycles": 31
+      },
+      {
+        "kind": "cpuTicksPerUs",
+        "pc": "0x40001a4c",
+        "ticksPerUs": 40,
+        "callinc": 2,
+        "cycles": 9
+      }
+    ]
+  },
   "panel": {
     "interface": "qspi",
     "lanes": 4,

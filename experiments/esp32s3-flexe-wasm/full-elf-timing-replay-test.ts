@@ -11,11 +11,17 @@ import {
 import {
   parseTimingProfile,
   type CacheLineFillProfileCost,
+  type RomCallbackProfileCost,
 } from "../../packs/esp32-s3-touch-amoled-18/timing/consumer";
 import { runRuntimeTimingTrace } from "../../packs/esp32-s3-touch-amoled-18/timing/runtime-trace";
 import { DEFAULT_TINYDRAW_ESP32S3_FULL_ELF } from "./constants";
 import { parseXtensaElf32 } from "./elf-image";
-import { buildSparseElfPages, runSparseXtensaElf, type SparseElfPage } from "./full-elf-runner";
+import {
+  buildSparseElfPages,
+  runSparseXtensaElf,
+  type FullElfRomEvent,
+  type SparseElfPage,
+} from "./full-elf-runner";
 import { sha256 } from "./lib";
 import { TRACE_KINDS, type DecodedTrace } from "./trace-abi";
 import { adaptFlexeTraceToRuntimeTiming } from "./trace-timing-adapter";
@@ -57,6 +63,23 @@ function calibratedCost(cycles: number, component: string, source: string): Cach
     calibration: "calibrated",
     source: `${source}; ${component}`,
   });
+}
+
+function romCallbackProfileKey(entry: RomCallbackProfileCost): string {
+  return entry.kind === "memset"
+    ? `${entry.pc}:${entry.kind}:${entry.destination}:${entry.value}:${entry.length}`
+    : `${entry.pc}:${entry.kind}:${entry.ticksPerUs}:${entry.callinc}`;
+}
+
+function romCallbackEventKey(event: FullElfRomEvent): string | null {
+  const pc = `0x${event.pc.toString(16).padStart(8, "0")}`;
+  if (event.kind === "memset") {
+    return `${pc}:${event.kind}:0x${event.destination.toString(16).padStart(8, "0")}:${event.value}:${event.length}`;
+  }
+  if (event.kind === "cpuTicksPerUs") {
+    return `${pc}:${event.kind}:${event.ticksPerUs}:${event.callinc}`;
+  }
+  return null;
 }
 
 function calibratedLineFill(
@@ -231,8 +254,13 @@ const branchCostSource =
 const cacheLineFillSource = `${costSource}; evidence ${timingProfile.cacheLineFillCycles.evidence}`;
 const cacheHitSource = `${costSource}; evidence ${timingProfile.cacheHitAdditiveCycles.evidence}`;
 const mmioCostSource = `${costSource}; evidence ${timingProfile.mmioAccessCycles.evidence}`;
+const romCallbackCostSource = `${costSource}; evidence ${timingProfile.romCallbackCycles.evidence}`;
 const mmioCostsByAccess = new Map(timingProfile.mmioAccessCycles.entries.map((entry) => [
   `${entry.address}:${entry.operation}:${entry.bytes}:${entry.peripheral}:${entry.writeEffect ?? "any"}`,
+  entry,
+]));
+const romCallbackCostsByClass = new Map(timingProfile.romCallbackCycles.entries.map((entry) => [
+  romCallbackProfileKey(entry),
   entry,
 ]));
 const unknown = unknownCost("unused cache path", costSource);
@@ -322,7 +350,22 @@ const romCallbacks = run.romEvents.filter((event) =>
   event.kind !== "rtcMmioWrite" &&
   event.kind !== "regi2cMmioRead" &&
   event.kind !== "regi2cMmioWrite"
-);
+).map((event) => {
+  const key = romCallbackEventKey(event);
+  const entry = key === null ? undefined : romCallbackCostsByClass.get(key);
+  return Object.freeze({
+    ...event,
+    ...(entry === undefined
+      ? {}
+      : {
+          cpuCost: calibratedCost(
+            entry.cycles,
+            `exact ${entry.kind} ROM callback class`,
+            romCallbackCostSource,
+          ),
+        }),
+  });
+});
 assert.equal(romCallbacks.length, 17);
 const runtimeTrace = adaptFlexeTraceToRuntimeTiming(run.memoryTrace, {
   source: "full ELF runner committed execution trace",
@@ -399,20 +442,25 @@ const exactMmioEvents = machine.issuedEvents.filter((event) =>
   event.cost.source.includes("exact matched ESP32-S3 MMIO access")
 );
 const romCallbackCpuEvents = cpuEvents.filter((event) => event.event.id.includes(":rom-callback:"));
+const exactRomCallbackEvents = romCallbackCpuEvents.filter((event) =>
+  event.cost.status === "known" && event.cost.source.includes("exact") &&
+  event.cost.source.includes("ROM callback class")
+);
 assert.equal(cpuEvents.length, 577);
 assert.equal(loadUseHazards.length, 37);
 assert.equal(instructionCpuEvents.length, 523);
 assert.equal(exactBeqzNotTaken.length, 5);
 assert.equal(exactBeqzTaken.length, 0);
 assert.equal(romCallbackCpuEvents.length, 17);
+assert.equal(exactRomCallbackEvents.length, 3);
 assert.equal(machine.issuedEvents.length, 1286);
 assert.equal(exactMmioEvents.length, 40);
-assert.equal(machine.claim.unknownCostEventIds.length, 31);
-assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 1255);
+assert.equal(machine.claim.unknownCostEventIds.length, 28);
+assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 1258);
 assert([...instructionCpuEvents, ...loadUseHazards].every((event) =>
   event.cost.status === "known" && event.cost.cycles === 1n && event.cost.calibration === "calibrated"
 ));
-assert(romCallbackCpuEvents.every((event) =>
+assert(romCallbackCpuEvents.filter((event) => event.cost.status === "unknown").every((event) =>
   event.cost.status === "unknown" &&
   event.cost.reason.includes("has no adopted CPU duration") &&
   event.cost.source?.includes("afterInstructionCount")
@@ -499,8 +547,10 @@ const romCallbackEvidenceProjection = romCallbackCpuEvents.map((issued) => ({
   issueIndex: issued.issueIndex,
   eventId: issued.event.id,
   instructionAccessId: issued.origin.kind === "cpu" ? issued.origin.instructionAccessId : null,
-  reason: issued.cost.status === "unknown" ? issued.cost.reason : null,
-  source: issued.cost.status === "unknown" ? issued.cost.source : null,
+  cost: issued.cost.status === "known"
+    ? { status: "known", cycles: issued.cost.cycles.toString(), calibration: issued.cost.calibration }
+    : { status: "unknown", reason: issued.cost.reason },
+  source: issued.cost.source,
 }));
 const actualBaseline = {
   schemaVersion: 1,
@@ -534,6 +584,7 @@ const actualBaseline = {
     mmioAccessBreakdown,
     cpuEvents: cpuEvents.length,
     romCallbackEvents: romCallbackCpuEvents.length,
+    exactRomCallbackEvents: exactRomCallbackEvents.length,
     dependentSramLoadUseHazards: loadUseHazards.length,
     exactBeqzNotTaken: exactBeqzNotTaken.length,
     exactBeqzTaken: exactBeqzTaken.length,

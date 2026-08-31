@@ -93,6 +93,20 @@ function profileObject(): Record<string, unknown> {
         },
       ],
     },
+    romCallbackCycles: {
+      status: "partially-calibrated",
+      evidence: "timing/evidence/synthetic-rom-callback-adoption.json",
+      entries: [
+        {
+          kind: "memset",
+          pc: "0x400011e8",
+          destination: "0x50000000",
+          value: 0,
+          length: 0,
+          cycles: 31,
+        },
+      ],
+    },
     panel: {
       interface: "qspi",
       lanes: 4,
@@ -331,6 +345,16 @@ describe("timing profile claim boundary", () => {
         },
       ],
     });
+    expect(profile.romCallbackCycles).toEqual({
+      status: "partially-calibrated",
+      evidence:
+        "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-0b187a0-rom-callback-adoption.json",
+      entries: [
+        { kind: "memset", pc: "0x400011e8", destination: "0x3fcabe60", value: 0, length: 0x52e0, cycles: 6_659 },
+        { kind: "memset", pc: "0x400011e8", destination: "0x50000000", value: 0, length: 0, cycles: 31 },
+        { kind: "cpuTicksPerUs", pc: "0x40001a4c", ticksPerUs: 40, callinc: 2, cycles: 9 },
+      ],
+    });
     expect(profile.coreSteadyStateCycles).toEqual({
       status: "partially-calibrated",
       evidence:
@@ -452,6 +476,20 @@ describe("timing profile claim boundary", () => {
       cycles: 3,
     });
     expect(() => parseTimingProfile(invalidWriteEffect)).toThrow("writeEffect must be same-value");
+
+    const broadRomPc = clone(profileObject());
+    const broadRomEntries = (broadRomPc.romCallbackCycles as Record<string, unknown>).entries as
+      Record<string, unknown>[];
+    broadRomEntries[0]!.pc = "0x400011e8/0x100";
+    expect(() => parseTimingProfile(broadRomPc)).toThrow(
+      "pc must be one canonical lowercase 32-bit hex address",
+    );
+
+    const duplicateRom = clone(profileObject());
+    const duplicateRomEntries = (duplicateRom.romCallbackCycles as Record<string, unknown>).entries as
+      Record<string, unknown>[];
+    duplicateRomEntries.push(structuredClone(duplicateRomEntries[0]!));
+    expect(() => parseTimingProfile(duplicateRom)).toThrow("must not contain duplicate callback classes");
   });
 });
 

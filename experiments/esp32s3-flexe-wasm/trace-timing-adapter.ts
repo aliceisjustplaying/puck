@@ -31,6 +31,7 @@ export interface FlexeRomCallbackBoundary {
   readonly kind: string;
   readonly pc: number;
   readonly afterInstructionCount: number;
+  readonly cpuCost?: EventLatency;
 }
 
 export interface FlexeTraceTimingOptions extends NeutralTraceAdapterOptions {
@@ -99,18 +100,48 @@ function attachRomCallbackBoundaries(
       throw new Error("flexe ROM callbacks must be ordered by afterInstructionCount");
     }
     previousInstructionCount = callback.afterInstructionCount;
+    if (callback.cpuCost !== undefined) {
+      if (typeof callback.cpuCost !== "object" || callback.cpuCost === null) {
+        throw new Error(`flexe ROM callbacks[${index}].cpuCost must be a latency`);
+      }
+      if (callback.cpuCost.status === "known") {
+        if (typeof callback.cpuCost.cycles !== "bigint" || callback.cpuCost.cycles < 0n) {
+          throw new Error(`flexe ROM callbacks[${index}].cpuCost.cycles must be a non-negative bigint`);
+        }
+        if (
+          callback.cpuCost.calibration !== "calibrated" &&
+          callback.cpuCost.calibration !== "uncalibrated"
+        ) {
+          throw new Error(`flexe ROM callbacks[${index}].cpuCost.calibration is invalid`);
+        }
+        if (typeof callback.cpuCost.source !== "string" || callback.cpuCost.source.length === 0) {
+          throw new Error(`flexe ROM callbacks[${index}].cpuCost.source must be non-empty`);
+        }
+      } else if (callback.cpuCost.status === "unknown") {
+        if (typeof callback.cpuCost.reason !== "string" || callback.cpuCost.reason.length === 0) {
+          throw new Error(`flexe ROM callbacks[${index}].cpuCost.reason must be non-empty`);
+        }
+        if (typeof callback.cpuCost.source !== "string" || callback.cpuCost.source.length === 0) {
+          throw new Error(`flexe ROM callbacks[${index}].cpuCost.source must be non-empty`);
+        }
+      } else {
+        throw new Error(`flexe ROM callbacks[${index}].cpuCost.status is invalid`);
+      }
+    }
     const instructionAccessId = instructionAccessIds[callback.afterInstructionCount - 1]!;
     const event = Object.freeze({
       id: `${instructionAccessId}:rom-callback:${index}:${callback.kind}`,
       kind: "cpu" as const,
       core: provenance.core,
       instructionAccessId,
-      latency: Object.freeze({
-        status: "unknown" as const,
-        reason: `ROM callback ${callback.kind} at 0x${callback.pc.toString(16)} has no adopted CPU duration`,
-        source:
-          `full ELF ROM event afterInstructionCount ${callback.afterInstructionCount}; ${provenance.source}`,
-      }),
+      latency: callback.cpuCost === undefined
+        ? Object.freeze({
+            status: "unknown" as const,
+            reason: `ROM callback ${callback.kind} at 0x${callback.pc.toString(16)} has no adopted CPU duration`,
+            source:
+              `full ELF ROM event afterInstructionCount ${callback.afterInstructionCount}; ${provenance.source}`,
+          })
+        : Object.freeze({ ...callback.cpuCost }),
     });
     callbackCpuById.set(event.id, event);
     const existing = callbacksByInstruction.get(instructionAccessId);

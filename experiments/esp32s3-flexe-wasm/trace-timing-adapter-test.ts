@@ -123,6 +123,29 @@ assert(
   "flexe bridge did not attach the ROM callback after its preceding call instruction",
 );
 
+const knownCallbackTrace = adaptFlexeTraceToRuntimeTiming(decoded, {
+  source: "synthetic flexe trace",
+  sha256,
+  core: 1,
+}, {
+  romCallbacks: [{
+    kind: "memset",
+    pc: 0x400011e8,
+    afterInstructionCount: 1,
+    cpuCost: {
+      status: "known",
+      cycles: 31n,
+      calibration: "calibrated",
+      source: "synthetic matched ROM callback receipt",
+    },
+  }],
+});
+assert(
+  knownCallbackTrace.input.cpu?.[1]?.latency.status === "known" &&
+    knownCallbackTrace.input.cpu[1].latency.cycles === 31n,
+  "flexe bridge lost the caller-supplied exact ROM callback cost",
+);
+
 for (const afterInstructionCount of [0, 2]) {
   let invalidRomBoundaryFailure: unknown = null;
   try {

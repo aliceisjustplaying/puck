@@ -133,6 +133,11 @@ export interface TimingProfileV1 {
     evidence: string;
     entries: readonly MmioAccessProfileCost[];
   }>;
+  readonly romCallbackCycles: Readonly<{
+    status: "partially-calibrated";
+    evidence: string;
+    entries: readonly RomCallbackProfileCost[];
+  }>;
   readonly panel: Readonly<{
     interface: string;
     lanes: number;
@@ -159,6 +164,23 @@ export interface MmioAccessProfileCost {
   readonly writeEffect?: "same-value";
   readonly cycles: number;
 }
+
+export type RomCallbackProfileCost =
+  | Readonly<{
+      kind: "memset";
+      pc: string;
+      destination: string;
+      value: number;
+      length: number;
+      cycles: number;
+    }>
+  | Readonly<{
+      kind: "cpuTicksPerUs";
+      pc: string;
+      ticksPerUs: number;
+      callinc: number;
+      cycles: number;
+    }>;
 
 export type TimingAvailability =
   | Readonly<{ status: "absent" }>
@@ -241,6 +263,13 @@ function literal<T extends string | number | boolean | null>(
 function positiveSafeInteger(value: unknown, path: string): number {
   if (!Number.isSafeInteger(value) || (value as number) <= 0) {
     throw new Error(`${path} must be a positive safe integer`);
+  }
+  return value as number;
+}
+
+function uint32At(value: unknown, path: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > 0xffff_ffff) {
+    throw new Error(`${path} must be a uint32`);
   }
   return value as number;
 }
@@ -396,6 +425,7 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
       "cacheLineFillCycles",
       "cacheHitAdditiveCycles",
       "mmioAccessCycles",
+      "romCallbackCycles",
       "panel",
     ],
     "timing profile",
@@ -706,6 +736,65 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
     throw new Error("timing profile.mmioAccessCycles.entries must be sorted by exact access class");
   }
 
+  const romCallbacks = objectAt(profile.romCallbackCycles, "timing profile.romCallbackCycles");
+  exactKeys(romCallbacks, ["status", "evidence", "entries"], "timing profile.romCallbackCycles");
+  literal(
+    romCallbacks.status,
+    "partially-calibrated",
+    "timing profile.romCallbackCycles.status",
+  );
+  const romCallbackEvidence = stringAt(
+    romCallbacks.evidence,
+    "timing profile.romCallbackCycles.evidence",
+  );
+  if (!Array.isArray(romCallbacks.entries) || romCallbacks.entries.length === 0) {
+    throw new Error("timing profile.romCallbackCycles.entries must be a non-empty array");
+  }
+  const romCallbackEntries = romCallbacks.entries.map((entry, index): RomCallbackProfileCost => {
+    const path = `timing profile.romCallbackCycles.entries[${index}]`;
+    const object = objectAt(entry, path);
+    if (object.kind === "memset") {
+      exactKeys(object, ["kind", "pc", "destination", "value", "length", "cycles"], path);
+      const pc = stringAt(object.pc, `${path}.pc`);
+      const destination = stringAt(object.destination, `${path}.destination`);
+      if (!/^0x[0-9a-f]{8}$/.test(pc)) throw new Error(`${path}.pc must be one canonical lowercase 32-bit hex address`);
+      if (!/^0x[0-9a-f]{8}$/.test(destination)) {
+        throw new Error(`${path}.destination must be one canonical lowercase 32-bit hex address`);
+      }
+      return Object.freeze({
+        kind: "memset",
+        pc,
+        destination,
+        value: uint32At(object.value, `${path}.value`),
+        length: uint32At(object.length, `${path}.length`),
+        cycles: positiveSafeInteger(object.cycles, `${path}.cycles`),
+      });
+    }
+    if (object.kind === "cpuTicksPerUs") {
+      exactKeys(object, ["kind", "pc", "ticksPerUs", "callinc", "cycles"], path);
+      const pc = stringAt(object.pc, `${path}.pc`);
+      if (!/^0x[0-9a-f]{8}$/.test(pc)) throw new Error(`${path}.pc must be one canonical lowercase 32-bit hex address`);
+      return Object.freeze({
+        kind: "cpuTicksPerUs",
+        pc,
+        ticksPerUs: positiveSafeInteger(object.ticksPerUs, `${path}.ticksPerUs`),
+        callinc: uint32At(object.callinc, `${path}.callinc`),
+        cycles: positiveSafeInteger(object.cycles, `${path}.cycles`),
+      });
+    }
+    throw new Error(`${path}.kind must be memset or cpuTicksPerUs`);
+  });
+  const romCallbackKeys = romCallbackEntries.map((entry) => entry.kind === "memset"
+    ? `${entry.pc}:${entry.kind}:${entry.destination}:${entry.value}:${entry.length}`
+    : `${entry.pc}:${entry.kind}:${entry.ticksPerUs}:${entry.callinc}`
+  );
+  if (new Set(romCallbackKeys).size !== romCallbackKeys.length) {
+    throw new Error("timing profile.romCallbackCycles.entries must not contain duplicate callback classes");
+  }
+  if (JSON.stringify(romCallbackKeys) !== JSON.stringify([...romCallbackKeys].sort())) {
+    throw new Error("timing profile.romCallbackCycles.entries must be sorted by exact callback class");
+  }
+
   const panel = objectAt(profile.panel, "timing profile.panel");
   exactKeys(
     panel,
@@ -795,6 +884,11 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
       status: "partially-calibrated",
       evidence: mmioAccessEvidence,
       entries: Object.freeze(mmioAccessEntries),
+    }),
+    romCallbackCycles: Object.freeze({
+      status: "partially-calibrated",
+      evidence: romCallbackEvidence,
+      entries: Object.freeze(romCallbackEntries),
     }),
     panel: Object.freeze({
       interface: panelInterface,

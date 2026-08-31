@@ -170,6 +170,13 @@ intercept. This adopts only trace-proven same-value 32-bit writes to SYSTEM
 `0x600c0060` and EXTMEM `0x600c4004` and `0x600c4064`; writes without an
 observed exact prior value, value-changing writes, AUTOLOAD, and RTC remain excluded.
 
+The first ROM callback adoption is checked in as
+[`evidence/esp32s3-rev02-tinydraw-0b187a0-rom-callback-adoption.json`](evidence/esp32s3-rev02-tinydraw-0b187a0-rom-callback-adoption.json).
+Matched no-op call shapes on two clean boots give exact costs of 31 cycles for
+zero-length `memset`, 6,659 cycles for the observed `0x52e0`-byte boot clear,
+and 9 cycles for setting CPU ticks/us to its current value. Callback PC and all
+arguments must match. Reset-reason remains excluded because its duration is not scalar.
+
 ## What remains before a cycle-accurate claim
 
 - A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core has a
@@ -177,8 +184,8 @@ observed exact prior value, value-changing writes, AUTOLOAD, and RTC remain excl
   Static inventory is not whole-program execution coverage.
 - The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 523 real
   instructions. Its current timing replay emits 1,286 events and adopts exact
-  costs for 1,255, including 40 matched MMIO accesses. The remaining 14 MMIO
-  costs and 17 ROM callback durations block a total. It does not provide the complete
+  costs for 1,258, including 40 matched MMIO accesses and three exact ROM
+  callbacks. The remaining 14 MMIO costs and 14 ROM callback durations block a total. It does not provide the complete
   ESP32-S3 data map, interrupt matrix,
   peripherals, ESP-IDF boot, or real dual-core execution.
 - Cache-store hits, dependent load-use modeling, dirty writeback, DMA ordering,
