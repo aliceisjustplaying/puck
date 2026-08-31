@@ -200,8 +200,8 @@ PC `0x40001c38`, saved PS `0x00040c00`, previous PS `0x00040c03`, and CALLINC2.
 ## What remains before a cycle-accurate claim
 
 - A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core has a
-  bounded S3 patch and leaves 746 unsupported panel-inventory rows plus 4,126
-  full-image rows represented by 414 fail-closed markers. Static inventory is
+  bounded S3 patch and leaves 744 unsupported panel-inventory rows plus 4,108
+  full-image rows represented by 396 fail-closed markers. Static inventory is
   not whole-program execution coverage.
 - The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 804 real
   instructions. Its current timing replay emits 1,964 events and adopts exact

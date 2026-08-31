@@ -91,6 +91,12 @@ assert(surface.normalizedMnemonics.includes("ee.vmulas.s16.accx.ld.xp.qup"), "ES
 assert(surface.normalizedMnemonics.includes("ee.vmulas.s8.accx.ld.xp.qup"), "ESP32-S3 PIE patch surface lost signed-byte register ACCX VMULAS QUP");
 assert(surface.normalizedMnemonics.includes("ee.vmulas.u16.accx.ld.xp.qup"), "ESP32-S3 PIE patch surface lost unsigned-halfword register ACCX VMULAS QUP");
 assert(surface.normalizedMnemonics.includes("ee.vmulas.u8.accx.ld.xp.qup"), "ESP32-S3 PIE patch surface lost unsigned ACCX VMULAS QUP");
+for (const mnemonic of [
+  "ee.vmulas.s16.accx.ld.ip", "ee.vmulas.s8.accx.ld.ip",
+  "ee.vmulas.u16.accx.ld.ip", "ee.vmulas.u8.accx.ld.ip",
+  "ee.vmulas.s16.accx.ld.xp", "ee.vmulas.s8.accx.ld.xp",
+  "ee.vmulas.u16.accx.ld.xp", "ee.vmulas.u8.accx.ld.xp"
+]) assert(surface.normalizedMnemonics.includes(mnemonic), `ESP32-S3 PIE patch surface lost ${mnemonic}`);
 assert(surface.normalizedMnemonics.includes("ee.zero.q"), "ESP32-S3 PIE patch surface lost QR zero");
 assert(!surface.normalizedMnemonics.includes("??gap"), "unknown decoder diagnostics are not instructions");
 
