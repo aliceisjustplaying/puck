@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..55a269c
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1639 @@
+@@ -0,0 +1,1672 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -229,6 +229,7 @@ index 0000000..55a269c
 +#define ESP32S3_DIRECT_BOOT_SYSCLK_POST_ADJUST_READ_PC 0x403772aau
 +#define ESP32S3_DIRECT_BOOT_SYSCLK_XTAL_WRITE_PC 0x403772b8u
 +#define ESP32S3_RTC_CNTL_MMIO_PAGE 0x60008000u
++#define ESP32S3_RTC_OPTIONS0_REG 0x60008000u
 +#define ESP32S3_RTC_XTAL_FREQ_REG 0x600080c0u
 +#define ESP32S3_RTC_DATE_REG 0x600081fcu
 +#define ESP32S3_DIRECT_BOOT_RTC_XTAL_FREQ 0x00280028u
@@ -237,6 +238,10 @@ index 0000000..55a269c
 +#define ESP32S3_DIRECT_BOOT_RTC_DATE_READ_PC 0x40377301u
 +#define ESP32S3_DIRECT_BOOT_RTC_DATE_XTAL 0x0210f271u
 +#define ESP32S3_DIRECT_BOOT_RTC_DATE_WRITE_PC 0x4037730fu
++#define ESP32S3_DIRECT_BOOT_RTC_OPTIONS0 0x1c008000u
++#define ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_PD 0x1c008540u
++#define ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_READ_PC 0x4037f7dfu
++#define ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_WRITE_PC 0x4037f7e8u
 +#define ESP32S3_ROM_SET_CPU_TICKS_PER_US 0x40001a4cu
 +#define ESP32S3_DIRECT_BOOT_CPU_TICKS_PER_US 40u
 +#define ESP32S3_CACHE_IDLE 0x001001u
@@ -410,7 +415,7 @@ index 0000000..55a269c
 +static uint8_t elf_rom_system_mmio[PAGE_BYTES];
 +static uint32_t elf_rom_system_mmio_state[8];
 +static uint8_t elf_rom_rtc_mmio[PAGE_BYTES];
-+static uint32_t elf_rom_rtc_mmio_state[8];
++static uint32_t elf_rom_rtc_mmio_state[13];
 +static int elf_rom_refused;
 +static struct elf_memory_fault_record elf_memory_fault;
 +static struct probe_stop_record result;
@@ -728,14 +733,20 @@ index 0000000..55a269c
 +        width != 4u) return -1;
 +    if (is_write) {
 +        uint32_t value = ar_read(&cpu, 8);
-+        if (address != ESP32S3_RTC_DATE_REG ||
-+            g_dbg_pc != ESP32S3_DIRECT_BOOT_RTC_DATE_WRITE_PC ||
-+            value != ESP32S3_DIRECT_BOOT_RTC_DATE_XTAL ||
++        int expected_write =
++            (address == ESP32S3_RTC_DATE_REG &&
++             g_dbg_pc == ESP32S3_DIRECT_BOOT_RTC_DATE_WRITE_PC &&
++             value == ESP32S3_DIRECT_BOOT_RTC_DATE_XTAL &&
++             elf_rtc_mmio_read_count() == 2u && elf_rtc_mmio_write_count() == 0u) ||
++            (address == ESP32S3_RTC_OPTIONS0_REG &&
++             g_dbg_pc == ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_WRITE_PC &&
++             value == ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_PD &&
++             elf_rtc_mmio_read_count() == 3u && elf_rtc_mmio_write_count() == 1u);
++        if (!expected_write ||
 +            elf_system_mmio_read_count(ESP32S3_SYSTEM_SYSCLK_CONF) != 5u ||
 +            elf_system_mmio_read_count(ESP32S3_SYSTEM_CPU_PER_CONF) != 4u ||
 +            elf_system_mmio_write_count(ESP32S3_SYSTEM_SYSCLK_CONF) != 3u ||
-+            elf_cpu_ticks_event_count() != 1u || elf_rtc_mmio_read_count() != 2u ||
-+            elf_rtc_mmio_write_count() != 0u) return -1;
++            elf_cpu_ticks_event_count() != 1u) return -1;
 +        return elf_rom_record(ELF_ROM_EVENT_RTC_MMIO_WRITE, g_dbg_pc, address,
 +                              width, value) ? 1 : -1;
 +    }
@@ -753,6 +764,14 @@ index 0000000..55a269c
 +            elf_system_mmio_write_count(ESP32S3_SYSTEM_SYSCLK_CONF) != 3u ||
 +            elf_cpu_ticks_event_count() != 1u || elf_rtc_mmio_read_count() != 1u) return -1;
 +        value = ESP32S3_DIRECT_BOOT_RTC_DATE;
++    } else if (address == ESP32S3_RTC_OPTIONS0_REG) {
++        if (g_dbg_pc != ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_READ_PC ||
++            elf_system_mmio_read_count(ESP32S3_SYSTEM_SYSCLK_CONF) != 5u ||
++            elf_system_mmio_read_count(ESP32S3_SYSTEM_CPU_PER_CONF) != 4u ||
++            elf_system_mmio_write_count(ESP32S3_SYSTEM_SYSCLK_CONF) != 3u ||
++            elf_cpu_ticks_event_count() != 1u || elf_rtc_mmio_read_count() != 2u ||
++            elf_rtc_mmio_write_count() != 1u) return -1;
++        value = ESP32S3_DIRECT_BOOT_RTC_OPTIONS0;
 +    } else {
 +        return -1;
 +    }
@@ -898,6 +917,10 @@ index 0000000..55a269c
 +           &sysclk_conf, 4);
 +    /* TinyDraw bootloader stores the 40 MHz XTAL in duplicated 16-bit halves. */
 +    memset(elf_rom_rtc_mmio, 0, sizeof(elf_rom_rtc_mmio));
++    uint32_t rtc_options0 = ESP32S3_DIRECT_BOOT_RTC_OPTIONS0;
++    memcpy(elf_rom_rtc_mmio +
++               (ESP32S3_RTC_OPTIONS0_REG - ESP32S3_RTC_CNTL_MMIO_PAGE),
++           &rtc_options0, 4);
 +    uint32_t xtal_freq = ESP32S3_DIRECT_BOOT_RTC_XTAL_FREQ;
 +    memcpy(elf_rom_rtc_mmio +
 +               (ESP32S3_RTC_XTAL_FREQ_REG - ESP32S3_RTC_CNTL_MMIO_PAGE),
@@ -1388,17 +1411,27 @@ index 0000000..55a269c
 +    elf_rom_rtc_mmio_state[5] = 0u;
 +    elf_rom_rtc_mmio_state[6] = 0u;
 +    elf_rom_rtc_mmio_state[7] = 0u;
++    elf_rom_rtc_mmio_state[8] = ESP32S3_DIRECT_BOOT_RTC_OPTIONS0;
++    elf_rom_rtc_mmio_state[9] = 0u;
++    elf_rom_rtc_mmio_state[10] = 0u;
++    elf_rom_rtc_mmio_state[11] = 0u;
++    elf_rom_rtc_mmio_state[12] = 0u;
 +    for (uint32_t i = 0; i < elf_rom_event_count; i++) {
 +        if (elf_rom_events[i][0] == ELF_ROM_EVENT_RTC_MMIO_READ) {
 +            uint32_t *count = elf_rom_events[i][2] == ESP32S3_RTC_XTAL_FREQ_REG
 +                                  ? &elf_rom_rtc_mmio_state[1]
-+                                  : &elf_rom_rtc_mmio_state[4];
++                                  : elf_rom_events[i][2] == ESP32S3_RTC_DATE_REG
++                                      ? &elf_rom_rtc_mmio_state[4]
++                                      : &elf_rom_rtc_mmio_state[9];
 +            count[0]++;
 +            count[1] = elf_rom_events[i][1];
 +        } else if (elf_rom_events[i][0] == ELF_ROM_EVENT_RTC_MMIO_WRITE) {
-+            elf_rom_rtc_mmio_state[3] = elf_rom_events[i][4];
-+            elf_rom_rtc_mmio_state[6]++;
-+            elf_rom_rtc_mmio_state[7] = elf_rom_events[i][1];
++            uint32_t *write = elf_rom_events[i][2] == ESP32S3_RTC_DATE_REG
++                                  ? &elf_rom_rtc_mmio_state[3]
++                                  : &elf_rom_rtc_mmio_state[8];
++            write[0] = elf_rom_events[i][4];
++            write[3]++;
++            write[4] = elf_rom_events[i][1];
 +        }
 +    }
 +    return (uint32_t)(uintptr_t)elf_rom_rtc_mmio_state;

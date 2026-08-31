@@ -5,11 +5,17 @@ import {
   ESP32S3_DIRECT_BOOT_RTC_DATE_PROVENANCE,
   ESP32S3_DIRECT_BOOT_RTC_DATE_READ_PC,
   ESP32S3_DIRECT_BOOT_RTC_DATE_WRITE_PC,
+  ESP32S3_DIRECT_BOOT_RTC_OPTIONS0,
+  ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_PD,
+  ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PROVENANCE,
+  ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_READ_PC,
+  ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_WRITE_PC,
   ESP32S3_DIRECT_BOOT_RTC_XTAL_FREQ,
   ESP32S3_DIRECT_BOOT_RTC_XTAL_READ_PC,
   ESP32S3_DIRECT_BOOT_RTC_XTAL_PROVENANCE,
   ESP32S3_RTC_CNTL_MMIO_PAGE,
   ESP32S3_RTC_DATE_REG,
+  ESP32S3_RTC_OPTIONS0_REG,
   ESP32S3_RTC_XTAL_FREQ_REG,
   createEsp32S3DirectBootRtcMmio,
   readEsp32S3DirectBootRtcMmio,
@@ -48,8 +54,94 @@ describe("ESP32-S3 direct-boot RTCCNTL MMIO", () => {
         dateLastReadPc: null,
         dateWriteCount: 0,
         dateLastWritePc: null,
+        optionsReg: 0x1c00_8000,
+        optionsReadCount: 0,
+        optionsLastReadPc: null,
+        optionsWriteCount: 0,
+        optionsLastWritePc: null,
       },
     });
+  });
+
+  test("powers down the inherited bootloader BBPLL through the exact OPTIONS0 RMW", () => {
+    expect(ESP32S3_RTC_OPTIONS0_REG).toBe(0x6000_8000);
+    expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0).toBe(0x1c00_8000);
+    expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_PD).toBe(0x1c00_8540);
+    expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_READ_PC).toBe(0x4037_f7df);
+    expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_WRITE_PC).toBe(0x4037_f7e8);
+    expect(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PROVENANCE).toEqual({
+      reset: "ESP-IDF v6.0.2 soc/esp32s3/register/soc/rtc_cntl_reg.h: OPTIONS0 reset fields produce 0x1c00a000",
+      bootloaderInit: "ESP-IDF v6.0.2 rtc.h RTC_CONFIG_DEFAULT plus rtc_init clears XTL_FORCE_PU, producing 0x1c008000",
+      transition: "ESP-IDF v6.0.2 clk_tree_ll.h clk_ll_bbpll_disable ORs force-PD mask 0x540",
+    });
+    const initial = createEsp32S3DirectBootRtcMmio();
+    const xtal = readEsp32S3DirectBootRtcMmio(initial, {
+      pc: ESP32S3_DIRECT_BOOT_RTC_XTAL_READ_PC,
+      address: ESP32S3_RTC_XTAL_FREQ_REG,
+      width: 4,
+      isWrite: false,
+      systemMmioComplete: true,
+    });
+    if (!xtal.handled || xtal.status !== "accepted") throw new Error("XTAL read refused");
+    const date = readEsp32S3DirectBootRtcMmio(xtal.state, {
+      pc: ESP32S3_DIRECT_BOOT_RTC_DATE_READ_PC,
+      address: ESP32S3_RTC_DATE_REG,
+      width: 4,
+      isWrite: false,
+      systemMmioComplete: true,
+    });
+    if (!date.handled || date.status !== "accepted") throw new Error("DATE read refused");
+    const dateWrite = writeEsp32S3DirectBootRtcMmio(date.state, {
+      pc: ESP32S3_DIRECT_BOOT_RTC_DATE_WRITE_PC,
+      address: ESP32S3_RTC_DATE_REG,
+      width: 4,
+      isWrite: true,
+      value: ESP32S3_DIRECT_BOOT_RTC_DATE_XTAL,
+      systemMmioComplete: true,
+    });
+    if (!dateWrite.handled || dateWrite.status !== "accepted") throw new Error("DATE write refused");
+    const readAccess = {
+      pc: ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_READ_PC,
+      address: ESP32S3_RTC_OPTIONS0_REG,
+      width: 4,
+      isWrite: false,
+      systemMmioComplete: true,
+    } as const;
+    expect(readEsp32S3DirectBootRtcMmio(date.state, readAccess).status).toBe("refused");
+    for (const invalid of [
+      { ...readAccess, width: 2 },
+      { ...readAccess, isWrite: true },
+      { ...readAccess, pc: 0x4037_f7dc },
+      { ...readAccess, systemMmioComplete: false },
+    ]) expect(readEsp32S3DirectBootRtcMmio(dateWrite.state, invalid).status).toBe("refused");
+    const options = readEsp32S3DirectBootRtcMmio(dateWrite.state, readAccess);
+    expect(options.status).toBe("accepted");
+    if (!options.handled || options.status !== "accepted") throw new Error("OPTIONS0 read refused");
+    expect(options.value).toBe(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0);
+    expect(readEsp32S3DirectBootRtcMmio(options.state, readAccess).status).toBe("refused");
+
+    const writeAccess = {
+      pc: ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_WRITE_PC,
+      address: ESP32S3_RTC_OPTIONS0_REG,
+      width: 4,
+      isWrite: true,
+      value: ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_PD,
+      systemMmioComplete: true,
+    } as const;
+    expect(writeEsp32S3DirectBootRtcMmio(dateWrite.state, writeAccess).status).toBe("refused");
+    for (const invalid of [
+      { ...writeAccess, width: 2 },
+      { ...writeAccess, isWrite: false },
+      { ...writeAccess, pc: 0x4037_f7e5 },
+      { ...writeAccess, value: ESP32S3_DIRECT_BOOT_RTC_OPTIONS0 },
+      { ...writeAccess, systemMmioComplete: false },
+    ]) expect(writeEsp32S3DirectBootRtcMmio(options.state, invalid).status).toBe("refused");
+    const written = writeEsp32S3DirectBootRtcMmio(options.state, writeAccess);
+    expect(written.status).toBe("accepted");
+    if (!written.handled || written.status !== "accepted") throw new Error("OPTIONS0 write refused");
+    expect(written.value).toBe(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_PD);
+    expect(written.state.optionsReg).toBe(ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_PD);
+    expect(writeEsp32S3DirectBootRtcMmio(written.state, writeAccess).status).toBe("refused");
   });
 
   test("reads the bootloader-configured LDO slave field before the XTAL transition update", () => {

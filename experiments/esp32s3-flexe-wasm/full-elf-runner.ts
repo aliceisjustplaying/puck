@@ -791,8 +791,8 @@ export async function runSparseXtensaElf(
     assert(stateWords[7] === (systemMmio.lastWritePc ?? 0), "SYSTEM_SYSCLK_CONF writer differs");
   }
   if (rtcMmio) {
-    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_rtc_mmio_state(), 32, "ELF RTC MMIO state");
-    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 8);
+    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_rtc_mmio_state(), 52, "ELF RTC MMIO state");
+    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 13);
     assert(stateWords[0] === rtcMmio.xtalFreqReg, "RTC_XTAL_FREQ state differs");
     assert(stateWords[1] === rtcMmio.readCount, "RTC_XTAL_FREQ read count differs");
     assert(stateWords[2] === (rtcMmio.lastReadPc ?? 0), "RTC_XTAL_FREQ reader differs");
@@ -801,6 +801,11 @@ export async function runSparseXtensaElf(
     assert(stateWords[5] === (rtcMmio.dateLastReadPc ?? 0), "RTC_CNTL_DATE reader differs");
     assert(stateWords[6] === rtcMmio.dateWriteCount, "RTC_CNTL_DATE write count differs");
     assert(stateWords[7] === (rtcMmio.dateLastWritePc ?? 0), "RTC_CNTL_DATE writer differs");
+    assert(stateWords[8] === rtcMmio.optionsReg, "RTC_CNTL_OPTIONS0 state differs");
+    assert(stateWords[9] === rtcMmio.optionsReadCount, "RTC_CNTL_OPTIONS0 read count differs");
+    assert(stateWords[10] === (rtcMmio.optionsLastReadPc ?? 0), "RTC_CNTL_OPTIONS0 reader differs");
+    assert(stateWords[11] === rtcMmio.optionsWriteCount, "RTC_CNTL_OPTIONS0 write count differs");
+    assert(stateWords[12] === (rtcMmio.optionsLastWritePc ?? 0), "RTC_CNTL_OPTIONS0 writer differs");
   }
   const captureAddresses = [...(options.capturePages ?? [])];
   assert(new Set(captureAddresses).size === captureAddresses.length, "captured ELF pages must be unique");
