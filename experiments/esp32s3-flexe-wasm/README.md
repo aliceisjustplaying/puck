@@ -371,7 +371,10 @@ three exact not-taken `beqz` paths, three flash line fills, and every zero-miss
 cache hit. The baseline pins the branch classifier, hazard count, and a
 projection hash of their schedule, consumer IDs, registers, and
 producer/consumer PCs. Only the 34 controller MMIO costs remain unknown, so the
-replay is blocked and reports no total cycle claim.
+replay is blocked and reports no total cycle claim. The baseline also pins the
+exact address, direction, width, peripheral, and count of all ten observed MMIO
+access classes so hardware-adopted costs can reduce that boundary without
+silently broadening their scope.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
 page count, bounded trace, unsupported-instruction refusal, and first stop,

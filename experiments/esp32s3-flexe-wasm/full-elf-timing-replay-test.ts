@@ -381,6 +381,35 @@ assert.equal(machine.issuedEvents.filter((event) =>
 ).length, 34);
 const cacheEvents = machine.issuedEvents.filter((event) => event.origin.kind === "cache");
 assert(cacheEvents.every((event) => event.cost.status === "known"));
+const mmioBreakdownByKey = new Map<string, {
+  address: string;
+  operation: "read" | "write";
+  bytes: number;
+  peripheral: string;
+  count: number;
+}>();
+for (const issued of machine.issuedEvents) {
+  if (issued.origin.kind !== "mmio") continue;
+  const access = machine.cores[issued.origin.core].accesses[issued.origin.programIndex];
+  assert(access?.status === "resolved");
+  assert(issued.event.kind === "mmio");
+  const address = `0x${access.access.address.toString(16)}`;
+  const key = `${address}:${issued.event.operation}:${issued.event.bytes}:${issued.event.peripheral}`;
+  const previous = mmioBreakdownByKey.get(key);
+  mmioBreakdownByKey.set(key, {
+    address,
+    operation: issued.event.operation,
+    bytes: issued.event.bytes,
+    peripheral: issued.event.peripheral,
+    count: (previous?.count ?? 0) + 1,
+  });
+}
+const mmioAccessBreakdown = [...mmioBreakdownByKey.values()].sort((left, right) =>
+  left.address.localeCompare(right.address) ||
+  left.operation.localeCompare(right.operation) ||
+  left.peripheral.localeCompare(right.peripheral)
+);
+assert.equal(mmioAccessBreakdown.reduce((sum, entry) => sum + entry.count, 0), 34);
 const flashLineFills = machine.issuedEvents.filter((event) =>
   event.origin.kind === "cache" && event.origin.regionId.startsWith("full-elf:flash-page:") &&
   event.event.id.endsWith(":line-fill")
@@ -441,6 +470,7 @@ const actualBaseline = {
     issuedEvents: machine.issuedEvents.length,
     memoryEvents: machine.issuedEvents.filter((event) => event.origin.kind === "cache").length,
     mmioEvents: machine.issuedEvents.filter((event) => event.origin.kind === "mmio").length,
+    mmioAccessBreakdown,
     cpuEvents: cpuEvents.length,
     dependentSramLoadUseHazards: loadUseHazards.length,
     exactBeqzNotTaken: exactBeqzNotTaken.length,

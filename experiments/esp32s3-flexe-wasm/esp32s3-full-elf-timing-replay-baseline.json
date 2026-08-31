@@ -37,6 +37,78 @@
     "issuedEvents": 785,
     "memoryEvents": 409,
     "mmioEvents": 34,
+    "mmioAccessBreakdown": [
+      {
+        "address": "0x600080c0",
+        "operation": "read",
+        "bytes": 4,
+        "peripheral": "rtc-controller",
+        "count": 1
+      },
+      {
+        "address": "0x600c0010",
+        "operation": "read",
+        "bytes": 4,
+        "peripheral": "system-controller",
+        "count": 4
+      },
+      {
+        "address": "0x600c0060",
+        "operation": "read",
+        "bytes": 4,
+        "peripheral": "system-controller",
+        "count": 2
+      },
+      {
+        "address": "0x600c4004",
+        "operation": "read",
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "count": 6
+      },
+      {
+        "address": "0x600c4004",
+        "operation": "write",
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "count": 5
+      },
+      {
+        "address": "0x600c404c",
+        "operation": "read",
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "count": 2
+      },
+      {
+        "address": "0x600c4064",
+        "operation": "read",
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "count": 6
+      },
+      {
+        "address": "0x600c4064",
+        "operation": "write",
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "count": 5
+      },
+      {
+        "address": "0x600c40a0",
+        "operation": "read",
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "count": 2
+      },
+      {
+        "address": "0x600c4130",
+        "operation": "read",
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "count": 1
+      }
+    ],
     "cpuEvents": 342,
     "dependentSramLoadUseHazards": 26,
     "knownCostEvents": 751,
