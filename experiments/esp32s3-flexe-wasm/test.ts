@@ -25,6 +25,7 @@ requireSuccess(run([process.execPath, join(here, "full-elf-runner-test.ts")], he
 requireSuccess(run([process.execPath, join(here, "full-elf-timing-replay-test.ts")], here));
 requireSuccess(run([process.execPath, join(here, "freestanding-blocker.ts")], here));
 requireSuccess(run([process.execPath, join(here, "isa-inventory-test.ts")], here));
+requireSuccess(run([process.execPath, "test", join(here, "browser", "core.test.ts")], here));
 
 const module = await WebAssembly.compile(await Bun.file(join(dist, "flexe-probe.wasm")).arrayBuffer());
 const imports = WebAssembly.Module.imports(module);

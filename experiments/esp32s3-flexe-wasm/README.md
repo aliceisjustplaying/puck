@@ -23,11 +23,17 @@ stops. Both paths
 return the visible register file, PC, step count, and stop reason through a
 versioned record.
 
+An opt-in local browser page exposes that sparse runner for a caller-selected
+ESP32-S3 ELF. It loads the freestanding module through Puck's real loader,
+executes at most 1,024 instructions, and shows the stop reason, PC, step count,
+register file, loaded-page count, and instruction/read/write trace summary.
+
 This now demonstrates a bounded ESP32-S3 LX7 subset, including the real
 TinyDraw PIE byte-swap kernel. It does not demonstrate complete LX7 or PIE
-support, a browser page, timing, caches, dual-core scheduling, or an ESP-IDF
-boot. The direct interpreter crosses Puck's current WebAssembly loader boundary
-without expanding WASI-lite.
+support, timing, caches, dual-core scheduling, or an ESP-IDF boot. The direct
+interpreter crosses Puck's current WebAssembly loader boundary without
+expanding WASI-lite. The browser page exposes the same bounded result and adds
+no execution or timing claim.
 
 ## Run it
 
@@ -38,6 +44,33 @@ bun run experiments/esp32s3-flexe-wasm/fetch.ts
 bun run experiments/esp32s3-flexe-wasm/test.ts
 bun run experiments/esp32s3-flexe-wasm/isa-inventory.ts
 ```
+
+To use the separate browser runner, build the freestanding module and start its
+local-only server:
+
+```text
+bun run experiments/esp32s3-flexe-wasm/build.ts
+bun run experiment:esp32s3:browser
+```
+
+Open `http://127.0.0.1:5341`, choose an ELF, set a maximum step count and
+initial stack, then run it. The default launch controls include the documented
+TinyDraw gate-harness zeroed stack pages and `0x3fce9700` stack. Turn that option
+off for another ELF and place the stack in its writable loaded memory. The page
+never uploads the selected file: the browser reads it locally. It is a separate
+experiment entry point and does not change Puck's default emulator.
+
+The focused browser checks do not need an ELF, Zig, or Chrome:
+
+```text
+bun run experiment:esp32s3:browser:test
+bun run experiment:esp32s3:browser:verify
+bun x tsc -p experiments/esp32s3-flexe-wasm/tsconfig.json --noEmit
+```
+
+The browser verification command needs the built freestanding module and a
+local Chrome installation. It selects a generated Xtensa ELF through the real
+file input and verifies the bounded result, PC, register, and trace rendering.
 
 `FLEXE_SOURCE` can point at an existing clean checkout. It must be at the exact
 commit and every file in the dependency closure must match its recorded SHA-256.

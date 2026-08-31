@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ESP32-S3 ELF runner</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">Puck experiment</p>
+        <h1>ESP32-S3 ELF runner</h1>
+        <p>Load an Xtensa ELF and execute a bounded run in the freestanding flexe WebAssembly module.</p>
+      </header>
+
+      <section class="controls" aria-label="Run controls">
+        <label class="file">
+          <span>ESP32-S3 ELF</span>
+          <input id="elfFile" type="file" accept=".elf,application/octet-stream" />
+        </label>
+        <label>
+          <span>Maximum steps</span>
+          <input id="maxSteps" type="number" min="1" max="1024" step="1" />
+        </label>
+        <label>
+          <span>Initial stack</span>
+          <input id="initialStack" type="text" inputmode="text" spellcheck="false" />
+        </label>
+        <label class="check">
+          <input id="gateMemory" type="checkbox" checked />
+          <span>Add the documented TinyDraw gate-harness zeroed stack pages</span>
+        </label>
+        <button id="run" type="button">Run ELF</button>
+        <p class="hint">Turn off the gate-harness memory for other ELFs and set the stack inside writable loaded memory.</p>
+      </section>
+
+      <p id="status" class="status" role="status">Choose an ELF to begin.</p>
+
+      <section id="result" class="result" aria-label="Run result" hidden>
+        <dl class="headline">
+          <div><dt>Stop reason</dt><dd id="stopReason"></dd></div>
+          <div><dt>PC</dt><dd><code id="pc"></code></dd></div>
+          <div><dt>Steps</dt><dd id="steps"></dd></div>
+          <div><dt>Loaded pages</dt><dd id="pages"></dd></div>
+        </dl>
+        <h2>Registers</h2>
+        <div id="registers" class="registers"></div>
+        <h2>Trace summary</h2>
+        <p id="trace" class="trace"></p>
+      </section>
+
+      <footer>This experiment makes no timing, complete ISA, cache, dual-core, or ESP-IDF boot claim.</footer>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

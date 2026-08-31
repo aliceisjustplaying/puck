@@ -1,5 +1,5 @@
 import { instantiate } from "../../src/wasm";
-import type { Elf32XtensaImage } from "./elf-image";
+import type { Elf32XtensaImage } from "./elf-image-core";
 import { ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY } from "./esp32s3-full-elf-unsupported";
 import {
   configureEsp32S3DirectBootCpuTicks,
