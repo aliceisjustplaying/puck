@@ -27,7 +27,7 @@ const runnerMemory = {
 function syntheticSegment(
   index: number,
   virtualAddress: number,
-  bytes: readonly number[],
+  bytes: Iterable<number>,
   memoryBytes: number,
   permissions: Elf32LoadSegment["permissions"],
 ): Elf32LoadSegment {
@@ -86,6 +86,99 @@ assert.equal(nonExecutableTrailingRun.record.reason, FULL_ELF_STOP_REASONS.nonEx
 assert.equal(nonExecutableTrailingRun.record.steps, 0);
 assert.equal(nonExecutableTrailingRun.record.pc, crossPageEntry);
 assert.deepEqual(nonExecutableTrailingRun.trace, []);
+
+const topBoundaryImage: Elf32XtensaImage = Object.freeze({
+  schemaVersion: 1,
+  entryPoint: 0xffff_ffff,
+  elfBytes: 1,
+  elfSha256: "synthetic-top-boundary-fetch",
+  loadSegments: Object.freeze([
+    syntheticSegment(0, 0xffff_ffff, [0x32], 1, { read: true, write: false, execute: true }),
+    syntheticSegment(1, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
+  ]),
+  totalFileBytes: 1,
+  totalMemoryBytes: 0x1001,
+});
+const topBoundaryRun = await runSparseXtensaElf(moduleBytes, topBoundaryImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 1,
+});
+assert.equal(topBoundaryRun.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
+assert.equal(topBoundaryRun.record.steps, 0);
+assert.equal(topBoundaryRun.record.pc, 0xffff_ffff);
+assert.deepEqual(topBoundaryRun.trace, []);
+
+const permissionCode = {
+  read8: [0x2d, 0x01, 0x22, 0xc2, 0x10, 0x32, 0x02, 0x00],
+  read16: [0x2d, 0x01, 0xfb, 0x22, 0x32, 0x12, 0x00],
+  read32: [0x2d, 0x01, 0xfb, 0x22, 0x38, 0x02],
+  write8: [0x2d, 0x01, 0x22, 0xc2, 0x10, 0x32, 0x42, 0x00],
+  write16: [0x2d, 0x01, 0xfb, 0x22, 0x32, 0x52, 0x00],
+  write32: [0x2d, 0x01, 0xfb, 0x22, 0x39, 0x02],
+} as const;
+const permissionCodeBase = 0x4037_2000;
+const permissionDataBase = 0x3fce_9000;
+const permissionTrailingPage = permissionDataBase + 0x1000;
+const permissionStack = permissionDataBase + 0x0ff0;
+
+async function assertPermissionRefusal(
+  code: readonly number[],
+  width: 1 | 2 | 4,
+  isWrite: boolean,
+): Promise<void> {
+  const firstBytes = new Uint8Array(4096).fill(0xa5);
+  const trailingBytes = new Uint8Array(4096).fill(0x5a);
+  const deniedFlags = isWrite ? 4 : 2;
+  const image: Elf32XtensaImage = Object.freeze({
+    schemaVersion: 1,
+    entryPoint: permissionCodeBase,
+    elfBytes: code.length + firstBytes.length + trailingBytes.length,
+    elfSha256: `synthetic-${isWrite ? "write" : "read"}-${width}`,
+    loadSegments: Object.freeze([
+      syntheticSegment(0, permissionCodeBase, code, code.length, { read: true, write: false, execute: true }),
+      syntheticSegment(1, permissionDataBase, firstBytes, firstBytes.length, { read: true, write: true, execute: false }),
+      syntheticSegment(2, permissionTrailingPage, trailingBytes, trailingBytes.length, {
+        read: isWrite,
+        write: !isWrite,
+        execute: false,
+      }),
+    ]),
+    totalFileBytes: code.length + firstBytes.length + trailingBytes.length,
+    totalMemoryBytes: code.length + firstBytes.length + trailingBytes.length,
+  });
+  const run = await runSparseXtensaElf(moduleBytes, image, {
+    initialStack: permissionStack,
+    maxSteps: 3,
+    capturePages: [permissionDataBase, permissionTrailingPage],
+  });
+  assert.equal(
+    run.record.reason,
+    isWrite ? FULL_ELF_STOP_REASONS.writePermission : FULL_ELF_STOP_REASONS.readPermission,
+  );
+  assert.equal(run.record.steps, 2);
+  assert.equal(run.record.pc, permissionCodeBase + (width === 1 ? 5 : 4));
+  assert.deepEqual(run.trace, [permissionCodeBase, permissionCodeBase + 2]);
+  assert.deepEqual(run.memoryFault, {
+    abiVersion: 1,
+    structBytes: 40,
+    pc: permissionCodeBase + (width === 1 ? 5 : 4),
+    address: width === 1 ? permissionTrailingPage : permissionDataBase + 0x0fff,
+    width,
+    isWrite,
+    deniedAddress: permissionTrailingPage,
+    deniedPage: permissionTrailingPage,
+    deniedFlags,
+  });
+  assert.deepEqual(run.capturedPages[0]?.bytes, firstBytes, "permission refusal partially changed the first page");
+  assert.deepEqual(run.capturedPages[1]?.bytes, trailingBytes, "permission refusal changed the denied page");
+}
+
+await assertPermissionRefusal(permissionCode.read8, 1, false);
+await assertPermissionRefusal(permissionCode.read16, 2, false);
+await assertPermissionRefusal(permissionCode.read32, 4, false);
+await assertPermissionRefusal(permissionCode.write8, 1, true);
+await assertPermissionRefusal(permissionCode.write16, 2, true);
+await assertPermissionRefusal(permissionCode.write32, 4, true);
 
 assert.equal(image.entryPoint, 0x4037_5c9c);
 assert.equal(image.elfSha256, "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5");

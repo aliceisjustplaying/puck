@@ -294,7 +294,11 @@ page count, bounded trace, unsupported-instruction refusal, and first stop,
 including all six instruction encodings and the call-site register state.
 The runner regression also executes a three-byte instruction beginning at
 `0x40370fff` across two adjacent executable pages and refuses the same fetch
-before execution when the trailing page lacks execute permission.
+before execution when the trailing page lacks execute permission. Ordinary
+ELF-run data reads and writes enforce PT_LOAD permissions with distinct stop
+reasons and fault metadata. Regressions cover 8-, 16-, and 32-bit accesses,
+including cross-page refusal without partial writes. The trace-only runner is
+unchanged.
 
 ## Minimal interpreter dependency closure
 
@@ -321,12 +325,13 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 48,048 bytes with Zig 0.16.0, SHA-256
-`2f53d6ec5253c11ce1c61a3f5c706a75b9e55207310f0b1a96ebe2d74dfeef03`.
+The stripped freestanding module is 49,928 bytes with Zig 0.16.0, SHA-256
+`0cf0680c06386d19c6ae0c9e42cc84f73cc67d865e10d3b8c876e4d4793dfb18`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and
-the bounded sparse ELF load, trace, refusal, and run functions. Those names are
+the bounded sparse ELF load, trace, refusal, page-capture, fault, and run
+functions. Those names are
 audited before the tests pass the bytes to Puck's real loader. It has no WASI
 imports, and Puck's loader surface is unchanged.
 

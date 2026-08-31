@@ -1,8 +1,8 @@
 diff --git a/src/wasm_probe.c b/src/wasm_probe.c
-index c9be68b..b61373b 100644
+index a750870..86b0f3d 100644
 --- a/src/wasm_probe.c
 +++ b/src/wasm_probe.c
-@@ -518,7 +518,8 @@ uint32_t flexe_wasm_elf_set_unsupported(uint32_t count) {
+@@ -604,7 +604,8 @@ uint32_t flexe_wasm_elf_set_unsupported(uint32_t count) {
 
  static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_steps,
                               uint32_t unsupported_offset, uint32_t unsupported_encoding,
@@ -12,7 +12,7 @@ index c9be68b..b61373b 100644
      memset(&result, 0, sizeof(result));
      memset(&cpu, 0, sizeof(cpu));
      memset(data_output, 0, sizeof(data_output));
-@@ -529,6 +530,12 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
+@@ -615,6 +616,12 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
      result.pc = pc;
      if (code_length == 0 || code_length > INPUT_CAPACITY || max_steps == 0 ||
          data_length > DATA_CAPACITY || (data_length & 1u) != 0 ||
@@ -25,7 +25,7 @@ index c9be68b..b61373b 100644
          (pc & (PAGE_BYTES - 1u)) + code_length > PAGE_BYTES ||
          (unsupported_offset != NO_UNSUPPORTED_OFFSET && unsupported_offset >= code_length)) {
          result.reason = PROBE_STOP_INVALID_ARGUMENT;
-@@ -557,6 +564,10 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
+@@ -645,6 +652,10 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
          memcpy(source_page, data_input, data_length);
          mem->page_table[INITIAL_SOURCE >> 12] = source_page;
          mem->page_table[INITIAL_DESTINATION >> 12] = destination_page;
@@ -36,7 +36,7 @@ index c9be68b..b61373b 100644
      }
 
      xtensa_cpu_init(&cpu);
-@@ -567,6 +578,7 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
+@@ -655,6 +666,7 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
      cpu.windowbase = 0;
      cpu.windowstart = 1;
      cpu.window_callsize[0] = WINDOW_CALLINC;
@@ -44,7 +44,7 @@ index c9be68b..b61373b 100644
      cpu.external_exec_begin = pc & ~(PAGE_BYTES - 1u);
      cpu.external_exec_end = cpu.external_exec_begin + PAGE_BYTES;
 
-@@ -641,7 +653,7 @@ FLEXE_EXPORT("flexe_wasm_run")
+@@ -729,7 +741,7 @@ FLEXE_EXPORT("flexe_wasm_run")
  uint32_t flexe_wasm_run(uint32_t pc, uint32_t code_length, uint32_t max_steps,
                          uint32_t unsupported_offset, uint32_t unsupported_encoding) {
      return run_internal(pc, code_length, max_steps, unsupported_offset,
@@ -53,7 +53,7 @@ index c9be68b..b61373b 100644
  }
 
  FLEXE_EXPORT("flexe_wasm_run_data")
-@@ -649,7 +661,14 @@ uint32_t flexe_wasm_run_data(uint32_t pc, uint32_t code_length, uint32_t max_ste
+@@ -737,7 +749,14 @@ uint32_t flexe_wasm_run_data(uint32_t pc, uint32_t code_length, uint32_t max_ste
                               uint32_t unsupported_offset, uint32_t unsupported_encoding,
                               uint32_t data_length) {
      return run_internal(pc, code_length, max_steps, unsupported_offset,
@@ -69,19 +69,19 @@ index c9be68b..b61373b 100644
  }
 
  FLEXE_EXPORT("flexe_wasm_run_elf")
-@@ -688,6 +707,7 @@ uint32_t flexe_wasm_run_elf(uint32_t entry, uint32_t max_steps,
+@@ -777,6 +796,7 @@ uint32_t flexe_wasm_run_elf(uint32_t entry, uint32_t max_steps,
      cpu.windowbase = 0;
      cpu.windowstart = 1;
      cpu.window_callsize[0] = WINDOW_CALLINC;
 +    cpu.esp32s3_profile = true;
      ar_write(&cpu, 1, initial_stack);
-     if (elf_rom_reset_reason_enabled || elf_rom_memset_enabled) {
-         cpu.pc_hook = elf_rom_pc_hook;
+     mem->permission_hook = elf_memory_permission;
+     mem->permission_hook_ctx = NULL;
 diff --git a/src/xtensa.c b/src/xtensa.c
-index 0c1ba0f..1692b19 100644
+index 67dca18..e72666d 100644
 --- a/src/xtensa.c
 +++ b/src/xtensa.c
-@@ -1543,19 +1543,32 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -1552,19 +1552,32 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
                  ar_write(cpu, r, ar_read(cpu, s));
              break;
          case 14: /* RUR */
@@ -120,7 +120,7 @@ index 0c1ba0f..1692b19 100644
                }
              } break;
          default: break;
-@@ -1606,6 +1619,10 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -1615,6 +1628,10 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
              uint32_t addr = ar_read(cpu, s) + (uint32_t)((int32_t)(r << 2) - 64);
              mem_write32(cpu->mem, addr, ar_read(cpu, t));
          } break;
@@ -131,7 +131,7 @@ index 0c1ba0f..1692b19 100644
          default: break;
          }
          break;
-@@ -2071,6 +2088,92 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2097,92 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -224,7 +224,7 @@ index 0c1ba0f..1692b19 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2310,6 +2413,8 @@ have_insn:
+@@ -2319,6 +2422,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -233,7 +233,7 @@ index 0c1ba0f..1692b19 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2336,14 +2441,16 @@ have_insn:
+@@ -2345,14 +2450,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -254,7 +254,7 @@ index 0c1ba0f..1692b19 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2357,6 +2464,8 @@ have_insn:
+@@ -2366,6 +2473,8 @@ have_insn:
          }
      }
 

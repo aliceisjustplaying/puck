@@ -17,6 +17,8 @@ export const FULL_ELF_STOP_REASONS = {
   unloadedPage: 10,
   nonExecutablePage: 11,
   romRefused: 12,
+  readPermission: 13,
+  writePermission: 14,
 } as const;
 
 export interface SparseElfPage {
@@ -59,6 +61,25 @@ export interface FullElfRunResult {
   readonly loadedPages: number;
   readonly logs: readonly string[];
   readonly romEvents: readonly FullElfRomEvent[];
+  readonly memoryFault: FullElfMemoryFault | null;
+  readonly capturedPages: readonly CapturedElfPage[];
+}
+
+export interface FullElfMemoryFault {
+  readonly abiVersion: number;
+  readonly structBytes: number;
+  readonly pc: number;
+  readonly address: number;
+  readonly width: number;
+  readonly isWrite: boolean;
+  readonly deniedAddress: number;
+  readonly deniedPage: number;
+  readonly deniedFlags: number;
+}
+
+export interface CapturedElfPage {
+  readonly address: number;
+  readonly bytes: Uint8Array;
 }
 
 export type FullElfRomEvent = Readonly<
@@ -70,7 +91,9 @@ interface FullElfExports {
   memory: WebAssembly.Memory;
   flexe_wasm_elf_begin(): number;
   flexe_wasm_elf_configure_rom(resetReasonCore0: number, resetReasonCore1: number, enableMemset: number): number;
+  flexe_wasm_elf_copy_page(address: number): number;
   flexe_wasm_elf_load_page(address: number, flags: number): number;
+  flexe_wasm_elf_memory_fault(): number;
   flexe_wasm_elf_page_capacity(): number;
   flexe_wasm_elf_page_input(): number;
   flexe_wasm_elf_rom_event_capacity(): number;
@@ -174,6 +197,7 @@ export async function runSparseXtensaElf(
   options: Readonly<{
     initialStack: number;
     inheritedZeroRanges?: readonly InheritedZeroRange[];
+    capturePages?: readonly number[];
     maxSteps?: number;
     unsupported?: readonly UnsupportedInstruction[];
     rom?: Readonly<{ resetReasons: readonly [number, number]; memset?: boolean }>;
@@ -186,7 +210,9 @@ export async function runSparseXtensaElf(
   for (const name of [
     "flexe_wasm_elf_begin",
     "flexe_wasm_elf_configure_rom",
+    "flexe_wasm_elf_copy_page",
     "flexe_wasm_elf_load_page",
+    "flexe_wasm_elf_memory_fault",
     "flexe_wasm_elf_page_capacity",
     "flexe_wasm_elf_page_input",
     "flexe_wasm_elf_rom_event_capacity",
@@ -280,6 +306,27 @@ export async function runSparseXtensaElf(
     exports.memory,
     exports.flexe_wasm_run_elf(image.entryPoint, maxSteps, options.initialStack),
   );
+  const faultPointer = checkPointer(exports.memory, exports.flexe_wasm_elf_memory_fault(), 40, "ELF memory fault");
+  const faultWords = new Uint32Array(exports.memory.buffer, faultPointer, 10);
+  const memoryFault = faultWords[9] === 0 ? null : Object.freeze({
+    abiVersion: faultWords[0],
+    structBytes: faultWords[1],
+    pc: faultWords[2],
+    address: faultWords[3],
+    width: faultWords[4],
+    isWrite: faultWords[5] !== 0,
+    deniedAddress: faultWords[6],
+    deniedPage: faultWords[7],
+    deniedFlags: faultWords[8],
+  });
+  if (memoryFault) {
+    assert(memoryFault.abiVersion === 1, `unexpected ELF memory fault ABI ${memoryFault.abiVersion}`);
+    assert(memoryFault.structBytes === 40, `unexpected ELF memory fault size ${memoryFault.structBytes}`);
+    assert(
+      record.reason === (memoryFault.isWrite ? FULL_ELF_STOP_REASONS.writePermission : FULL_ELF_STOP_REASONS.readPermission),
+      "ELF memory fault does not match the stop reason",
+    );
+  }
   const traceCount = exports.flexe_wasm_elf_trace_count() >>> 0;
   assert(traceCount <= traceCapacity, "full ELF module returned an oversized trace");
   const tracePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_trace(), traceCount * 4, "ELF trace");
@@ -305,11 +352,24 @@ export async function runSparseXtensaElf(
       }));
     } else throw new Error(`unknown full ELF ROM event ${words[0]}`);
   }
+  const captureAddresses = [...(options.capturePages ?? [])];
+  assert(new Set(captureAddresses).size === captureAddresses.length, "captured ELF pages must be unique");
+  const capturedPages = captureAddresses.map((address) => {
+    assert(Number.isSafeInteger(address) && address >= 0 && address <= 0xffff_f000, "captured ELF page address is invalid");
+    assert(address % PAGE_BYTES === 0, "captured ELF page address must be page-aligned");
+    assert(exports.flexe_wasm_elf_copy_page(address) === 1, `full ELF module could not copy page 0x${address.toString(16)}`);
+    return Object.freeze({
+      address,
+      bytes: Uint8Array.from(new Uint8Array(exports.memory.buffer, pageInput, PAGE_BYTES)),
+    });
+  });
   return Object.freeze({
     record,
     trace,
     loadedPages: pages.length,
     logs: Object.freeze(logs),
     romEvents: Object.freeze(romEvents),
+    memoryFault,
+    capturedPages: Object.freeze(capturedPages),
   });
 }
