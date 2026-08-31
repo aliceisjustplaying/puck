@@ -43,6 +43,17 @@ Total: roughly 50 to 100 agent-hours. Demo milestone (real ELF plus real
 ROM booting in a browser tab, panel drawing, interpreter speed): about 10
 to 20 agent-hours in, at the end of phase 1 plus a thin display path.
 
+## Toolchain currency
+
+The project tracks the latest stable ESP-IDF. The board and fixtures
+currently build with v6.0.2; v6.1 is already installed through eim. An IDF
+bump is a provenance event, not a chore: every hardware receipt pins the
+IDF version, sdkconfig hash, and compiler, and a new compiler changes
+codegen and can shift measured costs. Do the bump as its own early lane,
+before mass calibration: rebuild fixtures, rerun the receipt cohorts that
+feed adopted costs, and rebaseline once, so later evidence does not mix
+toolchains silently.
+
 ## Dependency graph and parallelism
 
 There are only two hard blocking edges:
