@@ -624,6 +624,41 @@ assert(alignedLoadRun.record.registers[2] === 3, "USAR load did not preserve the
 assert(alignedLoadRun.record.registers[10] === INITIAL_SOURCE + 2, "aligned loads applied the wrong signed immediates");
 assert(alignedLoadRun.record.registers[11] === INITIAL_DESTINATION + 16, "aligned-load stores used the wrong destination");
 
+const alignedMoreFixture = conformanceFixture("esp32s3_more_aligned_transfers", [
+  0x3b, 0xaa,
+  0xa4, 0x0c, 0xad,
+  0x3b, 0xbb,
+  0xb4, 0x7f, 0xe4,
+  0xa4, 0x81, 0x95,
+  0xb2, 0xcb, 0x15,
+  0xb4, 0x80, 0x9a,
+  0xd0, 0x20, 0xe3
+]);
+const alignedMoreInput = Uint8Array.from({ length: 32 }, (_, index) => (index * 5 + 6) & 0xff);
+const alignedMoreExpected = new Uint8Array(32);
+alignedMoreExpected.set(alignedMoreInput.slice(0, 8), 0);
+for (let index = 16; index < 32; index++) alignedMoreExpected[index] = alignedMoreInput[18 + ((index - 16) & 1)]!;
+const alignedMoreRun = await runFresh(moduleBytes, alignedMoreFixture, { data: alignedMoreInput, maxSteps: 8 });
+assert(alignedMoreRun.record.reason === STOP_REASONS.maxSteps, `additional aligned fixture stopped with ${alignedMoreRun.record.reasonName}`);
+assert(alignedMoreRun.record.steps === 8, `additional aligned fixture executed ${alignedMoreRun.record.steps} instructions`);
+assert(
+  alignedMoreRun.dataOutput.every((byte, index) => byte === alignedMoreExpected[index]),
+  `additional aligned fixture output changed: ${Buffer.from(alignedMoreRun.dataOutput).toString("hex")}`
+);
+assert(alignedMoreRun.record.registers[2] === 3, "USAR XP did not preserve the unaligned address nibble");
+assert(alignedMoreRun.record.registers[10] === INITIAL_SOURCE + 21, "additional aligned loads applied the wrong postincrements");
+assert(alignedMoreRun.record.registers[11] === INITIAL_DESTINATION + 16, "low-half store applied the wrong postincrement");
+
+const unsupportedBroadcastXpFixture = conformanceFixture("esp32s3_unsupported_vldbc_16_xp", [0xa4, 0x4c, 0x8d]);
+const unsupportedBroadcastXpRun = await runFresh(moduleBytes, unsupportedBroadcastXpFixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0x8d4ca4 }
+});
+assert(unsupportedBroadcastXpRun.record.reason === STOP_REASONS.unsupported, "adjacent broadcast XP did not fail closed");
+assert(unsupportedBroadcastXpRun.record.steps === 0, "adjacent broadcast XP was counted as executed");
+assert(unsupportedBroadcastXpRun.trace.count === 0, "adjacent broadcast XP leaked a trace record");
+assert(unsupportedBroadcastXpRun.dataOutput.length === 0, "adjacent broadcast XP exposed data output");
+
 const signedQaccLoadFixture = conformanceFixture("esp32s3_signed_qacc_lane_load", [
   0x5b, 0xaa,
   0xa4, 0x7f, 0x41,
@@ -1140,6 +1175,18 @@ const actualBaseline = {
     destinationAfter: `0x${alignedLoadRun.record.registers[11].toString(16)}`,
     sarByte: alignedLoadRun.record.registers[2]
   },
+  alignedMoreIsa: {
+    codeSha256: alignedMoreFixture.codeSha256,
+    outputHex: Buffer.from(alignedMoreRun.dataOutput).toString("hex"),
+    reason: alignedMoreRun.record.reasonName,
+    steps: alignedMoreRun.record.steps,
+    sourceAfter: `0x${alignedMoreRun.record.registers[10].toString(16)}`,
+    destinationAfter: `0x${alignedMoreRun.record.registers[11].toString(16)}`,
+    sarByte: alignedMoreRun.record.registers[2],
+    unsupportedCodeSha256: unsupportedBroadcastXpFixture.codeSha256,
+    unsupportedReason: unsupportedBroadcastXpRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedBroadcastXpRun.record.unsupportedEncoding.toString(16)}`
+  },
   signedQaccLoadIsa: {
     codeSha256: signedQaccLoadFixture.codeSha256,
     reason: signedQaccLoadRun.record.reasonName,
@@ -1283,6 +1330,7 @@ assert(
     qaccMemoryIsa: baseline.qaccMemoryIsa,
     uaMemoryIsa: baseline.uaMemoryIsa,
     alignedLoadIsa: baseline.alignedLoadIsa,
+    alignedMoreIsa: baseline.alignedMoreIsa,
     signedQaccLoadIsa: baseline.signedQaccLoadIsa,
     threadptrIsa: baseline.threadptrIsa,
     accxIsa: baseline.accxIsa,
