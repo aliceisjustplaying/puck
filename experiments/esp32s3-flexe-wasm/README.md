@@ -281,13 +281,13 @@ operation.
 The opt-in cache bootstrap follows the observed ROM call order through cache
 disable/enable, instruction and data geometry, data suspend/resume, and MMU
 table sizes. It then maps only two source-backed SYSTEM registers: the 80 MHz
-PLL source value `0x400` at `0x600c0060`, read from PC `0x403771a5`, and the
-80 MHz CPU period value `0x4` at `0x600c0010`, read from PC `0x403771d6`.
-Both are aligned one-shot 32-bit reads after MMU setup. Other registers,
-access shapes, readers, orderings, and repeats are refused. The real image now
-executes 249 instructions and stops at PC `0x403771ff`, where it attempts a
-second read of `0x600c0010`; the typed event log contains exactly the first two
-SYSTEM reads.
+PLL source value `0x400` at `0x600c0060`, read once from PC `0x403771a5`, and
+the 80 MHz CPU period value `0x4` at `0x600c0010`, read in order from PCs
+`0x403771d6` and `0x403771ff`. All are aligned 32-bit reads after MMU setup.
+Other registers, access shapes, readers, orderings, duplicates, and a third
+CPU-period read are refused. The real image now executes 271 instructions and
+stops at PC `0x40377159` on the first undeclared RTCCNTL read, address
+`0x600080c0`; the typed event log contains exactly the three SYSTEM reads.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
@@ -299,7 +299,7 @@ first undeclared 32-bit MMIO read at
 `0x600c4064` with flags zero. No cache or MMIO behavior is implied.
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
-markers, 64 ROM events, and 256 executed instructions. The pinned TinyDraw ELF
+markers, 64 ROM events, and 512 executed instructions. The pinned TinyDraw ELF
 automatically installs the tracked 1,985-instruction ESP32-S3 ISA gap set before
 execution. Each marker must match the decoder-width bytes in loaded executable
 memory during setup; stale, mismatched, unloaded, and non-executable markers are
