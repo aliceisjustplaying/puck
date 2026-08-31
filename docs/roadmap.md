@@ -49,10 +49,24 @@ The project tracks the latest stable ESP-IDF. The board and fixtures
 currently build with v6.0.2; v6.1 is already installed through eim. An IDF
 bump is a provenance event, not a chore: every hardware receipt pins the
 IDF version, sdkconfig hash, and compiler, and a new compiler changes
-codegen and can shift measured costs. Do the bump as its own early lane,
-before mass calibration: rebuild fixtures, rerun the receipt cohorts that
-feed adopted costs, and rebaseline once, so later evidence does not mix
-toolchains silently.
+codegen and can shift measured costs.
+
+The bump is lane zero of the restart, before phase 1 builds its corpus
+and before phase 6 mass calibration, while rebaselining is still a two to
+four agent-hour job plus one board session. Checklist:
+
+- rebuild the fixture ELFs under 6.1 and re-pin hashes, addresses, and
+  the ISA inventory;
+- rerun the existing receipt cohorts and confirm the silicon-architectural
+  numbers (window pair, issue rate, loop alignment, cache ladders, MMIO
+  costs) are bit-identical: they are chip claims and should not move, and
+  any shift is a probe diagnostic, not a chip change;
+- re-measure and re-pin everything that times IDF's own code (interrupt
+  entry and resume through the dispatcher, boot-to-app_main), which is
+  expected to change;
+- one flag day, no mixing: v6.0.2 receipts remain valid historical
+  evidence for their pinned toolchain, all new evidence is 6.1, and the
+  6.0.2-versus-6.1 delta is retained as a toolchain-sensitivity receipt.
 
 ## Dependency graph and parallelism
 
