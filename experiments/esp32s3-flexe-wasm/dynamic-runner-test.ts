@@ -401,6 +401,22 @@ assert(
   `QR ISA fixture output changed: ${Buffer.from(qrIsaRun.dataOutput).toString("hex")}`
 );
 
+const qrXpFixture = conformanceFixture("esp32s3_qr_register_postincrement_load", [
+  0x3b, 0xaa,
+  0xa4, 0xac, 0xbd,
+  0xb4, 0xe0, 0xfd
+]);
+const qrXpInput = Uint8Array.from({ length: 16 }, (_, index) => (index * 13 + 5) & 0xff);
+const qrXpRun = await runFresh(moduleBytes, qrXpFixture, { data: qrXpInput, maxSteps: 3 });
+assert(qrXpRun.record.reason === STOP_REASONS.maxSteps, `QR XP fixture stopped with ${qrXpRun.record.reasonName}`);
+assert(qrXpRun.record.steps === 3, `QR XP fixture executed ${qrXpRun.record.steps} instructions`);
+assert(
+  qrXpRun.dataOutput.every((byte, index) => byte === qrXpInput[index]),
+  `QR XP fixture output changed: ${Buffer.from(qrXpRun.dataOutput).toString("hex")}`
+);
+assert(qrXpRun.record.registers[10] === INITIAL_SOURCE + 11, "QR XP load did not add its register postincrement");
+assert(qrXpRun.record.registers[12] === 8, "QR XP load changed its increment register");
+
 const halfQrFixture = conformanceFixture("esp32s3_qr_half_load_store", [
   0xa4, 0xa0, 0xfd,
   0xa2, 0xca, 0x13,
@@ -425,15 +441,15 @@ assert(
 assert(halfQrRun.record.registers[10] === INITIAL_SOURCE + 21, "QR half loads did not apply signed post-increments");
 assert(halfQrRun.record.registers[11] === INITIAL_DESTINATION + 11, "QR half store did not apply its signed post-increment");
 
-const unsupportedXpFixture = conformanceFixture("esp32s3_unsupported_vld_128_xp", [0xa4, 0x2c, 0x8d]);
+const unsupportedXpFixture = conformanceFixture("esp32s3_unsupported_vld_l_64_xp", [0xa4, 0x3c, 0x8d]);
 const unsupportedXpRun = await runFresh(moduleBytes, unsupportedXpFixture, {
   maxSteps: 1,
-  unsupported: { offset: 0, encoding: 0x8d2ca4 }
+  unsupported: { offset: 0, encoding: 0x8d3ca4 }
 });
-assert(unsupportedXpRun.record.reason === STOP_REASONS.unsupported, "adjacent XP form did not fail closed");
-assert(unsupportedXpRun.record.steps === 0, "adjacent XP form was counted as executed");
-assert(unsupportedXpRun.trace.count === 0, "adjacent XP refusal leaked a trace record");
-assert(unsupportedXpRun.dataOutput.length === 0, "adjacent XP refusal exposed data output");
+assert(unsupportedXpRun.record.reason === STOP_REASONS.unsupported, "adjacent half XP form did not fail closed");
+assert(unsupportedXpRun.record.steps === 0, "adjacent half XP form was counted as executed");
+assert(unsupportedXpRun.trace.count === 0, "adjacent half XP refusal leaked a trace record");
+assert(unsupportedXpRun.dataOutput.length === 0, "adjacent half XP refusal exposed data output");
 const unsupportedXpRegisters = Array<number>(16).fill(0);
 unsupportedXpRegisters[1] = INITIAL_STACK;
 unsupportedXpRegisters[8] = ((2 << 30) | (unsupportedXpRun.record.returnPc & 0x3fff_ffff)) >>> 0;
@@ -442,7 +458,7 @@ unsupportedXpRegisters[11] = INITIAL_DESTINATION;
 unsupportedXpRegisters[12] = 1;
 assert(
   unsupportedXpRun.record.registers.every((value, index) => value === unsupportedXpRegisters[index]),
-  "adjacent XP refusal changed registers"
+  "adjacent half XP refusal changed registers"
 );
 
 const threadptrFixture = conformanceFixture("esp32s3_threadptr_roundtrip", [
@@ -831,6 +847,14 @@ const actualBaseline = {
     reason: qrIsaRun.record.reasonName,
     steps: qrIsaRun.record.steps
   },
+  qrXpIsa: {
+    codeSha256: qrXpFixture.codeSha256,
+    outputHex: Buffer.from(qrXpRun.dataOutput).toString("hex"),
+    reason: qrXpRun.record.reasonName,
+    steps: qrXpRun.record.steps,
+    sourceAfter: `0x${qrXpRun.record.registers[10].toString(16)}`,
+    incrementValue: qrXpRun.record.registers[12]
+  },
   halfQrIsa: {
     codeSha256: halfQrFixture.codeSha256,
     outputHex: Buffer.from(halfQrRun.dataOutput).toString("hex"),
@@ -969,6 +993,7 @@ assert(
     scalar: baseline.scalar,
     scalarIsa: baseline.scalarIsa,
     qrIsa: baseline.qrIsa,
+    qrXpIsa: baseline.qrXpIsa,
     halfQrIsa: baseline.halfQrIsa,
     threadptrIsa: baseline.threadptrIsa,
     accxIsa: baseline.accxIsa,
