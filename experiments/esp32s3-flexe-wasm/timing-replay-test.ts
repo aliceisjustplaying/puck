@@ -31,7 +31,7 @@ import { sha256 } from "./lib";
 import { TRACE_KINDS, decodeTraceBytes, type DecodedTrace } from "./trace-abi";
 import { adaptFlexeTraceToRuntimeTiming } from "./trace-timing-adapter";
 
-const TRACE_SHA256 = "ae24fd0b6d4e84dcbbad7e393c0be39058e5a04b2386f099bde1e0127103b9b4";
+const TRACE_SHA256 = "5de26fe4432e5af5c95d99d32ee0d3d68260e712bb5dd20c60eb1315f295c4eb";
 const TRACE_CAPACITY = 128;
 const SRAM_BASE = 0x3fca0000n;
 const SRAM_SIZE = 0x10000n;
@@ -115,7 +115,7 @@ for (const line of [
 const firstInstruction = trace.find((record) => record.kind === TRACE_KINDS.instruction);
 assert(firstInstruction !== undefined, "trace has no instruction records");
 const iromIndex = Number((BigInt(firstInstruction.pc) - ESP32_S3_EXTERNAL_WINDOWS.irom.low) / ESP32_S3_MMU_PAGE_SIZE_BYTES);
-assert(iromIndex === 13, `staging function moved to MMU entry ${iromIndex}`);
+assert(iromIndex === 5, `staging function moved to MMU entry ${iromIndex}`);
 const mmuEntries: ExternalMmuEntryConfiguration[] = Array.from(
   { length: ESP32_S3_MMU_ENTRY_COUNT },
   (_, index) => ({ index, state: "invalid" as const })
@@ -344,12 +344,12 @@ assert(calibratedLineFills.every((emission) =>
   emission.cost.calibration === "calibrated" &&
   (emission.cost.cycles === "204" || emission.cost.cycles === "266")
 ), "instruction-cache line fill did not use adopted hardware evidence");
-const crossingFetch = perRecord.find((record) => record.trace.pc === "0x420d4e1e");
+const crossingFetch = perRecord.find((record) => record.trace.pc === "0x4205823e");
 assert(crossingFetch !== undefined, "trace lost the cache-line crossing fetch");
 assert(
   JSON.stringify(crossingFetch.timing.emissions.map((emission) => [emission.kind, emission.lineAddress])) ===
-    JSON.stringify([["hit", "0x4e00"], ["line-fill", "0x4e20"], ["hit", "0x4e20"]]),
-  "the three-byte fetch at 0x420d4e1e no longer spans two instruction-cache lines"
+    JSON.stringify([["hit", "0x8220"], ["line-fill", "0x8240"], ["hit", "0x8240"]]),
+  "the three-byte fetch at 0x4205823e no longer spans two instruction-cache lines"
 );
 for (const record of perRecord.filter((candidate) => candidate.trace.kind !== "instruction")) {
   assert(record.resolution[0]?.physicalBackingId === "esp32-s3-internal-sram", `${record.access.id} left SRAM`);

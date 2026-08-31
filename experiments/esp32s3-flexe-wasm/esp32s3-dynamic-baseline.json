@@ -4,9 +4,9 @@
     "flexeCommit": "34ea9eb6eef921b59a55e6a435c7fc55c5727835",
     "runnerPatchSha256": "6001efaec9fc83efa0356240b2001482ef79f7f5b92c682aae4c6c4d32c98445",
     "freestandingPatchSha256": "dbd2c623bfc9f9f33c4e4a98adcf06dec1d9034c659ad3c7afe94d373c48636d",
-    "esp32s3PatchSha256": "74232a029e27b1542dadef83f8b45d83ddc17d263769e381cf76093e971b3a8b",
-    "moduleBytes": 45847,
-    "moduleSha256": "a5878cc8b166ae808169722878b382e2c47804b6f91c508b2e35e6fdc0640add",
+    "esp32s3PatchSha256": "8c4ae7e5bc610cb235e86b046d764edb0da05481afb33142e772d32507894165",
+    "moduleBytes": 47919,
+    "moduleSha256": "37bef6a27e5f17b959cfcf5a9b5c2ff1a7df7bbf54235cb7fc5dabe2192e8753",
     "objdumpSha256": "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466",
     "scalarElfSha256": "a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644",
     "pieElfSha256": "591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742",
@@ -105,7 +105,7 @@
       "readRecords": 5,
       "writeRecords": 5,
       "overflow": false,
-      "sha256": "ae24fd0b6d4e84dcbbad7e393c0be39058e5a04b2386f099bde1e0127103b9b4"
+      "sha256": "5de26fe4432e5af5c95d99d32ee0d3d68260e712bb5dd20c60eb1315f295c4eb"
     },
     "overflowTest": {
       "prefixInstructions": 3,
@@ -113,7 +113,7 @@
       "overflowKind": "read",
       "reason": "traceOverflow",
       "steps": 101,
-      "pc": "0x420d4e24",
+      "pc": "0x42058244",
       "records": 127,
       "instructionRecords": 101,
       "readRecords": 13,
@@ -122,14 +122,14 @@
       "overflow": true,
       "registerA9": "0x191819",
       "outputSha256": "74f5db5540004599deb178b532d9960f1125145cd15f0f7844a1ecffdb1feac7",
-      "traceSha256": "bccc2a0de760767a7638f9f2045689f46c28d05b4da2e27ca4c55a96dff552a0"
+      "traceSha256": "31440583dbb3cf3b6cc131784da06bc4f89ef57838caf1ea4ba85b4167ce3f05"
     }
   },
   "boundaries": {
     "unsupported": {
       "reason": "unsupported",
       "steps": 3,
-      "pc": "0x40377a54",
+      "pc": "0x403776a0",
       "matchesStepBoundState": true
     },
     "instructionOverflow": {

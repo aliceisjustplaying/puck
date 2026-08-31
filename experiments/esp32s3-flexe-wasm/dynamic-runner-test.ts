@@ -588,7 +588,10 @@ const overflowFixture: RunnerFixture = {
 const overflowRun = await runFresh(moduleBytes, overflowFixture, { data: overflowInput, maxSteps: 256 });
 assert(overflowRun.record.reason === STOP_REASONS.traceOverflow, "trace overflow was not an explicit stop");
 assert(overflowRun.record.steps === 101, `overflow run executed ${overflowRun.record.steps} instructions`);
-assert(overflowRun.record.pc === 0x420d4e24, `overflow run stopped at 0x${overflowRun.record.pc.toString(16)}`);
+assert(
+  overflowRun.record.pc === staging.instructions[7].addressValue,
+  `overflow run stopped at 0x${overflowRun.record.pc.toString(16)}`
+);
 assert(overflowRun.trace.overflow, "overflow run did not set the trace overflow flag");
 assert(overflowRun.trace.count === TRACE_CAPACITY - 1, "overflow run retained a partial memory instruction");
 assert(
@@ -870,7 +873,8 @@ const report = {
     symbol: pie.symbol,
     pc: `0x${pie.pc.toString(16)}`,
     codeSha256: pie.codeSha256,
-    firstUnsupported: {
+    firstUnsupported: null,
+    exercisedS3Instruction: {
       address: pieGap.address,
       objdumpEncoding: pieGap.objdumpEncoding,
       mnemonic: pieGap.rawMnemonic
@@ -913,7 +917,7 @@ const report = {
   },
   boundaries: {
     unsupported: {
-      stop: pieRun.record,
+      stop: pieRefusalRun.record,
       stepBoundControl: pieBoundaryRun.record
     },
     instructionOverflow: {

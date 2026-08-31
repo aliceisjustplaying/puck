@@ -1,8 +1,8 @@
 diff --git a/src/wasm_probe.c b/src/wasm_probe.c
-index fc1523e..4ccf2be 100644
+index c9be68b..b61373b 100644
 --- a/src/wasm_probe.c
 +++ b/src/wasm_probe.c
-@@ -251,7 +251,8 @@ uint32_t flexe_wasm_elf_set_unsupported(uint32_t count) {
+@@ -518,7 +518,8 @@ uint32_t flexe_wasm_elf_set_unsupported(uint32_t count) {
 
  static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_steps,
                               uint32_t unsupported_offset, uint32_t unsupported_encoding,
@@ -12,7 +12,7 @@ index fc1523e..4ccf2be 100644
      memset(&result, 0, sizeof(result));
      memset(&cpu, 0, sizeof(cpu));
      memset(data_output, 0, sizeof(data_output));
-@@ -261,6 +262,12 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
+@@ -529,6 +530,12 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
      result.pc = pc;
      if (code_length == 0 || code_length > INPUT_CAPACITY || max_steps == 0 ||
          data_length > DATA_CAPACITY || (data_length & 1u) != 0 ||
@@ -25,7 +25,7 @@ index fc1523e..4ccf2be 100644
          (pc & (PAGE_BYTES - 1u)) + code_length > PAGE_BYTES ||
          (unsupported_offset != NO_UNSUPPORTED_OFFSET && unsupported_offset >= code_length)) {
          result.reason = PROBE_STOP_INVALID_ARGUMENT;
-@@ -282,6 +289,10 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
+@@ -557,6 +564,10 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
          memcpy(source_page, data_input, data_length);
          mem->page_table[INITIAL_SOURCE >> 12] = source_page;
          mem->page_table[INITIAL_DESTINATION >> 12] = destination_page;
@@ -36,7 +36,7 @@ index fc1523e..4ccf2be 100644
      }
 
      xtensa_cpu_init(&cpu);
-@@ -292,6 +303,7 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
+@@ -567,6 +578,7 @@ static uint32_t run_internal(uint32_t pc, uint32_t code_length, uint32_t max_ste
      cpu.windowbase = 0;
      cpu.windowstart = 1;
      cpu.window_callsize[0] = WINDOW_CALLINC;
@@ -44,7 +44,7 @@ index fc1523e..4ccf2be 100644
      cpu.external_exec_begin = pc & ~(PAGE_BYTES - 1u);
      cpu.external_exec_end = cpu.external_exec_begin + PAGE_BYTES;
 
-@@ -344,7 +356,7 @@ FLEXE_EXPORT("flexe_wasm_run")
+@@ -641,7 +653,7 @@ FLEXE_EXPORT("flexe_wasm_run")
  uint32_t flexe_wasm_run(uint32_t pc, uint32_t code_length, uint32_t max_steps,
                          uint32_t unsupported_offset, uint32_t unsupported_encoding) {
      return run_internal(pc, code_length, max_steps, unsupported_offset,
@@ -53,7 +53,7 @@ index fc1523e..4ccf2be 100644
  }
 
  FLEXE_EXPORT("flexe_wasm_run_data")
-@@ -352,7 +364,14 @@ uint32_t flexe_wasm_run_data(uint32_t pc, uint32_t code_length, uint32_t max_ste
+@@ -649,7 +661,14 @@ uint32_t flexe_wasm_run_data(uint32_t pc, uint32_t code_length, uint32_t max_ste
                               uint32_t unsupported_offset, uint32_t unsupported_encoding,
                               uint32_t data_length) {
      return run_internal(pc, code_length, max_steps, unsupported_offset,
@@ -69,14 +69,14 @@ index fc1523e..4ccf2be 100644
  }
 
  FLEXE_EXPORT("flexe_wasm_run_elf")
-@@ -388,6 +407,7 @@ uint32_t flexe_wasm_run_elf(uint32_t entry, uint32_t max_steps) {
+@@ -688,6 +707,7 @@ uint32_t flexe_wasm_run_elf(uint32_t entry, uint32_t max_steps,
      cpu.windowbase = 0;
      cpu.windowstart = 1;
      cpu.window_callsize[0] = WINDOW_CALLINC;
 +    cpu.esp32s3_profile = true;
-     ar_write(&cpu, 1, INITIAL_STACK);
-     if (elf_unsupported_count > 0) {
-         cpu.instruction_hook = stop_elf_unsupported;
+     ar_write(&cpu, 1, initial_stack);
+     if (elf_rom_reset_reason_enabled || elf_rom_memset_enabled) {
+         cpu.pc_hook = elf_rom_pc_hook;
 diff --git a/src/xtensa.c b/src/xtensa.c
 index 0c1ba0f..1692b19 100644
 --- a/src/xtensa.c

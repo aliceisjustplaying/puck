@@ -180,13 +180,13 @@ instructions, five 16-bit reads from `0x3fca1000` through `0x3fca1008`, and
 five 16-bit writes to `0x3fca2000` through `0x3fca2008`. The test asserts the
 complete interleaved PC, instruction, address, width, and value sequence. The
 1,296-byte trace has SHA-256
-`ae24fd0b6d4e84dcbbad7e393c0be39058e5a04b2386f099bde1e0127103b9b4`
+`5de26fe4432e5af5c95d99d32ee0d3d68260e712bb5dd20c60eb1315f295c4eb`
 and is written to ignored `dist/rgb565-execution-trace.bin`.
 
 Capacity is fixed at 128 records. A separate 14-pixel run with three prefixed
 `nop.n` instructions reaches capacity while issuing a 16-bit read. The runner
 rolls the whole instruction back, retains the 127 records for 101 completed
-instructions, and stops at the instruction boundary `0x420d4e24` with
+instructions, and stops at the instruction boundary `0x42058244` with
 `traceOverflow`. The overflowing read does not update registers or memory and
 no partial instruction enters the trace. These records are execution facts
 only; they contain no cycle counts or timing estimates.
@@ -213,9 +213,9 @@ cache emission, resource, cost provenance, and execution status for each trace
 record.
 
 The replay uses the gate-harness sdkconfig at SHA-256
-`65cfb5deebc36666fb3247ec5bc91aaf9de2d9a8c2642eb1666ec5b3e485bb92`:
+`ac1749b0f5b9c54e3e8e5ffc045b37a434d6b289420a8f9cf0f37fe8a3173d9b`:
 16 KiB, 8-way, 32-byte-line instruction cache and 32 KiB, 8-way,
-64-byte-line data cache. IROM MMU entry 13 is mapped to flash physical page 0
+64-byte-line data cache. IROM MMU entry 5 is mapped to flash physical page 0
 only to exercise the flash, cache, and MSPI route. That physical page is an
 experiment input, not an observed hardware MMU snapshot. The two 4 KiB runner
 data pages are covered by one explicit internal-SRAM experiment region.
@@ -225,16 +225,16 @@ It also emits 43 per-core CPU execution events, each with an explicit unknown
 cost because this trace supplies no instruction timing. The memory path emits
 44 instruction-cache hits, two line fills on MSPI, and ten SRAM bypass events.
 There are 44 hit emissions because the three-byte instruction at
-`0x420d4e1e` crosses the 32-byte cache-line boundary and touches both lines.
+`0x4205823e` crosses the 32-byte cache-line boundary and touches both lines.
 The path-independent per-record evidence SHA-256, including each instruction's
 CPU event, is
 `0d176093d0822a07e293466185b6da924d4a576fc080c304adfcb94905707e55`.
 
-The timing profile supplies no adopted CPU, instruction-cache, line-fill, or
-SRAM cycle costs. Every one of the 99 issued costs stays explicitly unknown, the
-machine result is `blocked`, and total cycles are `null`. The replay establishes
-the deterministic accounting path and the exact evidence still needed. It
-does not estimate latency or make a cycle-accuracy claim.
+The timing profile supplies calibrated instruction-cache flash line fills, so
+two of the 99 issued costs are known. CPU, cache-hit, and SRAM costs remain
+explicitly unknown, the machine result is `blocked`, and total cycles are
+`null`. The replay establishes the deterministic accounting path and the exact
+evidence still needed. It does not make a cycle-accuracy claim.
 
 `esp32s3-dynamic-baseline.json` pins all three ELF hashes, extracted-code and
 staging-output and trace hashes, patch hashes, objdump hash, module hash, stop
@@ -279,11 +279,12 @@ results or the full `memset` destination, byte value, and length. It assigns no
 timing to the bulk operation.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
-the real entry executes 31 bounded steps. It performs two reset-reason calls,
-clears 21,216 bytes at `0x3fcabe60`, records the real zero-length clear at
-`0x50000000`, and stops before `wur.threadptr` at `0x40375ce7`. The host marks
-encoding `f3e780` unsupported because flexe does not persist user register 231.
-No cache or MMIO behavior is reached or implied.
+the real entry performs two reset-reason calls, clears 21,216 bytes at
+`0x3fcabe60`, and records the real zero-length clear at `0x50000000`. A refusal
+control deliberately marks `wur.threadptr` at `0x40375ce7` and stops after 31
+steps. The integrated LX7 run executes that instruction, persists user register
+231, reaches 57 steps, and stops at the next absent ROM function,
+`Cache_Disable_ICache` at `0x4000186c`. No cache or MMIO behavior is implied.
 
 Full-image runs accept at most 768 pages, 2,048 caller-identified unsupported
 instruction markers, 64 ROM events, and 256 executed instructions. The trace
@@ -320,8 +321,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 45,847 bytes with Zig 0.16.0, SHA-256
-`a5878cc8b166ae808169722878b382e2c47804b6f91c508b2e35e6fdc0640add`.
+The stripped freestanding module is 47,919 bytes with Zig 0.16.0, SHA-256
+`37bef6a27e5f17b959cfcf5a9b5c2ff1a7df7bbf54235cb7fc5dabe2192e8753`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and

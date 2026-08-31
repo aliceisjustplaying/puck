@@ -75,6 +75,18 @@ assert.deepEqual(romProgress.romEvents, [
   { kind: "memset", pc: 0x4000_11e8, destination: 0x5000_0000, value: 0, length: 0 },
 ]);
 
+const lx7Progress = await runSparseXtensaElf(moduleBytes, image, {
+  ...runnerMemory,
+  maxSteps: 256,
+  rom: { resetReasons: [1, 1], memset: true },
+});
+assert.equal(lx7Progress.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
+assert.equal(lx7Progress.record.steps, 57);
+assert.equal(lx7Progress.record.pc, 0x4000_186c);
+assert.equal(lx7Progress.record.unsupportedPc, 0);
+assert(lx7Progress.trace.includes(0x4037_5ce7), "LX7 run did not execute wur.threadptr");
+assert.deepEqual(lx7Progress.romEvents, romProgress.romEvents);
+
 const refusedInstruction = await runSparseXtensaElf(moduleBytes, image, {
   ...runnerMemory,
   maxSteps: 64,
@@ -139,6 +151,9 @@ const actualBaseline = {
     runnerPatchSha256: createHash("sha256")
       .update(readFileSync(join(import.meta.dir, "patches/0001-add-wasi-probe.patch")))
       .digest("hex"),
+    esp32s3PatchSha256: createHash("sha256")
+      .update(readFileSync(join(import.meta.dir, "patches/0003-add-esp32s3-lx7-subset.patch")))
+      .digest("hex"),
     moduleBytes: statSync(modulePath).size,
     moduleSha256: createHash("sha256").update(new Uint8Array(moduleBytes)).digest("hex"),
   },
@@ -175,6 +190,14 @@ const actualBaseline = {
           length: event.length,
         }),
   },
+  lx7Progress: {
+    reason: lx7Progress.record.reasonName,
+    steps: lx7Progress.record.steps,
+    pc: hex(lx7Progress.record.pc),
+    traceSha256: traceSha256(lx7Progress.trace),
+    stackPointer: hex(lx7Progress.record.stackPointer),
+    registers: lx7Progress.record.registers.map(paddedHex),
+  },
   unsupportedRefusal: {
     reason: refusedInstruction.record.reasonName,
     steps: refusedInstruction.record.steps,
@@ -205,5 +228,10 @@ console.log(JSON.stringify({
     steps: romProgress.record.steps,
     pc: `0x${romProgress.record.pc.toString(16)}`,
     events: romProgress.romEvents.length,
+  },
+  lx7Progress: {
+    reason: lx7Progress.record.reasonName,
+    steps: lx7Progress.record.steps,
+    pc: `0x${lx7Progress.record.pc.toString(16)}`,
   },
 }, null, 2));
