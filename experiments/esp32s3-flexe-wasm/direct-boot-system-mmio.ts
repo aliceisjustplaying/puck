@@ -39,6 +39,7 @@ export interface Esp32S3DirectBootSystemMmioAccess {
   readonly address: number;
   readonly width: number;
   readonly isWrite: boolean;
+  readonly rtcMmioComplete: boolean;
 }
 
 export type Esp32S3DirectBootSystemMmioDispatch =
@@ -88,6 +89,9 @@ export function readEsp32S3DirectBootSystemMmio(
     if (state.readCount !== 1) {
       return refuse(state, "SYSTEM_CPU_PER_CONF read preceded SYSTEM_SYSCLK_CONF");
     }
+    if (access.rtcMmioComplete) {
+      return refuse(state, "SYSTEM_CPU_PER_CONF read followed RTC_XTAL_FREQ");
+    }
     if (state.cpuPerReadCount >= 2) {
       return refuse(state, "SYSTEM_CPU_PER_CONF direct-boot reads already occurred");
     }
@@ -117,14 +121,21 @@ export function readEsp32S3DirectBootSystemMmio(
   if (access.pc !== ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC) {
     return refuse(state, `unexpected SYSTEM_SYSCLK_CONF reader 0x${access.pc.toString(16)}`);
   }
-  if (state.readCount !== 0) return refuse(state, "SYSTEM_SYSCLK_CONF direct-boot read already occurred");
+  if (state.readCount >= 2) return refuse(state, "SYSTEM_SYSCLK_CONF direct-boot reads already occurred");
+  if (state.readCount === 0 && access.rtcMmioComplete) {
+    return refuse(state, "initial SYSTEM_SYSCLK_CONF read followed RTC_XTAL_FREQ");
+  }
+  if (state.readCount === 1 &&
+      (!access.rtcMmioComplete || state.cpuPerReadCount !== 2)) {
+    return refuse(state, "repeated SYSTEM_SYSCLK_CONF read preceded RTC_XTAL_FREQ");
+  }
   return Object.freeze({
     handled: true,
     status: "accepted",
     value: state.sysclkConf,
     state: Object.freeze({
       ...state,
-      readCount: 1,
+      readCount: state.readCount + 1,
       lastReadPc: access.pc,
     }),
   });

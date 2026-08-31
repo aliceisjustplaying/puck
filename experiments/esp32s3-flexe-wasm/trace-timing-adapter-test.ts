@@ -323,16 +323,18 @@ function adaptBeqz(decodedTrace: DecodedTrace) {
 }
 const takenBeqz = adaptBeqz(beqzTrace(0x42002008));
 const notTakenBeqz = adaptBeqz(beqzTrace(0x42002003));
+const takenBeqzCpu = takenBeqz.input.cpu?.[0];
+const notTakenBeqzCpu = notTakenBeqz.input.cpu?.[0];
 assert(
-  takenBeqz.input.cpu[0]?.latency.status === "known" &&
-    takenBeqz.input.cpu[0].latency.cycles === 3n &&
-    takenBeqz.input.cpu[0].latency.source.includes("exact beqz taken 0x42002000 -> 0x42002008"),
+  takenBeqzCpu?.latency.status === "known" &&
+    takenBeqzCpu.latency.cycles === 3n &&
+    takenBeqzCpu.latency.source.includes("exact beqz taken 0x42002000 -> 0x42002008"),
   "exact taken beqz lost its calibrated path cost",
 );
 assert(
-  notTakenBeqz.input.cpu[0]?.latency.status === "known" &&
-    notTakenBeqz.input.cpu[0].latency.cycles === 1n &&
-    notTakenBeqz.input.cpu[0].latency.source.includes("exact beqz not-taken 0x42002000 -> 0x42002003"),
+  notTakenBeqzCpu?.latency.status === "known" &&
+    notTakenBeqzCpu.latency.cycles === 1n &&
+    notTakenBeqzCpu.latency.source.includes("exact beqz not-taken 0x42002000 -> 0x42002003"),
   "exact not-taken beqz lost its calibrated path cost",
 );
 let impossibleBeqzFailure: unknown = null;
