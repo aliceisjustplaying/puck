@@ -25,6 +25,7 @@ assert(normalizeMnemonic("rur.sar_byte") === "rur", "implemented 4-bit user-regi
 assert(normalizeMnemonic("rur.ua_state_0") === "rur", "implemented UA_STATE aliases must normalize");
 assert(normalizeMnemonic("rur.unassigned_12") === "rur.unassigned_12", "unknown user registers must remain explicit gaps");
 assert(normalizeMnemonic("ee.vld.128.ip") === "ee.vld.128.ip", "PIE mnemonics must stay exact");
+assert(normalizeMnemonic("ee.vld.l.64.ip") === "ee.vld.l.64.ip", "PIE half-load mnemonics must stay exact");
 
 const parsed = parseDisassembly(`Disassembly of section .iram0.text:
 40377a4c <fixture>:
@@ -44,6 +45,7 @@ assert(surface.normalizedMnemonics.includes("entry"), "literal decoder surface l
 assert(surface.normalizedMnemonics.includes("rsr"), "literal decoder surface lost rsr");
 assert(surface.normalizedMnemonics.includes("s32nb"), "ESP32-S3 scalar patch surface lost s32nb");
 assert(surface.normalizedMnemonics.includes("ee.vld.128.ip"), "ESP32-S3 PIE patch surface lost vector load");
+assert(surface.normalizedMnemonics.includes("ee.vld.l.64.ip"), "ESP32-S3 PIE patch surface lost half vector load");
 assert(!surface.normalizedMnemonics.includes("??gap"), "unknown decoder diagnostics are not instructions");
 
 const report = buildInventoryReport({
