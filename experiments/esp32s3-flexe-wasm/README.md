@@ -307,6 +307,15 @@ four-byte `ee.*` forms whose first two bytes collide with an LX6 encoding. The
 trace contains one PC per successfully executed instruction. Oversized bounds,
 duplicate markers, out-of-order pages, invalid permissions, unwritable ROM bulk
 destinations, and capacity overruns are refused.
+
+The full-image runner also exports a separate 1,024-record version 1 memory
+trace using the dynamic runner's existing binary ABI. It records each committed
+instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
+address, value, and width. ROM callbacks do not enter this trace. A fault,
+unsupported instruction, decoder failure, or overflow restores the CPU and
+trace checkpoint together, so no partial instruction survives. The 195-step
+cache-bootstrap boundary produces 269 records with a pinned SHA-256, and a
+cross-page SRAM regression checks the exact 32-bit value and address.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
 page count, bounded trace, unsupported-instruction refusal, and first stop,
@@ -344,8 +353,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 52,897 bytes with Zig 0.16.0, SHA-256
-`dbcd7f9629f3a905614d1ffe4424f72829a76bbe191e7d19a6e511b690eb559f`.
+The stripped freestanding module is 53,604 bytes with Zig 0.16.0, SHA-256
+`472449be68dfe2abd862a18d4de9c4f38002cb65728875a4f958b40fcf52666e`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and

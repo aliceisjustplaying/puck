@@ -7,11 +7,13 @@ import {
   createEsp32S3DirectAppCacheBootstrap,
   type Esp32S3DirectAppCacheBootstrapState,
 } from "./rom-cache-bootstrap";
+import { decodeTraceBytes, TRACE_KINDS, type DecodedTrace } from "./trace-abi";
 
 const PAGE_BYTES = 4096;
 const RESULT_WORDS = 27;
 const RESULT_BYTES = RESULT_WORDS * 4;
 const RESULT_ABI_VERSION = 1;
+const MEMORY_TRACE_CAPACITY = 1024;
 
 export const FULL_ELF_STOP_REASONS = {
   returned: 1,
@@ -21,6 +23,7 @@ export const FULL_ELF_STOP_REASONS = {
   invalidArgument: 5,
   allocationFailed: 6,
   cpuStopped: 7,
+  traceOverflow: 8,
   unloadedPage: 10,
   nonExecutablePage: 11,
   romRefused: 12,
@@ -65,6 +68,7 @@ export interface FullElfStopRecord {
 export interface FullElfRunResult {
   readonly record: FullElfStopRecord;
   readonly trace: readonly number[];
+  readonly memoryTrace: DecodedTrace;
   readonly loadedPages: number;
   readonly logs: readonly string[];
   readonly romEvents: readonly FullElfRomEvent[];
@@ -115,6 +119,9 @@ interface FullElfExports {
   flexe_wasm_elf_copy_page(address: number): number;
   flexe_wasm_elf_load_page(address: number, flags: number): number;
   flexe_wasm_elf_memory_fault(): number;
+  flexe_wasm_elf_memory_trace(): number;
+  flexe_wasm_elf_memory_trace_bytes(): number;
+  flexe_wasm_elf_memory_trace_capacity(): number;
   flexe_wasm_elf_page_capacity(): number;
   flexe_wasm_elf_page_input(): number;
   flexe_wasm_elf_rom_event_capacity(): number;
@@ -239,6 +246,9 @@ export async function runSparseXtensaElf(
     "flexe_wasm_elf_copy_page",
     "flexe_wasm_elf_load_page",
     "flexe_wasm_elf_memory_fault",
+    "flexe_wasm_elf_memory_trace",
+    "flexe_wasm_elf_memory_trace_bytes",
+    "flexe_wasm_elf_memory_trace_capacity",
     "flexe_wasm_elf_page_capacity",
     "flexe_wasm_elf_page_input",
     "flexe_wasm_elf_rom_event_capacity",
@@ -363,6 +373,31 @@ export async function runSparseXtensaElf(
   const tracePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_trace(), traceCount * 4, "ELF trace");
   const trace = Object.freeze([...new Uint32Array(exports.memory.buffer, tracePointer, traceCount)]);
   assert(trace.length === record.steps, "full ELF trace and executed step count differ");
+  const memoryTraceCapacity = exports.flexe_wasm_elf_memory_trace_capacity() >>> 0;
+  assert(memoryTraceCapacity === MEMORY_TRACE_CAPACITY, `unexpected full ELF memory trace capacity ${memoryTraceCapacity}`);
+  const memoryTraceBytes = exports.flexe_wasm_elf_memory_trace_bytes() >>> 0;
+  const memoryTracePointer = checkPointer(
+    exports.memory,
+    exports.flexe_wasm_elf_memory_trace(),
+    memoryTraceBytes,
+    "ELF memory trace",
+  );
+  const memoryTrace = decodeTraceBytes(
+    Uint8Array.from(new Uint8Array(exports.memory.buffer, memoryTracePointer, memoryTraceBytes)),
+    memoryTraceCapacity,
+  );
+  assert(
+    memoryTrace.overflow === (record.reason === FULL_ELF_STOP_REASONS.traceOverflow),
+    "full ELF memory trace overflow flag and stop reason differ",
+  );
+  const memoryTracePcs = memoryTrace.records
+    .filter((event) => event.kind === TRACE_KINDS.instruction)
+    .map((event) => event.pc);
+  assert(memoryTracePcs.length === record.steps, "full ELF memory trace and executed step count differ");
+  assert(
+    memoryTracePcs.every((pc, index) => pc === trace[index]),
+    "full ELF instruction and memory trace PCs differ",
+  );
   const romEventCount = exports.flexe_wasm_elf_rom_event_count() >>> 0;
   const romEventCapacity = exports.flexe_wasm_elf_rom_event_capacity() >>> 0;
   assert(romEventCount <= romEventCapacity, "full ELF module returned too many ROM events");
@@ -431,6 +466,7 @@ export async function runSparseXtensaElf(
   return Object.freeze({
     record,
     trace,
+    memoryTrace,
     loadedPages: pages.length,
     logs: Object.freeze(logs),
     romEvents: Object.freeze(romEvents),

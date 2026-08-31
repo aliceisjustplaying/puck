@@ -165,10 +165,10 @@ index df40210..b4a61a8 100644
  #endif /* MEMORY_H */
 diff --git a/src/wasm_probe.c b/src/wasm_probe.c
 new file mode 100644
-index 0000000..232766d
+index 0000000..2c01dc5
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1052 @@
+@@ -0,0 +1,1143 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -191,6 +191,7 @@ index 0000000..232766d
 +#define PAGE_BYTES 4096u
 +#define ELF_PAGE_CAPACITY 768u
 +#define ELF_TRACE_CAPACITY 256u
++#define ELF_MEMORY_TRACE_CAPACITY 1024u
 +#define ELF_UNSUPPORTED_CAPACITY 2048u
 +#define ELF_ROM_EVENT_CAPACITY 64u
 +#define ELF_ROM_EVENT_WORDS 5u
@@ -294,6 +295,11 @@ index 0000000..232766d
 +    struct probe_trace_record records[TRACE_CAPACITY];
 +};
 +
++struct elf_probe_trace_buffer {
++    struct probe_trace_header header;
++    struct probe_trace_record records[ELF_MEMORY_TRACE_CAPACITY];
++};
++
 +struct probe_write_undo {
 +    uint8_t *pointer;
 +    uint32_t previous;
@@ -341,6 +347,8 @@ index 0000000..232766d
 +static uint32_t elf_page_count;
 +static uint32_t elf_trace[ELF_TRACE_CAPACITY];
 +static uint32_t elf_trace_count;
++static struct elf_probe_trace_buffer elf_memory_trace_buffer;
++static int elf_memory_trace_active;
 +static struct unsupported_entry elf_unsupported[ELF_UNSUPPORTED_CAPACITY];
 +static uint32_t elf_unsupported_count;
 +static struct unsupported_marker elf_unsupported_hit;
@@ -383,6 +391,34 @@ index 0000000..232766d
 +    }
 +    struct probe_trace_record *record =
 +        &trace_buffer.records[trace_buffer.header.count++];
++    record->kind = kind;
++    record->pc = pc;
++    record->address = address;
++    record->value = value;
++    record->width = width;
++    record->instruction = instruction;
++    return 0;
++}
++
++static void elf_memory_trace_reset(void) {
++    memset(&elf_memory_trace_buffer, 0, sizeof(elf_memory_trace_buffer));
++    elf_memory_trace_buffer.header.abi_version = TRACE_ABI_VERSION;
++    elf_memory_trace_buffer.header.header_bytes =
++        (uint32_t)sizeof(elf_memory_trace_buffer.header);
++    elf_memory_trace_buffer.header.record_bytes =
++        (uint32_t)sizeof(elf_memory_trace_buffer.records[0]);
++    elf_memory_trace_buffer.header.capacity = ELF_MEMORY_TRACE_CAPACITY;
++}
++
++static int elf_memory_trace_append(uint32_t kind, uint32_t pc,
++                                   uint32_t address, uint32_t value,
++                                   uint32_t width, uint32_t instruction) {
++    if (elf_memory_trace_buffer.header.count >= ELF_MEMORY_TRACE_CAPACITY) {
++        elf_memory_trace_buffer.header.overflow = 1;
++        return -1;
++    }
++    struct probe_trace_record *record =
++        &elf_memory_trace_buffer.records[elf_memory_trace_buffer.header.count++];
 +    record->kind = kind;
 +    record->pc = pc;
 +    record->address = address;
@@ -481,13 +517,32 @@ index 0000000..232766d
 +        if (elf_unsupported[middle].pc < pc) low = middle + 1u;
 +        else high = middle;
 +    }
-+    if (low >= elf_unsupported_count || elf_unsupported[low].pc != pc) return 0;
-+    elf_unsupported_hit.hit = 1;
-+    elf_unsupported_hit.observed_pc = pc;
-+    elf_unsupported_hit.observed_encoding = insn;
-+    elf_unsupported_hit.observed_length = (uint32_t)length;
-+    elf_unsupported_hit.encoding = elf_unsupported[low].encoding;
-+    return 1;
++    if (low < elf_unsupported_count && elf_unsupported[low].pc == pc) {
++        elf_unsupported_hit.hit = 1;
++        elf_unsupported_hit.observed_pc = pc;
++        elf_unsupported_hit.observed_encoding = insn;
++        elf_unsupported_hit.observed_length = (uint32_t)length;
++        elf_unsupported_hit.encoding = elf_unsupported[low].encoding;
++        return 1;
++    }
++    if (!elf_memory_trace_active) return 0;
++    return elf_memory_trace_append(PROBE_TRACE_INSTRUCTION, pc, 0, 0,
++                                   (uint32_t)length, insn) != 0;
++}
++
++static int trace_elf_memory_access(void *unused_context, uint32_t address,
++                                   uint32_t value, uint32_t width, int is_write,
++                                   int mapped) {
++    (void)unused_context;
++    if (!elf_memory_trace_active) return 0;
++    if (!mapped) return 0;
++    if (elf_memory_trace_append(
++            is_write ? PROBE_TRACE_WRITE : PROBE_TRACE_READ,
++            g_dbg_pc, address, value, width, 0) != 0) {
++        elf_memory_trace_buffer.header.overflow = 1;
++        return 1;
++    }
++    return 0;
 +}
 +
 +static int elf_page_index(uint32_t address) {
@@ -811,6 +866,23 @@ index 0000000..232766d
 +    return ELF_TRACE_CAPACITY;
 +}
 +
++FLEXE_EXPORT("flexe_wasm_elf_memory_trace")
++uint32_t flexe_wasm_elf_memory_trace(void) {
++    return (uint32_t)(uintptr_t)&elf_memory_trace_buffer;
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_memory_trace_bytes")
++uint32_t flexe_wasm_elf_memory_trace_bytes(void) {
++    return (uint32_t)sizeof(elf_memory_trace_buffer.header) +
++           elf_memory_trace_buffer.header.count *
++               (uint32_t)sizeof(elf_memory_trace_buffer.records[0]);
++}
++
++FLEXE_EXPORT("flexe_wasm_elf_memory_trace_capacity")
++uint32_t flexe_wasm_elf_memory_trace_capacity(void) {
++    return ELF_MEMORY_TRACE_CAPACITY;
++}
++
 +FLEXE_EXPORT("flexe_wasm_elf_unsupported_input")
 +uint32_t flexe_wasm_elf_unsupported_input(void) {
 +    return (uint32_t)(uintptr_t)elf_unsupported;
@@ -869,6 +941,8 @@ index 0000000..232766d
 +    memset(mem->page_table, 0, sizeof(mem->page_table));
 +    elf_page_count = 0;
 +    elf_trace_count = 0;
++    elf_memory_trace_reset();
++    elf_memory_trace_active = 0;
 +    elf_unsupported_count = 0;
 +    elf_rom_event_count = 0;
 +    elf_rom_reset_reason_enabled = 0;
@@ -1116,10 +1190,8 @@ index 0000000..232766d
 +        cpu.pc_hook = elf_rom_pc_hook;
 +        cpu.pc_hook_ctx = NULL;
 +    }
-+    if (elf_unsupported_count > 0) {
-+        cpu.instruction_hook = stop_elf_unsupported;
-+        cpu.instruction_hook_ctx = NULL;
-+    }
++    cpu.instruction_hook = stop_elf_unsupported;
++    cpu.instruction_hook_ctx = NULL;
 +
 +    uint32_t steps = 0;
 +    uint32_t reason = PROBE_STOP_MAX_STEPS;
@@ -1159,26 +1231,43 @@ index 0000000..232766d
 +
 +        uint32_t executed_pc = cpu.pc;
 +        uint32_t trace_checkpoint = elf_trace_count;
++        uint32_t memory_trace_checkpoint = elf_memory_trace_buffer.header.count;
 +        uint32_t rom_event_checkpoint = elf_rom_event_count;
 +        cpu_checkpoint = cpu;
++        elf_memory_trace_active = !configured_rom;
++        mem->access_hook = trace_elf_memory_access;
++        mem->access_hook_ctx = NULL;
 +        int step_result = xtensa_step(&cpu);
++        elf_memory_trace_active = 0;
++        mem->access_hook = NULL;
++        mem->access_hook_ctx = NULL;
 +        if (elf_memory_fault.hit) {
 +            cpu = cpu_checkpoint;
++            elf_memory_trace_buffer.header.count = memory_trace_checkpoint;
 +            reason = elf_memory_fault.is_write ? PROBE_STOP_WRITE_PERMISSION :
 +                                                 PROBE_STOP_READ_PERMISSION;
 +            break;
 +        }
 +        if (elf_rom_refused) {
++            elf_memory_trace_buffer.header.count = memory_trace_checkpoint;
 +            reason = PROBE_STOP_ROM_REFUSED;
 +            break;
 +        }
 +        if (elf_unsupported_hit.hit) {
++            elf_memory_trace_buffer.header.count = memory_trace_checkpoint;
 +            reason = PROBE_STOP_UNSUPPORTED;
++            break;
++        }
++        if (elf_memory_trace_buffer.header.overflow) {
++            cpu = cpu_checkpoint;
++            elf_memory_trace_buffer.header.count = memory_trace_checkpoint;
++            reason = PROBE_STOP_TRACE_OVERFLOW;
 +            break;
 +        }
 +        if (step_result != 0) {
 +            cpu = cpu_checkpoint;
 +            elf_trace_count = trace_checkpoint;
++            elf_memory_trace_buffer.header.count = memory_trace_checkpoint;
 +            elf_rom_event_count = rom_event_checkpoint;
 +            reason = PROBE_STOP_STEP_ERROR;
 +            break;
@@ -1194,6 +1283,8 @@ index 0000000..232766d
 +
 +    mem->permission_hook = NULL;
 +    mem->permission_hook_ctx = NULL;
++    mem->access_hook = NULL;
++    mem->access_hook_ctx = NULL;
 +
 +    finish_record(reason, steps, entry, 0,
 +                  elf_unsupported_hit.hit ? &elf_unsupported_hit : NULL);
