@@ -81,6 +81,12 @@ The milestone is no PC divergence in both sessions. Register differences are
 reported and dispositioned, not erased. The flow halts and resets the chip but
 does not write flash.
 
+Completed on 2026-08-31. Both independent 8,000-step sessions had no PC
+divergence and zero timing resynchronizations. Both retained the same one
+register difference at step 15, PC `0x40000492`: hardware
+`a2=0x00000015`, emulator `a2=0x0000001f`. The full receipt is
+[`E-01-jtag-lockstep`](../receipts/E-01-jtag-lockstep.md).
+
 ### 2. Disposition the existing arbitration evidence
 
 Do not improvise a new arbitration capture in this window. Retain lane 0's
@@ -117,8 +123,8 @@ lane C request.
 
 ## Board time and state effects
 
-The immediate post-handoff work is identity validation plus two upstream
-lock-step sessions: about 5 minutes of board ownership after lane 0's identity
+The immediate post-handoff identity validation and two upstream lock-step
+sessions took about 27 minutes of board ownership after lane 0's identity
 capture. The existing PSRAM receipt disposition is offline. A-01's panel and
 touch capture needs about 15 to 25 minutes once the analyzer and physical
 landmarks are ready.

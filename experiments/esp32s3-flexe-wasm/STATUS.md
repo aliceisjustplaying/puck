@@ -79,9 +79,13 @@ is an unmerged, upstream-shaped esp32sim candidate at commit `246c699`.
 The frontloaded silicon-oracle batch is specified in
 [`E-01`](../../docs/lanes/requests/E-01-frontloaded-board-batch.md). The
 esp32sim release build and the retained upstream 3,000-step comparison are
-ready offline. Lane E has not accessed the board and may begin identity-bundle
-validation or JTAG only after the coordinator explicitly transfers ownership
-from lane 0.
+ready offline. Lane E validated the A-01 identity bundle and completed two
+independent upstream 8,000-step JTAG sessions. Both had no PC divergence and
+zero timing resynchronizations, and both retained the same one register
+difference at step 15. The full result and claim boundary are in
+[`E-01-jtag-lockstep`](../../docs/lanes/receipts/E-01-jtag-lockstep.md).
+No flash write occurred. Lane E restarted the installed ESP-IDF 6.1 gate
+harness and released the board.
 
 Lane 0's four ESP-IDF 6.1 raw runs reached all 210 measurement-group starts.
 Strict recovery gives at least two receipts to 204 groups: 186 have four and
