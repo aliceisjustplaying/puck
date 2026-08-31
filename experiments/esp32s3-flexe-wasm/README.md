@@ -15,7 +15,8 @@ real `src/wasm.ts` `instantiate()` function in the executable test.
 The dynamic runner also executes actual functions extracted from current
 ESP32-S3 ELFs at their original PCs. A sparse runner parses all `PT_LOAD`
 segments from the real TinyDraw gate-harness ELF, loads 625 pages, starts at
-its ELF entry point, and reaches a deterministic unloaded-ROM stop. Both paths
+its ELF entry point, and reaches deterministic unloaded-ROM and unmapped-data
+stops. Both paths
 return the visible register file, PC, step count, and stop reason through a
 versioned record.
 
@@ -280,8 +281,8 @@ the real entry performs two reset-reason calls, clears 21,216 bytes at
 `0x3fcabe60`, and records the real zero-length clear at `0x50000000`. A refusal
 control deliberately marks `wur.threadptr` at `0x40375ce7` and stops after 31
 steps. The integrated LX7 run executes that instruction, persists user register
-231, reaches 57 steps, and stops at the next absent ROM function,
-`Cache_Disable_ICache` at `0x4000186c`. No cache or MMIO behavior is implied.
+231, reaches 38 steps, and refuses the first undeclared 32-bit MMIO read at
+`0x600c4064` with flags zero. No cache or MMIO behavior is implied.
 
 Full-image runs accept at most 768 pages, 2,048 caller-identified unsupported
 instruction markers, 64 ROM events, and 256 executed instructions. The trace
@@ -297,8 +298,8 @@ The runner regression also executes a three-byte instruction beginning at
 before execution when the trailing page lacks execute permission. Ordinary
 ELF-run data reads and writes enforce PT_LOAD permissions with distinct stop
 reasons and fault metadata. Regressions cover 8-, 16-, and 32-bit accesses,
-including cross-page refusal without partial writes. The trace-only runner is
-unchanged.
+including fully unmapped addresses and mapped-to-unmapped cross-page refusal
+without partial writes. The trace-only runner is unchanged.
 
 ## Minimal interpreter dependency closure
 
@@ -325,8 +326,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 49,928 bytes with Zig 0.16.0, SHA-256
-`0cf0680c06386d19c6ae0c9e42cc84f73cc67d865e10d3b8c876e4d4793dfb18`.
+The stripped freestanding module is 49,931 bytes with Zig 0.16.0, SHA-256
+`49dfd5931477220a6091d8aa7f45bdc2d573e9724f467d1024c9cf851a05bc4b`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and

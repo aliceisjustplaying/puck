@@ -116,40 +116,64 @@ const permissionCode = {
   write16: [0x2d, 0x01, 0xfb, 0x22, 0x32, 0x52, 0x00],
   write32: [0x2d, 0x01, 0xfb, 0x22, 0x39, 0x02],
 } as const;
+const unmappedCodePrefix = [0x36, 0x21, 0x00, 0x22, 0xa5, 0x00, 0xc0, 0x22, 0x01] as const;
+const unmappedPermissionCode = {
+  read8: [...unmappedCodePrefix, 0x32, 0x02, 0x00],
+  read16: [...unmappedCodePrefix, 0x32, 0x12, 0x00],
+  read32: [...unmappedCodePrefix, 0x38, 0x02],
+  write8: [...unmappedCodePrefix, 0x32, 0x42, 0x00],
+  write16: [...unmappedCodePrefix, 0x32, 0x52, 0x00],
+  write32: [...unmappedCodePrefix, 0x39, 0x02],
+} as const;
 const permissionCodeBase = 0x4037_2000;
 const permissionDataBase = 0x3fce_9000;
 const permissionTrailingPage = permissionDataBase + 0x1000;
 const permissionStack = permissionDataBase + 0x0ff0;
 
-async function assertPermissionRefusal(
+async function assertDataRefusal(
   code: readonly number[],
   width: 1 | 2 | 4,
   isWrite: boolean,
+  boundary: "permission" | "cross-unmapped",
 ): Promise<void> {
   const firstBytes = new Uint8Array(4096).fill(0xa5);
   const trailingBytes = new Uint8Array(4096).fill(0x5a);
-  const deniedFlags = isWrite ? 4 : 2;
+  const permissionDeniedFlags = isWrite ? 4 : 2;
+  const targetAddress = width === 1 ? permissionTrailingPage : permissionDataBase + 0x0fff;
+  const dataSegments = [
+    syntheticSegment(1, permissionDataBase, firstBytes, firstBytes.length, {
+      read: true,
+      write: true,
+      execute: false,
+    }),
+  ];
+  if (boundary === "permission") {
+    dataSegments.push(syntheticSegment(2, permissionTrailingPage, trailingBytes, trailingBytes.length, {
+      read: isWrite,
+      write: !isWrite,
+      execute: false,
+    }));
+  }
+  const totalDataBytes = dataSegments.reduce((total, segment) => total + segment.fileBytes, 0);
   const image: Elf32XtensaImage = Object.freeze({
     schemaVersion: 1,
     entryPoint: permissionCodeBase,
-    elfBytes: code.length + firstBytes.length + trailingBytes.length,
-    elfSha256: `synthetic-${isWrite ? "write" : "read"}-${width}`,
+    elfBytes: code.length + totalDataBytes,
+    elfSha256: `synthetic-${isWrite ? "write" : "read"}-${width}-${boundary}`,
     loadSegments: Object.freeze([
       syntheticSegment(0, permissionCodeBase, code, code.length, { read: true, write: false, execute: true }),
-      syntheticSegment(1, permissionDataBase, firstBytes, firstBytes.length, { read: true, write: true, execute: false }),
-      syntheticSegment(2, permissionTrailingPage, trailingBytes, trailingBytes.length, {
-        read: isWrite,
-        write: !isWrite,
-        execute: false,
-      }),
+      ...dataSegments,
     ]),
-    totalFileBytes: code.length + firstBytes.length + trailingBytes.length,
-    totalMemoryBytes: code.length + firstBytes.length + trailingBytes.length,
+    totalFileBytes: code.length + totalDataBytes,
+    totalMemoryBytes: code.length + totalDataBytes,
   });
+  const capturePages = boundary === "permission"
+    ? [permissionDataBase, permissionTrailingPage]
+    : [permissionDataBase];
   const run = await runSparseXtensaElf(moduleBytes, image, {
     initialStack: permissionStack,
     maxSteps: 3,
-    capturePages: [permissionDataBase, permissionTrailingPage],
+    capturePages,
   });
   assert.equal(
     run.record.reason,
@@ -162,23 +186,81 @@ async function assertPermissionRefusal(
     abiVersion: 1,
     structBytes: 40,
     pc: permissionCodeBase + (width === 1 ? 5 : 4),
-    address: width === 1 ? permissionTrailingPage : permissionDataBase + 0x0fff,
+    address: targetAddress,
     width,
     isWrite,
     deniedAddress: permissionTrailingPage,
     deniedPage: permissionTrailingPage,
-    deniedFlags,
+    deniedFlags: boundary === "permission" ? permissionDeniedFlags : 0,
   });
-  assert.deepEqual(run.capturedPages[0]?.bytes, firstBytes, "permission refusal partially changed the first page");
-  assert.deepEqual(run.capturedPages[1]?.bytes, trailingBytes, "permission refusal changed the denied page");
+  assert.deepEqual(run.capturedPages[0]?.bytes, firstBytes, `${boundary} refusal partially changed the first page`);
+  if (boundary === "permission") {
+    assert.deepEqual(run.capturedPages[1]?.bytes, trailingBytes, "permission refusal changed the denied page");
+  }
 }
 
-await assertPermissionRefusal(permissionCode.read8, 1, false);
-await assertPermissionRefusal(permissionCode.read16, 2, false);
-await assertPermissionRefusal(permissionCode.read32, 4, false);
-await assertPermissionRefusal(permissionCode.write8, 1, true);
-await assertPermissionRefusal(permissionCode.write16, 2, true);
-await assertPermissionRefusal(permissionCode.write32, 4, true);
+async function assertFullyUnmappedRefusal(
+  code: readonly number[],
+  width: 1 | 2 | 4,
+  isWrite: boolean,
+): Promise<void> {
+  const stackBytes = new Uint8Array(4096).fill(0xa5);
+  const image: Elf32XtensaImage = Object.freeze({
+    schemaVersion: 1,
+    entryPoint: permissionCodeBase,
+    elfBytes: code.length + stackBytes.length,
+    elfSha256: `synthetic-${isWrite ? "write" : "read"}-${width}-fully-unmapped`,
+    loadSegments: Object.freeze([
+      syntheticSegment(0, permissionCodeBase, code, code.length, { read: true, write: false, execute: true }),
+      syntheticSegment(1, permissionDataBase, stackBytes, stackBytes.length, {
+        read: true,
+        write: true,
+        execute: false,
+      }),
+    ]),
+    totalFileBytes: code.length + stackBytes.length,
+    totalMemoryBytes: code.length + stackBytes.length,
+  });
+  const run = await runSparseXtensaElf(moduleBytes, image, {
+    initialStack: permissionStack,
+    maxSteps: 4,
+    capturePages: [permissionDataBase],
+  });
+  assert.equal(
+    run.record.reason,
+    isWrite ? FULL_ELF_STOP_REASONS.writePermission : FULL_ELF_STOP_REASONS.readPermission,
+  );
+  assert.equal(run.record.steps, 3);
+  assert.equal(run.record.pc, permissionCodeBase + unmappedCodePrefix.length);
+  assert.deepEqual(run.trace, [permissionCodeBase, permissionCodeBase + 3, permissionCodeBase + 6]);
+  assert.deepEqual(run.memoryFault, {
+    abiVersion: 1,
+    structBytes: 40,
+    pc: permissionCodeBase + unmappedCodePrefix.length,
+    address: 0x5000_0000,
+    width,
+    isWrite,
+    deniedAddress: 0x5000_0000,
+    deniedPage: 0x5000_0000,
+    deniedFlags: 0,
+  });
+  assert.deepEqual(run.capturedPages[0]?.bytes, stackBytes, "unmapped refusal changed loaded memory");
+}
+
+for (const boundary of ["permission", "cross-unmapped"] as const) {
+  await assertDataRefusal(permissionCode.read8, 1, false, boundary);
+  await assertDataRefusal(permissionCode.read16, 2, false, boundary);
+  await assertDataRefusal(permissionCode.read32, 4, false, boundary);
+  await assertDataRefusal(permissionCode.write8, 1, true, boundary);
+  await assertDataRefusal(permissionCode.write16, 2, true, boundary);
+  await assertDataRefusal(permissionCode.write32, 4, true, boundary);
+}
+await assertFullyUnmappedRefusal(unmappedPermissionCode.read8, 1, false);
+await assertFullyUnmappedRefusal(unmappedPermissionCode.read16, 2, false);
+await assertFullyUnmappedRefusal(unmappedPermissionCode.read32, 4, false);
+await assertFullyUnmappedRefusal(unmappedPermissionCode.write8, 1, true);
+await assertFullyUnmappedRefusal(unmappedPermissionCode.write16, 2, true);
+await assertFullyUnmappedRefusal(unmappedPermissionCode.write32, 4, true);
 
 assert.equal(image.entryPoint, 0x4037_5c9c);
 assert.equal(image.elfSha256, "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5");
@@ -236,12 +318,23 @@ const lx7Progress = await runSparseXtensaElf(moduleBytes, image, {
   maxSteps: 256,
   rom: { resetReasons: [1, 1], memset: true },
 });
-assert.equal(lx7Progress.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
-assert.equal(lx7Progress.record.steps, 57);
-assert.equal(lx7Progress.record.pc, 0x4000_186c);
+assert.equal(lx7Progress.record.reason, FULL_ELF_STOP_REASONS.readPermission);
+assert.equal(lx7Progress.record.steps, 38);
+assert.equal(lx7Progress.record.pc, 0x4037_5c44);
 assert.equal(lx7Progress.record.unsupportedPc, 0);
 assert(lx7Progress.trace.includes(0x4037_5ce7), "LX7 run did not execute wur.threadptr");
 assert.deepEqual(lx7Progress.romEvents, romProgress.romEvents);
+assert.deepEqual(lx7Progress.memoryFault, {
+  abiVersion: 1,
+  structBytes: 40,
+  pc: 0x4037_5c44,
+  address: 0x600c_4064,
+  width: 4,
+  isWrite: false,
+  deniedAddress: 0x600c_4064,
+  deniedPage: 0x600c_4000,
+  deniedFlags: 0,
+});
 
 const refusedInstruction = await runSparseXtensaElf(moduleBytes, image, {
   ...runnerMemory,
@@ -353,6 +446,15 @@ const actualBaseline = {
     traceSha256: traceSha256(lx7Progress.trace),
     stackPointer: hex(lx7Progress.record.stackPointer),
     registers: lx7Progress.record.registers.map(paddedHex),
+    memoryFault: lx7Progress.memoryFault && {
+      pc: hex(lx7Progress.memoryFault.pc),
+      address: hex(lx7Progress.memoryFault.address),
+      width: lx7Progress.memoryFault.width,
+      isWrite: lx7Progress.memoryFault.isWrite,
+      deniedAddress: hex(lx7Progress.memoryFault.deniedAddress),
+      deniedPage: hex(lx7Progress.memoryFault.deniedPage),
+      deniedFlags: lx7Progress.memoryFault.deniedFlags,
+    },
   },
   unsupportedRefusal: {
     reason: refusedInstruction.record.reasonName,
