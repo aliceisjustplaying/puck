@@ -14,6 +14,15 @@ const moduleBytes = await Bun.file(modulePath).arrayBuffer();
 const image = parseXtensaElf32(readFileSync(DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF));
 const pages = buildSparseElfPages(image);
 const pageByAddress = new Map(pages.map((page) => [page.address, page]));
+const runnerMemory = {
+  initialStack: 0x3fce_9700,
+  inheritedZeroRanges: [{
+    address: 0x3fce_7000,
+    bytes: 0x3000,
+    flags: 6,
+    provenance: "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
+  }],
+} as const;
 
 assert.equal(image.entryPoint, 0x4037_5c9c);
 assert.equal(image.elfSha256, "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5");
@@ -25,16 +34,16 @@ assert.equal(pages.find((page) => page.address === 0x4200_0000)!.flags, 5);
 assert.equal(pages.find((page) => page.address === 0x3fca_b000)!.bytes[0xe58], 0, "PT_LOAD BSS must be zero");
 assert.throws(() => buildSparseElfPages(image, 624), /more than 624 sparse pages/);
 
-const bounded = await runSparseXtensaElf(moduleBytes, image, { maxSteps: 4 });
+const bounded = await runSparseXtensaElf(moduleBytes, image, { ...runnerMemory, maxSteps: 4 });
 assert.equal(bounded.record.reason, FULL_ELF_STOP_REASONS.maxSteps);
 assert.equal(bounded.record.steps, 4);
 assert.equal(bounded.record.pc, 0x4037_5ca7);
 assert.deepEqual(bounded.trace, [0x4037_5c9c, 0x4037_5c9f, 0x4037_5ca2, 0x4037_5ca5]);
-assert.equal(bounded.loadedPages, 625);
+assert.equal(bounded.loadedPages, 628);
 assert.deepEqual(bounded.logs, []);
 assert.deepEqual(bounded.romEvents, []);
 
-const firstStop = await runSparseXtensaElf(moduleBytes, image, { maxSteps: 64 });
+const firstStop = await runSparseXtensaElf(moduleBytes, image, { ...runnerMemory, maxSteps: 64 });
 assert.equal(firstStop.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
 assert.equal(firstStop.record.steps, 6);
 assert.equal(firstStop.record.pc, 0x4000_057c);
@@ -50,12 +59,15 @@ assert.deepEqual(firstStop.logs, []);
 assert.deepEqual(firstStop.romEvents, []);
 
 const romProgress = await runSparseXtensaElf(moduleBytes, image, {
+  ...runnerMemory,
   maxSteps: 256,
+  unsupported: [{ pc: 0x4037_5ce7, encoding: 0xf3_e780 }],
   rom: { resetReasons: [1, 1], memset: true },
 });
-assert.equal(romProgress.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
-assert.equal(romProgress.record.steps, 57);
-assert.equal(romProgress.record.pc, 0x4000_186c);
+assert.equal(romProgress.record.reason, FULL_ELF_STOP_REASONS.unsupported);
+assert.equal(romProgress.record.steps, 31);
+assert.equal(romProgress.record.pc, 0x4037_5ce7);
+assert.equal(romProgress.record.unsupportedEncoding, 0xf3_e780);
 assert.deepEqual(romProgress.romEvents, [
   { kind: "resetReason", pc: 0x4000_057c, core: 0, result: 1 },
   { kind: "resetReason", pc: 0x4000_057c, core: 1, result: 1 },
@@ -64,6 +76,7 @@ assert.deepEqual(romProgress.romEvents, [
 ]);
 
 const refusedInstruction = await runSparseXtensaElf(moduleBytes, image, {
+  ...runnerMemory,
   maxSteps: 64,
   unsupported: [{ pc: image.entryPoint, encoding: 0x00_8136 }],
 });
@@ -75,21 +88,22 @@ assert.equal(refusedInstruction.record.unsupportedEncoding, 0x00_8136);
 assert.equal(refusedInstruction.record.unsupportedLength, 3);
 assert.deepEqual(refusedInstruction.trace, []);
 const mismatchedMarker = await runSparseXtensaElf(moduleBytes, image, {
+  ...runnerMemory,
   maxSteps: 64,
   unsupported: [{ pc: image.entryPoint, encoding: 0 }],
 });
 assert.equal(mismatchedMarker.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
 assert.equal(mismatchedMarker.record.steps, 6);
 
-const unloadedEntry = await runSparseXtensaElf(moduleBytes, { ...image, entryPoint: 0x4000_057c }, { maxSteps: 1 });
+const unloadedEntry = await runSparseXtensaElf(moduleBytes, { ...image, entryPoint: 0x4000_057c }, { ...runnerMemory, maxSteps: 1 });
 assert.equal(unloadedEntry.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
 assert.equal(unloadedEntry.record.steps, 0);
-const nonExecutableEntry = await runSparseXtensaElf(moduleBytes, { ...image, entryPoint: 0x3fc8_8000 }, { maxSteps: 1 });
+const nonExecutableEntry = await runSparseXtensaElf(moduleBytes, { ...image, entryPoint: 0x3fc8_8000 }, { ...runnerMemory, maxSteps: 1 });
 assert.equal(nonExecutableEntry.record.reason, FULL_ELF_STOP_REASONS.nonExecutablePage);
 assert.equal(nonExecutableEntry.record.steps, 0);
 
 await assert.rejects(
-  runSparseXtensaElf(moduleBytes, image, { maxSteps: 257 }),
+  runSparseXtensaElf(moduleBytes, image, { ...runnerMemory, maxSteps: 257 }),
   /exceeds trace capacity 256/,
 );
 
@@ -119,6 +133,9 @@ const actualBaseline = {
     entryPoint: hex(image.entryPoint),
     loadSegments: image.loadSegments.length,
     sparsePages: pages.length,
+    inheritedPages: 3,
+    initialStack: hex(runnerMemory.initialStack),
+    initialStackProvenance: runnerMemory.inheritedZeroRanges[0].provenance,
     runnerPatchSha256: createHash("sha256")
       .update(readFileSync(join(import.meta.dir, "patches/0001-add-wasi-probe.patch")))
       .digest("hex"),
@@ -144,6 +161,7 @@ const actualBaseline = {
     reason: romProgress.record.reasonName,
     steps: romProgress.record.steps,
     pc: hex(romProgress.record.pc),
+    unsupportedEncoding: romProgress.record.unsupportedEncoding.toString(16).padStart(6, "0"),
     traceSha256: traceSha256(romProgress.trace),
     stackPointer: hex(romProgress.record.stackPointer),
     registers: romProgress.record.registers.map(paddedHex),
@@ -170,7 +188,8 @@ assert.deepEqual(actualBaseline, baseline, "tracked full ELF execution baseline 
 console.log(JSON.stringify({
   elfSha256: image.elfSha256,
   entryPoint: `0x${image.entryPoint.toString(16)}`,
-  loadedPages: pages.length,
+  elfPages: pages.length,
+  loadedPages: bounded.loadedPages,
   bounded: {
     reason: bounded.record.reasonName,
     steps: bounded.record.steps,
