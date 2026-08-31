@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "inputs": {
     "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
-    "moduleSha256": "cf24d125e02486a0eb8334d942c6a86a032ba47c41198c4bacd63c9a9f1608c9",
-    "traceRecordSha256": "4fb70bf4056d01acb004a4683cb668e687ccf574752f561166f4ab7a6a24553c",
+    "moduleSha256": "54c601ab9fa2a57f82c62e65f0d5810889055a09ffc209010f87ac00839dc3aa",
+    "traceRecordSha256": "9c17f21cef48da6284bc5ecc1764673645c6b0d63fa531170209cd8463d27830",
     "timingProfileSha256": "31a83ab4fe2253ef7ff5a0bcc944aa5c9ca38f90eef485f48f8f725fd790402a",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
     "neutralAdapterSha256": "187ad825414c070dc160fc682311bbf9d69d1af47d67ca7ee4097239a7c69f94",
@@ -12,10 +12,10 @@
     "beqzClassifierSha256": "05fc756b4fe8c1cc69fe3787e413dece79b02cc920d4a3f9340c7bf3bfea3fc9"
   },
   "trace": {
-    "records": 1105,
-    "instructions": 837,
-    "reads": 186,
-    "writes": 82,
+    "records": 1233,
+    "instructions": 943,
+    "reads": 204,
+    "writes": 86,
     "observedSramPages": [
       "0x3fca6000",
       "0x3fcab000",
@@ -30,47 +30,188 @@
       "0x40381000",
       "0x40382000"
     ],
-    "observedFlashPages": ["0x42000000", "0x42003000"],
-    "observedMmioPages": ["0x60008000", "0x6000e000", "0x600c0000", "0x600c4000"]
+    "observedFlashPages": [
+      "0x42000000",
+      "0x42003000"
+    ],
+    "observedMmioPages": [
+      "0x60008000",
+      "0x6000e000",
+      "0x600c0000",
+      "0x600c4000"
+    ]
   },
   "replay": {
     "status": "blocked",
     "totalCycles": null,
-    "issuedEvents": 2049,
-    "memoryEvents": 1054,
+    "issuedEvents": 2296,
+    "memoryEvents": 1182,
     "mmioEvents": 54,
     "mmioAccessBreakdown": [
-      { "address": "0x60008000", "operation": "read", "writeEffect": null, "bytes": 4, "peripheral": "rtc-controller", "count": 2 },
-      { "address": "0x60008000", "operation": "write", "writeEffect": null, "bytes": 4, "peripheral": "rtc-controller", "count": 2 },
-      { "address": "0x600080c0", "operation": "read", "writeEffect": null, "bytes": 4, "peripheral": "rtc-controller", "count": 2 },
-      { "address": "0x600081fc", "operation": "read", "writeEffect": null, "bytes": 4, "peripheral": "rtc-controller", "count": 1 },
-      { "address": "0x600081fc", "operation": "write", "writeEffect": null, "bytes": 4, "peripheral": "rtc-controller", "count": 1 },
-      { "address": "0x6000e040", "operation": "read", "writeEffect": null, "bytes": 4, "peripheral": "regi2c-controller", "count": 2 },
-      { "address": "0x6000e040", "operation": "write", "writeEffect": null, "bytes": 4, "peripheral": "regi2c-controller", "count": 2 },
-      { "address": "0x600c0010", "operation": "read", "writeEffect": null, "bytes": 4, "peripheral": "system-controller", "count": 5 },
-      { "address": "0x600c0010", "operation": "write", "writeEffect": "same-value", "bytes": 4, "peripheral": "system-controller", "count": 1 },
-      { "address": "0x600c0060", "operation": "read", "writeEffect": null, "bytes": 4, "peripheral": "system-controller", "count": 6 },
-      { "address": "0x600c0060", "operation": "write", "writeEffect": null, "bytes": 4, "peripheral": "system-controller", "count": 1 },
-      { "address": "0x600c0060", "operation": "write", "writeEffect": "same-value", "bytes": 4, "peripheral": "system-controller", "count": 2 },
-      { "address": "0x600c4004", "operation": "read", "writeEffect": null, "bytes": 4, "peripheral": "cache-controller", "count": 6 },
-      { "address": "0x600c4004", "operation": "write", "writeEffect": "same-value", "bytes": 4, "peripheral": "cache-controller", "count": 5 },
-      { "address": "0x600c404c", "operation": "read", "writeEffect": null, "bytes": 4, "peripheral": "cache-controller", "count": 2 },
-      { "address": "0x600c4064", "operation": "read", "writeEffect": null, "bytes": 4, "peripheral": "cache-controller", "count": 6 },
-      { "address": "0x600c4064", "operation": "write", "writeEffect": "same-value", "bytes": 4, "peripheral": "cache-controller", "count": 5 },
-      { "address": "0x600c40a0", "operation": "read", "writeEffect": null, "bytes": 4, "peripheral": "cache-controller", "count": 2 },
-      { "address": "0x600c4130", "operation": "read", "writeEffect": null, "bytes": 4, "peripheral": "cache-controller", "count": 1 }
+      {
+        "address": "0x60008000",
+        "operation": "read",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "rtc-controller",
+        "count": 2
+      },
+      {
+        "address": "0x60008000",
+        "operation": "write",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "rtc-controller",
+        "count": 2
+      },
+      {
+        "address": "0x600080c0",
+        "operation": "read",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "rtc-controller",
+        "count": 2
+      },
+      {
+        "address": "0x600081fc",
+        "operation": "read",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "rtc-controller",
+        "count": 1
+      },
+      {
+        "address": "0x600081fc",
+        "operation": "write",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "rtc-controller",
+        "count": 1
+      },
+      {
+        "address": "0x6000e040",
+        "operation": "read",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "regi2c-controller",
+        "count": 2
+      },
+      {
+        "address": "0x6000e040",
+        "operation": "write",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "regi2c-controller",
+        "count": 2
+      },
+      {
+        "address": "0x600c0010",
+        "operation": "read",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "system-controller",
+        "count": 5
+      },
+      {
+        "address": "0x600c0010",
+        "operation": "write",
+        "writeEffect": "same-value",
+        "bytes": 4,
+        "peripheral": "system-controller",
+        "count": 1
+      },
+      {
+        "address": "0x600c0060",
+        "operation": "read",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "system-controller",
+        "count": 6
+      },
+      {
+        "address": "0x600c0060",
+        "operation": "write",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "system-controller",
+        "count": 1
+      },
+      {
+        "address": "0x600c0060",
+        "operation": "write",
+        "writeEffect": "same-value",
+        "bytes": 4,
+        "peripheral": "system-controller",
+        "count": 2
+      },
+      {
+        "address": "0x600c4004",
+        "operation": "read",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "count": 6
+      },
+      {
+        "address": "0x600c4004",
+        "operation": "write",
+        "writeEffect": "same-value",
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "count": 5
+      },
+      {
+        "address": "0x600c404c",
+        "operation": "read",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "count": 2
+      },
+      {
+        "address": "0x600c4064",
+        "operation": "read",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "count": 6
+      },
+      {
+        "address": "0x600c4064",
+        "operation": "write",
+        "writeEffect": "same-value",
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "count": 5
+      },
+      {
+        "address": "0x600c40a0",
+        "operation": "read",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "count": 2
+      },
+      {
+        "address": "0x600c4130",
+        "operation": "read",
+        "writeEffect": null,
+        "bytes": 4,
+        "peripheral": "cache-controller",
+        "count": 1
+      }
     ],
-    "cpuEvents": 941,
-    "romCallbackEvents": 27,
-    "exactRomCallbackEvents": 9,
-    "dependentSramLoadUseHazards": 77,
-    "exactBeqzNotTaken": 9,
+    "cpuEvents": 1060,
+    "romCallbackEvents": 30,
+    "exactRomCallbackEvents": 11,
+    "dependentSramLoadUseHazards": 87,
+    "exactBeqzNotTaken": 11,
     "exactBeqzTaken": 0,
     "exactMmioEvents": 40,
-    "knownCostEvents": 2017,
-    "unknownCostEvents": 32,
-    "issuedProjectionSha256": "8d11b88fc05cd36981f469a45543ccb77a3a3a2e5155507e9407b77ce20063b5",
-    "loadUseEvidenceSha256": "17dcb09e788d1599a1efa6ecd24c9601cb7fbf1511b379d1f52d8418cb91fb09",
-    "romCallbackEvidenceSha256": "2b1d0a4a14c2073a7f399340e2bdb87a81efe14a1a16ee91b68ae0ef374cf8b6"
+    "knownCostEvents": 2263,
+    "unknownCostEvents": 33,
+    "issuedProjectionSha256": "71251258354e4d935070d5722896a5fa7118cb51cb4343f71469e634870d33be",
+    "loadUseEvidenceSha256": "a1044870116b1547d47bd0368ee67eeb753ea08c06d59b1d5718451a35cad769",
+    "romCallbackEvidenceSha256": "9989a462711f6eaf10f74517518ad131d922cc4f33b2adab41825f37a21da229"
   }
 }

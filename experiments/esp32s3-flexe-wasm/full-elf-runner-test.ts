@@ -835,7 +835,7 @@ const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true, cpuTicksPerUs: 40 },
 });
 assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.romRefused);
-assert.equal(cacheProgress.record.steps, 837);
+assert.equal(cacheProgress.record.steps, 943);
 assert.equal(cacheProgress.record.pc, 0x4000_1c38);
 assert(cacheProgress.record.steps > 356, "RTC_CNTL_DATE XTAL write did not advance the real ELF");
 assert.notEqual(cacheProgress.record.pc, 0x4037_730f);
@@ -970,8 +970,10 @@ assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) =>
   { kind: "intlevelRestore", pc: 0x4000_1c38, restorePs: 0x0004_0c00, previousPs: 0x0004_0c03, callinc: 2 },
   { kind: "intlevelRestore", pc: 0x4000_1c38, restorePs: 0x0004_0c00, previousPs: 0x0004_0c03, callinc: 2 },
   { kind: "intlevelRestore", pc: 0x4000_1c38, restorePs: 0x0004_0c03, previousPs: 0x0004_0c03, callinc: 2 },
+  { kind: "intlevelRestore", pc: 0x4000_1c38, restorePs: 0x0004_0c00, previousPs: 0x0004_0c03, callinc: 2 },
+  { kind: "intlevelRestore", pc: 0x4000_1c38, restorePs: 0x0004_0c00, previousPs: 0x0004_0c03, callinc: 2 },
 ]);
-assert.deepEqual(cacheProgress.intlevel, { intlevel: 3, restoreCount: 8, lastPc: 0x4000_1c38 });
+assert.deepEqual(cacheProgress.intlevel, { intlevel: 0, restoreCount: 10, lastPc: 0x4000_1c38 });
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "bbpllRomWrite")), [
   {
     kind: "bbpllRomWrite",
@@ -1014,9 +1016,26 @@ assert.deepEqual(cacheProgress.bbpllRom, {
   modeHf: 0x6b,
   refDiv: 0x50,
   div7_0: 8,
+  dr1: 0,
   writeCount: 3,
-  lastPc: 0x4000_5d60,
+  maskedWriteCount: 1,
+  lastPc: 0x4000_5d6c,
 });
+assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "bbpllRomMaskWrite")), [{
+  kind: "bbpllRomMaskWrite",
+  pc: 0x4000_5d6c,
+  block: 0x66,
+  hostId: 1,
+  register: 5,
+  msb: 2,
+  lsb: 0,
+  data: 0,
+  callinc: 2,
+  currentIntlevel: 3,
+  priorIntlevelRestoreCount: 10,
+  priorBbpllWriteCount: 3,
+  priorMaskedWriteCount: 0,
+}]);
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "cpuTicksPerUs")), [
   { kind: "cpuTicksPerUs", pc: 0x4000_1a4c, ticksPerUs: 40, callinc: 2 },
 ]);
@@ -1199,6 +1218,23 @@ const baselineRomEvent = (event: FullElfRomEvent) => {
       currentIntlevel: event.currentIntlevel,
       priorIntlevelRestoreCount: event.priorIntlevelRestoreCount,
       priorBbpllWriteCount: event.priorBbpllWriteCount,
+    };
+  }
+  if (event.kind === "bbpllRomMaskWrite") {
+    return {
+      kind: event.kind,
+      pc: hex(event.pc),
+      block: hex(event.block),
+      hostId: event.hostId,
+      register: event.register,
+      msb: event.msb,
+      lsb: event.lsb,
+      data: hex(event.data),
+      callinc: event.callinc,
+      currentIntlevel: event.currentIntlevel,
+      priorIntlevelRestoreCount: event.priorIntlevelRestoreCount,
+      priorBbpllWriteCount: event.priorBbpllWriteCount,
+      priorMaskedWriteCount: event.priorMaskedWriteCount,
     };
   }
   return {

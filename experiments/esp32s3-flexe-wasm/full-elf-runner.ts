@@ -33,6 +33,7 @@ import {
 import {
   createEsp32S3DirectBootBbpllRom,
   writeEsp32S3DirectBootBbpllRom,
+  writeEsp32S3DirectBootBbpllRomMask,
   type Esp32S3DirectBootBbpllRomState,
 } from "./direct-boot-bbpll-rom";
 import {
@@ -196,6 +197,7 @@ export type FullElfRomEvent = Readonly<
   | { kind: "regi2cMmioWrite"; pc: number; address: number; width: number; value: number }
   | { kind: "intlevelRestore"; pc: number; restorePs: number; previousPs: number; callinc: number }
   | { kind: "bbpllRomWrite"; pc: number; block: number; hostId: number; register: number; data: number; callinc: number; currentIntlevel: number; priorIntlevelRestoreCount: number; priorBbpllWriteCount: number }
+  | { kind: "bbpllRomMaskWrite"; pc: number; block: number; hostId: number; register: number; msb: number; lsb: number; data: number; callinc: number; currentIntlevel: number; priorIntlevelRestoreCount: number; priorBbpllWriteCount: number; priorMaskedWriteCount: number }
   | { kind: "cpuTicksPerUs"; pc: number; ticksPerUs: number; callinc: number }
   | { kind: "systemMmioWrite"; pc: number; address: number; width: number; value: number }
   )
@@ -653,6 +655,23 @@ export async function runSparseXtensaElf(
         currentIntlevel: words[4] & 0xf,
         afterInstructionCount,
       }));
+    } else if (words[0] === 17) {
+      romEvents.push(Object.freeze({
+        kind: "bbpllRomMaskWrite",
+        pc: words[1],
+        block: words[2] & 0xff,
+        priorIntlevelRestoreCount: (words[2] >>> 8) & 0xff,
+        priorMaskedWriteCount: (words[2] >>> 16) & 0xff,
+        priorBbpllWriteCount: words[2] >>> 24,
+        hostId: words[3] >>> 24,
+        register: (words[3] >>> 16) & 0xff,
+        msb: (words[3] >>> 8) & 0xff,
+        lsb: words[3] & 0xff,
+        data: words[4] & 0xff,
+        callinc: (words[4] >>> 8) & 0xff,
+        currentIntlevel: (words[4] >>> 16) & 0xf,
+        afterInstructionCount,
+      }));
     } else throw new Error(`unknown full ELF ROM event ${words[0]}`);
   }
   let cacheBootstrap = options.rom?.cacheBootstrap
@@ -870,6 +889,28 @@ export async function runSparseXtensaElf(
         priorWriteCount: event.priorBbpllWriteCount,
       });
       assert(written.status === "accepted", "full ELF module violated BBPLL ROM-write contract");
+      bbpllRom = written.state;
+      continue;
+    }
+    if (event.kind === "bbpllRomMaskWrite") {
+      assert(bbpllRom !== null && intlevel?.restoreCount === event.priorIntlevelRestoreCount,
+        "BBPLL ROM masked write preceded interrupt-level restore");
+      const written = writeEsp32S3DirectBootBbpllRomMask(bbpllRom, {
+        pc: event.pc,
+        callinc: event.callinc,
+        block: event.block,
+        hostId: event.hostId,
+        register: event.register,
+        msb: event.msb,
+        lsb: event.lsb,
+        data: event.data,
+        currentIntlevel: event.currentIntlevel,
+        interruptLevelRestored: true,
+        priorIntlevelRestoreCount: event.priorIntlevelRestoreCount,
+        priorWriteCount: event.priorBbpllWriteCount,
+        priorMaskedWriteCount: event.priorMaskedWriteCount,
+      });
+      assert(written.status === "accepted", "full ELF module violated BBPLL ROM masked-write contract");
       bbpllRom = written.state;
       continue;
     }
