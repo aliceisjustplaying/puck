@@ -9,10 +9,10 @@
     "inheritedPages": 3,
     "initialStack": "0x3fce9700",
     "initialStackProvenance": "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
-    "runnerPatchSha256": "f7ebbbf2d281f0adaee715316a9d8887bf2afe3d838954b82d7e4433c396a68a",
+    "runnerPatchSha256": "f978454d1872719ab74ff8c5d091f478474d7ae54f44fc5183cd5b287d4cd4f9",
     "esp32s3PatchSha256": "815f8ac67279aaa55775e470b66c7954c895d41d5388fa8de9c6b035e91fea0c",
-    "moduleBytes": 49931,
-    "moduleSha256": "49dfd5931477220a6091d8aa7f45bdc2d573e9724f467d1024c9cf851a05bc4b"
+    "moduleBytes": 49959,
+    "moduleSha256": "04972dcd606a86a753f1006a637b3b2ee82824ee252d30bd28d8a95892eada7d"
   },
   "bounded": {
     "reason": "maxSteps",
@@ -43,10 +43,10 @@
   "romProgress": {
     "resetReasons": [1, 1],
     "reason": "unsupported",
-    "steps": 31,
+    "steps": 27,
     "pc": "0x40375ce7",
     "unsupportedEncoding": "f3e780",
-    "traceSha256": "de92794c183054d32d7eef10401b994cdfef92ff7295fe80fd05300aea80fda6",
+    "traceSha256": "1d92e5b4b7ed8eed6d0b4572f98f98ae8c3276fb88159b2aa1496616cdbe457e",
     "stackPointer": "0x3fce96c0",
     "registers": [
       "0x00000000", "0x3fce96c0", "0x00000000", "0x00000000",
@@ -63,9 +63,9 @@
   },
   "lx7Progress": {
     "reason": "readPermission",
-    "steps": 38,
+    "steps": 34,
     "pc": "0x40375c44",
-    "traceSha256": "20d858420bfb876785d0049eaf6478ed1495aa1fd484d3892673e7033e8e9afa",
+    "traceSha256": "6cd94a59bc0643b02ba7b2fc308902384dc81d8d6c03513b8c383b573cbc8b06",
     "stackPointer": "0x3fce96a0",
     "registers": [
       "0x80375cef", "0x3fce96a0", "0x50000000", "0x00000000",

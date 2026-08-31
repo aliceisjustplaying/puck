@@ -108,6 +108,32 @@ assert.equal(topBoundaryRun.record.steps, 0);
 assert.equal(topBoundaryRun.record.pc, 0xffff_ffff);
 assert.deepEqual(topBoundaryRun.trace, []);
 
+const failedDecoderImage: Elf32XtensaImage = Object.freeze({
+  schemaVersion: 1,
+  entryPoint: 0x4037_1000,
+  elfBytes: 3,
+  elfSha256: "synthetic-failed-decoder",
+  loadSegments: Object.freeze([
+    syntheticSegment(0, 0x4037_1000, [0x30, 0x00, 0xf3], 3, { read: true, write: false, execute: true }),
+    syntheticSegment(1, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
+  ]),
+  totalFileBytes: 3,
+  totalMemoryBytes: 0x1003,
+});
+const failedDecoderRun = await runSparseXtensaElf(moduleBytes, failedDecoderImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 1,
+});
+assert.equal(failedDecoderRun.record.reason, FULL_ELF_STOP_REASONS.stepError);
+assert.equal(failedDecoderRun.record.steps, 0);
+assert.equal(failedDecoderRun.record.pc, failedDecoderImage.entryPoint);
+assert.deepEqual(failedDecoderRun.trace, []);
+assert.deepEqual(
+  failedDecoderRun.record.registers,
+  [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "failed full-ELF decoder step changed registers",
+);
+
 const permissionCode = {
   read8: [0x2d, 0x01, 0x22, 0xc2, 0x10, 0x32, 0x02, 0x00],
   read16: [0x2d, 0x01, 0xfb, 0x22, 0x32, 0x12, 0x00],
@@ -303,9 +329,12 @@ const romProgress = await runSparseXtensaElf(moduleBytes, image, {
   rom: { resetReasons: [1, 1], memset: true },
 });
 assert.equal(romProgress.record.reason, FULL_ELF_STOP_REASONS.unsupported);
-assert.equal(romProgress.record.steps, 31);
+assert.equal(romProgress.record.steps, 27);
 assert.equal(romProgress.record.pc, 0x4037_5ce7);
 assert.equal(romProgress.record.unsupportedEncoding, 0xf3_e780);
+assert.equal(romProgress.trace.length, romProgress.record.steps);
+assert(!romProgress.trace.includes(0x4000_057c), "reset-reason callback leaked into the instruction trace");
+assert(!romProgress.trace.includes(0x4000_11e8), "memset callback leaked into the instruction trace");
 assert.deepEqual(romProgress.romEvents, [
   { kind: "resetReason", pc: 0x4000_057c, core: 0, result: 1 },
   { kind: "resetReason", pc: 0x4000_057c, core: 1, result: 1 },
@@ -319,7 +348,7 @@ const lx7Progress = await runSparseXtensaElf(moduleBytes, image, {
   rom: { resetReasons: [1, 1], memset: true },
 });
 assert.equal(lx7Progress.record.reason, FULL_ELF_STOP_REASONS.readPermission);
-assert.equal(lx7Progress.record.steps, 38);
+assert.equal(lx7Progress.record.steps, 34);
 assert.equal(lx7Progress.record.pc, 0x4037_5c44);
 assert.equal(lx7Progress.record.unsupportedPc, 0);
 assert(lx7Progress.trace.includes(0x4037_5ce7), "LX7 run did not execute wur.threadptr");
