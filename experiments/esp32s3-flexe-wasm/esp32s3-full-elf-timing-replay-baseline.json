@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "inputs": {
     "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
-    "moduleSha256": "8643b071f42937d2e762db82fe4c96b1231b8f867d4f083cedd2df9c7d09d543",
-    "traceRecordSha256": "5f186e25e99daccb890bc93daaabc2c2abe9ebbd725c5ed038bea3433f0c8b04",
+    "moduleSha256": "1a25ecaf64018b77c62bdc31f3ec07753e664a579eb96fbfd5376c7694580ee1",
+    "traceRecordSha256": "89a628ff6f8273a786654e3153f1cf8d6cf629ed849ca6c3c58c04917819736d",
     "timingProfileSha256": "8dfbf2f51aa77d69eb98a0eed87d8d2442a2a9584ac21c5d238291398918f15b",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
     "neutralAdapterSha256": "337da62ff6c9a4f4aab9a09e419d250de22f0cc7fc04110826dd90bc8bf4430c",
@@ -12,10 +12,10 @@
     "beqzClassifierSha256": "05fc756b4fe8c1cc69fe3787e413dece79b02cc920d4a3f9340c7bf3bfea3fc9"
   },
   "trace": {
-    "records": 489,
-    "instructions": 351,
-    "reads": 86,
-    "writes": 52,
+    "records": 504,
+    "instructions": 362,
+    "reads": 89,
+    "writes": 53,
     "observedSramPages": [
       "0x3fcab000",
       "0x3fcac000",
@@ -36,13 +36,27 @@
     "exactBeqzNotTaken": 3,
     "exactBeqzTaken": 0,
     "exactMmioEvents": 5,
-    "issuedEvents": 871,
-    "memoryEvents": 452,
-    "mmioEvents": 40,
+    "issuedEvents": 898,
+    "memoryEvents": 465,
+    "mmioEvents": 42,
     "mmioAccessBreakdown": [
       {
         "address": "0x600080c0",
         "operation": "read",
+        "bytes": 4,
+        "peripheral": "rtc-controller",
+        "count": 1
+      },
+      {
+        "address": "0x600081fc",
+        "operation": "read",
+        "bytes": 4,
+        "peripheral": "rtc-controller",
+        "count": 1
+      },
+      {
+        "address": "0x600081fc",
+        "operation": "write",
         "bytes": 4,
         "peripheral": "rtc-controller",
         "count": 1
@@ -118,11 +132,11 @@
         "count": 1
       }
     ],
-    "cpuEvents": 379,
-    "dependentSramLoadUseHazards": 28,
-    "knownCostEvents": 836,
-    "unknownCostEvents": 35,
-    "issuedProjectionSha256": "f044be785884565cf905b938870fb646083cefbd5724a3e97cb5d3bd199ca2cc",
-    "loadUseEvidenceSha256": "5f9e894a887960bea8359009766a7b5b26fbba3befd6ae219bda79b9372284ed"
+    "cpuEvents": 391,
+    "dependentSramLoadUseHazards": 29,
+    "knownCostEvents": 861,
+    "unknownCostEvents": 37,
+    "issuedProjectionSha256": "b46c7ac6685b0946198b864321523522438e9f85776d580ff386e151be7960bf",
+    "loadUseEvidenceSha256": "4cd5539455eec51f4c908f50f0a6cbda438226a4cc430f15f3b976c3657f704b"
   }
 }

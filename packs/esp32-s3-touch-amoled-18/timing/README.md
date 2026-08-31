@@ -156,9 +156,9 @@ because it is not an integral per-access cost.
 - A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core has a
   bounded S3 patch and fail-closed markers for 1,225 decoded inventory gaps.
   Static inventory is not whole-program execution coverage.
-- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 351 real
-  instructions. Its current timing replay emits 871 events and adopts exact
-  costs for 836, including five matched MMIO reads. The remaining 35 MMIO
+- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 362 real
+  instructions. Its current timing replay emits 898 events and adopts exact
+  costs for 861, including five matched MMIO reads. The remaining 37 MMIO
   events block a total. It does not provide the complete
   ESP32-S3 data map, interrupt matrix,
   peripherals, ESP-IDF boot, or real dual-core execution.

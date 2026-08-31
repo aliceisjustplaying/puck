@@ -340,13 +340,18 @@ Other registers, access shapes, readers, orderings, and additional accesses are
 refused. After the first SYSTEM sequence, the runner exposes one
 ordered 32-bit read of RTCCNTL `RTC_XTAL_FREQ_REG` at `0x600080c0` from PC
 `0x40377159`. TinyDraw configures a 40 MHz crystal and keeps ROM logging on, so
-the bootloader-persisted duplicated-half value is `0x00280028`. Other RTCCNTL
-addresses, access shapes, readers, orderings, and repeats are refused. The next
+the bootloader-persisted duplicated-half value is `0x00280028`. After the clock
+switch, the runner admits the exact `RTC_CNTL_DATE_REG` read at `0x600081fc`
+from PC `0x40377301`. Its source-backed value is the documented raw reset
+value `0x02101271`; the following RMW installs the XTAL LDO slave field.
+Other RTCCNTL addresses, access shapes, readers, orderings, and repeats
+are refused. The next
 exact ROM callback, `esp_rom_set_cpu_ticks_per_us` at `0x40001a4c`,
 accepts argument 40 with CALLINC 2 only after both clock-query cycles. The real
-image now executes 351 instructions and stops on the undeclared RTCCNTL read
-at `0x600081fc` from PC `0x40377301`; the typed event log contains the
-CPU-ticks callback, nine SYSTEM reads, three SYSTEM writes, and one RTCCNTL read.
+image now executes 362 instructions and stops on the following RTCCNTL
+`OPTIONS0` read at `0x60008000` from PC `0x4037f7df`; the typed event log
+contains the CPU-ticks callback, nine SYSTEM reads, three SYSTEM writes, two
+RTCCNTL reads, and the source-backed `RTC_CNTL_DATE_REG` XTAL write.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
@@ -373,8 +378,8 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 351-step
-cache-bootstrap boundary produces 489 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 362-step
+cache-bootstrap boundary produces 504 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
@@ -384,13 +389,13 @@ MMIO pages observed in the trace, with their ELF or inherited permissions.
 Those nine exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 489 records issue 871 timing events: 452 memory-system
-events, 40 MMIO accesses, 351 calibrated CPU issue events, and 28 calibrated
-dependent load-use events. Exactly 836 events have adopted costs, including
+literal loads. The 504 records issue 898 timing events: 465 memory-system
+events, 42 MMIO accesses, 362 calibrated CPU issue events, and 29 calibrated
+dependent load-use events. Exactly 861 events have adopted costs, including
 five exact MMIO reads, three exact not-taken `beqz` paths, three flash line
 fills, and every zero-miss cache hit. The baseline pins the branch classifier,
 hazard count, and a projection hash of their schedule, consumer IDs, registers,
-and producer/consumer PCs. The remaining 35 controller MMIO events keep the
+and producer/consumer PCs. The remaining 37 controller MMIO events keep the
 replay blocked with no total cycle claim. The baseline also pins the exact
 address, direction, width, peripheral, and count of all observed MMIO access
 classes so hardware-adopted costs cannot silently broaden their scope.
@@ -431,8 +436,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 67,233 bytes with Zig 0.16.0, SHA-256
-`8643b071f42937d2e762db82fe4c96b1231b8f867d4f083cedd2df9c7d09d543`.
+The stripped freestanding module is 69,766 bytes with Zig 0.16.0, SHA-256
+`1a25ecaf64018b77c62bdc31f3ec07753e664a579eb96fbfd5376c7694580ee1`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and

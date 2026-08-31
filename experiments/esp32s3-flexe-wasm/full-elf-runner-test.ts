@@ -638,8 +638,8 @@ const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true, cpuTicksPerUs: 40 },
 });
 assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.readPermission);
-assert(cacheProgress.record.steps > 338, "XTAL source SYSTEM_SYSCLK_CONF write did not advance the real ELF");
-assert.notEqual(cacheProgress.record.pc, 0x4037_72b8);
+assert(cacheProgress.record.steps > 356, "RTC_CNTL_DATE XTAL write did not advance the real ELF");
+assert.notEqual(cacheProgress.record.pc, 0x4037_730f);
 assert.deepEqual(cacheProgress.cacheBootstrap, {
   sequenceIndex: 6,
   complete: true,
@@ -717,11 +717,20 @@ assert.deepEqual(cacheProgress.systemMmio, {
 });
 assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "rtcMmioRead"), [
   { kind: "rtcMmioRead", pc: 0x4037_7159, address: 0x6000_80c0, width: 4, value: 0x0028_0028 },
+  { kind: "rtcMmioRead", pc: 0x4037_7301, address: 0x6000_81fc, width: 4, value: 0x0210_1271 },
+]);
+assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "rtcMmioWrite"), [
+  { kind: "rtcMmioWrite", pc: 0x4037_730f, address: 0x6000_81fc, width: 4, value: 0x0210_f271 },
 ]);
 assert.deepEqual(cacheProgress.rtcMmio, {
   xtalFreqReg: 0x0028_0028,
   readCount: 1,
   lastReadPc: 0x4037_7159,
+  dateReg: 0x0210_f271,
+  dateReadCount: 1,
+  dateLastReadPc: 0x4037_7301,
+  dateWriteCount: 1,
+  dateLastWritePc: 0x4037_730f,
 });
 assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "cpuTicksPerUs"), [
   { kind: "cpuTicksPerUs", pc: 0x4000_1a4c, ticksPerUs: 40, callinc: 2 },
@@ -734,11 +743,11 @@ assert.deepEqual(cacheProgress.cpuTicks, {
 assert.deepEqual(cacheProgress.memoryFault, {
   abiVersion: 1,
   structBytes: 40,
-  pc: 0x4037_7301,
-  address: 0x6000_81fc,
+  pc: 0x4037_f7df,
+  address: 0x6000_8000,
   width: 4,
   isWrite: false,
-  deniedAddress: 0x6000_81fc,
+  deniedAddress: 0x6000_8000,
   deniedPage: 0x6000_8000,
   deniedFlags: 0,
 });
@@ -869,7 +878,8 @@ const baselineRomEvent = (event: FullElfRomEvent) => {
       dataBytes: event.dataBytes,
     };
   }
-  if (event.kind === "systemMmioRead" || event.kind === "systemMmioWrite" || event.kind === "rtcMmioRead") {
+  if (event.kind === "systemMmioRead" || event.kind === "systemMmioWrite" ||
+      event.kind === "rtcMmioRead" || event.kind === "rtcMmioWrite") {
     return {
       kind: event.kind,
       pc: hex(event.pc),

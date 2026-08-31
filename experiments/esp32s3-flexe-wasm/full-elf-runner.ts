@@ -9,6 +9,7 @@ import {
 import {
   createEsp32S3DirectBootRtcMmio,
   readEsp32S3DirectBootRtcMmio,
+  writeEsp32S3DirectBootRtcMmio,
   type Esp32S3DirectBootRtcMmioState,
 } from "./direct-boot-rtc-mmio";
 import {
@@ -169,6 +170,7 @@ export type FullElfRomEvent = Readonly<
       width: number;
       value: number;
     }
+  | { kind: "rtcMmioWrite"; pc: number; address: number; width: number; value: number }
   | { kind: "cpuTicksPerUs"; pc: number; ticksPerUs: number; callinc: number }
   | { kind: "systemMmioWrite"; pc: number; address: number; width: number; value: number }
 >;
@@ -571,6 +573,14 @@ export async function runSparseXtensaElf(
         width: words[3],
         value: words[4],
       }));
+    } else if (words[0] === 12) {
+      romEvents.push(Object.freeze({
+        kind: "rtcMmioWrite",
+        pc: words[1],
+        address: words[2],
+        width: words[3],
+        value: words[4],
+      }));
     } else throw new Error(`unknown full ELF ROM event ${words[0]}`);
   }
   let cacheBootstrap = options.rom?.cacheBootstrap
@@ -651,8 +661,12 @@ export async function runSparseXtensaElf(
       continue;
     }
     if (event.kind === "rtcMmioRead") {
-      assert(systemMmio?.readCount === 1 && systemMmio.cpuPerReadCount === 2,
-        "RTC MMIO read preceded SYSTEM clock reads");
+      const initialClockRead = event.address === 0x6000_80c0;
+      assert(systemMmio !== null && (initialClockRead
+        ? systemMmio.readCount === 1 && systemMmio.cpuPerReadCount === 2 && systemMmio.writeCount === 0
+        : systemMmio.readCount === 5 && systemMmio.cpuPerReadCount === 4 &&
+          systemMmio.writeCount === 3 && systemMmio.sysclkConf === 0 && cpuTicks?.configured === true),
+      "RTC MMIO read preceded its exact SYSTEM clock state");
       assert(rtcMmio !== null, "full ELF module returned unconfigured RTC MMIO");
       const read = readEsp32S3DirectBootRtcMmio(rtcMmio, {
         pc: event.pc,
@@ -695,6 +709,21 @@ export async function runSparseXtensaElf(
       });
       assert(write.handled && write.status === "accepted", "full ELF module violated system MMIO write contract");
       systemMmio = write.state;
+      continue;
+    }
+    if (event.kind === "rtcMmioWrite") {
+      assert(rtcMmio !== null && systemMmio?.readCount === 5 && systemMmio.writeCount === 3 &&
+        cpuTicks?.configured === true, "full ELF module returned an unconfigured RTC MMIO write");
+      const write = writeEsp32S3DirectBootRtcMmio(rtcMmio, {
+        pc: event.pc,
+        address: event.address,
+        width: event.width,
+        isWrite: true,
+        value: event.value,
+        systemMmioComplete: true,
+      });
+      assert(write.handled && write.status === "accepted", "full ELF module violated RTC MMIO write contract");
+      rtcMmio = write.state;
       continue;
     }
     if (event.kind !== "cache") continue;
@@ -748,11 +777,16 @@ export async function runSparseXtensaElf(
     assert(stateWords[7] === (systemMmio.lastWritePc ?? 0), "SYSTEM_SYSCLK_CONF writer differs");
   }
   if (rtcMmio) {
-    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_rtc_mmio_state(), 12, "ELF RTC MMIO state");
-    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 3);
+    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_rtc_mmio_state(), 32, "ELF RTC MMIO state");
+    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 8);
     assert(stateWords[0] === rtcMmio.xtalFreqReg, "RTC_XTAL_FREQ state differs");
     assert(stateWords[1] === rtcMmio.readCount, "RTC_XTAL_FREQ read count differs");
     assert(stateWords[2] === (rtcMmio.lastReadPc ?? 0), "RTC_XTAL_FREQ reader differs");
+    assert(stateWords[3] === rtcMmio.dateReg, "RTC_CNTL_DATE state differs");
+    assert(stateWords[4] === rtcMmio.dateReadCount, "RTC_CNTL_DATE read count differs");
+    assert(stateWords[5] === (rtcMmio.dateLastReadPc ?? 0), "RTC_CNTL_DATE reader differs");
+    assert(stateWords[6] === rtcMmio.dateWriteCount, "RTC_CNTL_DATE write count differs");
+    assert(stateWords[7] === (rtcMmio.dateLastWritePc ?? 0), "RTC_CNTL_DATE writer differs");
   }
   const captureAddresses = [...(options.capturePages ?? [])];
   assert(new Set(captureAddresses).size === captureAddresses.length, "captured ELF pages must be unique");
