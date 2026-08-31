@@ -72,6 +72,9 @@ function romCallbackProfileKey(entry: RomCallbackProfileCost): string {
   if (entry.kind === "cpuTicksPerUs") {
     return `${entry.pc}:${entry.kind}:${entry.ticksPerUs}:${entry.callinc}`;
   }
+  if (entry.kind === "intlevelRestore") {
+    return `${entry.pc}:${entry.kind}:${entry.restorePs}:${entry.previousPs}:${entry.callinc}`;
+  }
   return `${entry.pc}:${entry.kind}:${entry.block}:${entry.hostId}:${entry.register}:${entry.data}:` +
     `${entry.callinc}:${entry.currentIntlevel}:${entry.priorIntlevelRestoreCount}:${entry.priorWriteCount}`;
 }
@@ -83,6 +86,10 @@ function romCallbackEventKey(event: FullElfRomEvent): string | null {
   }
   if (event.kind === "cpuTicksPerUs") {
     return `${pc}:${event.kind}:${event.ticksPerUs}:${event.callinc}`;
+  }
+  if (event.kind === "intlevelRestore") {
+    return `${pc}:${event.kind}:0x${event.restorePs.toString(16).padStart(8, "0")}:` +
+      `0x${event.previousPs.toString(16).padStart(8, "0")}:${event.callinc}`;
   }
   if (event.kind === "bbpllRomWrite") {
     return `${pc}:${event.kind}:${event.block}:${event.hostId}:${event.register}:${event.data}:` +
@@ -462,11 +469,11 @@ assert.equal(instructionCpuEvents.length, 724);
 assert.equal(exactBeqzNotTaken.length, 7);
 assert.equal(exactBeqzTaken.length, 0);
 assert.equal(romCallbackCpuEvents.length, 24);
-assert.equal(exactRomCallbackEvents.length, 4);
+assert.equal(exactRomCallbackEvents.length, 8);
 assert.equal(machine.issuedEvents.length, 1775);
 assert.equal(exactMmioEvents.length, 40);
-assert.equal(machine.claim.unknownCostEventIds.length, 34);
-assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 1741);
+assert.equal(machine.claim.unknownCostEventIds.length, 30);
+assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 1745);
 assert(machine.issuedEvents.every((event) => !event.cost.source?.includes(here)),
   "full ELF timing evidence source leaked an absolute worktree path");
 assert([...instructionCpuEvents, ...loadUseHazards].every((event) =>

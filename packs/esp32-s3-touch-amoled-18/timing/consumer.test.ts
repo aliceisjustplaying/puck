@@ -348,11 +348,19 @@ describe("timing profile claim boundary", () => {
     expect(profile.romCallbackCycles).toEqual({
       status: "partially-calibrated",
       evidence:
-        "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-0a41b6f-bbpll-rom-callback-adoption.json",
+        "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-d42615b-xtos-intlevel-adoption.json",
       entries: [
         { kind: "memset", pc: "0x400011e8", destination: "0x3fcabe60", value: 0, length: 0x52e0, cycles: 6_659 },
         { kind: "memset", pc: "0x400011e8", destination: "0x50000000", value: 0, length: 0, cycles: 31 },
         { kind: "cpuTicksPerUs", pc: "0x40001a4c", ticksPerUs: 40, callinc: 2, cycles: 9 },
+        {
+          kind: "intlevelRestore",
+          pc: "0x40001c38",
+          restorePs: "0x00040c00",
+          previousPs: "0x00040c03",
+          callinc: 2,
+          cycles: 15,
+        },
         {
           kind: "bbpllRomWrite",
           pc: "0x40005d60",

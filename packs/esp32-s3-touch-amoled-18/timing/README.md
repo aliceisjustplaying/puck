@@ -191,16 +191,22 @@ one-shot `rom_i2c_writeReg(0x66, 1, 4, 0x6b)` call and remains present after it.
 Matched baselines adopt the reset-state invocation at 836 cycles with zero
 cache activity; the distinct 835-cycle warmed repeat is retained but not generalized.
 
+The exact interrupt-level restore extension is checked in as
+[`evidence/esp32s3-rev02-tinydraw-d42615b-xtos-intlevel-adoption.json`](evidence/esp32s3-rev02-tinydraw-d42615b-xtos-intlevel-adoption.json).
+Two clean 100-sample boots reproduce a 34-cycle matched baseline and 49-cycle
+`_xtos_set_intlevel` target. The profile adopts the 15-cycle delta only for
+PC `0x40001c38`, saved PS `0x00040c00`, previous PS `0x00040c03`, and CALLINC2.
+
 ## What remains before a cycle-accurate claim
 
 - A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core has a
   bounded S3 patch and leaves 756 unsupported panel-inventory rows plus 4,157
   full-image rows represented by 445 fail-closed markers. Static inventory is
   not whole-program execution coverage.
-- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 704 real
-  instructions. Its current timing replay emits 1,729 events and adopts exact
-  costs for 1,696, including 40 matched MMIO accesses and four exact ROM
-  callbacks. The remaining 14 MMIO costs and 19 ROM callback durations block a total. It does not provide the complete
+- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 724 real
+  instructions. Its current timing replay emits 1,775 events and adopts exact
+  costs for 1,745, including 40 matched MMIO accesses and eight exact ROM
+  callbacks. The remaining 14 MMIO costs and 16 ROM callback durations block a total. It does not provide the complete
   ESP32-S3 data map, interrupt matrix,
   peripherals, ESP-IDF boot, or real dual-core execution.
 - Cache-store hits, dependent load-use modeling, dirty writeback, DMA ordering,
