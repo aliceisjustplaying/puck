@@ -145,8 +145,8 @@ byte for byte. Its adoption status remains `unreviewed`.
 - A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core has a
   bounded S3 patch and fail-closed markers for 1,985 decoded inventory gaps.
   Static inventory is not whole-program execution coverage.
-- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 249 real
-  instructions through 11 cache ROM callbacks and two source-backed SYSTEM
+- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 271 real
+  instructions through 11 cache ROM callbacks and three source-backed SYSTEM
   reads. It does not provide the complete ESP32-S3 data map, interrupt matrix,
   peripherals, ESP-IDF boot, or real dual-core execution.
 - Cache-store hits, dependent load-use modeling, dirty writeback, DMA ordering,

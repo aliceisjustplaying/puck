@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "inputs": {
     "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
-    "moduleSha256": "e9aa1b4ff1a2fb9ab5ad43cb5435c40f3f638b4c80b8c48ee97ab7eca982a103",
-    "traceRecordSha256": "88629d486e32ea30b15bfa7e267347273c68317e6dd4b91698978b9022c3bae9",
+    "moduleSha256": "a86d7dc21f0458d2a240cee6e730acde0258f6fa6003d0c8ea39094ea24cf423",
+    "traceRecordSha256": "af5c2b4ce8a5dbd05925a56c18c07e16b0f69fb0913ae786b35eb5c5f9340a66",
     "timingProfileSha256": "34b42ab4fd68e95a391b2d563844c1d0f8f5318a44fad7b703b7c38607d52dde",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
     "neutralAdapterSha256": "337da62ff6c9a4f4aab9a09e419d250de22f0cc7fc04110826dd90bc8bf4430c",
@@ -11,16 +11,17 @@
     "loadUseClassifierSha256": "1759fe4d4e9bbf91f8780dbf585ab2b4b2a797ab39f7857cc6ce45f45ac60240"
   },
   "trace": {
-    "records": 339,
-    "instructions": 249,
-    "reads": 66,
-    "writes": 24,
+    "records": 376,
+    "instructions": 271,
+    "reads": 69,
+    "writes": 36,
     "observedSramPages": [
       "0x3fcab000",
       "0x3fce9000",
       "0x40374000",
       "0x40375000",
       "0x40377000",
+      "0x4037f000",
       "0x40380000",
       "0x40382000"
     ],
@@ -30,14 +31,14 @@
   "replay": {
     "status": "blocked",
     "totalCycles": null,
-    "issuedEvents": 615,
-    "memoryEvents": 313,
-    "mmioEvents": 29,
-    "cpuEvents": 273,
-    "dependentSramLoadUseHazards": 24,
-    "knownCostEvents": 586,
-    "unknownCostEvents": 29,
-    "issuedProjectionSha256": "99404a67ff8dca1b5de2892ace21993d9cf615102e67a224c12f543bb49102ff",
-    "loadUseEvidenceSha256": "dc80da9e7210956a63435afa1acb31a4a3db5beb79e90d757582b99d3e30b372"
+    "issuedEvents": 675,
+    "memoryEvents": 349,
+    "mmioEvents": 30,
+    "cpuEvents": 296,
+    "dependentSramLoadUseHazards": 25,
+    "knownCostEvents": 645,
+    "unknownCostEvents": 30,
+    "issuedProjectionSha256": "bab764dbc5eeb82c0cbada5a9ce4636d41ba9385c06a28d73e36c8b474478371",
+    "loadUseEvidenceSha256": "92f83e59cd75ea00e1fadd44d604139e8d1dcbd3cee28ff2827d2a79e5bf8da5"
   }
 }

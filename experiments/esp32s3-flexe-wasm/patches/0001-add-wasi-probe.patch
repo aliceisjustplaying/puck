@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..55a269c
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1427 @@
+@@ -0,0 +1,1433 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -190,7 +190,7 @@ index 0000000..55a269c
 +#define DATA_CAPACITY 4096u
 +#define PAGE_BYTES 4096u
 +#define ELF_PAGE_CAPACITY 768u
-+#define ELF_TRACE_CAPACITY 256u
++#define ELF_TRACE_CAPACITY 512u
 +#define ELF_MEMORY_TRACE_CAPACITY 1024u
 +#define ELF_UNSUPPORTED_CAPACITY 2048u
 +#define ELF_ROM_EVENT_CAPACITY 64u
@@ -220,6 +220,7 @@ index 0000000..55a269c
 +#define ESP32S3_DIRECT_BOOT_CPU_PER_CONF 0x00000004u
 +#define ESP32S3_DIRECT_BOOT_SYSCLK_CONF 0x00000400u
 +#define ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC 0x403771d6u
++#define ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC 0x403771ffu
 +#define ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC 0x403771a5u
 +#define ESP32S3_CACHE_IDLE 0x001001u
 +#define ESP32S3_CACHE_AUTOLOAD_BASE 8u
@@ -585,12 +586,13 @@ index 0000000..55a269c
 +static int elf_rom_record(uint32_t kind, uint32_t pc, uint32_t arg0,
 +                          uint32_t arg1, uint32_t arg2);
 +
-+static int elf_system_mmio_read_seen(uint32_t address) {
++static uint32_t elf_system_mmio_read_count(uint32_t address) {
++    uint32_t count = 0;
 +    for (uint32_t i = 0; i < elf_rom_event_count; i++) {
 +        if (elf_rom_events[i][0] == ELF_ROM_EVENT_SYSTEM_MMIO_READ &&
-+            elf_rom_events[i][2] == address) return 1;
++            elf_rom_events[i][2] == address) count++;
 +    }
-+    return 0;
++    return count;
 +}
 +
 +static int elf_system_mmio_permission(uint32_t address, uint32_t width, int is_write) {
@@ -601,12 +603,16 @@ index 0000000..55a269c
 +    uint32_t value;
 +    if (address == ESP32S3_SYSTEM_SYSCLK_CONF &&
 +        g_dbg_pc == ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC &&
-+        !elf_system_mmio_read_seen(address)) {
++        elf_system_mmio_read_count(address) == 0u) {
 +        value = ESP32S3_DIRECT_BOOT_SYSCLK_CONF;
-+    } else if (address == ESP32S3_SYSTEM_CPU_PER_CONF &&
-+               g_dbg_pc == ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC &&
-+               elf_system_mmio_read_seen(ESP32S3_SYSTEM_SYSCLK_CONF) &&
-+               !elf_system_mmio_read_seen(address)) {
++    } else if (address == ESP32S3_SYSTEM_CPU_PER_CONF) {
++        uint32_t cpu_per_reads = elf_system_mmio_read_count(address);
++        int expected_reader = (cpu_per_reads == 0u &&
++                               g_dbg_pc == ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC) ||
++                              (cpu_per_reads == 1u &&
++                               g_dbg_pc == ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC);
++        if (!expected_reader || elf_system_mmio_read_count(ESP32S3_SYSTEM_SYSCLK_CONF) != 1u)
++            return -1;
 +        value = ESP32S3_DIRECT_BOOT_CPU_PER_CONF;
 +    } else {
 +        return -1;

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   ESP32S3_DIRECT_BOOT_CPU_PER_CONF,
   ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC,
+  ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC,
   ESP32S3_DIRECT_BOOT_CPU_PER_PROVENANCE,
   ESP32S3_DIRECT_BOOT_SYSCLK_CONF,
   ESP32S3_DIRECT_BOOT_SYSCLK_PROVENANCE,
@@ -84,6 +85,40 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
     });
   });
 
+  test("permits the distinct ordered CPU period reader exactly once", () => {
+    expect(ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC).toBe(0x4037_71ff);
+    const initial = createEsp32S3DirectBootSystemMmio();
+    const source = readEsp32S3DirectBootSystemMmio(initial, {
+      pc: 0x4037_71a5,
+      address: ESP32S3_SYSTEM_SYSCLK_CONF_REG,
+      width: 4,
+      isWrite: false,
+    });
+    if (!source.handled || source.status !== "accepted") throw new Error("source read refused");
+    const first = readEsp32S3DirectBootSystemMmio(source.state, {
+      pc: ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC,
+      address: ESP32S3_SYSTEM_CPU_PER_CONF_REG,
+      width: 4,
+      isWrite: false,
+    });
+    if (!first.handled || first.status !== "accepted") throw new Error("first CPU period read refused");
+    expect(readEsp32S3DirectBootSystemMmio(first.state, {
+      pc: ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC,
+      address: ESP32S3_SYSTEM_CPU_PER_CONF_REG,
+      width: 4,
+      isWrite: false,
+    })).toEqual({
+      handled: true,
+      status: "accepted",
+      value: 0x4,
+      state: {
+        ...first.state,
+        cpuPerReadCount: 2,
+        cpuPerLastReadPc: 0x4037_71ff,
+      },
+    });
+  });
+
   test("refuses undeclared registers, invalid access shapes, readers, and repeats", () => {
     const initial = createEsp32S3DirectBootSystemMmio();
     const valid = {
@@ -135,5 +170,21 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
     const repeatedCpu = readEsp32S3DirectBootSystemMmio(cpu.state, cpuAccess);
     expect(repeatedCpu.status).toBe("refused");
     if (repeatedCpu.handled) expect(repeatedCpu.state).toBe(cpu.state);
+    const secondCpuAccess = {
+      ...cpuAccess,
+      pc: ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC,
+    } as const;
+    const outOfOrderCpu = readEsp32S3DirectBootSystemMmio(accepted.state, secondCpuAccess);
+    expect(outOfOrderCpu.status).toBe("refused");
+    if (outOfOrderCpu.handled) expect(outOfOrderCpu.state).toBe(accepted.state);
+    const secondCpu = readEsp32S3DirectBootSystemMmio(cpu.state, secondCpuAccess);
+    if (!secondCpu.handled || secondCpu.status !== "accepted") {
+      throw new Error("second CPU period read refused");
+    }
+    for (const third of [secondCpuAccess, cpuAccess]) {
+      const refused = readEsp32S3DirectBootSystemMmio(secondCpu.state, third);
+      expect(refused.status).toBe("refused");
+      if (refused.handled) expect(refused.state).toBe(secondCpu.state);
+    }
   });
 });

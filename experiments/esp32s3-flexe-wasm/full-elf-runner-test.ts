@@ -543,12 +543,12 @@ assert.deepEqual(lx7Progress.memoryFault, {
 
 const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   ...runnerMemory,
-  maxSteps: 256,
+  maxSteps: 512,
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true },
 });
 assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.readPermission);
-assert(cacheProgress.record.steps > 243, "SYSTEM_CPU_PER_CONF read did not advance the real ELF");
-assert.notEqual(cacheProgress.record.pc, 0x4037_71d6);
+assert(cacheProgress.record.steps > 249, "second SYSTEM_CPU_PER_CONF read did not advance the real ELF");
+assert.notEqual(cacheProgress.record.pc, 0x4037_71ff);
 assert.deepEqual(cacheProgress.cacheBootstrap, {
   sequenceIndex: 6,
   complete: true,
@@ -601,24 +601,25 @@ assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "cache
 assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "systemMmioRead"), [
   { kind: "systemMmioRead", pc: 0x4037_71a5, address: 0x600c_0060, width: 4, value: 0x400 },
   { kind: "systemMmioRead", pc: 0x4037_71d6, address: 0x600c_0010, width: 4, value: 0x4 },
+  { kind: "systemMmioRead", pc: 0x4037_71ff, address: 0x600c_0010, width: 4, value: 0x4 },
 ]);
 assert.deepEqual(cacheProgress.systemMmio, {
   sysclkConf: 0x400,
   readCount: 1,
   lastReadPc: 0x4037_71a5,
   cpuPerConf: 0x4,
-  cpuPerReadCount: 1,
-  cpuPerLastReadPc: 0x4037_71d6,
+  cpuPerReadCount: 2,
+  cpuPerLastReadPc: 0x4037_71ff,
 });
 assert.deepEqual(cacheProgress.memoryFault, {
   abiVersion: 1,
   structBytes: 40,
-  pc: 0x4037_71ff,
-  address: 0x600c_0010,
+  pc: 0x4037_7159,
+  address: 0x6000_80c0,
   width: 4,
   isWrite: false,
-  deniedAddress: 0x600c_0010,
-  deniedPage: 0x600c_0000,
+  deniedAddress: 0x6000_80c0,
+  deniedPage: 0x6000_8000,
   deniedFlags: 0,
 });
 assert.deepEqual(
@@ -667,8 +668,8 @@ assert.equal(nonExecutableEntry.record.reason, FULL_ELF_STOP_REASONS.nonExecutab
 assert.equal(nonExecutableEntry.record.steps, 0);
 
 await assert.rejects(
-  runSparseXtensaElf(moduleBytes, image, { ...runnerMemory, maxSteps: 257 }),
-  /exceeds trace capacity 256/,
+  runSparseXtensaElf(moduleBytes, image, { ...runnerMemory, maxSteps: 513 }),
+  /exceeds trace capacity 512/,
 );
 
 const hex = (value: number): string => `0x${value.toString(16)}`;

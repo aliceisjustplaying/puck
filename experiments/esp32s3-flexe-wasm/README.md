@@ -308,13 +308,13 @@ addresses. It follows the observed call order through cache disable/enable,
 16 KiB 8-way 32-byte-line instruction geometry, 32 KiB 8-way 64-byte-line
 data geometry, data suspend/resume, and MMU table sizes. It then maps only two
 source-backed SYSTEM registers: the 80 MHz
-PLL source value `0x400` at `0x600c0060`, read from PC `0x403771a5`, and the
-80 MHz CPU period value `0x4` at `0x600c0010`, read from PC `0x403771d6`.
-Both are aligned one-shot 32-bit reads after MMU setup. Other registers,
-access shapes, readers, orderings, and repeats are refused. The real image now
-executes 249 instructions and stops at PC `0x403771ff`, where it attempts a
-second read of `0x600c0010`; the typed event log contains exactly the first two
-SYSTEM reads.
+PLL source value `0x400` at `0x600c0060`, read once from PC `0x403771a5`, and
+the 80 MHz CPU period value `0x4` at `0x600c0010`, read in order from PCs
+`0x403771d6` and `0x403771ff`. All are aligned 32-bit reads after MMU setup.
+Other registers, access shapes, readers, orderings, duplicates, and a third
+CPU-period read are refused. The real image now executes 271 instructions and
+stops at PC `0x40377159` on the first undeclared RTCCNTL read, address
+`0x600080c0`; the typed event log contains exactly the three SYSTEM reads.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
@@ -326,7 +326,7 @@ first undeclared 32-bit MMIO read at
 `0x600c4064` with flags zero. No cache or MMIO behavior is implied.
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
-markers, 64 ROM events, and 256 executed instructions. The pinned TinyDraw ELF
+markers, 64 ROM events, and 512 executed instructions. The pinned TinyDraw ELF
 automatically installs the tracked 1,985-instruction ESP32-S3 ISA gap set before
 execution. Each marker must match the decoder-width bytes in loaded executable
 memory during setup; stale, mismatched, unloaded, and non-executable markers are
@@ -341,23 +341,23 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 249-step
-cache-bootstrap boundary produces 339 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 271-step
+cache-bootstrap boundary produces 376 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
 same neutral adapter and `TimingMachine` used by the RGB565 replay. Its address
-map contains only the seven SRAM pages, two flash pages, and two controller
+map contains only the eight SRAM pages, two flash pages, and two controller
 MMIO pages observed in the trace, with their ELF or inherited permissions.
-Those seven exact 4 KiB SRAM ranges opt into the
+Those eight exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 339 records issue 615 timing events: 313 memory-system
-events, 29 MMIO accesses, 249 calibrated CPU issue events, and 24 calibrated
-dependent load-use events. Exactly 586 events have adopted costs, including
+literal loads. The 376 records issue 675 timing events: 349 memory-system
+events, 30 MMIO accesses, 271 calibrated CPU issue events, and 25 calibrated
+dependent load-use events. Exactly 645 events have adopted costs, including
 three flash line fills and every zero-miss cache hit. The baseline pins the
 hazard count and a projection hash of their schedule, consumer IDs, registers,
-and producer/consumer PCs. Only the 29 controller MMIO costs remain unknown,
+and producer/consumer PCs. Only the 30 controller MMIO costs remain unknown,
 so the replay is blocked and reports no total cycle claim.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,

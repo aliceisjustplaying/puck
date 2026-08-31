@@ -3,6 +3,7 @@ export const ESP32S3_SYSTEM_CPU_PER_CONF_REG = 0x600c_0010;
 export const ESP32S3_SYSTEM_SYSCLK_CONF_REG = 0x600c_0060;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC = 0x4037_71a5;
 export const ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC = 0x4037_71d6;
+export const ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC = 0x4037_71ff;
 
 /*
  * TinyDraw's ESP-IDF v6.0.2 bootloader config selects 80 MHz. The S3
@@ -84,14 +85,17 @@ export function readEsp32S3DirectBootSystemMmio(
     if (access.width !== 4 || access.isWrite) {
       return refuse(state, "SYSTEM_CPU_PER_CONF permits only the observed aligned 32-bit read");
     }
-    if (access.pc !== ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC) {
-      return refuse(state, `unexpected SYSTEM_CPU_PER_CONF reader 0x${access.pc.toString(16)}`);
-    }
     if (state.readCount !== 1) {
       return refuse(state, "SYSTEM_CPU_PER_CONF read preceded SYSTEM_SYSCLK_CONF");
     }
-    if (state.cpuPerReadCount !== 0) {
-      return refuse(state, "SYSTEM_CPU_PER_CONF direct-boot read already occurred");
+    if (state.cpuPerReadCount >= 2) {
+      return refuse(state, "SYSTEM_CPU_PER_CONF direct-boot reads already occurred");
+    }
+    const expectedPc = state.cpuPerReadCount === 0
+      ? ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC
+      : ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC;
+    if (access.pc !== expectedPc) {
+      return refuse(state, `unexpected SYSTEM_CPU_PER_CONF reader 0x${access.pc.toString(16)}`);
     }
     return Object.freeze({
       handled: true,
@@ -99,7 +103,7 @@ export function readEsp32S3DirectBootSystemMmio(
       value: state.cpuPerConf,
       state: Object.freeze({
         ...state,
-        cpuPerReadCount: 1,
+        cpuPerReadCount: state.cpuPerReadCount + 1,
         cpuPerLastReadPc: access.pc,
       }),
     });
