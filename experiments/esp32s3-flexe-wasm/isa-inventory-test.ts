@@ -54,8 +54,13 @@ assert(surface.normalizedMnemonics.includes("ee.ld.128.usar.ip"), "ESP32-S3 PIE 
 assert(surface.normalizedMnemonics.includes("ee.ldqa.s16.128.ip"), "ESP32-S3 PIE patch surface lost signed QACC load");
 assert(surface.normalizedMnemonics.includes("ee.st.accx.ip"), "ESP32-S3 PIE patch surface lost ACCX store");
 assert(surface.normalizedMnemonics.includes("ee.ld.qacc_h.h.32.ip"), "ESP32-S3 PIE patch surface lost QACC high-word load");
+assert(surface.normalizedMnemonics.includes("ee.ld.qacc_h.l.128.ip"), "ESP32-S3 PIE patch surface lost QACC high-bank low-part load");
+assert(surface.normalizedMnemonics.includes("ee.ld.qacc_l.h.32.ip"), "ESP32-S3 PIE patch surface lost QACC low-bank high-word load");
 assert(surface.normalizedMnemonics.includes("ee.ld.qacc_l.l.128.ip"), "ESP32-S3 PIE patch surface lost QACC low-part load");
 assert(surface.normalizedMnemonics.includes("ee.st.qacc_l.l.128.ip"), "ESP32-S3 PIE patch surface lost QACC low-part store");
+assert(surface.normalizedMnemonics.includes("ee.st.qacc_h.h.32.ip"), "ESP32-S3 PIE patch surface lost QACC high-bank high-word store");
+assert(surface.normalizedMnemonics.includes("ee.st.qacc_h.l.128.ip"), "ESP32-S3 PIE patch surface lost QACC high-bank low-part store");
+assert(surface.normalizedMnemonics.includes("ee.st.qacc_l.h.32.ip"), "ESP32-S3 PIE patch surface lost QACC low-bank high-word store");
 assert(surface.normalizedMnemonics.includes("ee.vldbc.32.ip"), "ESP32-S3 PIE patch surface lost broadcast load");
 assert(!surface.normalizedMnemonics.includes("??gap"), "unknown decoder diagnostics are not instructions");
 

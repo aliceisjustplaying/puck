@@ -199,7 +199,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2165,230 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2165,238 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -362,24 +362,32 @@ index 67dca18..e72666d 100644
 +    }
 +
 +    uint32_t qacc_memory_opcode = insn & 0xbf800fu;
-+    if (qacc_memory_opcode == 0x000004u || qacc_memory_opcode == 0x0c0004u) {
++    if (qacc_memory_opcode == 0x000004u || qacc_memory_opcode == 0x060004u ||
++        qacc_memory_opcode == 0x0c0004u || qacc_memory_opcode == 0x0d0004u) {
 +        unsigned base_register = XT_T(insn);
 +        uint32_t base = ar_read(cpu, base_register);
 +        uint32_t address = base & ~15u;
-+        if (qacc_memory_opcode == 0x000004u) {
-+            for (unsigned i = 0; i < 4; i++)
-+                cpu->qacc_l[i] = mem_read32(cpu->mem, address + i * 4);
-+        } else {
-+            for (unsigned i = 0; i < 4; i++)
-+                mem_write32(cpu->mem, address + i * 4, cpu->qacc_l[i]);
-+        }
++        bool high_bank = qacc_memory_opcode == 0x060004u || qacc_memory_opcode == 0x0d0004u;
++        bool store = qacc_memory_opcode == 0x0c0004u || qacc_memory_opcode == 0x0d0004u;
++        uint32_t *qacc = high_bank ? cpu->qacc_h : cpu->qacc_l;
++        if (store)
++            for (unsigned i = 0; i < 4; i++) mem_write32(cpu->mem, address + i * 4, qacc[i]);
++        else
++            for (unsigned i = 0; i < 4; i++) qacc[i] = mem_read32(cpu->mem, address + i * 4);
 +        ar_write(cpu, base_register, base + (uint32_t)esp32s3_imm8x16(insn));
 +        return 1;
 +    }
-+    if (qacc_memory_opcode == 0x1e0004u) {
++    if (qacc_memory_opcode == 0x120004u || qacc_memory_opcode == 0x160004u ||
++        qacc_memory_opcode == 0x1d0004u || qacc_memory_opcode == 0x1e0004u) {
 +        unsigned base_register = XT_T(insn);
 +        uint32_t base = ar_read(cpu, base_register);
-+        cpu->qacc_h[4] = mem_read32(cpu->mem, base & ~3u);
++        bool high_bank = qacc_memory_opcode == 0x120004u || qacc_memory_opcode == 0x1e0004u;
++        bool store = qacc_memory_opcode == 0x120004u || qacc_memory_opcode == 0x1d0004u;
++        uint32_t *qacc = high_bank ? cpu->qacc_h : cpu->qacc_l;
++        if (store)
++            mem_write32(cpu->mem, base & ~3u, qacc[4]);
++        else
++            qacc[4] = mem_read32(cpu->mem, base & ~3u);
 +        ar_write(cpu, base_register, base + (uint32_t)esp32s3_imm8x4(insn));
 +        return 1;
 +    }
@@ -430,7 +438,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2628,8 @@ have_insn:
+@@ -2319,6 +2636,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -439,7 +447,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +2656,16 @@ have_insn:
+@@ -2345,14 +2664,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -460,7 +468,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +2679,8 @@ have_insn:
+@@ -2366,6 +2687,8 @@ have_insn:
          }
      }
 
