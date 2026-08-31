@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "inputs": {
-    "traceSha256": "ae24fd0b6d4e84dcbbad7e393c0be39058e5a04b2386f099bde1e0127103b9b4",
-    "stagingElfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
-    "sdkconfigSha256": "65cfb5deebc36666fb3247ec5bc91aaf9de2d9a8c2642eb1666ec5b3e485bb92",
+    "traceSha256": "5de26fe4432e5af5c95d99d32ee0d3d68260e712bb5dd20c60eb1315f295c4eb",
+    "stagingElfSha256": "522b33cb491bbc9c8a61a364b3c986c7f1d013bcdf228f79791981f7fcad1491",
+    "sdkconfigSha256": "ac1749b0f5b9c54e3e8e5ffc045b37a434d6b289420a8f9cf0f37fe8a3173d9b",
     "timingProfileSha256": "61a7611e07980af23cb9cf6f06270d7fe7e4d9e6c8481d6d188693f997619c1b",
     "timingMachineSha256": "bb8bbb3735464c254a2167f68301b90b4dd85f6bf1d21f7082ca38641022edec",
     "mmuSha256": "fe55f294fceb898337299c46d1400e576e65ad7216462b5b4da0b46ecfed9448",
     "cacheSha256": "785fefde2aaff0b97c497b68dc6da3e5efa337f7b0a443028f3f279a3b756a70"
   },
   "configuration": {
-    "iromMmuEntry": 13,
+    "iromMmuEntry": 5,
     "flashPhysicalPage": 0,
     "sramBase": "0x3fca0000",
     "sramBytes": 65536,
@@ -43,6 +43,6 @@
     "mspiEvents": 2,
     "totalCycles": null,
     "totalCyclesReason": "all cache and SRAM latency costs remain unadopted",
-    "perRecordSha256": "c96fcf5fd90682a6565f3690e24868f95f11199d6c65f9c9333e045fbbab3a49"
+    "perRecordSha256": "1add41223d2685ea4fa525f6e2d094d61e259cb2719e2039d089f95d330cded9"
   }
 }

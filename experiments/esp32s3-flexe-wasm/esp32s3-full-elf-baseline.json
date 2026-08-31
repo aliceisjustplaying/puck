@@ -10,8 +10,9 @@
     "initialStack": "0x3fce9700",
     "initialStackProvenance": "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
     "runnerPatchSha256": "6001efaec9fc83efa0356240b2001482ef79f7f5b92c682aae4c6c4d32c98445",
-    "moduleBytes": 45847,
-    "moduleSha256": "a5878cc8b166ae808169722878b382e2c47804b6f91c508b2e35e6fdc0640add"
+    "esp32s3PatchSha256": "8c4ae7e5bc610cb235e86b046d764edb0da05481afb33142e772d32507894165",
+    "moduleBytes": 47919,
+    "moduleSha256": "37bef6a27e5f17b959cfcf5a9b5c2ff1a7df7bbf54235cb7fc5dabe2192e8753"
   },
   "bounded": {
     "reason": "maxSteps",
@@ -58,6 +59,19 @@
       { "kind": "resetReason", "pc": "0x4000057c", "core": 1, "result": 1 },
       { "kind": "memset", "pc": "0x400011e8", "destination": "0x3fcabe60", "value": 0, "length": 21216 },
       { "kind": "memset", "pc": "0x400011e8", "destination": "0x50000000", "value": 0, "length": 0 }
+    ]
+  },
+  "lx7Progress": {
+    "reason": "unloadedPage",
+    "steps": 57,
+    "pc": "0x4000186c",
+    "traceSha256": "1b9775de8f100224f6a90d9d453d60383df9692b3ac9e9b8eca74da33ddeeee3",
+    "stackPointer": "0x3fce9680",
+    "registers": [
+      "0x80375c68", "0x3fce9680", "0x00000001", "0x00000002",
+      "0x00000000", "0x00000000", "0x00000000", "0x00000000",
+      "0x80382ae6", "0x00000000", "0x00000000", "0x00000000",
+      "0x00000000", "0x00000000", "0x00000000", "0x00000000"
     ]
   },
   "unsupportedRefusal": {
