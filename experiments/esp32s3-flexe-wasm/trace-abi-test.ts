@@ -7,7 +7,7 @@ import {
   type TraceRecord,
 } from "./trace-abi";
 
-const CAPACITY = 8;
+const CAPACITY = 9;
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -59,6 +59,7 @@ function expectFailure(records: readonly TraceRecord[], message: string): void {
 const valid = [
   record(TRACE_KINDS.instruction, 2),
   record(TRACE_KINDS.instruction, 3),
+  record(TRACE_KINDS.instruction, 4),
   record(TRACE_KINDS.read, 1),
   record(TRACE_KINDS.read, 2),
   record(TRACE_KINDS.read, 4),
@@ -68,8 +69,8 @@ const valid = [
 ];
 assert(decodeTraceBytes(encode(valid), CAPACITY).count === valid.length, "valid trace widths did not decode");
 expectFailure([record(TRACE_KINDS.instruction, 1)], "trace instruction record 0 has unsupported width 1");
-expectFailure([record(TRACE_KINDS.instruction, 4)], "trace instruction record 0 has unsupported width 4");
+expectFailure([record(TRACE_KINDS.instruction, 5)], "trace instruction record 0 has unsupported width 5");
 expectFailure([record(TRACE_KINDS.read, 3)], "trace data record 0 has unsupported width 3");
 expectFailure([record(TRACE_KINDS.write, 3)], "trace data record 0 has unsupported width 3");
 
-console.log(JSON.stringify({ validWidths: 8, rejectedWidths: 4 }));
+console.log(JSON.stringify({ validWidths: 9, rejectedWidths: 4 }));

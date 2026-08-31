@@ -58,7 +58,7 @@ function exactL32rPcs(decoded: DecodedTrace): ReadonlySet<number> {
     }
     encodings.set(record.pc, record.instruction);
     if (record.width === 3 && (record.instruction & 0xf) === 1) pcs.add(record.pc);
-    if (record.width !== 2 && record.width !== 3) {
+    if (record.width !== 2 && record.width !== 3 && record.width !== 4) {
       throw new Error(`flexe trace instruction ${index} has unsupported width ${record.width}`);
     }
   }

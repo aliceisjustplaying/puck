@@ -77,11 +77,88 @@ index a750870..86b0f3d 100644
      ar_write(&cpu, 1, initial_stack);
      mem->permission_hook = elf_memory_permission;
      mem->permission_hook_ctx = NULL;
+@@ -1627,8 +1647,13 @@ uint32_t flexe_wasm_run_elf(uint32_t entry, uint32_t max_steps,
+                 reason = PROBE_STOP_NON_EXECUTABLE_PAGE;
+                 break;
+             }
+-            uint8_t first = mem->page_table[cpu.pc >> 12][cpu.pc & (PAGE_BYTES - 1u)];
+-            uint32_t instruction_length = (first & 8u) != 0 ? 2u : 3u;
++            uint32_t instruction_word = 0;
++            int fetched_length = xtensa_fetch(&cpu, cpu.pc, &instruction_word);
++            if (fetched_length == 0) {
++                reason = PROBE_STOP_UNLOADED_PAGE;
++                break;
++            }
++            uint32_t instruction_length = (uint32_t)fetched_length;
+             if (cpu.pc > UINT32_MAX - (instruction_length - 1u)) {
+                 reason = PROBE_STOP_UNLOADED_PAGE;
+                 break;
 diff --git a/src/xtensa.c b/src/xtensa.c
 index 67dca18..e72666d 100644
 --- a/src/xtensa.c
 +++ b/src/xtensa.c
-@@ -1552,19 +1552,100 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -138,23 +138,44 @@ static inline __attribute__((always_inline))
+ int xtensa_fetch_inline(const xtensa_cpu_t *cpu, uint32_t addr, uint32_t *insn_out) {
+     uint8_t *page = cpu->mem->page_table[addr >> 12];
+     if (__builtin_expect(!page, 0)) return 0;
+     uint32_t offset = addr & 0xFFF;
+     uint8_t first = page[offset];
+     uint32_t length = (first & 0x8) ? 2u : 3u;
++    if (cpu->esp32s3_profile && length == 2u && addr <= UINT32_MAX - 3u) {
++        uint32_t candidate = 0;
++        int complete = 1;
++        for (uint32_t i = 0; i < 4u; i++) {
++            uint32_t byte_address = addr + i;
++            uint8_t *byte_page = cpu->mem->page_table[byte_address >> 12];
++            if (!byte_page) {
++                complete = 0;
++                break;
++            }
++            candidate |= (uint32_t)byte_page[byte_address & 0xFFFu] << (i * 8u);
++        }
++        if (complete) {
++            uint32_t opcode = candidate & 0xf800000eu;
++            if (opcode == 0x8000000eu || opcode == 0x8800000eu ||
++                opcode == 0x9000000eu || opcode == 0x9800000eu) length = 4u;
++        }
++    }
++    if (addr > UINT32_MAX - (length - 1u)) return 0;
+     if (__builtin_expect(offset + length <= 0x1000u, 1)) {
+         const uint8_t *ptr = page + offset;
+         *insn_out = ptr[0] | ((uint32_t)ptr[1] << 8) |
+-                    (length == 3u ? (uint32_t)ptr[2] << 16 : 0u);
++                    (length >= 3u ? (uint32_t)ptr[2] << 16 : 0u) |
++                    (length == 4u ? (uint32_t)ptr[3] << 24 : 0u);
+         return (int)length;
+     }
+-    if (addr > UINT32_MAX - (length - 1u)) return 0;
+-    uint8_t *next_page = cpu->mem->page_table[(addr >> 12) + 1u];
+-    if (!next_page) return 0;
+-    uint8_t second = offset == 0xFFFu ? next_page[0] : page[offset + 1u];
+-    uint8_t third = offset == 0xFFFu ? next_page[1] : next_page[0];
+-    *insn_out = first | ((uint32_t)second << 8) |
+-                (length == 3u ? (uint32_t)third << 16 : 0u);
++    uint32_t instruction = 0;
++    for (uint32_t i = 0; i < length; i++) {
++        uint32_t byte_address = addr + i;
++        uint8_t *byte_page = cpu->mem->page_table[byte_address >> 12];
++        if (!byte_page) return 0;
++        instruction |= (uint32_t)byte_page[byte_address & 0xFFFu] << (i * 8u);
++    }
++    *insn_out = instruction;
+     return (int)length;
+ }
+
+ /* External version for disasm/trace callers (not performance-critical) */
+@@ -178,6 +199,6 @@ void xtensa_predecode_build(xtensa_cpu_t *cpu) {
+         uint32_t insn;
+         int ilen = xtensa_fetch_inline(cpu, addr, &insn);
+-        if (ilen > 0) {
++        if (ilen > 0 && ilen < 4) {
+             cpu->predecode[addr - PREDECODE_BASE] = PREDECODE_PACK(insn, (uint32_t)ilen);
+             count++;
+         }
+@@ -1552,19 +1573,100 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
                  ar_write(cpu, r, ar_read(cpu, s));
              break;
          case 14: /* RUR */
@@ -188,7 +265,7 @@ index 67dca18..e72666d 100644
                }
              } break;
          default: break;
-@@ -1615,6 +1696,10 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -1615,6 +1717,10 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
              uint32_t addr = ar_read(cpu, s) + (uint32_t)((int32_t)(r << 2) - 64);
              mem_write32(cpu->mem, addr, ar_read(cpu, t));
          } break;
@@ -199,7 +276,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2165,287 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2186,317 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -326,6 +403,36 @@ index 67dca18..e72666d 100644
 +            mem_write32(cpu->mem, address + 4, float_to_bits(cpu->fr[high_float_register]));
 +        }
 +        ar_write(cpu, base_register, base + increment);
++        return 1;
++    }
++
++    uint32_t float128_opcode = insn & 0xf800000eu;
++    if (float128_opcode == 0x8000000eu || float128_opcode == 0x8800000eu ||
++        float128_opcode == 0x9000000eu || float128_opcode == 0x9800000eu) {
++        unsigned float_registers[4] = {
++            (((insn >> 24) & 7u) << 1) | ((insn >> 19) & 1u),
++            (((insn >> 16) & 7u) << 1) | (insn & 1u),
++            (insn >> 12) & 15u,
++            (insn >> 20) & 15u,
++        };
++        unsigned base_register = (insn >> 4) & 15u;
++        uint32_t base = ar_read(cpu, base_register);
++        uint32_t address = base & ~15u;
++        bool store = float128_opcode == 0x9000000eu || float128_opcode == 0x9800000eu;
++        bool register_postincrement =
++            float128_opcode == 0x8800000eu || float128_opcode == 0x9800000eu;
++        for (unsigned i = 0; i < 4; i++) {
++            if (store)
++                mem_write32(cpu->mem, address + i * 4,
++                            float_to_bits(cpu->fr[float_registers[i]]));
++            else
++                cpu->fr[float_registers[i]] =
++                    bits_to_float(mem_read32(cpu->mem, address + i * 4));
++        }
++        int32_t increment = register_postincrement
++            ? (int32_t)ar_read(cpu, (insn >> 8) & 15u)
++            : sign_extend((insn >> 8) & 15u, 4) * 16;
++        ar_write(cpu, base_register, base + (uint32_t)increment);
 +        return 1;
 +    }
 +
@@ -487,7 +594,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2685,8 @@ have_insn:
+@@ -2319,6 +2736,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -496,7 +603,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +2713,16 @@ have_insn:
+@@ -2345,14 +2764,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -517,7 +624,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +2736,8 @@ have_insn:
+@@ -2366,6 +2787,8 @@ have_insn:
          }
      }
 

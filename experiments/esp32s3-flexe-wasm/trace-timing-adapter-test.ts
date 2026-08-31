@@ -350,6 +350,33 @@ assert(
   "independent SRAM load gained a hazard cycle",
 );
 
+const fourByteConsumerBase = loadUseTrace(0x8000_003e);
+const fourByteConsumer = adaptLoadUse(Object.freeze({
+  ...fourByteConsumerBase,
+  records: Object.freeze(fourByteConsumerBase.records.map((record, index) =>
+    index === 2 ? Object.freeze({ ...record, width: 4 }) : record)),
+}));
+assert(
+  fourByteConsumer.input.cpu?.[1]?.latency.status === "known" &&
+    fourByteConsumer.input.cpu[1].latency.source.includes("a3"),
+  "four-byte float consumer lost its exact base-register load-use dependency",
+);
+
+const fourByteProducerBase = loadUseTrace(ADDX4_A4_A3_A5);
+const fourByteProducer = adaptLoadUse(Object.freeze({
+  ...fourByteProducerBase,
+  records: Object.freeze(fourByteProducerBase.records.map((record, index) =>
+    index === 0
+      ? Object.freeze({ ...record, width: 4, instruction: 0x8000_002e })
+      : index === 2
+        ? Object.freeze({ ...record, pc: 0x4200_1004 })
+        : record)),
+}));
+assert(
+  fourByteProducer.input.cpu?.length === 2,
+  "four-byte float load was misclassified as a scalar GPR load-use producer",
+);
+
 const BEQZ_A2_PLUS_8 = 0x004216;
 function beqzTrace(nextPc: number): DecodedTrace {
   return {

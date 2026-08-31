@@ -40,7 +40,7 @@ function validateRecord(record: TraceRecord, index: number): void {
   );
   if (record.kind === TRACE_KINDS.instruction) {
     assert(
-      record.width === 2 || record.width === 3,
+      record.width === 2 || record.width === 3 || record.width === 4,
       `trace instruction record ${index} has unsupported width ${record.width}`,
     );
     return;

@@ -208,9 +208,12 @@ describe("bounded neutral timing trace adapter", () => {
     expect(() => adaptNeutralTimingTrace(neutral([
       observation("bad-kind", 0, 0, "maintenance" as NeutralTraceObservation["kind"], 0x1000n, 4),
     ]))).toThrow("neutral trace observations[0].kind must be instruction, read, or write");
+    expect(adaptNeutralTimingTrace(neutral([
+      observation("four-byte-instruction", 0, 0, "instruction", 0x1000n, 4),
+    ])).input.cores[0][0]?.bytes).toBe(4);
     expect(() => adaptNeutralTimingTrace(neutral([
-      observation("bad-instruction", 0, 0, "instruction", 0x1000n, 4),
-    ]))).toThrow("neutral trace observations[0].width 4 is unsupported for instruction");
+      observation("bad-instruction", 0, 0, "instruction", 0x1000n, 5),
+    ]))).toThrow("neutral trace observations[0].width 5 is unsupported for instruction");
     expect(() => adaptNeutralTimingTrace(neutral([
       observation("bad-data", 0, 0, "read", 0x1000n, 3),
     ]))).toThrow("neutral trace observations[0].width 3 is unsupported for read");

@@ -84,7 +84,7 @@ function requireSequence(value: unknown, path: string): number {
 
 function validateWidth(kind: NeutralTraceKind, width: unknown, path: string): number {
   if (!Number.isSafeInteger(width)) throw new Error(`${path} must be a supported integer width`);
-  if (kind === "instruction" ? width !== 2 && width !== 3 : width !== 1 && width !== 2 && width !== 4) {
+  if (kind === "instruction" ? width !== 2 && width !== 3 && width !== 4 : width !== 1 && width !== 2 && width !== 4) {
     throw new Error(`${path} ${String(width)} is unsupported for ${kind}`);
   }
   return width as number;

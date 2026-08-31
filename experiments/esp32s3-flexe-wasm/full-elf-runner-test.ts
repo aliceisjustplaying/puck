@@ -430,14 +430,14 @@ assert.deepEqual(
   "adjacent half XP refusal changed full-ELF registers",
 );
 
-const unsupportedFloat128Entry = 0x4037_2100;
-const unsupportedFloat128Image: Elf32XtensaImage = Object.freeze({
+const supportedFloat128Entry = 0x4037_2100;
+const supportedFloat128Image: Elf32XtensaImage = Object.freeze({
   schemaVersion: 1,
-  entryPoint: unsupportedFloat128Entry,
+  entryPoint: supportedFloat128Entry,
   elfBytes: 4,
-  elfSha256: "synthetic-unsupported-ee-ldf-128-xp",
+  elfSha256: "synthetic-supported-ee-ldf-128-xp",
   loadSegments: Object.freeze([
-    syntheticSegment(0, unsupportedFloat128Entry, [0xae, 0x1c, 0x0f, 0x8f], 4, {
+    syntheticSegment(0, supportedFloat128Entry, [0x1e, 0x00, 0x00, 0x88], 4, {
       read: true,
       write: false,
       execute: true,
@@ -447,23 +447,14 @@ const unsupportedFloat128Image: Elf32XtensaImage = Object.freeze({
   totalFileBytes: 4,
   totalMemoryBytes: 0x1004,
 });
-const unsupportedFloat128Run = await runSparseXtensaElf(moduleBytes, unsupportedFloat128Image, {
-  initialStack: 0x3fce_a000,
+const supportedFloat128Run = await runSparseXtensaElf(moduleBytes, supportedFloat128Image, {
+  initialStack: 0x3fce_9ff0,
   maxSteps: 1,
-  unsupported: [{ pc: unsupportedFloat128Entry, encoding: 0x1cae }],
 });
-assert.equal(unsupportedFloat128Run.record.reason, FULL_ELF_STOP_REASONS.unsupported);
-assert.equal(unsupportedFloat128Run.record.steps, 0);
-assert.equal(unsupportedFloat128Run.record.unsupportedPc, unsupportedFloat128Entry);
-assert.equal(unsupportedFloat128Run.record.unsupportedEncoding, 0x1cae);
-assert.equal(unsupportedFloat128Run.record.unsupportedLength, 2);
-assert.deepEqual(unsupportedFloat128Run.trace, []);
-assert.deepEqual(unsupportedFloat128Run.memoryTrace.records, []);
-assert.deepEqual(
-  unsupportedFloat128Run.record.registers,
-  [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  "adjacent float-128 XP refusal changed full-ELF registers",
-);
+assert.equal(supportedFloat128Run.record.reason, FULL_ELF_STOP_REASONS.maxSteps);
+assert.equal(supportedFloat128Run.record.steps, 1);
+assert.equal(supportedFloat128Run.record.pc, supportedFloat128Entry + 4);
+assert.deepEqual(supportedFloat128Run.trace, [supportedFloat128Entry]);
 
 const unsupportedQaccLaneEntry = 0x4037_2200;
 const unsupportedQaccLaneImage: Elf32XtensaImage = Object.freeze({

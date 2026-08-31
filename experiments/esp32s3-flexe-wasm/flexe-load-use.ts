@@ -52,7 +52,7 @@ function requireKnownLatency(value: EventLatency | undefined, path: string): Kno
 
 function validateInstruction(record: TraceRecord, index: number): void {
   requireUint32(record.pc, `flexe trace instruction ${index}.pc`);
-  if (record.width !== 2 && record.width !== 3) {
+  if (record.width !== 2 && record.width !== 3 && record.width !== 4) {
     throw new Error(`flexe trace instruction ${index} has unsupported width ${record.width}`);
   }
   const limit = 2 ** (record.width * 8);
@@ -101,10 +101,11 @@ function instructionGroups(decoded: DecodedTrace): readonly InstructionGroup[] {
   })));
 }
 
-function exactLoadDestination(instruction: TraceRecord, dataWidth: number, recordIndex: number): number {
+function exactLoadDestination(instruction: TraceRecord, dataWidth: number, recordIndex: number): number | null {
   const encoding = instruction.instruction;
   const op0 = encoding & 0xf;
   const t = (encoding >>> 4) & 0xf;
+  if (instruction.width === 4) return null;
   if (instruction.width === 2 && op0 === 8) {
     if (dataWidth !== 4) {
       throw new Error(`flexe trace instruction ${recordIndex} l32i.n data width must be 4`);
@@ -145,6 +146,20 @@ function exactSourceRegisters(instruction: TraceRecord, recordIndex: number): re
   const t = (encoding >>> 4) & 0xf;
   const s = (encoding >>> 8) & 0xf;
   const r = (encoding >>> 12) & 0xf;
+  if (instruction.width === 4) {
+    const opcode = (encoding & 0xf800_000e) >>> 0;
+    if (opcode !== 0x8000_000e && opcode !== 0x8800_000e &&
+        opcode !== 0x9000_000e && opcode !== 0x9800_000e) {
+      throw new Error(
+        `flexe trace instruction ${recordIndex} encoding 0x${encoding.toString(16)} ` +
+        "has an unsupported four-byte register-use form",
+      );
+    }
+    const base = (encoding >>> 4) & 0xf;
+    if (opcode !== 0x8800_000e && opcode !== 0x9800_000e) return Object.freeze([base]);
+    const increment = (encoding >>> 8) & 0xf;
+    return Object.freeze(base === increment ? [base] : [base, increment]);
+  }
   if (instruction.width === 2) {
     if (op0 === 8 || op0 === 11) return Object.freeze([s]);
     if (op0 === 9 || op0 === 10) return Object.freeze([s, t]);
@@ -354,6 +369,7 @@ export function detectFlexeDependentSramLoadUseHazards(
     }
     const load = internalLoads[0]!.record;
     const register = exactLoadDestination(group.instruction, load.width, group.recordIndex);
+    if (register === null) continue;
     const sources = exactSourceRegisters(next.instruction, next.recordIndex);
     if (!sources.includes(register)) continue;
     hazards.set(next.recordIndex, Object.freeze({

@@ -221,7 +221,7 @@ function decodeTrace(exports: DynamicExports): ExecutionTrace {
     const kind = view.getUint32(offset, true);
     const width = view.getUint32(offset + 16, true);
     if (kind === TRACE_KINDS.instruction) {
-      assert(width === 2 || width === 3, `trace instruction record ${index} has unsupported width ${width}`);
+      assert(width === 2 || width === 3 || width === 4, `trace instruction record ${index} has unsupported width ${width}`);
     } else {
       assert(width === 1 || width === 2 || width === 4, `trace data record ${index} has unsupported width ${width}`);
     }
@@ -509,18 +509,39 @@ assert(
 assert(float64XpRun.record.registers[10] === INITIAL_SOURCE + 7, "float-pair load did not add its register postincrement");
 assert(float64XpRun.record.registers[11] === INITIAL_DESTINATION + 7, "float-pair store did not add its register postincrement");
 
-const unsupportedFloat128Fixture = conformanceFixture("esp32s3_unsupported_ldf_128_xp", [0xae, 0x1c, 0x0f, 0x8f]);
-const unsupportedFloat128Run = await runFresh(moduleBytes, unsupportedFloat128Fixture, {
-  maxSteps: 1,
-  unsupported: { offset: 0, encoding: 0x1cae }
-});
-assert(unsupportedFloat128Run.record.reason === STOP_REASONS.unsupported, "adjacent float-128 XP form did not fail closed");
-assert(unsupportedFloat128Run.record.steps === 0, "adjacent float-128 XP form was counted as executed");
-assert(unsupportedFloat128Run.trace.count === 0, "adjacent float-128 XP refusal leaked a trace record");
-assert(unsupportedFloat128Run.dataOutput.length === 0, "adjacent float-128 XP refusal exposed data output");
+const float128Fixture = conformanceFixture("esp32s3_float_quad_immediate_and_register_postincrement", [
+  0x3b, 0xaa,
+  0x3b, 0xbb,
+  0xaf, 0x21, 0x30, 0x80,
+  0xbf, 0x21, 0x30, 0x90,
+  0xaf, 0x6c, 0x72, 0x8a,
+  0xbf, 0x6c, 0x72, 0x9a
+]);
+const float128Input = Uint8Array.from({ length: 32 }, (_, index) => (index * 17 + 1) & 0xff);
+const float128Run = await runFresh(moduleBytes, float128Fixture, { data: float128Input, maxSteps: 6 });
+assert(float128Run.record.reason === STOP_REASONS.maxSteps, `float-quad fixture stopped with ${float128Run.record.reasonName}`);
+assert(float128Run.record.steps === 6, `float-quad fixture executed ${float128Run.record.steps} instructions`);
 assert(
-  unsupportedFloat128Run.record.registers.every((value, index) => value === unsupportedXpRegisters[index]),
-  "adjacent float-128 XP refusal changed registers"
+  float128Run.dataOutput.every((byte, index) => byte === float128Input[index]),
+  `float-quad fixture changed payload bits: ${Buffer.from(float128Run.dataOutput).toString("hex")}`
+);
+assert(float128Run.record.registers[10] === INITIAL_SOURCE + 35, "float-quad loads applied the wrong postincrements");
+assert(float128Run.record.registers[11] === INITIAL_DESTINATION + 35, "float-quad stores applied the wrong postincrements");
+
+const unsupportedFloatMacFixture = conformanceFixture("esp32s3_unsupported_vmulas_s16_accx_ld_xp_qup", [
+  0xbe, 0xf8, 0xa1, 0xc0
+]);
+const unsupportedFloatMacRun = await runFresh(moduleBytes, unsupportedFloatMacFixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0xf8be }
+});
+assert(unsupportedFloatMacRun.record.reason === STOP_REASONS.unsupported, "adjacent float MAC form did not fail closed");
+assert(unsupportedFloatMacRun.record.steps === 0, "adjacent float MAC form was counted as executed");
+assert(unsupportedFloatMacRun.trace.count === 0, "adjacent float MAC refusal leaked a trace record");
+assert(unsupportedFloatMacRun.dataOutput.length === 0, "adjacent float MAC refusal exposed data output");
+assert(
+  unsupportedFloatMacRun.record.registers.every((value, index) => value === unsupportedXpRegisters[index]),
+  "adjacent float MAC refusal changed registers"
 );
 
 const accxMemoryFixture = conformanceFixture("esp32s3_accx_memory_roundtrip", [
@@ -1128,10 +1149,18 @@ const actualBaseline = {
     reason: float64XpRun.record.reasonName,
     steps: float64XpRun.record.steps,
     sourceAfter: `0x${float64XpRun.record.registers[10].toString(16)}`,
-    destinationAfter: `0x${float64XpRun.record.registers[11].toString(16)}`,
-    unsupportedCodeSha256: unsupportedFloat128Fixture.codeSha256,
-    unsupportedReason: unsupportedFloat128Run.record.reasonName,
-    unsupportedEncoding: `0x${unsupportedFloat128Run.record.unsupportedEncoding.toString(16)}`
+    destinationAfter: `0x${float64XpRun.record.registers[11].toString(16)}`
+  },
+  float128Isa: {
+    codeSha256: float128Fixture.codeSha256,
+    outputHex: Buffer.from(float128Run.dataOutput).toString("hex"),
+    reason: float128Run.record.reasonName,
+    steps: float128Run.record.steps,
+    sourceAfter: `0x${float128Run.record.registers[10].toString(16)}`,
+    destinationAfter: `0x${float128Run.record.registers[11].toString(16)}`,
+    unsupportedCodeSha256: unsupportedFloatMacFixture.codeSha256,
+    unsupportedReason: unsupportedFloatMacRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedFloatMacRun.record.unsupportedEncoding.toString(16)}`
   },
   accxMemoryIsa: {
     codeSha256: accxMemoryFixture.codeSha256,
@@ -1326,6 +1355,7 @@ assert(
     qrXpIsa: baseline.qrXpIsa,
     halfQrIsa: baseline.halfQrIsa,
     float64XpIsa: baseline.float64XpIsa,
+    float128Isa: baseline.float128Isa,
     accxMemoryIsa: baseline.accxMemoryIsa,
     qaccMemoryIsa: baseline.qaccMemoryIsa,
     uaMemoryIsa: baseline.uaMemoryIsa,

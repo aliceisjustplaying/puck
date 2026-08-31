@@ -68,10 +68,10 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
-decoder plus this experiment's explicit ESP32-S3 patch surface has 354
+decoder plus this experiment's explicit ESP32-S3 patch surface has 358
 normalized mnemonics. With user-register operands distinguished, it covers
-63,415 rows and 316 raw mnemonics; 861 rows and 25 raw mnemonics remain gaps.
-Those gaps are 24 unimplemented `ee.*` PIE forms covering 162 rows and 699
+63,427 rows and 320 raw mnemonics; 849 rows and 21 raw mnemonics remain gaps.
+Those gaps are 20 unimplemented `ee.*` PIE forms covering 150 rows and 699
 undecodable `.byte` rows. No
 known scalar, QR load/store, THREADPTR, ACCX, QACC, SAR_BYTE, or FFT_BIT_WIDTH
 mnemonic remains in the gap list, and every named user-register form is covered.
@@ -83,7 +83,8 @@ mnemonic remains in the gap list, and every named user-register form is covered.
 `ee.st.accx.ip`, all eight `ee.[ld/st].qacc_[h/l].[h.32/l.128].ip`
 transfers, `ee.[ld/st].ua_state.ip`, `ee.ld.128.usar.ip`, `ee.vldbc.32.ip`,
 `ee.ldqa.s16.128.ip`, `ee.movi.32.q`, `ee.zero.q`, `ee.ld.128.usar.xp`,
-`ee.vldbc.16.ip`, and `ee.vst.l.64.ip`. It selects
+`ee.vldbc.16.ip`, `ee.vst.l.64.ip`, and the four `ee.[ldf/stf].128.[ip/xp]`
+forms. It selects
 those semantics only for the ESP32-S3 experiment
 profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
 represented by flexe's core. The profile also implements per-core UR0/UR1
@@ -141,7 +142,7 @@ synthetic caller, restores its stack, and exposes the return value 4 in caller
 register `a10`. A separate fresh run capped at two instructions stops at
 `0x403808f9` before `retw.n`, proving the bound is active.
 
-Twelve raw conformance fixtures cover the remaining implemented data operations.
+Raw conformance fixtures cover the implemented data operations.
 The scalar fixture copies `0x12345678` with `l32i.n` and `s32nb`, then executes
 `lsip` and `ssip`; both base registers advance by four and the run returns
 after six instructions. The QR fixture copies 16 deterministic bytes with
@@ -159,8 +160,10 @@ dynamic baseline.
 The floating-register pair fixture round-trips an exact NaN payload and a
 second arbitrary 32-bit word through `ee.ldf.64.xp` and `ee.stf.64.xp`. It
 proves forced eight-byte alignment, low/high register order, bit preservation,
-and independent register postincrements. The adjacent four-byte
-`ee.ldf.128.xp` form remains a fail-closed two-byte decoder collision.
+and independent register postincrements. A four-register fixture round-trips
+32 deterministic bytes through the immediate and register-postincrement
+`ee.ldf.128` and `ee.stf.128` forms, including forced 16-byte alignment. The
+adjacent `ee.vmulas.s16.accx.ld.xp.qup` form remains fail-closed.
 
 The ACCX memory fixture loads an unaligned 64-bit word into the 40-bit ACCX
 state, reads both user-register halves back, and stores the zero-extended value.
@@ -229,7 +232,7 @@ Its 24-byte version 1 header contains the ABI version, header and record sizes,
 record count, capacity, and overflow flag. Each 24-byte record contains kind,
 executing PC, guest address, value, width, and instruction encoding. Instruction
 records carry PC, width, and encoding. Read and write records carry the issuing
-PC, guest address, width, and value. Instruction widths are two or three bytes;
+PC, guest address, width, and value. Instruction widths are two, three, or four bytes;
 data widths are one, two, or four bytes. Instruction fetches are not classified
 as data accesses.
 
@@ -410,7 +413,7 @@ first undeclared 32-bit MMIO read at
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 512 executed instructions. The pinned TinyDraw ELF
-automatically installs the tracked 1,026-instruction ESP32-S3 ISA gap set before
+automatically installs the tracked 926-instruction ESP32-S3 ISA gap set before
 execution. Each marker must match the decoder-width bytes in loaded executable
 memory during setup; stale, mismatched, unloaded, and non-executable markers are
 refused. Once bound, reaching a marked PC stops before LX6 decoding, including
@@ -518,10 +521,9 @@ model. A real backend should let the host size and own the regions, replace
 no-op `free`, and give diagnostic logging structured arguments.
 
 That is a bounded portability and ISA patch around the core. The remaining
-project risk is architectural: 30 observed PIE forms and undecodable `.byte`
-rows remain explicit gaps, ROM is absent at the first
-reset-path call, and the memory map, caches, peripherals, dual-core scheduling,
-and timing remain unmodeled.
+project risk is architectural: 20 observed PIE forms and undecodable `.byte`
+rows remain explicit gaps, and ROM callback costs, peripheral coverage,
+dual-core scheduling, and timing coverage remain incomplete.
 
 ## License
 
