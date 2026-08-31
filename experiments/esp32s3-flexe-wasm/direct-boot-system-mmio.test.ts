@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ESP32S3_DIRECT_BOOT_CPU_PER_CONF,
+  ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC,
+  ESP32S3_DIRECT_BOOT_CPU_PER_PROVENANCE,
   ESP32S3_DIRECT_BOOT_SYSCLK_CONF,
   ESP32S3_DIRECT_BOOT_SYSCLK_PROVENANCE,
   ESP32S3_SYSTEM_MMIO_PAGE,
+  ESP32S3_SYSTEM_CPU_PER_CONF_REG,
   ESP32S3_SYSTEM_SYSCLK_CONF_REG,
   createEsp32S3DirectBootSystemMmio,
   readEsp32S3DirectBootSystemMmio,
@@ -33,6 +37,49 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
         sysclkConf: 0x0000_0400,
         readCount: 1,
         lastReadPc: 0x4037_71a5,
+        cpuPerConf: 0x0000_0004,
+        cpuPerReadCount: 0,
+        cpuPerLastReadPc: null,
+      },
+    });
+  });
+
+  test("reads the bootloader-configured 80 MHz CPU period after the clock source", () => {
+    expect(ESP32S3_SYSTEM_CPU_PER_CONF_REG).toBe(0x600c_0010);
+    expect(ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC).toBe(0x4037_71d6);
+    expect(ESP32S3_DIRECT_BOOT_CPU_PER_CONF).toBe(0x0000_0004);
+    expect(ESP32S3_DIRECT_BOOT_CPU_PER_PROVENANCE).toEqual({
+      bootloaderConfig: "bootloader/config/sdkconfig.h: CONFIG_BOOTLOADER_CPU_CLK_FREQ_MHZ=80",
+      clockSource: "ESP-IDF v6.0.2 esp_hal_clock/esp32s3/include/hal/clk_tree_ll.h: clk_ll_cpu_set_freq_mhz_from_pll",
+      waitMode: "ESP-IDF v6.0.2 esp_hw_support/port/esp32s3/include/soc/rtc.h + rtc_init.c: default cpu_waiti_clk_gate=1 clears WAIT_MODE_FORCE_ON",
+      register: "ESP-IDF v6.0.2 soc/esp32s3/register/soc/system_reg.h: SYSTEM_CPU_PER_CONF_REG",
+    });
+    const initial = createEsp32S3DirectBootSystemMmio();
+    const access = {
+      pc: ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC,
+      address: ESP32S3_SYSTEM_CPU_PER_CONF_REG,
+      width: 4,
+      isWrite: false,
+    } as const;
+    expect(readEsp32S3DirectBootSystemMmio(initial, access).status).toBe("refused");
+    const source = readEsp32S3DirectBootSystemMmio(initial, {
+      pc: 0x4037_71a5,
+      address: ESP32S3_SYSTEM_SYSCLK_CONF_REG,
+      width: 4,
+      isWrite: false,
+    });
+    if (!source.handled || source.status !== "accepted") throw new Error("source read refused");
+    expect(readEsp32S3DirectBootSystemMmio(source.state, access)).toEqual({
+      handled: true,
+      status: "accepted",
+      value: 0x0000_0004,
+      state: {
+        sysclkConf: 0x0000_0400,
+        readCount: 1,
+        lastReadPc: 0x4037_71a5,
+        cpuPerConf: 0x0000_0004,
+        cpuPerReadCount: 1,
+        cpuPerLastReadPc: 0x4037_71d6,
       },
     });
   });
@@ -66,5 +113,27 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
     const repeated = readEsp32S3DirectBootSystemMmio(accepted.state, valid);
     expect(repeated.status).toBe("refused");
     if (repeated.handled) expect(repeated.state).toBe(accepted.state);
+
+    const cpuAccess = {
+      pc: ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC,
+      address: ESP32S3_SYSTEM_CPU_PER_CONF_REG,
+      width: 4,
+      isWrite: false,
+    } as const;
+    for (const invalid of [
+      { ...cpuAccess, width: 1 },
+      { ...cpuAccess, width: 2 },
+      { ...cpuAccess, isWrite: true },
+      { ...cpuAccess, pc: 0x4037_71d3 },
+    ]) {
+      const refused = readEsp32S3DirectBootSystemMmio(accepted.state, invalid);
+      expect(refused.status).toBe("refused");
+      if (refused.handled) expect(refused.state).toBe(accepted.state);
+    }
+    const cpu = readEsp32S3DirectBootSystemMmio(accepted.state, cpuAccess);
+    if (!cpu.handled || cpu.status !== "accepted") throw new Error("CPU period read refused");
+    const repeatedCpu = readEsp32S3DirectBootSystemMmio(cpu.state, cpuAccess);
+    expect(repeatedCpu.status).toBe("refused");
+    if (repeatedCpu.handled) expect(repeatedCpu.state).toBe(cpu.state);
   });
 });

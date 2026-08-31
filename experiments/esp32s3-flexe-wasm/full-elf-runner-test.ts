@@ -481,8 +481,8 @@ const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true },
 });
 assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.readPermission);
-assert(cacheProgress.record.steps > 238, "SYSTEM_SYSCLK_CONF read did not advance the real ELF");
-assert.notEqual(cacheProgress.record.pc, 0x4037_71a5);
+assert(cacheProgress.record.steps > 243, "SYSTEM_CPU_PER_CONF read did not advance the real ELF");
+assert.notEqual(cacheProgress.record.pc, 0x4037_71d6);
 assert.deepEqual(cacheProgress.cacheBootstrap, {
   sequenceIndex: 6,
   complete: true,
@@ -534,16 +534,20 @@ assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "cache
 ]);
 assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "systemMmioRead"), [
   { kind: "systemMmioRead", pc: 0x4037_71a5, address: 0x600c_0060, width: 4, value: 0x400 },
+  { kind: "systemMmioRead", pc: 0x4037_71d6, address: 0x600c_0010, width: 4, value: 0x4 },
 ]);
 assert.deepEqual(cacheProgress.systemMmio, {
   sysclkConf: 0x400,
   readCount: 1,
   lastReadPc: 0x4037_71a5,
+  cpuPerConf: 0x4,
+  cpuPerReadCount: 1,
+  cpuPerLastReadPc: 0x4037_71d6,
 });
 assert.deepEqual(cacheProgress.memoryFault, {
   abiVersion: 1,
   structBytes: 40,
-  pc: 0x4037_71d6,
+  pc: 0x4037_71ff,
   address: 0x600c_0010,
   width: 4,
   isWrite: false,

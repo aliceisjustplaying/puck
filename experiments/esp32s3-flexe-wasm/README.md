@@ -250,8 +250,9 @@ sorted 4 KiB pages, zero-fills `p_memsz - p_filesz`, merges overlapping load
 segments, and preserves the union of their ELF permissions. The module clears
 flexe's default page table before loading the image, so memory that the ELF did
 not declare is absent unless the host supplies a page-aligned zero range with
-provenance. It does not supply ROM, MMIO, flash-controller, or peripheral
-behavior.
+provenance. By default it supplies no ROM, MMIO, flash-controller, or
+peripheral behavior; each modeled direct-boot dependency is opt-in and
+fail-closed.
 
 The gate-harness image is 21,598,616 bytes with SHA-256
 `51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5`.
@@ -267,7 +268,7 @@ The initial stack is a required runner input. The gate-harness baseline uses
 three explicit zeroed writable pages at `0x3fce7000..0x3fcea000`. These are
 bootloader-inherited state, not app ELF pages.
 
-The host may explicitly configure two narrow ROM ABI callbacks. Reset reason
+The host may explicitly configure narrow ROM ABI callbacks. Reset reason
 at `0x4000057c` returns one caller-supplied value per core. `memset` at
 `0x400011e8` accepts at most 64 KiB, validates every destination page and its
 write permission before changing memory, and returns the destination pointer.
@@ -276,6 +277,17 @@ events; they do not enter the instruction PC trace or decoded-instruction count.
 The event records summarize reset-reason arguments and results or the full
 `memset` destination, byte value, and length. They assign no timing to the bulk
 operation.
+
+The opt-in cache bootstrap follows the observed ROM call order through cache
+disable/enable, instruction and data geometry, data suspend/resume, and MMU
+table sizes. It then maps only two source-backed SYSTEM registers: the 80 MHz
+PLL source value `0x400` at `0x600c0060`, read from PC `0x403771a5`, and the
+80 MHz CPU period value `0x4` at `0x600c0010`, read from PC `0x403771d6`.
+Both are aligned one-shot 32-bit reads after MMU setup. Other registers,
+access shapes, readers, orderings, and repeats are refused. The real image now
+executes 249 instructions and stops at PC `0x403771ff`, where it attempts a
+second read of `0x600c0010`; the typed event log contains exactly the first two
+SYSTEM reads.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
