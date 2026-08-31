@@ -75,6 +75,8 @@ assert(surface.normalizedMnemonics.includes("ee.st.ua_state.ip"), "ESP32-S3 PIE 
 assert(surface.normalizedMnemonics.includes("ee.vldbc.32.ip"), "ESP32-S3 PIE patch surface lost broadcast load");
 assert(surface.normalizedMnemonics.includes("ee.vldbc.16.ip"), "ESP32-S3 PIE patch surface lost halfword broadcast load");
 assert(surface.normalizedMnemonics.includes("ee.vcmp.eq.s16"), "ESP32-S3 PIE patch surface lost halfword equality compare");
+assert(surface.normalizedMnemonics.includes("ee.vprelu.s16"), "ESP32-S3 PIE patch surface lost halfword parametric ReLU");
+assert(surface.normalizedMnemonics.includes("ee.vprelu.s8"), "ESP32-S3 PIE patch surface lost byte parametric ReLU");
 assert(surface.normalizedMnemonics.includes("ee.zero.q"), "ESP32-S3 PIE patch surface lost QR zero");
 assert(!surface.normalizedMnemonics.includes("??gap"), "unknown decoder diagnostics are not instructions");
 

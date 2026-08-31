@@ -68,7 +68,7 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
-decoder plus this experiment's explicit ESP32-S3 patch surface has 365
+decoder plus this experiment's explicit ESP32-S3 patch surface has 367
 normalized mnemonics. With user-register operands distinguished, it covers
 63,415 rows and 316 raw mnemonics; 861 rows and 25 raw mnemonics remain gaps.
 Those gaps are 24 unimplemented `ee.*` PIE forms covering 162 rows and 699
@@ -83,7 +83,8 @@ mnemonic remains in the gap list, and every named user-register form is covered.
 `ee.st.accx.ip`, all eight `ee.[ld/st].qacc_[h/l].[h.32/l.128].ip`
 transfers, `ee.[ld/st].ua_state.ip`, `ee.ld.128.usar.ip`, `ee.vldbc.32.ip`,
 `ee.ldqa.[s16/u16/u8].128.ip`, all four `ee.[and/or/xor/not]q` operations,
-`ee.vcmp.eq.s16`, `ee.movi.32.q`, `ee.zero.q`, `ee.ld.128.usar.xp`,
+`ee.vcmp.eq.s16`, `ee.vprelu.[s16/s8]`, `ee.movi.32.q`, `ee.zero.q`,
+`ee.ld.128.usar.xp`,
 and `ee.vldbc.16.ip`. It selects
 those semantics only for the ESP32-S3 experiment
 profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
@@ -142,7 +143,7 @@ synthetic caller, restores its stack, and exposes the return value 4 in caller
 register `a10`. A separate fresh run capped at two instructions stops at
 `0x403808f9` before `retw.n`, proving the bound is active.
 
-Seventeen raw conformance fixtures cover the remaining implemented data operations.
+Eighteen raw conformance fixtures cover the remaining implemented data operations.
 The scalar fixture copies `0x12345678` with `l32i.n` and `s32nb`, then executes
 `lsip` and `ssip`; both base registers advance by four and the run returns
 after six instructions. The QR fixture copies 16 deterministic bytes with
@@ -191,6 +192,9 @@ also exercising source/destination register overlap.
 The S16 equality fixture pins alternating true/false 16-bit lane masks. The
 adjacent signed less-than encoding remains fail-closed in dynamic and sparse
 execution.
+The parametric ReLU fixture pins signed S16 and S8 positive passthrough,
+nonpositive multiplication, architectural shifts, and lane-width truncation.
+The adjacent in-place ReLU form remains fail-closed in both runners.
 
 The additional aligned-transfer fixture covers register-postincrement USAR
 loads, unsigned halfword broadcast loads, and low-half QR stores. It pins

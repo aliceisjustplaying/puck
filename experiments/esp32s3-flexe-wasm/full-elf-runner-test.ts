@@ -570,6 +570,41 @@ assert.deepEqual(
   "adjacent QR comparison changed full-ELF registers",
 );
 
+const unsupportedQrReluEntry = 0x4037_2600;
+const unsupportedQrReluImage: Elf32XtensaImage = Object.freeze({
+  schemaVersion: 1,
+  entryPoint: unsupportedQrReluEntry,
+  elfBytes: 3,
+  elfSha256: "synthetic-unsupported-ee-vrelu-s16",
+  loadSegments: Object.freeze([
+    syntheticSegment(0, unsupportedQrReluEntry, [0xd4, 0x1c, 0xdd], 3, {
+      read: true,
+      write: false,
+      execute: true,
+    }),
+    syntheticSegment(1, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
+  ]),
+  totalFileBytes: 3,
+  totalMemoryBytes: 0x1003,
+});
+const unsupportedQrReluRun = await runSparseXtensaElf(moduleBytes, unsupportedQrReluImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 1,
+  unsupported: [{ pc: unsupportedQrReluEntry, encoding: 0xdd1cd4 }],
+});
+assert.equal(unsupportedQrReluRun.record.reason, FULL_ELF_STOP_REASONS.unsupported);
+assert.equal(unsupportedQrReluRun.record.steps, 0);
+assert.equal(unsupportedQrReluRun.record.unsupportedPc, unsupportedQrReluEntry);
+assert.equal(unsupportedQrReluRun.record.unsupportedEncoding, 0xdd1cd4);
+assert.equal(unsupportedQrReluRun.record.unsupportedLength, 3);
+assert.deepEqual(unsupportedQrReluRun.trace, []);
+assert.deepEqual(unsupportedQrReluRun.memoryTrace.records, []);
+assert.deepEqual(
+  unsupportedQrReluRun.record.registers,
+  [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "adjacent QR ReLU changed full-ELF registers",
+);
+
 const cacheMmioProbeEntry = 0x4037_5c3b;
 const cacheMmioProbeImage: Elf32XtensaImage = Object.freeze({
   schemaVersion: 1,

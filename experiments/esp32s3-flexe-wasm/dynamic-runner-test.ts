@@ -505,6 +505,51 @@ assert(
   "adjacent QR comparison changed registers"
 );
 
+const qrPreluInput = Uint8Array.from([
+  0x01, 0x00, 0xff, 0xff, 0x00, 0x80, 0x00, 0x00,
+  0x34, 0x12, 0xfe, 0xff, 0xd4, 0xfe, 0xff, 0x7f,
+  0x02, 0x00, 0x02, 0x00, 0xff, 0xff, 0x05, 0x00,
+  0x10, 0x00, 0xff, 0x7f, 0xd4, 0xfe, 0x03, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+]);
+const qrPreluFixture = conformanceFixture("esp32s3_qr_parametric_relu", [
+  0xa4, 0x01, 0x93,
+  0xa4, 0x81, 0x93,
+  0xc4, 0x1a, 0xac,
+  0xd4, 0xba, 0xac,
+  0xb4, 0x01, 0xaa,
+  0xb4, 0x81, 0xaa
+]);
+const qrPreluExpected = Uint8Array.from([
+  0x01, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
+  0x34, 0x12, 0xff, 0xff, 0x00, 0x00, 0xff, 0x7f,
+  0x01, 0x00, 0xfe, 0x00, 0x00, 0x80, 0x00, 0x00,
+  0x34, 0x12, 0x02, 0x81, 0x90, 0x04, 0xfd, 0x7f,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+]);
+const qrPreluRun = await runFresh(moduleBytes, qrPreluFixture, { data: qrPreluInput, maxSteps: 6 });
+assert(qrPreluRun.record.reason === STOP_REASONS.maxSteps, "QR PRELU fixture did not finish");
+assert(qrPreluRun.record.steps === 6, "QR PRELU fixture executed the wrong instruction count");
+assert(
+  qrPreluRun.dataOutput.every((byte, index) => byte === qrPreluExpected[index]),
+  `QR PRELU fixture output changed: ${Buffer.from(qrPreluRun.dataOutput).toString("hex")}`
+);
+
+const unsupportedQrReluFixture = conformanceFixture("esp32s3_unsupported_vrelu_s16", [0xd4, 0x1c, 0xdd]);
+const unsupportedQrReluRun = await runFresh(moduleBytes, unsupportedQrReluFixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0xdd1cd4 }
+});
+assert(unsupportedQrReluRun.record.reason === STOP_REASONS.unsupported, "adjacent QR ReLU did not fail closed");
+assert(unsupportedQrReluRun.record.steps === 0, "adjacent QR ReLU was counted as executed");
+assert(unsupportedQrReluRun.trace.count === 0, "adjacent QR ReLU leaked a trace record");
+
 const unsupportedQrNeighborFixture = conformanceFixture("esp32s3_unsupported_zero_qacc", [0x44, 0x08, 0x25]);
 const unsupportedQrNeighborRun = await runFresh(moduleBytes, unsupportedQrNeighborFixture, {
   maxSteps: 1,
@@ -1265,6 +1310,15 @@ const actualBaseline = {
     unsupportedReason: unsupportedQrCompareRun.record.reasonName,
     unsupportedEncoding: `0x${unsupportedQrCompareRun.record.unsupportedEncoding.toString(16)}`
   },
+  qrPreluIsa: {
+    codeSha256: qrPreluFixture.codeSha256,
+    outputHex: Buffer.from(qrPreluRun.dataOutput).toString("hex"),
+    reason: qrPreluRun.record.reasonName,
+    steps: qrPreluRun.record.steps,
+    unsupportedCodeSha256: unsupportedQrReluFixture.codeSha256,
+    unsupportedReason: unsupportedQrReluRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedQrReluRun.record.unsupportedEncoding.toString(16)}`
+  },
   qrXpIsa: {
     codeSha256: qrXpFixture.codeSha256,
     outputHex: Buffer.from(qrXpRun.dataOutput).toString("hex"),
@@ -1500,6 +1554,7 @@ assert(
     qrScalarIsa: baseline.qrScalarIsa,
     qrBitwiseIsa: baseline.qrBitwiseIsa,
     qrCompareIsa: baseline.qrCompareIsa,
+    qrPreluIsa: baseline.qrPreluIsa,
     qrXpIsa: baseline.qrXpIsa,
     halfQrIsa: baseline.halfQrIsa,
     halfQrXpIsa: baseline.halfQrXpIsa,
