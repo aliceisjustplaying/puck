@@ -1,0 +1,5 @@
+0
+9747 212973323 1788167881839305834 ad1ba14aff576de86eb19857ea63019c 0 /Users/sarah/src/a/tinydraw/out/puck-s3-rom-cache-resume/example/firmware/main.c
+23344 212974453 1788167882000933770 4d4f2377d75f5c555da0f2727128f61a 0 /Users/sarah/src/a/tinydraw/out/puck-s3-rom-cache-resume/wasm/emu_abi.h
+27519 142355149 1776106215000000000 1bf965d23c79a082ac103b8d4944724e 1 include/stdint.h
+1172 142355145 1776106215000000000 69b529ccb10bbb5d826c563cf9b929c1 1 include/stdbool.h

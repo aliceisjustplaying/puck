@@ -18,6 +18,8 @@ describe("ESP32-S3 direct-boot interrupt-level restore", () => {
       bbpllModeWritten: false,
       bbpllReferenceDividerWritten: false,
       bbpllDividerWritten: false,
+      bbpllDr1Written: false,
+      bbpllDr3Written: false,
     });
     expect(restored).toEqual({
       handled: true,
@@ -37,6 +39,8 @@ describe("ESP32-S3 direct-boot interrupt-level restore", () => {
       bbpllModeWritten: false,
       bbpllReferenceDividerWritten: false,
       bbpllDividerWritten: false,
+      bbpllDr1Written: false,
+      bbpllDr3Written: false,
     } as const;
     for (const invalid of [
       { ...access, pc: 0x4000_1c34 },
@@ -152,5 +156,82 @@ describe("ESP32-S3 direct-boot interrupt-level restore", () => {
     });
     if (tenth.status !== "accepted") throw new Error("tenth intlevel restore refused");
     expect(restoreEsp32S3DirectBootIntlevel(tenth.state, ninthAccess).status).toBe("refused");
+    const eleventhAccess = {
+      ...ninthAccess,
+      restorePs: ESP32S3_DIRECT_BOOT_INTLEVEL_PRESERVE_PS,
+      bbpllDr1Written: true,
+    };
+    expect(restoreEsp32S3DirectBootIntlevel(tenth.state, {
+      ...eleventhAccess,
+      bbpllDr1Written: false,
+    }).status).toBe("refused");
+    const eleventh = restoreEsp32S3DirectBootIntlevel(tenth.state, eleventhAccess);
+    expect(eleventh).toEqual({
+      handled: true,
+      status: "accepted",
+      returnValue: ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS,
+      state: { intlevel: 3, restoreCount: 11, lastPc: ESP32S3_ROM_SET_INTLEVEL },
+    });
+    if (eleventh.status !== "accepted") throw new Error("eleventh intlevel restore refused");
+    expect(restoreEsp32S3DirectBootIntlevel(eleventh.state, eleventhAccess).status).toBe("refused");
+    const twelfthAccess = {
+      ...eleventhAccess,
+      restorePs: ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS,
+    };
+    const twelfth = restoreEsp32S3DirectBootIntlevel(eleventh.state, twelfthAccess);
+    expect(twelfth).toEqual({
+      handled: true,
+      status: "accepted",
+      returnValue: ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS,
+      state: { intlevel: 0, restoreCount: 12, lastPc: ESP32S3_ROM_SET_INTLEVEL },
+    });
+    if (twelfth.status !== "accepted") throw new Error("twelfth intlevel restore refused");
+    const thirteenth = restoreEsp32S3DirectBootIntlevel(twelfth.state, twelfthAccess);
+    expect(thirteenth).toEqual({
+      handled: true,
+      status: "accepted",
+      returnValue: ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS,
+      state: { intlevel: 0, restoreCount: 13, lastPc: ESP32S3_ROM_SET_INTLEVEL },
+    });
+    if (thirteenth.status !== "accepted") throw new Error("thirteenth intlevel restore refused");
+    expect(restoreEsp32S3DirectBootIntlevel(thirteenth.state, twelfthAccess).status).toBe("refused");
+    const fourteenthAccess = {
+      ...twelfthAccess,
+      restorePs: ESP32S3_DIRECT_BOOT_INTLEVEL_PRESERVE_PS,
+      bbpllDr3Written: true,
+    };
+    expect(restoreEsp32S3DirectBootIntlevel(thirteenth.state, {
+      ...fourteenthAccess,
+      bbpllDr3Written: false,
+    }).status).toBe("refused");
+    const fourteenth = restoreEsp32S3DirectBootIntlevel(thirteenth.state, fourteenthAccess);
+    expect(fourteenth).toEqual({
+      handled: true,
+      status: "accepted",
+      returnValue: ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS,
+      state: { intlevel: 3, restoreCount: 14, lastPc: ESP32S3_ROM_SET_INTLEVEL },
+    });
+    if (fourteenth.status !== "accepted") throw new Error("fourteenth intlevel restore refused");
+    const fifteenthAccess = {
+      ...fourteenthAccess,
+      restorePs: ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS,
+    };
+    const fifteenth = restoreEsp32S3DirectBootIntlevel(fourteenth.state, fifteenthAccess);
+    expect(fifteenth).toEqual({
+      handled: true,
+      status: "accepted",
+      returnValue: ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS,
+      state: { intlevel: 0, restoreCount: 15, lastPc: ESP32S3_ROM_SET_INTLEVEL },
+    });
+    if (fifteenth.status !== "accepted") throw new Error("fifteenth intlevel restore refused");
+    const sixteenth = restoreEsp32S3DirectBootIntlevel(fifteenth.state, fifteenthAccess);
+    expect(sixteenth).toEqual({
+      handled: true,
+      status: "accepted",
+      returnValue: ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS,
+      state: { intlevel: 0, restoreCount: 16, lastPc: ESP32S3_ROM_SET_INTLEVEL },
+    });
+    if (sixteenth.status !== "accepted") throw new Error("sixteenth intlevel restore refused");
+    expect(restoreEsp32S3DirectBootIntlevel(sixteenth.state, fifteenthAccess).status).toBe("refused");
   });
 });

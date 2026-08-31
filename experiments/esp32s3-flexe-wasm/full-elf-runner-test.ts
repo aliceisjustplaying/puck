@@ -831,9 +831,10 @@ assert.deepEqual(lx7Progress.memoryFault, {
 
 const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   ...runnerMemory,
-  maxSteps: 1_024,
+  maxSteps: 1_536,
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true, cpuTicksPerUs: 40 },
 });
+console.error("NEXT_BOUNDARY", cacheProgress.record, cacheProgress.romEvents.slice(-8), cacheProgress.intlevel, cacheProgress.bbpllRom, cacheProgress.memoryTrace.length);
 assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.romRefused);
 assert.equal(cacheProgress.record.steps, 943);
 assert.equal(cacheProgress.record.pc, 0x4000_1c38);
@@ -1105,8 +1106,8 @@ assert.equal(nonExecutableEntry.record.reason, FULL_ELF_STOP_REASONS.nonExecutab
 assert.equal(nonExecutableEntry.record.steps, 0);
 
 await assert.rejects(
-  runSparseXtensaElf(moduleBytes, image, { ...runnerMemory, maxSteps: 1025 }),
-  /exceeds trace capacity 1024/,
+  runSparseXtensaElf(moduleBytes, image, { ...runnerMemory, maxSteps: 2049 }),
+  /exceeds trace capacity 2048/,
 );
 
 const hex = (value: number): string => `0x${value.toString(16)}`;

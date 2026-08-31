@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..55a269c
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1984 @@
+@@ -0,0 +1,2007 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -190,7 +190,7 @@ index 0000000..55a269c
 +#define DATA_CAPACITY 4096u
 +#define PAGE_BYTES 4096u
 +#define ELF_PAGE_CAPACITY 768u
-+#define ELF_TRACE_CAPACITY 1024u
++#define ELF_TRACE_CAPACITY 2048u
 +#define ELF_MEMORY_TRACE_CAPACITY 2048u
 +#define ELF_UNSUPPORTED_CAPACITY 2048u
 +#define ELF_ROM_EVENT_CAPACITY 64u
@@ -272,6 +272,12 @@ index 0000000..55a269c
 +#define ESP32S3_BBPLL_OC_DR1_MSB 2u
 +#define ESP32S3_BBPLL_OC_DR1_LSB 0u
 +#define ESP32S3_BBPLL_OC_DR1_480M 0u
++#define ESP32S3_BBPLL_OC_DR3 5u
++#define ESP32S3_BBPLL_OC_DR3_MSB 6u
++#define ESP32S3_BBPLL_OC_DR3_LSB 4u
++#define ESP32S3_BBPLL_OC_DR3_480M 0u
++#define ESP32S3_BBPLL_OC_DCUR 6u
++#define ESP32S3_BBPLL_OC_DCUR_480M 0x73u
 +#define ESP32S3_ROM_SET_CPU_TICKS_PER_US 0x40001a4cu
 +#define ESP32S3_DIRECT_BOOT_CPU_TICKS_PER_US 40u
 +#define ESP32S3_CACHE_IDLE 0x001001u
@@ -706,11 +712,13 @@ index 0000000..55a269c
 +    uint32_t block_and_order = event[2];
 +    uint32_t packed_args = event[3];
 +    uint32_t call_state = event[4];
-+    uint32_t expected_restores = write_index == 0u ? 1u : (write_index == 1u ? 4u : 7u);
++    uint32_t expected_restores = write_index == 0u ? 1u : (write_index == 1u ? 4u : (write_index == 2u ? 7u : 16u));
 +    uint32_t expected_reg = write_index == 0u ? ESP32S3_BBPLL_MODE_HF :
-+                            (write_index == 1u ? ESP32S3_BBPLL_OC_REF_DIV : ESP32S3_BBPLL_OC_DIV_7_0);
++                            (write_index == 1u ? ESP32S3_BBPLL_OC_REF_DIV :
++                             (write_index == 2u ? ESP32S3_BBPLL_OC_DIV_7_0 : ESP32S3_BBPLL_OC_DCUR));
 +    uint32_t expected_data = write_index == 0u ? ESP32S3_BBPLL_MODE_HF_480M :
-+                             (write_index == 1u ? ESP32S3_BBPLL_OC_REF_DIV_480M : ESP32S3_BBPLL_OC_DIV_7_0_480M);
++                             (write_index == 1u ? ESP32S3_BBPLL_OC_REF_DIV_480M :
++                              (write_index == 2u ? ESP32S3_BBPLL_OC_DIV_7_0_480M : ESP32S3_BBPLL_OC_DCUR_480M));
 +    return event[0] == ELF_ROM_EVENT_BBPLL_ROM_WRITE &&
 +           event[1] == ESP32S3_ROM_I2C_WRITE_REG &&
 +           (block_and_order & 0xffu) == ESP32S3_I2C_BBPLL &&
@@ -726,7 +734,7 @@ index 0000000..55a269c
 +    uint32_t count = 0u;
 +    for (uint32_t i = 0; i < elf_rom_event_count; i++) {
 +        if (elf_rom_events[i][0] != ELF_ROM_EVENT_BBPLL_ROM_WRITE) continue;
-+        if (count >= 3u || !elf_bbpll_rom_event_matches(elf_rom_events[i], count)) return 0;
++        if (count >= 4u || !elf_bbpll_rom_event_matches(elf_rom_events[i], count)) return 0;
 +        count++;
 +    }
 +    return count > 0u;
@@ -739,21 +747,25 @@ index 0000000..55a269c
 +        uint32_t block_and_order = elf_rom_events[i][2];
 +        uint32_t packed_shape = elf_rom_events[i][3];
 +        uint32_t data_and_call_state = elf_rom_events[i][4];
-+        if (count >= 1u || elf_rom_events[i][1] != ESP32S3_ROM_I2C_WRITE_REG_MASK ||
++        uint32_t expected_restores = count == 0u ? 10u : 13u;
++        uint32_t expected_msb = count == 0u ? ESP32S3_BBPLL_OC_DR1_MSB : ESP32S3_BBPLL_OC_DR3_MSB;
++        uint32_t expected_lsb = count == 0u ? ESP32S3_BBPLL_OC_DR1_LSB : ESP32S3_BBPLL_OC_DR3_LSB;
++        uint32_t expected_data = count == 0u ? ESP32S3_BBPLL_OC_DR1_480M : ESP32S3_BBPLL_OC_DR3_480M;
++        if (count >= 2u || elf_rom_events[i][1] != ESP32S3_ROM_I2C_WRITE_REG_MASK ||
 +            (block_and_order & 0xffu) != ESP32S3_I2C_BBPLL ||
-+            ((block_and_order >> 8) & 0xffu) != 10u ||
++            ((block_and_order >> 8) & 0xffu) != expected_restores ||
 +            ((block_and_order >> 16) & 0xffu) != count ||
 +            ((block_and_order >> 24) & 0xffu) != 3u ||
 +            ((packed_shape >> 24) & 0xffu) != ESP32S3_I2C_BBPLL_HOST_ID ||
 +            ((packed_shape >> 16) & 0xffu) != ESP32S3_BBPLL_OC_DR1 ||
-+            ((packed_shape >> 8) & 0xffu) != ESP32S3_BBPLL_OC_DR1_MSB ||
-+            (packed_shape & 0xffu) != ESP32S3_BBPLL_OC_DR1_LSB ||
-+            (data_and_call_state & 0xffu) != ESP32S3_BBPLL_OC_DR1_480M ||
++            ((packed_shape >> 8) & 0xffu) != expected_msb ||
++            (packed_shape & 0xffu) != expected_lsb ||
++            (data_and_call_state & 0xffu) != expected_data ||
 +            ((data_and_call_state >> 8) & 0xffu) != 2u ||
 +            ((data_and_call_state >> 16) & 0xfu) != 3u) return 0;
 +        count++;
 +    }
-+    return count == 1u;
++    return count > 0u;
 +}
 +
 +static int elf_regi2c_mmio_permission(uint32_t address, uint32_t width, int is_write) {
@@ -1419,15 +1431,19 @@ index 0000000..55a269c
 +        uint32_t restore_count = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_INTLEVEL_RESTORE);
 +        uint32_t bbpll_writes = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_BBPLL_ROM_WRITE);
 +        uint32_t expected_bbpll_writes = restore_count == 0u ? 0u : (restore_count < 4u ? 1u : (restore_count < 7u ? 2u : 3u));
-+        uint32_t expected_restore_ps = restore_count == 1u || restore_count == 4u || restore_count == 7u
++        uint32_t masked_writes = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_BBPLL_ROM_MASK_WRITE);
++        uint32_t expected_masked_writes = restore_count < 10u ? 0u : (restore_count < 13u ? 1u : 2u);
++        uint32_t expected_restore_ps = restore_count == 1u || restore_count == 4u ||
++                                       restore_count == 7u || restore_count == 10u || restore_count == 13u
 +                                           ? ESP32S3_DIRECT_BOOT_INTLEVEL_PRESERVE_PS
 +                                           : ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS;
-+        if (callinc != 2u || restore_count >= 10u || restore_ps != expected_restore_ps ||
++        if (callinc != 2u || restore_count >= 16u || restore_ps != expected_restore_ps ||
 +            previous_ps != ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS ||
 +            XT_PS_INTLEVEL(target_cpu->ps) != 3u ||
 +            elf_regi2c_mmio_event_count(ELF_ROM_EVENT_REGI2C_MMIO_READ) != 2u ||
 +            elf_regi2c_mmio_event_count(ELF_ROM_EVENT_REGI2C_MMIO_WRITE) != 2u ||
 +            bbpll_writes != expected_bbpll_writes ||
++            masked_writes != expected_masked_writes ||
 +            (bbpll_writes > 0u && !elf_bbpll_rom_event_accepted()) ||
 +            !elf_rom_record(ELF_ROM_EVENT_INTLEVEL_RESTORE, pc, restore_ps,
 +                            previous_ps, callinc)) {
@@ -1448,15 +1464,18 @@ index 0000000..55a269c
 +        uint32_t intlevel_restores = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_INTLEVEL_RESTORE);
 +        uint32_t bbpll_writes = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_BBPLL_ROM_WRITE);
 +        uint32_t expected_reg = bbpll_writes == 0u ? ESP32S3_BBPLL_MODE_HF :
-+                                (bbpll_writes == 1u ? ESP32S3_BBPLL_OC_REF_DIV : ESP32S3_BBPLL_OC_DIV_7_0);
++                                (bbpll_writes == 1u ? ESP32S3_BBPLL_OC_REF_DIV :
++                                 (bbpll_writes == 2u ? ESP32S3_BBPLL_OC_DIV_7_0 : ESP32S3_BBPLL_OC_DCUR));
 +        uint32_t expected_data = bbpll_writes == 0u ? ESP32S3_BBPLL_MODE_HF_480M :
-+                                 (bbpll_writes == 1u ? ESP32S3_BBPLL_OC_REF_DIV_480M : ESP32S3_BBPLL_OC_DIV_7_0_480M);
-+        uint32_t expected_restores = bbpll_writes == 0u ? 1u : (bbpll_writes == 1u ? 4u : 7u);
++                                 (bbpll_writes == 1u ? ESP32S3_BBPLL_OC_REF_DIV_480M :
++                                  (bbpll_writes == 2u ? ESP32S3_BBPLL_OC_DIV_7_0_480M : ESP32S3_BBPLL_OC_DCUR_480M));
++        uint32_t expected_restores = bbpll_writes == 0u ? 1u : (bbpll_writes == 1u ? 4u : (bbpll_writes == 2u ? 7u : 16u));
 +        if (callinc != 2u || block != ESP32S3_I2C_BBPLL ||
-+            host_id != ESP32S3_I2C_BBPLL_HOST_ID || bbpll_writes >= 3u || reg != expected_reg ||
++            host_id != ESP32S3_I2C_BBPLL_HOST_ID || bbpll_writes >= 4u || reg != expected_reg ||
 +            data != expected_data || XT_PS_INTLEVEL(target_cpu->ps) != 3u ||
 +            intlevel_restores != expected_restores ||
-+            (bbpll_writes > 0u && !elf_bbpll_rom_event_accepted())) {
++            (bbpll_writes > 0u && !elf_bbpll_rom_event_accepted()) ||
++            (bbpll_writes == 3u && !elf_bbpll_rom_mask_event_accepted())) {
 +            elf_rom_refused = 1;
 +            return 1;
 +        }
@@ -1479,11 +1498,15 @@ index 0000000..55a269c
 +        uint32_t intlevel_restores = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_INTLEVEL_RESTORE);
 +        uint32_t bbpll_writes = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_BBPLL_ROM_WRITE);
 +        uint32_t masked_writes = elf_regi2c_mmio_event_count(ELF_ROM_EVENT_BBPLL_ROM_MASK_WRITE);
++        uint32_t expected_restores = masked_writes == 0u ? 10u : 13u;
++        uint32_t expected_msb = masked_writes == 0u ? ESP32S3_BBPLL_OC_DR1_MSB : ESP32S3_BBPLL_OC_DR3_MSB;
++        uint32_t expected_lsb = masked_writes == 0u ? ESP32S3_BBPLL_OC_DR1_LSB : ESP32S3_BBPLL_OC_DR3_LSB;
++        uint32_t expected_data = masked_writes == 0u ? ESP32S3_BBPLL_OC_DR1_480M : ESP32S3_BBPLL_OC_DR3_480M;
 +        if (callinc != 2u || block != ESP32S3_I2C_BBPLL || host_id != ESP32S3_I2C_BBPLL_HOST_ID ||
-+            reg != ESP32S3_BBPLL_OC_DR1 || msb != ESP32S3_BBPLL_OC_DR1_MSB ||
-+            lsb != ESP32S3_BBPLL_OC_DR1_LSB || data != ESP32S3_BBPLL_OC_DR1_480M ||
-+            XT_PS_INTLEVEL(target_cpu->ps) != 3u || intlevel_restores != 10u ||
-+            bbpll_writes != 3u || masked_writes != 0u || !elf_bbpll_rom_event_accepted()) {
++            reg != ESP32S3_BBPLL_OC_DR1 || msb != expected_msb || lsb != expected_lsb ||
++            data != expected_data || XT_PS_INTLEVEL(target_cpu->ps) != 3u ||
++            intlevel_restores != expected_restores || bbpll_writes != 3u || masked_writes >= 2u ||
++            !elf_bbpll_rom_event_accepted() || (masked_writes > 0u && !elf_bbpll_rom_mask_event_accepted())) {
 +            elf_rom_refused = 1;
 +            return 1;
 +        }

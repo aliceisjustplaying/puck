@@ -17,6 +17,8 @@ export interface Esp32S3DirectBootIntlevelAccess {
   readonly bbpllModeWritten: boolean;
   readonly bbpllReferenceDividerWritten: boolean;
   readonly bbpllDividerWritten: boolean;
+  readonly bbpllDr1Written: boolean;
+  readonly bbpllDr3Written: boolean;
 }
 
 export type Esp32S3DirectBootIntlevelDispatch =
@@ -41,11 +43,14 @@ export function restoreEsp32S3DirectBootIntlevel(
   state: Esp32S3DirectBootIntlevelState,
   access: Esp32S3DirectBootIntlevelAccess,
 ): Esp32S3DirectBootIntlevelDispatch {
-  const expectedRestorePs = state.restoreCount === 1 || state.restoreCount === 4 || state.restoreCount === 7
+  const expectedRestorePs = state.restoreCount === 1 || state.restoreCount === 4 ||
+    state.restoreCount === 7 || state.restoreCount === 10 || state.restoreCount === 13
     ? ESP32S3_DIRECT_BOOT_INTLEVEL_PRESERVE_PS
     : ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS;
   const dividerStateValid = state.restoreCount < 7 ? !access.bbpllDividerWritten : access.bbpllDividerWritten;
-  const validOrder = dividerStateValid && (state.restoreCount === 0
+  const dr1StateValid = state.restoreCount < 10 ? !access.bbpllDr1Written : access.bbpllDr1Written;
+  const dr3StateValid = state.restoreCount < 13 ? !access.bbpllDr3Written : access.bbpllDr3Written;
+  const validOrder = dividerStateValid && dr1StateValid && dr3StateValid && (state.restoreCount === 0
     ? state.intlevel === 3 && !access.bbpllModeWritten && !access.bbpllReferenceDividerWritten
     : state.restoreCount === 1
       ? state.intlevel === 0 && access.bbpllModeWritten && !access.bbpllReferenceDividerWritten
@@ -63,8 +68,20 @@ export function restoreEsp32S3DirectBootIntlevel(
                   ? state.intlevel === 0 && access.bbpllModeWritten && access.bbpllReferenceDividerWritten
                   : state.restoreCount === 8
                     ? state.intlevel === 3 && access.bbpllModeWritten && access.bbpllReferenceDividerWritten
-                    : state.restoreCount === 9 && state.intlevel === 0 && access.bbpllModeWritten &&
-                      access.bbpllReferenceDividerWritten);
+                    : state.restoreCount === 9
+                      ? state.intlevel === 0 && access.bbpllModeWritten && access.bbpllReferenceDividerWritten
+                      : state.restoreCount === 10
+                        ? state.intlevel === 0 && access.bbpllModeWritten && access.bbpllReferenceDividerWritten
+                        : state.restoreCount === 11
+                          ? state.intlevel === 3 && access.bbpllModeWritten && access.bbpllReferenceDividerWritten
+                          : state.restoreCount === 12
+                            ? state.intlevel === 0 && access.bbpllModeWritten && access.bbpllReferenceDividerWritten
+                            : state.restoreCount === 13
+                              ? state.intlevel === 0 && access.bbpllModeWritten && access.bbpllReferenceDividerWritten
+                              : state.restoreCount === 14
+                                ? state.intlevel === 3 && access.bbpllModeWritten && access.bbpllReferenceDividerWritten
+                                : state.restoreCount === 15 && state.intlevel === 0 && access.bbpllModeWritten &&
+                                  access.bbpllReferenceDividerWritten);
   if (access.pc !== ESP32S3_ROM_SET_INTLEVEL || access.callinc !== 2 ||
       access.restorePs !== expectedRestorePs || !access.regi2cCalibrationStarted || !validOrder) {
     return Object.freeze({

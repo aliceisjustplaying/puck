@@ -483,7 +483,7 @@ first undeclared 32-bit MMIO read at
 `0x600c4064` with flags zero. No cache or MMIO behavior is implied.
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
-markers, 64 ROM events, and 1,024 executed instructions. The pinned TinyDraw ELF
+markers, 64 ROM events, and 2,048 executed instructions. The pinned TinyDraw ELF
 automatically installs the tracked 145-instruction ESP32-S3 ISA gap set before
 execution. Each marker must match the decoder-width bytes in loaded executable
 memory during setup; stale, mismatched, unloaded, and non-executable markers are

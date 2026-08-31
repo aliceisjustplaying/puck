@@ -2,9 +2,14 @@ import { describe, expect, test } from "bun:test";
 import {
   ESP32S3_BBPLL_MODE_HF,
   ESP32S3_BBPLL_MODE_HF_480M,
+  ESP32S3_BBPLL_OC_DCUR,
+  ESP32S3_BBPLL_OC_DCUR_480M,
   ESP32S3_BBPLL_OC_DR1,
   ESP32S3_BBPLL_OC_DR1_LSB,
   ESP32S3_BBPLL_OC_DR1_MSB,
+  ESP32S3_BBPLL_OC_DR3,
+  ESP32S3_BBPLL_OC_DR3_LSB,
+  ESP32S3_BBPLL_OC_DR3_MSB,
   ESP32S3_BBPLL_OC_DIV_7_0,
   ESP32S3_BBPLL_OC_DIV_7_0_480M,
   ESP32S3_BBPLL_OC_REF_DIV,
@@ -37,7 +42,7 @@ describe("ESP32-S3 direct-boot BBPLL ROM write", () => {
       handled: true,
       status: "accepted",
       returnValue: 0,
-      state: { modeHf: 0x6b, refDiv: null, div7_0: null, dr1: null, writeCount: 1, maskedWriteCount: 0, lastPc: 0x4000_5d60 },
+      state: { modeHf: 0x6b, refDiv: null, div7_0: null, dr1: null, dr3: null, dcur: null, writeCount: 1, maskedWriteCount: 0, lastPc: 0x4000_5d60 },
     });
   });
 
@@ -54,7 +59,7 @@ describe("ESP32-S3 direct-boot BBPLL ROM write", () => {
       handled: true,
       status: "accepted",
       returnValue: 0,
-      state: { modeHf: 0x6b, refDiv: 0x50, div7_0: null, dr1: null, writeCount: 2, maskedWriteCount: 0, lastPc: 0x4000_5d60 },
+      state: { modeHf: 0x6b, refDiv: 0x50, div7_0: null, dr1: null, dr3: null, dcur: null, writeCount: 2, maskedWriteCount: 0, lastPc: 0x4000_5d60 },
     });
   });
 
@@ -79,7 +84,7 @@ describe("ESP32-S3 direct-boot BBPLL ROM write", () => {
       handled: true,
       status: "accepted",
       returnValue: 0,
-      state: { modeHf: 0x6b, refDiv: 0x50, div7_0: 8, dr1: null, writeCount: 3, maskedWriteCount: 0, lastPc: 0x4000_5d60 },
+      state: { modeHf: 0x6b, refDiv: 0x50, div7_0: 8, dr1: null, dr3: null, dcur: null, writeCount: 3, maskedWriteCount: 0, lastPc: 0x4000_5d60 },
     });
   });
 
@@ -122,6 +127,8 @@ describe("ESP32-S3 direct-boot BBPLL ROM write", () => {
         refDiv: 0x50,
         div7_0: 8,
         dr1: 0,
+        dr3: null,
+        dcur: null,
         writeCount: 3,
         maskedWriteCount: 1,
         lastPc: ESP32S3_ROM_I2C_WRITE_REG_MASK,
@@ -141,7 +148,71 @@ describe("ESP32-S3 direct-boot BBPLL ROM write", () => {
     ]) expect(writeEsp32S3DirectBootBbpllRomMask(divider.state, invalid).status).toBe("refused");
     const masked = writeEsp32S3DirectBootBbpllRomMask(divider.state, maskedAccess);
     if (masked.status !== "accepted") throw new Error("BBPLL DR1 write refused");
+    const dr3Access = {
+      ...maskedAccess,
+      msb: ESP32S3_BBPLL_OC_DR3_MSB,
+      lsb: ESP32S3_BBPLL_OC_DR3_LSB,
+      register: ESP32S3_BBPLL_OC_DR3,
+      priorIntlevelRestoreCount: 13,
+      priorMaskedWriteCount: 1,
+    } as const;
+    expect(writeEsp32S3DirectBootBbpllRomMask(masked.state, dr3Access)).toEqual({
+      handled: true,
+      status: "accepted",
+      returnValue: 0,
+      state: {
+        modeHf: 0x6b,
+        refDiv: 0x50,
+        div7_0: 8,
+        dr1: 0,
+        dr3: 0,
+        dcur: null,
+        writeCount: 3,
+        maskedWriteCount: 2,
+        lastPc: ESP32S3_ROM_I2C_WRITE_REG_MASK,
+      },
+    });
+    for (const invalid of [
+      { ...dr3Access, register: 6 },
+      { ...dr3Access, msb: 5 },
+      { ...dr3Access, lsb: 3 },
+      { ...dr3Access, data: 1 },
+      { ...dr3Access, priorIntlevelRestoreCount: 12 },
+      { ...dr3Access, priorMaskedWriteCount: 0 },
+    ]) expect(writeEsp32S3DirectBootBbpllRomMask(masked.state, invalid).status).toBe("refused");
+    const dr3 = writeEsp32S3DirectBootBbpllRomMask(masked.state, dr3Access);
+    if (dr3.status !== "accepted") throw new Error("BBPLL DR3 write refused");
+    expect(writeEsp32S3DirectBootBbpllRomMask(dr3.state, dr3Access).status).toBe("refused");
     expect(writeEsp32S3DirectBootBbpllRomMask(masked.state, maskedAccess).status).toBe("refused");
+    const dcurAccess = {
+      ...access,
+      register: ESP32S3_BBPLL_OC_DCUR,
+      data: ESP32S3_BBPLL_OC_DCUR_480M,
+      priorIntlevelRestoreCount: 16,
+      priorWriteCount: 3,
+    } as const;
+    expect(writeEsp32S3DirectBootBbpllRom(dr3.state, dcurAccess)).toEqual({
+      handled: true,
+      status: "accepted",
+      returnValue: 0,
+      state: {
+        modeHf: 0x6b,
+        refDiv: 0x50,
+        div7_0: 8,
+        dr1: 0,
+        dr3: 0,
+        dcur: 0x73,
+        writeCount: 4,
+        maskedWriteCount: 2,
+        lastPc: ESP32S3_ROM_I2C_WRITE_REG,
+      },
+    });
+    for (const invalid of [
+      { ...dcurAccess, register: 7 },
+      { ...dcurAccess, data: 0x72 },
+      { ...dcurAccess, priorIntlevelRestoreCount: 15 },
+      { ...dcurAccess, priorWriteCount: 2 },
+    ]) expect(writeEsp32S3DirectBootBbpllRom(dr3.state, invalid).status).toBe("refused");
   });
 
   test("refuses wrong ABI arguments, order, and duplicate writes", () => {
