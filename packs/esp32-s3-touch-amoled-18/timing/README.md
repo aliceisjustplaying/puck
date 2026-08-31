@@ -46,6 +46,15 @@ store and an explicit `memw` fence wait for the entry to drain. The fence also
 carries a caller-supplied latency, and unknown retirement, drain, or fence costs
 remain unknown.
 
+The neutral trace adapter leaves this mode disabled unless its caller supplies
+both `retirementLatency` and `memwLatency`. Enabling it requires a complete
+non-overflow trace, an exact instruction word for every instruction, and the
+issuing instruction PC for every data record. Only the three-byte instruction
+word `0x0020c0` is classified as Xtensa `memw`; a width collision is rejected.
+Every opted-in write must resolve to exactly one cache store emission. Split,
+MMIO, write-through, or eviction cases that emit zero or multiple stores are
+rejected because the one-entry model cannot represent them atomically.
+
 ## Line-fill burst boundary
 
 `costs.lineFill` still accepts one known or unknown scalar cost, and still

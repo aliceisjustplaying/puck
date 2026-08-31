@@ -1,8 +1,14 @@
 import type { VirtualMemoryAccess } from "./address-map";
-import { scheduleExecution, type CpuExecutionEvent, type DmaEvent } from "./execution";
+import {
+  scheduleExecution,
+  type CpuExecutionEvent,
+  type DmaEvent,
+  type StoreBufferTiming,
+} from "./execution";
 import {
   runTimingMachine,
   timingMachineJson,
+  type TimingMachineFence,
   type TimingMachineConfiguration,
   type TimingMachineInput,
   type TimingMachineClaim,
@@ -14,6 +20,7 @@ export interface RuntimeMemoryObservation {
   readonly core: VirtualMemoryAccess["core"];
   readonly address: bigint;
   readonly bytes: number;
+  readonly storeBuffer?: Readonly<StoreBufferTiming>;
 }
 
 export type RuntimeTraceObservation =
@@ -25,6 +32,12 @@ export type RuntimeTraceObservation =
   | Readonly<{
       sequence: number;
       kind: "cpu";
+      eventId: string;
+      instructionAccessId: string;
+    }>
+  | Readonly<{
+      sequence: number;
+      kind: "fence";
       eventId: string;
       instructionAccessId: string;
     }>
@@ -57,7 +70,7 @@ export interface RuntimeTraceProvenance {
   }>;
   readonly extensions: readonly Readonly<{
     accessId: string;
-    kind: "literal-load";
+    kind: "literal-load" | "memw";
     source: string;
   }>[];
 }
@@ -101,6 +114,20 @@ function validateMemoryObservation(value: RuntimeMemoryObservation): void {
   }
   if (!Number.isSafeInteger(value.bytes) || value.bytes <= 0) {
     throw new Error("runtime memory observation bytes must be a positive safe integer");
+  }
+  if (value.storeBuffer !== undefined) {
+    if (value.kind !== "store") {
+      throw new Error("runtime memory observation storeBuffer is only valid for a store");
+    }
+    scheduleExecution([{
+      id: "runtime-store-buffer-validation",
+      kind: "store",
+      core: value.core,
+      memory: "sram",
+      bytes: value.bytes,
+      latency: value.storeBuffer.retirementLatency,
+      storeBuffer: value.storeBuffer,
+    }]);
   }
 }
 
@@ -154,6 +181,25 @@ function freezeCpu(event: CpuExecutionEvent): CpuExecutionEvent {
   });
 }
 
+function freezeFence(event: TimingMachineFence): TimingMachineFence {
+  scheduleExecution([event]);
+  const latency = event.latency.status === "known"
+    ? Object.freeze({ ...event.latency })
+    : Object.freeze({
+        status: "unknown" as const,
+        reason: event.latency.reason,
+        ...(event.latency.source === undefined ? {} : { source: event.latency.source }),
+      });
+  return Object.freeze({
+    id: event.id,
+    kind: "fence",
+    core: event.core,
+    operation: "memw",
+    instructionAccessId: event.instructionAccessId,
+    latency,
+  });
+}
+
 /**
  * Collect the exact event order reported by an execution runtime. The recorder
  * makes no completeness claim and supplies no addresses, mappings, or costs.
@@ -163,6 +209,7 @@ export class RuntimeTimingTraceRecorder {
   readonly #cores: [VirtualMemoryAccess[], VirtualMemoryAccess[]] = [[], []];
   readonly #interleave: string[] = [];
   readonly #cpu: CpuExecutionEvent[] = [];
+  readonly #fence: TimingMachineFence[] = [];
   readonly #dma: DmaEvent[] = [];
   readonly #observations: RuntimeTraceObservation[] = [];
   readonly #ids = new Set<string>();
@@ -200,6 +247,13 @@ export class RuntimeTimingTraceRecorder {
       core: observation.core,
       address: observation.address,
       bytes: observation.bytes,
+      ...(observation.storeBuffer === undefined
+        ? {}
+        : {
+            storeBuffer: Object.freeze({
+              retirementLatency: Object.freeze({ ...observation.storeBuffer.retirementLatency }),
+            }),
+          }),
     });
     this.#cores[observation.core].push(access);
     this.#memoryById.set(id, access);
@@ -232,6 +286,28 @@ export class RuntimeTimingTraceRecorder {
     }));
   }
 
+  recordFence(event: TimingMachineFence): void {
+    if (typeof event !== "object" || event === null) throw new Error("runtime fence event is required");
+    requireNonEmpty(event.id, "runtime fence event.id");
+    if (this.#ids.has(event.id)) throw new Error(`runtime trace event id ${event.id} is already in use`);
+    const instruction = this.#memoryById.get(event.instructionAccessId);
+    if (!instruction || instruction.kind !== "instruction-fetch") {
+      throw new Error("runtime fence event.instructionAccessId must name a recorded instruction-fetch access");
+    }
+    if (event.core !== instruction.core) {
+      throw new Error("runtime fence event.core must match its instruction-fetch access");
+    }
+    const frozen = freezeFence(event);
+    this.#ids.add(frozen.id);
+    this.#fence.push(frozen);
+    this.#observations.push(Object.freeze({
+      sequence: this.#observations.length,
+      kind: "fence",
+      eventId: frozen.id,
+      instructionAccessId: frozen.instructionAccessId,
+    }));
+  }
+
   recordDma(event: DmaEvent): void {
     if (typeof event !== "object" || event === null) throw new Error("runtime DMA event is required");
     requireNonEmpty(event.id, "runtime DMA event.id");
@@ -252,6 +328,7 @@ export class RuntimeTimingTraceRecorder {
       ]) as TimingMachineInput["cores"],
       architecturalInterleave: Object.freeze([...this.#interleave]),
       cpu: Object.freeze([...this.#cpu]),
+      ...(this.#fence.length === 0 ? {} : { fence: Object.freeze([...this.#fence]) }),
       dma: Object.freeze([...this.#dma]),
       issueOrder: Object.freeze(
         this.#observations.map((observation) => {
@@ -358,7 +435,25 @@ export function runRuntimeTimingTrace(
       }
       continue;
     }
-    throw new Error(`runtime timing trace observationOrder[${index}].kind must be memory, cpu, or dma`);
+    if (observation.kind === "fence") {
+      const eventId = requireNonEmpty(
+        observation.eventId,
+        `runtime timing trace observationOrder[${index}].eventId`,
+      );
+      const instructionAccessId = requireNonEmpty(
+        observation.instructionAccessId,
+        `runtime timing trace observationOrder[${index}].instructionAccessId`,
+      );
+      if (issue.kind !== "fence" || issue.eventId !== eventId) {
+        throw new Error(`runtime timing trace observationOrder[${index}] disagrees with input.issueOrder`);
+      }
+      const fence = trace.input.fence?.find((event) => event.id === eventId);
+      if (!fence || fence.instructionAccessId !== instructionAccessId) {
+        throw new Error(`runtime timing trace observationOrder[${index}] disagrees with input.fence`);
+      }
+      continue;
+    }
+    throw new Error(`runtime timing trace observationOrder[${index}].kind must be memory, cpu, fence, or dma`);
   }
 
   const machine = runTimingMachine(config, trace.input);

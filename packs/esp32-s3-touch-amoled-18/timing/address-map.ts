@@ -1,5 +1,11 @@
 import type { CacheAccessTrace } from "./cache";
-import type { CoreId, EventLatency, MemoryRegion, MmioEvent } from "./execution";
+import type {
+  CoreId,
+  EventLatency,
+  MemoryRegion,
+  MmioEvent,
+  StoreBufferTiming,
+} from "./execution";
 
 export type AddressRegionKind = MemoryRegion | "mmio";
 export type AccessKind = "instruction-fetch" | "literal-load" | "load" | "store";
@@ -37,6 +43,7 @@ export interface VirtualMemoryAccess {
   readonly core: CoreId;
   readonly address: bigint;
   readonly bytes: number;
+  readonly storeBuffer?: Readonly<StoreBufferTiming>;
 }
 
 export interface ResolvedAddressSegment {

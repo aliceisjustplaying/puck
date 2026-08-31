@@ -1,4 +1,10 @@
-import type { CpuExecutionEvent, DmaEvent, EventLatency } from "./execution";
+import type {
+  CpuExecutionEvent,
+  DmaEvent,
+  EventLatency,
+  StoreBufferTiming,
+} from "./execution";
+import type { TimingMachineFence } from "./machine";
 import {
   RuntimeTimingTraceRecorder,
   type RuntimeMemoryObservation,
@@ -7,6 +13,16 @@ import {
 } from "./runtime-trace";
 
 export type NeutralTraceKind = "instruction" | "read" | "write";
+
+/** Flexe trace word for Xtensa bytes c0 20 00, printed by objdump as 0020c0. */
+export const XTENSA_MEMW_INSTRUCTION_ENCODING = 0x0020c0;
+
+export interface NeutralTraceAdapterOptions {
+  readonly storeBuffer?: Readonly<{
+    readonly retirementLatency: EventLatency;
+    readonly memwLatency: EventLatency;
+  }>;
+}
 
 export interface NeutralTraceObservation {
   readonly id: string;
@@ -17,6 +33,13 @@ export interface NeutralTraceObservation {
   readonly width: number;
   /** Instruction-only CPU duration. Omission becomes an explicit unknown cost. */
   readonly cpuCost?: EventLatency;
+  /** Exact instruction word as reported by the bounded runtime trace. */
+  readonly instructionEncoding?: Readonly<{
+    readonly value: number;
+    readonly source: string;
+  }>;
+  /** Data-only PC of the instruction that issued this access. */
+  readonly issuingInstructionAddress?: bigint;
   readonly extension?: Readonly<{
     kind: "literal-load";
     source: string;
@@ -65,9 +88,66 @@ function validateWidth(kind: NeutralTraceKind, width: unknown, path: string): nu
   return width as number;
 }
 
+function validateLatency(value: unknown, path: string): asserts value is EventLatency {
+  if (typeof value !== "object" || value === null) throw new Error(`${path} is required`);
+  const latency = value as Partial<EventLatency>;
+  if (latency.status === "known") {
+    if (typeof latency.cycles !== "bigint" || latency.cycles < 0n) {
+      throw new Error(`${path}.cycles must be a non-negative bigint`);
+    }
+    if (latency.calibration !== "calibrated" && latency.calibration !== "uncalibrated") {
+      throw new Error(`${path}.calibration must be calibrated or uncalibrated`);
+    }
+    requireNonEmpty(latency.source, `${path}.source`);
+    return;
+  }
+  if (latency.status === "unknown") {
+    requireNonEmpty(latency.reason, `${path}.reason`);
+    requireNonEmpty(latency.source, `${path}.source`);
+    return;
+  }
+  throw new Error(`${path}.status must be known or unknown`);
+}
+
+function storeBufferOptions(
+  options: NeutralTraceAdapterOptions,
+): Readonly<{ retirementLatency: EventLatency; memwLatency: EventLatency }> | null {
+  if (typeof options !== "object" || options === null) {
+    throw new Error("neutral trace adapter options must be an object");
+  }
+  if (options.storeBuffer === undefined) return null;
+  if (typeof options.storeBuffer !== "object" || options.storeBuffer === null) {
+    throw new Error("neutral trace adapter options.storeBuffer must be an object");
+  }
+  validateLatency(
+    options.storeBuffer.retirementLatency,
+    "neutral trace adapter options.storeBuffer.retirementLatency",
+  );
+  validateLatency(
+    options.storeBuffer.memwLatency,
+    "neutral trace adapter options.storeBuffer.memwLatency",
+  );
+  return Object.freeze({
+    retirementLatency: Object.freeze({ ...options.storeBuffer.retirementLatency }),
+    memwLatency: Object.freeze({ ...options.storeBuffer.memwLatency }),
+  });
+}
+
+function exactMemw(observation: NeutralTraceObservation, index: number): boolean {
+  const encoding = observation.instructionEncoding;
+  if (encoding === undefined || encoding.value !== XTENSA_MEMW_INSTRUCTION_ENCODING) return false;
+  if (observation.width !== 3) {
+    throw new Error(
+      `neutral trace observations[${index}] memw encoding requires exact three-byte width`,
+    );
+  }
+  return true;
+}
+
 function memoryObservation(
   observation: NeutralTraceObservation,
   index: number,
+  storeBuffer: Readonly<StoreBufferTiming> | null,
 ): RuntimeMemoryObservation {
   const path = `neutral trace observations[${index}]`;
   if (typeof observation !== "object" || observation === null) {
@@ -90,6 +170,27 @@ function memoryObservation(
   }
   if (observation.cpuCost?.status === "unknown") {
     requireNonEmpty(observation.cpuCost.source, `${path}.cpuCost.source`);
+  }
+  if (observation.instructionEncoding !== undefined) {
+    if (observation.kind !== "instruction") {
+      throw new Error(`${path}.instructionEncoding is only valid for an instruction observation`);
+    }
+    if (typeof observation.instructionEncoding !== "object" || observation.instructionEncoding === null) {
+      throw new Error(`${path}.instructionEncoding must be an object`);
+    }
+    const encoding = observation.instructionEncoding.value;
+    if (!Number.isSafeInteger(encoding) || encoding < 0 || encoding >= 2 ** (bytes * 8)) {
+      throw new Error(`${path}.instructionEncoding.value must fit the instruction width`);
+    }
+    requireNonEmpty(observation.instructionEncoding.source, `${path}.instructionEncoding.source`);
+  }
+  if (observation.issuingInstructionAddress !== undefined) {
+    if (observation.kind === "instruction") {
+      throw new Error(`${path}.issuingInstructionAddress is only valid for a data observation`);
+    }
+    if (typeof observation.issuingInstructionAddress !== "bigint" || observation.issuingInstructionAddress < 0n) {
+      throw new Error(`${path}.issuingInstructionAddress must be a non-negative bigint`);
+    }
   }
   if (observation.extension !== undefined) {
     if (typeof observation.extension !== "object" || observation.extension === null) {
@@ -114,6 +215,9 @@ function memoryObservation(
           : "load",
     address: observation.address,
     bytes,
+    ...(observation.kind === "write" && storeBuffer !== null
+      ? { storeBuffer: Object.freeze({ retirementLatency: storeBuffer.retirementLatency }) }
+      : {}),
   });
 }
 
@@ -137,7 +241,24 @@ function cpuEventFor(
   });
 }
 
-function provenanceFor(trace: BoundedNeutralTrace): RuntimeTraceProvenance {
+function fenceEventFor(
+  observation: NeutralTraceObservation,
+  latency: EventLatency,
+): TimingMachineFence {
+  return Object.freeze({
+    id: `${observation.id}:fence`,
+    kind: "fence",
+    core: observation.core,
+    operation: "memw",
+    instructionAccessId: observation.id,
+    latency: Object.freeze({ ...latency }),
+  });
+}
+
+function provenanceFor(
+  trace: BoundedNeutralTrace,
+  memwAccessIds: ReadonlySet<string>,
+): RuntimeTraceProvenance {
   const source = requireNonEmpty(trace.provenance.source, "neutral trace provenance.source");
   const format = requireNonEmpty(trace.provenance.format, "neutral trace provenance.format");
   let digest: RuntimeTraceProvenance["digest"] = null;
@@ -161,12 +282,16 @@ function provenanceFor(trace: BoundedNeutralTrace): RuntimeTraceProvenance {
     }),
     extensions: Object.freeze(
       trace.observations
-        .filter((observation) => observation.extension?.kind === "literal-load")
+        .filter((observation) =>
+          observation.extension?.kind === "literal-load" || memwAccessIds.has(observation.id),
+        )
         .sort((left, right) => left.sequence - right.sequence)
         .map((observation) => Object.freeze({
           accessId: observation.id,
-          kind: "literal-load" as const,
-          source: observation.extension!.source,
+          kind: observation.extension?.kind === "literal-load" ? "literal-load" as const : "memw" as const,
+          source: observation.extension?.kind === "literal-load"
+            ? observation.extension.source
+            : observation.instructionEncoding!.source,
         })),
     ),
   });
@@ -177,12 +302,14 @@ function provenanceFor(trace: BoundedNeutralTrace): RuntimeTraceProvenance {
  * runtime timing seam. Addresses, cores, order, literal-load classification,
  * and optional DMA are all explicit inputs. Configuration supplies every
  * address mapping and memory cost after this boundary. Per-core data records
- * stay with the preceding instruction until that core's next instruction;
- * one CPU event closes each such group.
+ * stay with the preceding instruction until that core's next instruction.
+ * The opt-in store-buffer mode additionally requires exact instruction words
+ * and issuing PCs, and replaces an exact three-byte memw with a fence event.
  */
 export function adaptNeutralTimingTrace(
   trace: BoundedNeutralTrace,
   dma: readonly ExplicitDmaObservation[] = [],
+  options: NeutralTraceAdapterOptions = {},
 ): RuntimeTimingTrace {
   if (typeof trace !== "object" || trace === null) throw new Error("neutral trace is required");
   if (trace.schemaVersion !== 1) throw new Error("neutral trace schemaVersion must be 1");
@@ -198,13 +325,35 @@ export function adaptNeutralTimingTrace(
     throw new Error("neutral trace provenance is required");
   }
   if (!Array.isArray(dma)) throw new Error("neutral trace DMA observations must be an array");
+  const buffer = storeBufferOptions(options);
+  if (buffer !== null && trace.overflow) {
+    throw new Error("neutral trace store-buffer mode requires a complete non-overflow trace");
+  }
 
-  const memory = trace.observations.map((observation, index) => Object.freeze({
-    sequence: requireSequence(observation?.sequence, `neutral trace observations[${index}].sequence`),
-    id: observation?.id,
-    neutral: observation,
-    observation: memoryObservation(observation, index),
-  }));
+  const memory = trace.observations.map((observation, index) => {
+    const runtimeObservation = memoryObservation(
+      observation,
+      index,
+      buffer === null ? null : { retirementLatency: buffer.retirementLatency },
+    );
+    if (buffer !== null && observation.kind === "instruction" && observation.instructionEncoding === undefined) {
+      throw new Error(
+        `neutral trace observations[${index}].instructionEncoding is required in store-buffer mode`,
+      );
+    }
+    if (buffer !== null && observation.kind !== "instruction" && observation.issuingInstructionAddress === undefined) {
+      throw new Error(
+        `neutral trace observations[${index}].issuingInstructionAddress is required in store-buffer mode`,
+      );
+    }
+    return Object.freeze({
+      sequence: requireSequence(observation?.sequence, `neutral trace observations[${index}].sequence`),
+      id: observation?.id,
+      neutral: observation,
+      observation: runtimeObservation,
+      isMemw: buffer !== null && observation.kind === "instruction" && exactMemw(observation, index),
+    });
+  });
   const explicitDma = dma.map((observation, index) => {
     const path = `neutral trace DMA observations[${index}]`;
     if (typeof observation !== "object" || observation === null) {
@@ -225,10 +374,23 @@ export function adaptNeutralTimingTrace(
     }
   }
 
-  const provenance = provenanceFor(trace);
-  const cpuAfterSequence = new Map<number, CpuExecutionEvent>();
-  const pending: Array<Readonly<{
+  const memwAccessIds = new Set(
+    memory.filter((observation) => observation.isMemw).map((observation) => observation.id),
+  );
+  const provenance = provenanceFor(trace, memwAccessIds);
+  const eventAfterSequence = new Map<number, Readonly<{
+    kind: "cpu";
     event: CpuExecutionEvent;
+  }> | Readonly<{
+    kind: "fence";
+    event: TimingMachineFence;
+  }>>();
+  const pending: Array<Readonly<{
+    closing: Readonly<{ kind: "cpu"; event: CpuExecutionEvent }> | Readonly<{
+      kind: "fence";
+      event: TimingMachineFence;
+    }>;
+    instructionAddress: bigint;
     lastMemorySequence: number;
   }> | null> = [null, null];
   for (const observation of ordered) {
@@ -236,20 +398,47 @@ export function adaptNeutralTimingTrace(
     const core = observation.observation.core;
     if (observation.neutral.kind === "instruction") {
       const previous = pending[core];
-      if (previous !== null) cpuAfterSequence.set(previous.lastMemorySequence, previous.event);
+      if (previous !== null) eventAfterSequence.set(previous.lastMemorySequence, previous.closing);
+      if (observation.isMemw && observation.neutral.cpuCost !== undefined) {
+        throw new Error(
+          `neutral trace instruction ${observation.id} cannot supply both cpuCost and memwLatency`,
+        );
+      }
       pending[core] = Object.freeze({
-        event: cpuEventFor(observation.neutral, provenance.source),
+        closing: observation.isMemw
+          ? Object.freeze({
+              kind: "fence" as const,
+              event: fenceEventFor(observation.neutral, buffer!.memwLatency),
+            })
+          : Object.freeze({
+              kind: "cpu" as const,
+              event: cpuEventFor(observation.neutral, provenance.source),
+            }),
+        instructionAddress: observation.neutral.address,
         lastMemorySequence: observation.sequence,
       });
       continue;
     }
     const current = pending[core];
+    if (buffer !== null) {
+      if (current === null) {
+        throw new Error(`neutral trace data observation ${observation.id} has no preceding instruction`);
+      }
+      if (observation.neutral.issuingInstructionAddress !== current.instructionAddress) {
+        throw new Error(
+          `neutral trace data observation ${observation.id} issuing PC does not match its preceding instruction`,
+        );
+      }
+      if (current.closing.kind === "fence") {
+        throw new Error(`neutral trace memw instruction cannot own data observation ${observation.id}`);
+      }
+    }
     if (current !== null) {
       pending[core] = Object.freeze({ ...current, lastMemorySequence: observation.sequence });
     }
   }
   for (const current of pending) {
-    if (current !== null) cpuAfterSequence.set(current.lastMemorySequence, current.event);
+    if (current !== null) eventAfterSequence.set(current.lastMemorySequence, current.closing);
   }
 
   const recorder = new RuntimeTimingTraceRecorder(provenance.source);
@@ -259,8 +448,9 @@ export function adaptNeutralTimingTrace(
     } else {
       recorder.recordDma(observation.event);
     }
-    const cpu = cpuAfterSequence.get(observation.sequence);
-    if (cpu !== undefined) recorder.recordCpu(cpu);
+    const closing = eventAfterSequence.get(observation.sequence);
+    if (closing?.kind === "cpu") recorder.recordCpu(closing.event);
+    if (closing?.kind === "fence") recorder.recordFence(closing.event);
   }
   return Object.freeze({ ...recorder.snapshot(), provenance });
 }

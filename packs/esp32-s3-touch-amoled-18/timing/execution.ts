@@ -57,11 +57,13 @@ export interface LoadEvent extends MemoryEventBase {
   readonly kind: "load";
 }
 
+export interface StoreBufferTiming {
+  readonly retirementLatency: EventLatency;
+}
+
 export interface StoreEvent extends MemoryEventBase {
   readonly kind: "store";
-  readonly storeBuffer?: Readonly<{
-    readonly retirementLatency: EventLatency;
-  }>;
+  readonly storeBuffer?: Readonly<StoreBufferTiming>;
 }
 
 export interface AtomicEvent extends MemoryEventBase {
@@ -468,7 +470,7 @@ function laterCycle(...cycles: bigint[]): bigint {
 }
 
 function isBufferedStore(event: ExecutionEvent): event is StoreEvent & {
-  readonly storeBuffer: Readonly<{ readonly retirementLatency: EventLatency }>;
+  readonly storeBuffer: Readonly<StoreBufferTiming>;
 } {
   return event.kind === "store" && event.storeBuffer !== undefined;
 }
@@ -486,7 +488,7 @@ function storeBufferActor(core: CoreId): ExecutionActor {
 }
 
 function drainEventFor(event: StoreEvent & {
-  readonly storeBuffer: Readonly<{ readonly retirementLatency: EventLatency }>;
+  readonly storeBuffer: Readonly<StoreBufferTiming>;
 }): StoreEvent {
   const { storeBuffer: _storeBuffer, ...drain } = event;
   return Object.freeze({ ...drain, id: `${event.id}:drain` });

@@ -213,6 +213,14 @@ resulting `RuntimeTimingTrace` to the pack's `TimingMachine`. The generated
 cache emission, resource, cost provenance, and execution status for each trace
 record.
 
+The bridge now retains the existing ABI instruction word and data-record PC at
+the neutral boundary. No binary ABI field was added. Store-buffer replay is
+opt-in and requires caller-supplied instruction, store-retirement, and `memw`
+costs. In that mode each write carries the retirement cost, and only the exact
+three-byte Flexe trace word `0x0020c0` becomes a fence. The default replay does
+not enable this mode, so its event accounting and unknown-cost boundary remain
+unchanged.
+
 The replay uses the gate-harness sdkconfig at SHA-256
 `ac1749b0f5b9c54e3e8e5ffc045b37a434d6b289420a8f9cf0f37fe8a3173d9b`:
 16 KiB, 8-way, 32-byte-line instruction cache and 32 KiB, 8-way,

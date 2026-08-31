@@ -4,7 +4,9 @@
  */
 import {
   adaptNeutralTimingTrace,
+  XTENSA_MEMW_INSTRUCTION_ENCODING,
   type BoundedNeutralTrace,
+  type NeutralTraceAdapterOptions,
   type NeutralTraceKind,
 } from "../../packs/esp32-s3-touch-amoled-18/timing/trace-adapter";
 import type { EventLatency } from "../../packs/esp32-s3-touch-amoled-18/timing/execution";
@@ -17,10 +19,9 @@ export interface FlexeTraceTimingProvenance {
   readonly core: 0 | 1;
 }
 
-export interface FlexeTraceTimingOptions {
+export interface FlexeTraceTimingOptions extends NeutralTraceAdapterOptions {
   readonly instructionCpuCost?: EventLatency;
 }
-
 function kindFor(record: TraceRecord, index: number): NeutralTraceKind {
   if (record.kind === TRACE_KINDS.instruction) return "instruction";
   if (record.kind === TRACE_KINDS.read) return "read";
@@ -35,7 +36,15 @@ export function adaptFlexeTraceToRuntimeTiming(
 ): RuntimeTimingTrace {
   const observations = decoded.records.map((record, sequence) => {
     const kind = kindFor(record, sequence);
+    if (options.storeBuffer !== undefined && kind !== "instruction" && record.instruction !== 0) {
+      throw new Error(`flexe trace data record ${sequence} must not carry an instruction encoding`);
+    }
     const timingKind = kind === "instruction" ? "instruction-fetch" : kind === "read" ? "load" : "store";
+    const isMemw =
+      options.storeBuffer !== undefined &&
+      kind === "instruction" &&
+      record.width === 3 &&
+      record.instruction === XTENSA_MEMW_INSTRUCTION_ENCODING;
     return Object.freeze({
       id: `trace:${sequence.toString().padStart(2, "0")}:${timingKind}`,
       sequence,
@@ -43,9 +52,17 @@ export function adaptFlexeTraceToRuntimeTiming(
       kind,
       address: BigInt(kind === "instruction" ? record.pc : record.address),
       width: record.width,
-      ...(kind === "instruction" && options.instructionCpuCost !== undefined
-        ? { cpuCost: options.instructionCpuCost }
-        : {}),
+      ...(kind === "instruction"
+        ? {
+            instructionEncoding: Object.freeze({
+              value: record.instruction,
+              source: `flexe execution trace ABI v${decoded.abiVersion} instruction field`,
+            }),
+            ...(options.instructionCpuCost === undefined || isMemw
+              ? {}
+              : { cpuCost: Object.freeze({ ...options.instructionCpuCost }) }),
+          }
+        : { issuingInstructionAddress: BigInt(record.pc) }),
     });
   });
   const neutral: BoundedNeutralTrace = Object.freeze({
@@ -59,5 +76,5 @@ export function adaptFlexeTraceToRuntimeTiming(
     }),
     observations: Object.freeze(observations),
   });
-  return adaptNeutralTimingTrace(neutral);
+  return adaptNeutralTimingTrace(neutral, [], { storeBuffer: options.storeBuffer });
 }

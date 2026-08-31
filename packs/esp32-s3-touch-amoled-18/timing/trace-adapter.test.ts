@@ -10,6 +10,7 @@ import type { TimingMachineConfiguration } from "./machine";
 import { runtimeTimingResultJson, runRuntimeTimingTrace } from "./runtime-trace";
 import {
   adaptNeutralTimingTrace,
+  XTENSA_MEMW_INSTRUCTION_ENCODING,
   type BoundedNeutralTrace,
   type NeutralTraceObservation,
 } from "./trace-adapter";
@@ -349,5 +350,144 @@ describe("bounded neutral timing trace adapter", () => {
       ["2", "c1-cost"],
       ["1", "c0-next-cost"],
     ]);
+  });
+
+  test("retires an opted-in Flexe-style write and holds exact memw until its drain", () => {
+    const instructionEncoding = (value: number) => Object.freeze({
+      value,
+      source: "synthetic Flexe ABI instruction field",
+    });
+    const trace = adaptNeutralTimingTrace(neutral([
+      {
+        ...observation("store-instruction", 0, 0, "instruction", 0x1000n, 3),
+        cpuCost: known(1n, "store instruction cost"),
+        instructionEncoding: instructionEncoding(0x123456),
+      },
+      {
+        ...observation("write", 1, 0, "write", 0x1100n, 4),
+        issuingInstructionAddress: 0x1000n,
+      },
+      {
+        ...observation("memw", 2, 0, "instruction", 0x1003n, 3),
+        instructionEncoding: instructionEncoding(XTENSA_MEMW_INSTRUCTION_ENCODING),
+      },
+    ]), [], {
+      storeBuffer: {
+        retirementLatency: known(1n, "store retirement cost"),
+        memwLatency: known(2n, "memw cost"),
+      },
+    });
+
+    expect(trace.input.cores[0][1]?.storeBuffer).toEqual({
+      retirementLatency: known(1n, "store retirement cost"),
+    });
+    expect(trace.input.cpu?.map((event) => event.id)).toEqual(["store-instruction:cpu"]);
+    expect(trace.input.fence).toEqual([{
+      id: "memw:fence",
+      kind: "fence",
+      core: 0,
+      operation: "memw",
+      instructionAccessId: "memw",
+      latency: known(2n, "memw cost"),
+    }]);
+    expect(trace.input.issueOrder).toEqual([
+      { kind: "memory", accessId: "store-instruction" },
+      { kind: "memory", accessId: "write" },
+      { kind: "cpu", eventId: "store-instruction:cpu" },
+      { kind: "memory", accessId: "memw" },
+      { kind: "fence", eventId: "memw:fence" },
+    ]);
+
+    const result = runRuntimeTimingTrace(configuration((component) =>
+      known(component === "SRAM store" ? 5n : 1n, `known ${component}`),
+    ), trace);
+    expect(result.execution.events.map((event) => [
+      event.eventId,
+      event.status === "completed" ? event.startCycle : event.status,
+      event.status === "completed" ? event.endCycle : event.status,
+    ])).toEqual([
+      ["cache:store-instruction:segment:0:cache:0:sram-bypass", 0n, 1n],
+      ["cache:write:segment:0:cache:0:sram-bypass", 1n, 2n],
+      ["cache:write:segment:0:cache:0:sram-bypass:drain", 2n, 7n],
+      ["store-instruction:cpu", 2n, 3n],
+      ["cache:memw:segment:0:cache:0:sram-bypass", 3n, 4n],
+      ["memw:fence", 7n, 9n],
+    ]);
+    expect(result.claim.costProvenance.filter((cost) =>
+      cost.eventId.includes("cache:write"),
+    )).toEqual([
+      {
+        status: "known",
+        eventId: "cache:write:segment:0:cache:0:sram-bypass",
+        calibration: "uncalibrated",
+        cycles: 1n,
+        source: "store retirement cost",
+      },
+      {
+        status: "known",
+        eventId: "cache:write:segment:0:cache:0:sram-bypass:drain",
+        calibration: "uncalibrated",
+        cycles: 5n,
+        source: "known SRAM store",
+      },
+    ]);
+    expect(result.provenance?.extensions).toEqual([{
+      accessId: "memw",
+      kind: "memw",
+      source: "synthetic Flexe ABI instruction field",
+    }]);
+  });
+
+  test("keeps store buffering opt-in and fails closed on incomplete instruction identity", () => {
+    const rawMemw: NeutralTraceObservation = {
+      ...observation("memw", 0, 0, "instruction", 0x1000n, 3),
+      cpuCost: known(1n),
+      instructionEncoding: {
+        value: XTENSA_MEMW_INSTRUCTION_ENCODING,
+        source: "synthetic encoding",
+      },
+    };
+    const defaultTrace = adaptNeutralTimingTrace(neutral([rawMemw]));
+    expect(defaultTrace.input.fence).toBeUndefined();
+    expect(defaultTrace.input.cpu?.map((event) => event.id)).toEqual(["memw:cpu"]);
+
+    const options = {
+      storeBuffer: {
+        retirementLatency: known(1n, "retirement"),
+        memwLatency: known(1n, "memw"),
+      },
+    } as const;
+    expect(() => adaptNeutralTimingTrace(neutral([
+      observation("missing-encoding", 0, 0, "instruction", 0x1000n, 3),
+    ]), [], options)).toThrow("instructionEncoding is required in store-buffer mode");
+    expect(() => adaptNeutralTimingTrace(neutral([{
+      ...observation("orphan-write", 0, 0, "write", 0x1100n, 4),
+      issuingInstructionAddress: 0x1000n,
+    }]), [], options)).toThrow("has no preceding instruction");
+    expect(() => adaptNeutralTimingTrace(neutral([{
+      ...rawMemw,
+      width: 2,
+      cpuCost: undefined,
+    }]), [], options)).toThrow("memw encoding requires exact three-byte width");
+    expect(() => adaptNeutralTimingTrace(neutral([
+      {
+        ...observation("instruction", 0, 0, "instruction", 0x1000n, 3),
+        instructionEncoding: { value: 0x123456, source: "synthetic encoding" },
+      },
+      {
+        ...observation("wrong-owner", 1, 0, "write", 0x1100n, 4),
+        issuingInstructionAddress: 0x1003n,
+      },
+    ]), [], options)).toThrow("issuing PC does not match its preceding instruction");
+    expect(() => adaptNeutralTimingTrace(neutral([
+      { ...rawMemw, cpuCost: undefined },
+      {
+        ...observation("memw-data", 1, 0, "read", 0x1100n, 4),
+        issuingInstructionAddress: 0x1000n,
+      },
+    ]), [], options)).toThrow("memw instruction cannot own data observation memw-data");
+    expect(() => adaptNeutralTimingTrace({ ...neutral([rawMemw]), overflow: true }, [], options)).toThrow(
+      "store-buffer mode requires a complete non-overflow trace",
+    );
   });
 });

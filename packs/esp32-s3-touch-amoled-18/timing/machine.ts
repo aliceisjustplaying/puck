@@ -22,6 +22,8 @@ import {
   type EventLatency,
   type ExecutionEvent,
   type ExecutionSchedule,
+  type FenceEvent,
+  type StoreBufferTiming,
   type TimingCertainty,
 } from "./execution";
 
@@ -37,7 +39,12 @@ export interface TimingMachineConfiguration {
 export type TimingMachineIssue =
   | Readonly<{ kind: "memory"; accessId: string }>
   | Readonly<{ kind: "cpu"; eventId: string }>
+  | Readonly<{ kind: "fence"; eventId: string }>
   | Readonly<{ kind: "dma"; eventId: string }>;
+
+export interface TimingMachineFence extends FenceEvent {
+  readonly instructionAccessId: string;
+}
 
 export interface ScheduledMemoryIssue {
   readonly accessId: string;
@@ -51,6 +58,7 @@ export interface TimingMachineInput {
   ];
   readonly architecturalInterleave: readonly string[];
   readonly cpu?: readonly CpuExecutionEvent[];
+  readonly fence?: readonly TimingMachineFence[];
   readonly dma: readonly DmaEvent[];
   /**
    * Optional per-access ready clocks. Entry order is irrelevant. The machine
@@ -127,6 +135,12 @@ export type MachineEventOrigin =
   | Readonly<{
       kind: "cpu";
       cpuIndex: number;
+      core: 0 | 1;
+      instructionAccessId: string;
+    }>
+  | Readonly<{
+      kind: "fence";
+      fenceIndex: number;
       core: 0 | 1;
       instructionAccessId: string;
     }>;
@@ -258,7 +272,11 @@ function applyServiceLatencies(
   const byId = new Map(execution.events.map((result) => [result.eventId, result]));
   return Object.freeze(issued.map((record) => {
     if (!("mspiBurst" in record.event) || record.event.mspiBurst === undefined) return record;
-    const result = byId.get(record.event.id);
+    const result = byId.get(
+      record.event.kind === "store" && record.event.storeBuffer !== undefined
+        ? `${record.event.id}:drain`
+        : record.event.id,
+    );
     if (result?.status !== "completed" && result?.status !== "started-unknown-duration") {
       return record;
     }
@@ -274,6 +292,28 @@ function applyServiceLatencies(
   }));
 }
 
+function claimCostProvenance(record: IssuedMachineEvent): readonly MachineCostProvenance[] {
+  if (record.event.kind !== "store" || record.event.storeBuffer === undefined) {
+    return Object.freeze([record.cost]);
+  }
+  const retirementEvent: ExecutionEvent = Object.freeze({
+    ...record.event,
+    latency: record.event.storeBuffer.retirementLatency,
+  });
+  const { storeBuffer: _storeBuffer, ...drainFields } = record.event;
+  const drainEvent: ExecutionEvent = Object.freeze({
+    ...drainFields,
+    id: `${record.event.id}:drain`,
+  });
+  return Object.freeze([
+    provenance(
+      retirementEvent,
+      retirementEvent.latency.status === "unknown" ? retirementEvent.latency.source ?? null : null,
+    ),
+    provenance(drainEvent, record.cost.source),
+  ]);
+}
+
 interface OrderedArchitecturalAccess {
   readonly core: 0 | 1;
   readonly programIndex: number;
@@ -284,6 +324,7 @@ interface OrderedArchitecturalAccess {
 type OrderedMachineIssue =
   | Readonly<{ kind: "memory"; entry: OrderedArchitecturalAccess }>
   | Readonly<{ kind: "cpu"; cpuIndex: number; event: CpuExecutionEvent }>
+  | Readonly<{ kind: "fence"; fenceIndex: number; event: TimingMachineFence }>
   | Readonly<{ kind: "dma"; dmaIndex: number; event: DmaEvent }>;
 
 interface ValidatedMachineInput {
@@ -303,6 +344,35 @@ function validateReadyTime(value: unknown, path: string): asserts value is Event
     throw new Error(`${path}.calibration must be calibrated or uncalibrated`);
   }
   requireNonEmpty(ready.source, `${path}.source`);
+}
+
+function validateStoreBufferTiming(
+  value: unknown,
+  path: string,
+): asserts value is StoreBufferTiming {
+  if (typeof value !== "object" || value === null) throw new Error(`${path} must be an object`);
+  const latency = (value as Partial<StoreBufferTiming>).retirementLatency;
+  if (typeof latency !== "object" || latency === null) {
+    throw new Error(`${path}.retirementLatency is required`);
+  }
+  if (latency.status === "known") {
+    if (typeof latency.cycles !== "bigint" || latency.cycles < 0n) {
+      throw new Error(`${path}.retirementLatency.cycles must be a non-negative bigint`);
+    }
+    if (latency.calibration !== "calibrated" && latency.calibration !== "uncalibrated") {
+      throw new Error(`${path}.retirementLatency.calibration must be calibrated or uncalibrated`);
+    }
+    requireNonEmpty(latency.source, `${path}.retirementLatency.source`);
+    return;
+  }
+  if (latency.status === "unknown") {
+    requireNonEmpty(latency.reason, `${path}.retirementLatency.reason`);
+    if (latency.source !== undefined) {
+      requireNonEmpty(latency.source, `${path}.retirementLatency.source`);
+    }
+    return;
+  }
+  throw new Error(`${path}.retirementLatency.status must be known or unknown`);
 }
 
 function scheduledArchitecturalOrder(
@@ -372,6 +442,9 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
   if (input.cpu !== undefined && !Array.isArray(input.cpu)) {
     throw new Error("input.cpu must be an array when supplied");
   }
+  if (input.fence !== undefined && !Array.isArray(input.fence)) {
+    throw new Error("input.fence must be an array when supplied");
+  }
   if (!Array.isArray(input.architecturalInterleave)) {
     throw new Error("input.architecturalInterleave is required");
   }
@@ -388,6 +461,12 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
       ids.add(id);
       if (access.core !== core) {
         throw new Error(`access ${id}.core must match core stream ${core}`);
+      }
+      if (access.storeBuffer !== undefined) {
+        if (access.kind !== "store") {
+          throw new Error(`access ${id}.storeBuffer is only valid for a store`);
+        }
+        validateStoreBufferTiming(access.storeBuffer, `access ${id}.storeBuffer`);
       }
       byId.set(id, Object.freeze({ core, programIndex, access }));
     }
@@ -451,6 +530,31 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
     cpuById.set(id, Object.freeze({ cpuIndex, event }));
   }
 
+  const fence = input.fence ?? [];
+  const fenceById = new Map<string, Readonly<{ fenceIndex: number; event: TimingMachineFence }>>();
+  for (const [fenceIndex, event] of fence.entries()) {
+    if (typeof event !== "object" || event === null || event.kind !== "fence") {
+      throw new Error(`input.fence[${fenceIndex}] must be a fence event`);
+    }
+    scheduleExecution([event]);
+    const id = requireNonEmpty(event.id, `input.fence[${fenceIndex}].id`);
+    if (ids.has(id) || dmaById.has(id) || cpuById.has(id) || fenceById.has(id)) {
+      throw new Error(`duplicate machine issue id ${id}`);
+    }
+    const instructionAccessId = requireNonEmpty(
+      event.instructionAccessId,
+      `input.fence[${fenceIndex}].instructionAccessId`,
+    );
+    const instruction = byId.get(instructionAccessId);
+    if (!instruction || instruction.access.kind !== "instruction-fetch") {
+      throw new Error(`input.fence[${fenceIndex}].instructionAccessId must name an instruction-fetch access`);
+    }
+    if (event.core !== instruction.core) {
+      throw new Error(`input.fence[${fenceIndex}].core must match instruction access ${instructionAccessId}`);
+    }
+    fenceById.set(id, Object.freeze({ fenceIndex, event }));
+  }
+
   if (input.issueOrder === undefined) {
     return Object.freeze({
       architecturalOrder: Object.freeze(ordered),
@@ -458,6 +562,9 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
         ...ordered.map((entry) => Object.freeze({ kind: "memory" as const, entry })),
         ...cpu.map((event, cpuIndex) =>
           Object.freeze({ kind: "cpu" as const, cpuIndex, event }),
+        ),
+        ...fence.map((event, fenceIndex) =>
+          Object.freeze({ kind: "fence" as const, fenceIndex, event }),
         ),
         ...input.dma.map((event, dmaIndex) =>
           Object.freeze({ kind: "dma" as const, dmaIndex, event }),
@@ -473,10 +580,11 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
   const issueIds = new Set<string>();
   let memoryIndex = 0;
   let cpuIndex = 0;
+  let fenceIndex = 0;
   let dmaIndex = 0;
   for (const [issueIndex, issue] of input.issueOrder.entries()) {
     if (typeof issue !== "object" || issue === null) {
-      throw new Error(`input.issueOrder[${issueIndex}] must be a memory or DMA issue`);
+      throw new Error(`input.issueOrder[${issueIndex}] must be a memory, CPU, fence, or DMA issue`);
     }
     if (issue.kind === "memory") {
       const id = requireNonEmpty(issue.accessId, `input.issueOrder[${issueIndex}].accessId`);
@@ -514,6 +622,23 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
       issueOrder.push(Object.freeze({ kind: "cpu", ...entry }));
       continue;
     }
+    if (issue.kind === "fence") {
+      const id = requireNonEmpty(issue.eventId, `input.issueOrder[${issueIndex}].eventId`);
+      if (issueIds.has(id)) throw new Error(`input.issueOrder duplicates issue id ${id}`);
+      const entry = fenceById.get(id);
+      if (!entry) throw new Error(`input.issueOrder contains unknown fence event id ${id}`);
+      const expected = fence[fenceIndex]?.id;
+      if (id !== expected) {
+        throw new Error(`input.issueOrder fence event ${id} disagrees with input.fence at index ${fenceIndex}`);
+      }
+      if (!issueIds.has(entry.event.instructionAccessId)) {
+        throw new Error(`input.issueOrder fence event ${id} must follow instruction access ${entry.event.instructionAccessId}`);
+      }
+      fenceIndex += 1;
+      issueIds.add(id);
+      issueOrder.push(Object.freeze({ kind: "fence", ...entry }));
+      continue;
+    }
     if (issue.kind === "dma") {
       const id = requireNonEmpty(issue.eventId, `input.issueOrder[${issueIndex}].eventId`);
       if (issueIds.has(id)) throw new Error(`input.issueOrder duplicates issue id ${id}`);
@@ -528,12 +653,18 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
       issueOrder.push(Object.freeze({ kind: "dma", ...entry }));
       continue;
     }
-    throw new Error(`input.issueOrder[${issueIndex}].kind must be memory, cpu, or dma`);
+    throw new Error(`input.issueOrder[${issueIndex}].kind must be memory, cpu, fence, or dma`);
   }
-  if (memoryIndex !== ordered.length || cpuIndex !== cpu.length || dmaIndex !== input.dma.length) {
+  if (
+    memoryIndex !== ordered.length ||
+    cpuIndex !== cpu.length ||
+    fenceIndex !== fence.length ||
+    dmaIndex !== input.dma.length
+  ) {
     const missing = [
       ...ordered.slice(memoryIndex).map((entry) => entry.access.id),
       ...cpu.slice(cpuIndex).map((event) => event.id),
+      ...fence.slice(fenceIndex).map((event) => event.id),
       ...input.dma.slice(dmaIndex).map((event) => event.id),
     ];
     throw new Error(`input.issueOrder omits issue ids: ${missing.join(", ")}`);
@@ -548,6 +679,19 @@ function validateInput(input: TimingMachineInput): ValidatedMachineInput {
 
 function withReadyTime(event: ExecutionEvent, earliest: EventReadyTime | undefined): ExecutionEvent {
   return earliest === undefined ? event : Object.freeze({ ...event, earliest }) as ExecutionEvent;
+}
+
+function withStoreBuffer(
+  event: ExecutionEvent,
+  storeBuffer: Readonly<StoreBufferTiming>,
+): ExecutionEvent {
+  if (event.kind !== "store") return event;
+  return Object.freeze({
+    ...event,
+    storeBuffer: Object.freeze({
+      retirementLatency: Object.freeze({ ...storeBuffer.retirementLatency }),
+    }),
+  });
 }
 
 function freezeCoreResult(
@@ -638,6 +782,26 @@ export function runTimingMachine(
         );
         continue;
       }
+      if (issue.kind === "fence") {
+        if (faultedByAccessId[issue.event.core] !== null) continue;
+        issued.push(
+          Object.freeze({
+            issueIndex: issued.length,
+            event: issue.event,
+            origin: Object.freeze({
+              kind: "fence",
+              fenceIndex: issue.fenceIndex,
+              core: issue.event.core,
+              instructionAccessId: issue.event.instructionAccessId,
+            }),
+            cost: provenance(
+              issue.event,
+              issue.event.latency.status === "unknown" ? issue.event.latency.source ?? null : null,
+            ),
+          }),
+        );
+        continue;
+      }
       const { core, programIndex, access } = issue.entry;
       if (faultedByAccessId[core] !== null) {
         accessResults[core].push(
@@ -684,6 +848,7 @@ export function runTimingMachine(
 
       const cacheSteps: CacheStep[] = [];
       const issuedEventIds: string[] = [];
+      let bufferedStoreEmissionCount = 0;
       for (const output of adapted.outputs) {
         if (output.kind === "mmio") {
           const cost = mmioCosts.get(output.resolved.index);
@@ -710,7 +875,13 @@ export function runTimingMachine(
         const step = cache.process(output.trace);
         cacheSteps.push(step);
         for (const [cacheEmissionIndex, emission] of step.emissions.entries()) {
-          const scheduledEvent = withReadyTime(emission.event, issue.entry.earliest);
+          const readyEvent = withReadyTime(emission.event, issue.entry.earliest);
+          const scheduledEvent = access.storeBuffer !== undefined && readyEvent.kind === "store"
+            ? withStoreBuffer(readyEvent, access.storeBuffer)
+            : readyEvent;
+          if (access.storeBuffer !== undefined && readyEvent.kind === "store") {
+            bufferedStoreEmissionCount += 1;
+          }
           const eventRecord: IssuedMachineEvent = Object.freeze({
             issueIndex: issued.length,
             event: scheduledEvent,
@@ -728,6 +899,11 @@ export function runTimingMachine(
           issued.push(eventRecord);
           issuedEventIds.push(emission.event.id);
         }
+      }
+      if (access.storeBuffer !== undefined && bufferedStoreEmissionCount !== 1) {
+        throw new Error(
+          `buffered store access ${access.id} emitted ${bufferedStoreEmissionCount} store events; exactly one is required`,
+        );
       }
       accessResults[core].push(
         Object.freeze({
@@ -754,7 +930,7 @@ export function runTimingMachine(
       : undefined,
   );
   const servicedIssued = applyServiceLatencies(issued, execution);
-  const costProvenance = Object.freeze(servicedIssued.map((record) => record.cost));
+  const costProvenance = Object.freeze(servicedIssued.flatMap(claimCostProvenance));
   const directUncalibratedEventIds = Object.freeze(
     costProvenance
       .filter((cost) => cost.status === "known" && cost.calibration === "uncalibrated")

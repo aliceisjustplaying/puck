@@ -118,7 +118,7 @@ export interface Esp32S3RomCacheInvocation {
 }
 
 export type Esp32S3RomCacheDispatch =
-  | Readonly<{ handled: false }>
+  | Readonly<{ handled: false; status?: never }>
   | Readonly<{
       handled: true;
       status: "refused";
@@ -158,7 +158,7 @@ function refuse(
 }
 
 function isKnownCallback(pc: number): boolean {
-  return Object.values(ESP32S3_ROM_CACHE_CALLBACKS).includes(pc);
+  return (Object.values(ESP32S3_ROM_CACHE_CALLBACKS) as readonly number[]).includes(pc);
 }
 
 function sameArguments(actual: readonly number[], expected: readonly number[]): boolean {
