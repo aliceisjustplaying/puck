@@ -254,13 +254,41 @@ describe("timing profile claim boundary", () => {
     expect(profile.mmioAccessCycles).toEqual({
       status: "partially-calibrated",
       evidence:
-        "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-6f22350-mmio-adoption.json",
+        "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-545f823-mmio-adoption.json",
       entries: [
         {
           address: "0x600c0010",
           operation: "read",
           bytes: 4,
           peripheral: "system-controller",
+          cycles: 8,
+        },
+        {
+          address: "0x600c4004",
+          operation: "read",
+          bytes: 4,
+          peripheral: "cache-controller",
+          cycles: 8,
+        },
+        {
+          address: "0x600c404c",
+          operation: "read",
+          bytes: 4,
+          peripheral: "cache-controller",
+          cycles: 8,
+        },
+        {
+          address: "0x600c4064",
+          operation: "read",
+          bytes: 4,
+          peripheral: "cache-controller",
+          cycles: 8,
+        },
+        {
+          address: "0x600c40a0",
+          operation: "read",
+          bytes: 4,
+          peripheral: "cache-controller",
           cycles: 8,
         },
         {
