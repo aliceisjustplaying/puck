@@ -109,7 +109,7 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
-decoder plus this experiment's explicit ESP32-S3 patch surface has 397
+decoder plus this experiment's explicit ESP32-S3 patch surface has 401
 normalized mnemonics. With user-register operands distinguished, it covers
 63,567 rows and 335 raw mnemonics; 709 rows and 6 raw mnemonics remain gaps.
 Those gaps are five unimplemented `ee.*` PIE forms covering 10 rows and 699
@@ -133,7 +133,8 @@ half-QR transfers, `ee.ldqa.u16.128.ip`, `ee.ldqa.u8.128.ip`,
 `ee.vmulas.*.accx.ld.ip`, `.ld.xp`, `.ld.ip.qup`, and `.ld.xp.qup` forms, all
 eight `ee.vmulas.*.qacc.ld.[ip/xp].qup` forms, and the four
 `ee.[ldf/stf].128.[ip/xp]`
-forms. It selects
+forms, plus `ee.src.q`, `ee.src.q.qup`, `ee.src.q.ld.ip`, and
+`ee.src.q.ld.xp`. It selects
 those semantics only for the ESP32-S3 experiment
 profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
 represented by flexe's core. The profile also implements per-core UR0/UR1
@@ -251,6 +252,12 @@ halfword compare fixture writes all-ones or zero per signed 16-bit lane, and
 parametric-ReLU fixtures cover signed 16-bit and signed 8-bit lanes with exact
 arithmetic-shift and width behavior. Adjacent compare and ReLU encodings stop
 before execution with unchanged register, trace, and memory state.
+
+QR concatenate-shift fixtures cover SAR_BYTE values 5, 9, and 15, source and
+destination aliases, queue-update ordering, aligned 128-bit loads, signed
+immediate postincrements, and register postincrements from the original
+unaligned base. An adjacent fixed-bit encoding remains a two-byte fail-closed
+instruction in both dynamic and sparse execution.
 
 ACCX QUP fixtures cover signed 16-bit immediate-postincrement and unsigned
 8-bit register-postincrement dot products. They pin 40-bit signed and unsigned

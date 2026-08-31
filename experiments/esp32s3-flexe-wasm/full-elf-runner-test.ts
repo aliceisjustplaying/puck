@@ -456,6 +456,41 @@ assert.deepEqual(
   "adjacent float-pair IP refusal changed full-ELF registers",
 );
 
+const unsupportedSrcIpEntry = 0x4037_21a0;
+const unsupportedSrcIpImage: Elf32XtensaImage = Object.freeze({
+  schemaVersion: 1,
+  entryPoint: unsupportedSrcIpEntry,
+  elfBytes: 4,
+  elfSha256: "synthetic-unsupported-ee-src-q-ld-ip-neighbor",
+  loadSegments: Object.freeze([
+    syntheticSegment(0, unsupportedSrcIpEntry, [0x2e, 0x49, 0x20, 0xe0], 4, {
+      read: true,
+      write: false,
+      execute: true,
+    }),
+    syntheticSegment(1, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
+  ]),
+  totalFileBytes: 4,
+  totalMemoryBytes: 0x1004,
+});
+const unsupportedSrcIpRun = await runSparseXtensaElf(moduleBytes, unsupportedSrcIpImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 1,
+  unsupported: [{ pc: unsupportedSrcIpEntry, encoding: 0x492e }],
+});
+assert.equal(unsupportedSrcIpRun.record.reason, FULL_ELF_STOP_REASONS.unsupported);
+assert.equal(unsupportedSrcIpRun.record.steps, 0);
+assert.equal(unsupportedSrcIpRun.record.unsupportedPc, unsupportedSrcIpEntry);
+assert.equal(unsupportedSrcIpRun.record.unsupportedEncoding, 0x492e);
+assert.equal(unsupportedSrcIpRun.record.unsupportedLength, 2);
+assert.deepEqual(unsupportedSrcIpRun.trace, []);
+assert.deepEqual(unsupportedSrcIpRun.memoryTrace.records, []);
+assert.deepEqual(
+  unsupportedSrcIpRun.record.registers,
+  [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "adjacent QR SRC IP refusal changed full-ELF registers",
+);
+
 const unsupportedQaccLaneEntry = 0x4037_2200;
 const unsupportedQaccLaneImage: Elf32XtensaImage = Object.freeze({
   schemaVersion: 1,

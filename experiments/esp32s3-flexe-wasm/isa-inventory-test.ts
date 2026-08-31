@@ -83,6 +83,10 @@ assert(surface.normalizedMnemonics.includes("ee.vldbc.16.ip"), "ESP32-S3 PIE pat
 assert(surface.normalizedMnemonics.includes("ee.vcmp.eq.s16"), "ESP32-S3 PIE patch surface lost halfword equality compare");
 assert(surface.normalizedMnemonics.includes("ee.vprelu.s16"), "ESP32-S3 PIE patch surface lost halfword parametric ReLU");
 assert(surface.normalizedMnemonics.includes("ee.vprelu.s8"), "ESP32-S3 PIE patch surface lost byte parametric ReLU");
+assert(surface.normalizedMnemonics.includes("ee.src.q"), "ESP32-S3 PIE patch surface lost QR concatenate shift");
+assert(surface.normalizedMnemonics.includes("ee.src.q.ld.ip"), "ESP32-S3 PIE patch surface lost immediate QR shift/load");
+assert(surface.normalizedMnemonics.includes("ee.src.q.ld.xp"), "ESP32-S3 PIE patch surface lost register QR shift/load");
+assert(surface.normalizedMnemonics.includes("ee.src.q.qup"), "ESP32-S3 PIE patch surface lost queue-update QR shift");
 assert(surface.normalizedMnemonics.includes("ee.vmulas.s16.accx.ld.ip.qup"), "ESP32-S3 PIE patch surface lost signed ACCX VMULAS QUP");
 assert(surface.normalizedMnemonics.includes("ee.vmulas.s8.accx.ld.ip.qup"), "ESP32-S3 PIE patch surface lost signed-byte ACCX VMULAS QUP");
 assert(surface.normalizedMnemonics.includes("ee.vmulas.u16.accx.ld.ip.qup"), "ESP32-S3 PIE patch surface lost unsigned-halfword ACCX VMULAS QUP");
