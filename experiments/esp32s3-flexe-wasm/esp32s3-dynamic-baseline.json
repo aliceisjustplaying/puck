@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "inputs": {
     "flexeCommit": "34ea9eb6eef921b59a55e6a435c7fc55c5727835",
-    "runnerPatchSha256": "e883532e2be6fd2ede57570e52bae19786ca696f6466ab13abe96fdbc2883168",
+    "runnerPatchSha256": "3a14851345768c1000e035a6152bda8bb9de547887f77830d58175271c0bc98f",
     "freestandingPatchSha256": "dbd2c623bfc9f9f33c4e4a98adcf06dec1d9034c659ad3c7afe94d373c48636d",
-    "moduleBytes": 39896,
-    "moduleSha256": "45707aef5e86e2d86c757ab041a062ac99903b1c793b93d4be09328362baaa5c",
+    "moduleBytes": 41765,
+    "moduleSha256": "c96e17ac183fbcb37262579ee755623585e646816cfef52ff07c3f98b044aa49",
     "objdumpSha256": "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466",
     "scalarElfSha256": "87d6a00ffdf18c9bcb7dd3742658b5a1786212f939f5cbafe1b82562a350f70f",
     "pieElfSha256": "2293fb3d35ba2f785e4dce5dfb35d2f33e452150167dc8d24f0e091cfa3e6d53",
@@ -60,6 +60,56 @@
     "outputHex": "1234abcd00fff81f07e0",
     "reason": "returned",
     "steps": 43,
-    "firstUnsupported": null
+    "firstUnsupported": null,
+    "trace": {
+      "abiVersion": 1,
+      "recordBytes": 24,
+      "records": 53,
+      "instructionRecords": 43,
+      "readRecords": 5,
+      "writeRecords": 5,
+      "overflow": false,
+      "sha256": "ae24fd0b6d4e84dcbbad7e393c0be39058e5a04b2386f099bde1e0127103b9b4"
+    },
+    "overflowTest": {
+      "prefixInstructions": 3,
+      "inputBytes": 28,
+      "overflowKind": "read",
+      "reason": "traceOverflow",
+      "steps": 101,
+      "pc": "0x420d4e24",
+      "records": 127,
+      "instructionRecords": 101,
+      "readRecords": 13,
+      "writeRecords": 13,
+      "capacity": 128,
+      "overflow": true,
+      "registerA9": "0x191819",
+      "outputSha256": "74f5db5540004599deb178b532d9960f1125145cd15f0f7844a1ecffdb1feac7",
+      "traceSha256": "bccc2a0de760767a7638f9f2045689f46c28d05b4da2e27ca4c55a96dff552a0"
+    }
+  },
+  "boundaries": {
+    "unsupported": {
+      "reason": "unsupported",
+      "steps": 3,
+      "pc": "0x40377a54",
+      "matchesStepBoundState": true
+    },
+    "instructionOverflow": {
+      "reason": "traceOverflow",
+      "steps": 128,
+      "pc": "0x420d6100",
+      "records": 128,
+      "overflow": true,
+      "matchesStepBoundState": true
+    },
+    "unmappedMmio": {
+      "reason": "unmappedAccess",
+      "steps": 6,
+      "pc": "0x420d7011",
+      "traceRecords": 6,
+      "slowCallbackInvocations": 0
+    }
   }
 }

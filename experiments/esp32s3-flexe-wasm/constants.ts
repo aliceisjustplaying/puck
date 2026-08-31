@@ -61,5 +61,8 @@ export const EXPECTED_FREESTANDING_EXPORTS = [
   "flexe_wasm_probe",
   "flexe_wasm_run",
   "flexe_wasm_run_data",
+  "flexe_wasm_trace",
+  "flexe_wasm_trace_bytes",
+  "flexe_wasm_trace_capacity",
   "memory"
 ] as const;

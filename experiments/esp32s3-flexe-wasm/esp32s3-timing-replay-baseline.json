@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "inputs": {
+    "traceSha256": "ae24fd0b6d4e84dcbbad7e393c0be39058e5a04b2386f099bde1e0127103b9b4",
+    "stagingElfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
+    "sdkconfigSha256": "65cfb5deebc36666fb3247ec5bc91aaf9de2d9a8c2642eb1666ec5b3e485bb92",
+    "timingProfileSha256": "61a7611e07980af23cb9cf6f06270d7fe7e4d9e6c8481d6d188693f997619c1b",
+    "timingMachineSha256": "bb8bbb3735464c254a2167f68301b90b4dd85f6bf1d21f7082ca38641022edec",
+    "mmuSha256": "fe55f294fceb898337299c46d1400e576e65ad7216462b5b4da0b46ecfed9448",
+    "cacheSha256": "1f844c72016a051e098accde8d3a5baa188454849a4c521529abe31591390297"
+  },
+  "configuration": {
+    "iromMmuEntry": 13,
+    "flashPhysicalPage": 0,
+    "sramBase": "0x3fca0000",
+    "sramBytes": 65536,
+    "instructionCache": {
+      "bytes": 16384,
+      "lineBytes": 32,
+      "sets": 64,
+      "ways": 8
+    },
+    "dataCache": {
+      "bytes": 32768,
+      "lineBytes": 64,
+      "sets": 64,
+      "ways": 8
+    },
+    "latencyStatus": "unknown"
+  },
+  "summary": {
+    "status": "blocked",
+    "traceRecords": 53,
+    "instructionFetches": 43,
+    "loads": 5,
+    "stores": 5,
+    "issuedEvents": 56,
+    "emissions": {
+      "hit": 44,
+      "line-fill": 2,
+      "sram-bypass": 10
+    },
+    "mspiEvents": 2,
+    "totalCycles": null,
+    "totalCyclesReason": "all cache and SRAM latency costs remain unadopted",
+    "perRecordSha256": "33f124d74e42944bb6901970c6c1cf674b92f5b78a579bc82963b6b33edc2462"
+  }
+}

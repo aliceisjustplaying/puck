@@ -25,6 +25,14 @@ const RESULT_WORDS = 27;
 const RESULT_BYTES = RESULT_WORDS * 4;
 const NO_UNSUPPORTED_OFFSET = 0xffffffff;
 const INITIAL_STACK = 0x3fcaffc0;
+const INITIAL_SOURCE = 0x3fca1000;
+const INITIAL_DESTINATION = 0x3fca2000;
+const TRACE_ABI_VERSION = 1;
+const TRACE_HEADER_WORDS = 6;
+const TRACE_RECORD_WORDS = 6;
+const TRACE_HEADER_BYTES = TRACE_HEADER_WORDS * 4;
+const TRACE_RECORD_BYTES = TRACE_RECORD_WORDS * 4;
+const TRACE_CAPACITY = 128;
 
 const STOP_REASONS = {
   returned: 1,
@@ -33,7 +41,15 @@ const STOP_REASONS = {
   stepError: 4,
   invalidArgument: 5,
   allocationFailed: 6,
-  cpuStopped: 7
+  cpuStopped: 7,
+  traceOverflow: 8,
+  unmappedAccess: 9
+} as const;
+
+const TRACE_KINDS = {
+  instruction: 1,
+  read: 2,
+  write: 3
 } as const;
 
 interface DynamicExports {
@@ -58,6 +74,9 @@ interface DynamicExports {
     unsupportedEncoding: number,
     dataLength: number
   ): number;
+  flexe_wasm_trace(): number;
+  flexe_wasm_trace_bytes(): number;
+  flexe_wasm_trace_capacity(): number;
 }
 
 interface RunOptions {
@@ -65,6 +84,8 @@ interface RunOptions {
   maxSteps?: number;
   unsupported?: { offset: number; encoding: number };
 }
+
+type RunnerFixture = Pick<ExtractedElfFunction, "symbol" | "pc" | "bytes">;
 
 interface StopRecord {
   abiVersion: number;
@@ -82,6 +103,28 @@ interface StopRecord {
   registers: number[];
 }
 
+interface TraceRecord {
+  kind: number;
+  kindName: keyof typeof TRACE_KINDS;
+  pc: number;
+  address: number;
+  value: number;
+  width: number;
+  instruction: number;
+}
+
+interface ExecutionTrace {
+  abiVersion: number;
+  headerBytes: number;
+  recordBytes: number;
+  count: number;
+  capacity: number;
+  overflow: boolean;
+  records: TraceRecord[];
+  rawBytes: Uint8Array;
+  sha256: string;
+}
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
@@ -90,6 +133,12 @@ function reasonName(value: number): keyof typeof STOP_REASONS {
   const match = Object.entries(STOP_REASONS).find(([, number]) => number === value);
   if (!match) throw new Error(`unknown dynamic runner stop reason ${value}`);
   return match[0] as keyof typeof STOP_REASONS;
+}
+
+function traceKindName(value: number): keyof typeof TRACE_KINDS {
+  const match = Object.entries(TRACE_KINDS).find(([, number]) => number === value);
+  if (!match) throw new Error(`unknown trace kind ${value}`);
+  return match[0] as keyof typeof TRACE_KINDS;
 }
 
 function decodeStopRecord(memory: WebAssembly.Memory, pointer: number): StopRecord {
@@ -117,11 +166,65 @@ function decodeStopRecord(memory: WebAssembly.Memory, pointer: number): StopReco
   };
 }
 
+function decodeTrace(exports: DynamicExports): ExecutionTrace {
+  const pointer = exports.flexe_wasm_trace() >>> 0;
+  const byteLength = exports.flexe_wasm_trace_bytes() >>> 0;
+  assert(pointer + byteLength <= exports.memory.buffer.byteLength, "trace buffer is outside wasm memory");
+  assert(byteLength >= TRACE_HEADER_BYTES, `trace buffer is only ${byteLength} bytes`);
+  const rawBytes = Uint8Array.from(new Uint8Array(exports.memory.buffer, pointer, byteLength));
+  const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength);
+  const abiVersion = view.getUint32(0, true);
+  const headerBytes = view.getUint32(4, true);
+  const recordBytes = view.getUint32(8, true);
+  const count = view.getUint32(12, true);
+  const capacity = view.getUint32(16, true);
+  const overflowWord = view.getUint32(20, true);
+  assert(abiVersion === TRACE_ABI_VERSION, `unexpected trace ABI ${abiVersion}`);
+  assert(headerBytes === TRACE_HEADER_BYTES, `unexpected trace header size ${headerBytes}`);
+  assert(recordBytes === TRACE_RECORD_BYTES, `unexpected trace record size ${recordBytes}`);
+  assert(capacity === TRACE_CAPACITY, `unexpected trace capacity ${capacity}`);
+  assert(exports.flexe_wasm_trace_capacity() === capacity, "trace capacity export disagrees with its header");
+  assert(count <= capacity, `trace count ${count} exceeds capacity ${capacity}`);
+  assert(byteLength === headerBytes + count * recordBytes, "trace byte length disagrees with its header");
+  assert(overflowWord === 0 || overflowWord === 1, `invalid trace overflow flag ${overflowWord}`);
+  const records: TraceRecord[] = [];
+  for (let index = 0; index < count; index++) {
+    const offset = headerBytes + index * recordBytes;
+    const kind = view.getUint32(offset, true);
+    const width = view.getUint32(offset + 16, true);
+    if (kind === TRACE_KINDS.instruction) {
+      assert(width === 2 || width === 3, `trace instruction record ${index} has unsupported width ${width}`);
+    } else {
+      assert(width === 1 || width === 2 || width === 4, `trace data record ${index} has unsupported width ${width}`);
+    }
+    records.push({
+      kind,
+      kindName: traceKindName(kind),
+      pc: view.getUint32(offset + 4, true),
+      address: view.getUint32(offset + 8, true),
+      value: view.getUint32(offset + 12, true),
+      width,
+      instruction: view.getUint32(offset + 20, true)
+    });
+  }
+  return {
+    abiVersion,
+    headerBytes,
+    recordBytes,
+    count,
+    capacity,
+    overflow: overflowWord === 1,
+    records,
+    rawBytes,
+    sha256: createHash("sha256").update(rawBytes).digest("hex")
+  };
+}
+
 async function runFresh(
   moduleBytes: ArrayBuffer,
-  fixture: ExtractedElfFunction,
+  fixture: RunnerFixture,
   options: RunOptions = {}
-): Promise<{ record: StopRecord; logs: string[]; dataOutput: Uint8Array }> {
+): Promise<{ record: StopRecord; logs: string[]; dataOutput: Uint8Array; trace: ExecutionTrace }> {
   const logs: string[] = [];
   const instance = await instantiate(moduleBytes, (text) => logs.push(text));
   const exports = instance as unknown as DynamicExports;
@@ -132,6 +235,9 @@ async function runFresh(
   assert(typeof exports.flexe_wasm_data_input === "function", "data input export is missing");
   assert(typeof exports.flexe_wasm_data_output === "function", "data output export is missing");
   assert(typeof exports.flexe_wasm_run_data === "function", "data runner export is missing");
+  assert(typeof exports.flexe_wasm_trace === "function", "trace buffer export is missing");
+  assert(typeof exports.flexe_wasm_trace_bytes === "function", "trace byte length export is missing");
+  assert(typeof exports.flexe_wasm_trace_capacity === "function", "trace capacity export is missing");
 
   const inputPointer = exports.flexe_wasm_input() >>> 0;
   const inputCapacity = exports.flexe_wasm_input_capacity() >>> 0;
@@ -170,7 +276,13 @@ async function runFresh(
       options.unsupported?.encoding ?? 0
     );
   }
-  return { record: decodeStopRecord(exports.memory, recordPointer), logs, dataOutput };
+  const record = decodeStopRecord(exports.memory, recordPointer);
+  const trace = decodeTrace(exports);
+  assert(
+    trace.overflow === (record.reason === STOP_REASONS.traceOverflow),
+    "trace overflow flag and stop reason disagree"
+  );
+  return { record, logs, dataOutput, trace };
 }
 
 const dist = resolve(process.env.FLEXE_WASM_DIST ?? join(import.meta.dir, "dist"));
@@ -229,6 +341,7 @@ const pieRun = await runFresh(moduleBytes, pie, {
     encoding: Number.parseInt(pieGap.objdumpEncoding, 16)
   }
 });
+const pieBoundaryRun = await runFresh(moduleBytes, pie, { maxSteps: 3 });
 assert(pieRun.record.reason === STOP_REASONS.unsupported, `PIE fixture stopped with ${pieRun.record.reasonName}`);
 assert(pieRun.record.steps === 3, `PIE fixture executed ${pieRun.record.steps} supported instructions`);
 assert(pieRun.record.pc === 0x40377a54, `PIE fixture stopped at 0x${pieRun.record.pc.toString(16)}`);
@@ -236,6 +349,13 @@ assert(pieRun.record.unsupportedPc === 0x40377a54, "unsupported hook reported th
 assert(pieRun.record.unsupportedEncoding === 0x830124, "unsupported hook reported the wrong encoding");
 assert(pieRun.record.unsupportedLength === 3, "unsupported hook reported the wrong instruction length");
 assert(pieRun.record.registers[4] === 1, "deterministic loop count did not enter the PIE body");
+assert(pieBoundaryRun.record.reason === STOP_REASONS.maxSteps, "PIE boundary control did not reach its step bound");
+assert(
+  pieRun.record.pc === pieBoundaryRun.record.pc &&
+    pieRun.record.stackPointer === pieBoundaryRun.record.stackPointer &&
+    JSON.stringify(pieRun.record.registers) === JSON.stringify(pieBoundaryRun.record.registers),
+  "unsupported hook changed architectural state at its instruction boundary"
+);
 assert(pieRun.logs.length === 0, `PIE fixture emitted logs: ${JSON.stringify(pieRun.logs)}`);
 
 const staging = extractElfFunction(
@@ -273,6 +393,154 @@ assert(
   `staging output changed: ${Buffer.from(stagingRun.dataOutput).toString("hex")}`
 );
 assert(stagingRun.logs.length === 0, `staging emitted logs: ${JSON.stringify(stagingRun.logs)}`);
+assert(!stagingRun.trace.overflow, "staging trace overflowed");
+assert(stagingRun.trace.count === 53, `staging emitted ${stagingRun.trace.count} trace records`);
+const instructionTuple = (index: number): number[] => {
+  const row = staging.instructions[index];
+  return [
+    TRACE_KINDS.instruction,
+    row.addressValue,
+    0,
+    0,
+    row.objdumpEncoding.length / 2,
+    Number.parseInt(row.objdumpEncoding, 16)
+  ];
+};
+const expectedStagingTrace: number[][] = [];
+for (let index = 0; index <= 6; index++) expectedStagingTrace.push(instructionTuple(index));
+for (let pixel = 0; pixel < stagingInput.length / 2; pixel++) {
+  expectedStagingTrace.push(instructionTuple(7));
+  expectedStagingTrace.push([
+    TRACE_KINDS.read,
+    staging.instructions[7].addressValue,
+    INITIAL_SOURCE + pixel * 2,
+    stagingInput[pixel * 2] | (stagingInput[pixel * 2 + 1] << 8),
+    2,
+    0
+  ]);
+  for (let index = 8; index <= 12; index++) expectedStagingTrace.push(instructionTuple(index));
+  expectedStagingTrace.push([
+    TRACE_KINDS.write,
+    staging.instructions[12].addressValue,
+    INITIAL_DESTINATION + pixel * 2,
+    expectedStagingOutput[pixel * 2] | (expectedStagingOutput[pixel * 2 + 1] << 8),
+    2,
+    0
+  ]);
+  expectedStagingTrace.push(instructionTuple(13));
+}
+expectedStagingTrace.push(instructionTuple(14));
+const actualStagingTrace = stagingRun.trace.records.map((record) => [
+  record.kind,
+  record.pc,
+  record.address,
+  record.value,
+  record.width,
+  record.instruction
+]);
+assert(
+  JSON.stringify(actualStagingTrace) === JSON.stringify(expectedStagingTrace),
+  "staging instruction or data-access trace changed"
+);
+assert(
+  stagingRun.trace.records.filter((record) => record.kind === TRACE_KINDS.instruction).length === 43,
+  "staging trace does not contain 43 instructions"
+);
+assert(
+  stagingRun.trace.records.filter((record) => record.kind === TRACE_KINDS.read).length === 5,
+  "staging trace does not contain five source reads"
+);
+assert(
+  stagingRun.trace.records.filter((record) => record.kind === TRACE_KINDS.write).length === 5,
+  "staging trace does not contain five destination writes"
+);
+
+const overflowInput = Uint8Array.from({ length: 28 }, (_, index) => index);
+const overflowFixture: RunnerFixture = {
+  symbol: `${staging.symbol}:memory-overflow`,
+  pc: staging.pc - 6,
+  bytes: Uint8Array.from([0x3d, 0xf0, 0x3d, 0xf0, 0x3d, 0xf0, ...staging.bytes]),
+};
+const overflowRun = await runFresh(moduleBytes, overflowFixture, { data: overflowInput, maxSteps: 256 });
+assert(overflowRun.record.reason === STOP_REASONS.traceOverflow, "trace overflow was not an explicit stop");
+assert(overflowRun.record.steps === 101, `overflow run executed ${overflowRun.record.steps} instructions`);
+assert(overflowRun.record.pc === 0x420d4e24, `overflow run stopped at 0x${overflowRun.record.pc.toString(16)}`);
+assert(overflowRun.trace.overflow, "overflow run did not set the trace overflow flag");
+assert(overflowRun.trace.count === TRACE_CAPACITY - 1, "overflow run retained a partial memory instruction");
+assert(
+  overflowRun.trace.records.filter((record) => record.kind === TRACE_KINDS.read).length === 13,
+  "overflow run retained the read that exceeded trace capacity",
+);
+assert(
+  overflowRun.trace.records.filter((record) => record.kind === TRACE_KINDS.write).length === 13,
+  "overflow run lost a completed write before trace overflow",
+);
+assert(
+  overflowRun.record.registers[9] === 0x191819,
+  `overflowing read advanced architectural register state: 0x${overflowRun.record.registers[9]!.toString(16)}`,
+);
+assert(
+  overflowRun.dataOutput.slice(0, 26).every((byte, index) => byte === overflowInput[index ^ 1]),
+  "overflow rollback corrupted completed destination writes",
+);
+assert(
+  overflowRun.dataOutput.slice(26).every((byte) => byte === 0),
+  "overflowing instruction advanced destination memory",
+);
+assert(overflowRun.logs.length === 0, `overflow run emitted logs: ${JSON.stringify(overflowRun.logs)}`);
+
+const instructionOverflowFixture: RunnerFixture = {
+  symbol: "trace_instruction_overflow",
+  pc: 0x420d6000,
+  bytes: Uint8Array.from(
+    Array.from({ length: TRACE_CAPACITY + 1 }, () => [0x3d, 0xf0]).flat()
+  )
+};
+const instructionBoundaryRun = await runFresh(moduleBytes, instructionOverflowFixture, {
+  maxSteps: TRACE_CAPACITY
+});
+const instructionOverflowRun = await runFresh(moduleBytes, instructionOverflowFixture, { maxSteps: 256 });
+assert(
+  instructionBoundaryRun.record.reason === STOP_REASONS.maxSteps,
+  "instruction-overflow control did not reach its step bound"
+);
+assert(
+  instructionOverflowRun.record.reason === STOP_REASONS.traceOverflow,
+  "instruction record overflow was not an explicit stop"
+);
+assert(instructionOverflowRun.record.steps === TRACE_CAPACITY, "instruction overflow changed the completed step count");
+assert(instructionOverflowRun.trace.count === TRACE_CAPACITY, "instruction overflow changed the committed trace count");
+assert(instructionOverflowRun.trace.overflow, "instruction overflow did not preserve the overflow flag");
+assert(
+  instructionOverflowRun.record.pc === instructionBoundaryRun.record.pc &&
+    instructionOverflowRun.record.stackPointer === instructionBoundaryRun.record.stackPointer &&
+    JSON.stringify(instructionOverflowRun.record.registers) === JSON.stringify(instructionBoundaryRun.record.registers),
+  "instruction overflow changed architectural state beyond the last committed instruction"
+);
+
+const mmioFixture: RunnerFixture = {
+  symbol: "unmapped_mmio_read",
+  pc: 0x420d7000,
+  bytes: Uint8Array.from([
+    0x36, 0x41, 0x00,
+    0xa2, 0xa3, 0xff,
+    0xc0, 0xaa, 0x01,
+    0x0c, 0x49,
+    0x00, 0x99, 0x11,
+    0x90, 0xaa, 0x20,
+    0x98, 0x0a,
+    0x1d, 0xf0
+  ])
+};
+const mmioRun = await runFresh(moduleBytes, mmioFixture, { data: Uint8Array.of(0, 0), maxSteps: 32 });
+assert(mmioRun.record.reason === STOP_REASONS.unmappedAccess, "unmapped MMIO read reached the slow path");
+assert(mmioRun.record.steps === 6, `unmapped MMIO fixture committed ${mmioRun.record.steps} instructions`);
+assert(mmioRun.record.pc === mmioFixture.pc + 17, "unmapped MMIO fixture stopped at the wrong boundary");
+assert(mmioRun.record.registers[10] === 0x3ff40000, "unmapped MMIO fixture built the wrong address");
+assert(mmioRun.record.registers[9] === 0x00040000, "refused MMIO read changed its destination register");
+assert(mmioRun.dataOutput.every((byte) => byte === 0), "refused MMIO read invoked the slow-path callback");
+assert(!mmioRun.trace.overflow, "unmapped MMIO refusal was misclassified as trace overflow");
+assert(mmioRun.trace.count === 6, "unmapped MMIO refusal retained a partial instruction");
 
 const objdumpVersion = run([DEFAULT_ESP32S3_OBJDUMP, "--version"]);
 requireSuccess(objdumpVersion);
@@ -326,7 +594,57 @@ const actualBaseline = {
     outputHex: Buffer.from(stagingRun.dataOutput).toString("hex"),
     reason: stagingRun.record.reasonName,
     steps: stagingRun.record.steps,
-    firstUnsupported: null
+    firstUnsupported: null,
+    trace: {
+      abiVersion: stagingRun.trace.abiVersion,
+      recordBytes: stagingRun.trace.recordBytes,
+      records: stagingRun.trace.count,
+      instructionRecords: stagingRun.trace.records.filter((record) => record.kind === TRACE_KINDS.instruction).length,
+      readRecords: stagingRun.trace.records.filter((record) => record.kind === TRACE_KINDS.read).length,
+      writeRecords: stagingRun.trace.records.filter((record) => record.kind === TRACE_KINDS.write).length,
+      overflow: stagingRun.trace.overflow,
+      sha256: stagingRun.trace.sha256
+    },
+    overflowTest: {
+      prefixInstructions: 3,
+      inputBytes: overflowInput.length,
+      overflowKind: "read",
+      reason: overflowRun.record.reasonName,
+      steps: overflowRun.record.steps,
+      pc: `0x${overflowRun.record.pc.toString(16)}`,
+      records: overflowRun.trace.count,
+      instructionRecords: overflowRun.trace.records.filter((record) => record.kind === TRACE_KINDS.instruction).length,
+      readRecords: overflowRun.trace.records.filter((record) => record.kind === TRACE_KINDS.read).length,
+      writeRecords: overflowRun.trace.records.filter((record) => record.kind === TRACE_KINDS.write).length,
+      capacity: overflowRun.trace.capacity,
+      overflow: overflowRun.trace.overflow,
+      registerA9: `0x${overflowRun.record.registers[9]!.toString(16)}`,
+      outputSha256: createHash("sha256").update(overflowRun.dataOutput).digest("hex"),
+      traceSha256: overflowRun.trace.sha256
+    }
+  },
+  boundaries: {
+    unsupported: {
+      reason: pieRun.record.reasonName,
+      steps: pieRun.record.steps,
+      pc: `0x${pieRun.record.pc.toString(16)}`,
+      matchesStepBoundState: true
+    },
+    instructionOverflow: {
+      reason: instructionOverflowRun.record.reasonName,
+      steps: instructionOverflowRun.record.steps,
+      pc: `0x${instructionOverflowRun.record.pc.toString(16)}`,
+      records: instructionOverflowRun.trace.count,
+      overflow: instructionOverflowRun.trace.overflow,
+      matchesStepBoundState: true
+    },
+    unmappedMmio: {
+      reason: mmioRun.record.reasonName,
+      steps: mmioRun.record.steps,
+      pc: `0x${mmioRun.record.pc.toString(16)}`,
+      traceRecords: mmioRun.trace.count,
+      slowCallbackInvocations: mmioRun.dataOutput[0]
+    }
   }
 };
 assert(
@@ -334,7 +652,8 @@ assert(
     inputs: baseline.inputs,
     scalar: baseline.scalar,
     pie: baseline.pie,
-    staging: baseline.staging
+    staging: baseline.staging,
+    boundaries: baseline.boundaries
   }),
   "tracked dynamic execution baseline changed"
 );
@@ -401,10 +720,56 @@ const report = {
     outputHex: Buffer.from(stagingRun.dataOutput).toString("hex"),
     outputSha256: stagingOutputSha256,
     firstUnsupported: null,
-    stop: stagingRun.record
+    stop: stagingRun.record,
+    trace: {
+      abiVersion: stagingRun.trace.abiVersion,
+      headerBytes: stagingRun.trace.headerBytes,
+      recordBytes: stagingRun.trace.recordBytes,
+      count: stagingRun.trace.count,
+      capacity: stagingRun.trace.capacity,
+      overflow: stagingRun.trace.overflow,
+      sha256: stagingRun.trace.sha256,
+      records: stagingRun.trace.records
+    },
+    overflowTest: {
+      inputBytes: overflowInput.length,
+      stop: overflowRun.record,
+      trace: {
+        count: overflowRun.trace.count,
+        capacity: overflowRun.trace.capacity,
+        overflow: overflowRun.trace.overflow,
+        sha256: overflowRun.trace.sha256
+      }
+    }
+  },
+  boundaries: {
+    unsupported: {
+      stop: pieRun.record,
+      stepBoundControl: pieBoundaryRun.record
+    },
+    instructionOverflow: {
+      stop: instructionOverflowRun.record,
+      stepBoundControl: instructionBoundaryRun.record,
+      trace: {
+        count: instructionOverflowRun.trace.count,
+        capacity: instructionOverflowRun.trace.capacity,
+        overflow: instructionOverflowRun.trace.overflow,
+        sha256: instructionOverflowRun.trace.sha256
+      }
+    },
+    unmappedMmio: {
+      stop: mmioRun.record,
+      trace: {
+        count: mmioRun.trace.count,
+        overflow: mmioRun.trace.overflow,
+        sha256: mmioRun.trace.sha256
+      },
+      slowCallbackInvocations: mmioRun.dataOutput[0]
+    }
   }
 };
 mkdirSync(dist, { recursive: true });
+writeFileSync(join(dist, "rgb565-execution-trace.bin"), stagingRun.trace.rawBytes);
 writeFileSync(join(dist, "dynamic-execution.json"), `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify({
   scalar: { reason: scalarRun.record.reasonName, steps: scalarRun.record.steps, returnValue: 4 },
@@ -418,7 +783,9 @@ console.log(JSON.stringify({
     reason: stagingRun.record.reasonName,
     steps: stagingRun.record.steps,
     outputHex: Buffer.from(stagingRun.dataOutput).toString("hex"),
-    firstUnsupported: null
+    firstUnsupported: null,
+    traceRecords: stagingRun.trace.count,
+    traceSha256: stagingRun.trace.sha256
   },
   moduleBytes: report.provenance.module.bytes,
   moduleSha256: report.provenance.module.sha256

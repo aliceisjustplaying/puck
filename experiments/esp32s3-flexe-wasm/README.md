@@ -140,10 +140,78 @@ the output SHA-256 is
 Every mnemonic in this function is present in the pinned flexe decoder, and
 the execution returns normally, so its first recoverable ISA gap is `null`.
 
+The same run exports a bounded binary execution trace from the interpreter.
+Its 24-byte version 1 header contains the ABI version, header and record sizes,
+record count, capacity, and overflow flag. Each 24-byte record contains kind,
+executing PC, guest address, value, width, and instruction encoding. Instruction
+records carry PC, width, and encoding. Read and write records carry the issuing
+PC, guest address, width, and value. Instruction widths are two or three bytes;
+data widths are one, two, or four bytes. Instruction fetches are not classified
+as data accesses.
+
+The trace hook sits in flexe's real `mem_read8/16/32` and
+`mem_write8/16/32` paths. The five-pixel run produces 53 records: 43
+instructions, five 16-bit reads from `0x3fca1000` through `0x3fca1008`, and
+five 16-bit writes to `0x3fca2000` through `0x3fca2008`. The test asserts the
+complete interleaved PC, instruction, address, width, and value sequence. The
+1,296-byte trace has SHA-256
+`ae24fd0b6d4e84dcbbad7e393c0be39058e5a04b2386f099bde1e0127103b9b4`
+and is written to ignored `dist/rgb565-execution-trace.bin`.
+
+Capacity is fixed at 128 records. A separate 14-pixel run with three prefixed
+`nop.n` instructions reaches capacity while issuing a 16-bit read. The runner
+rolls the whole instruction back, retains the 127 records for 101 completed
+instructions, and stops at the instruction boundary `0x420d4e24` with
+`traceOverflow`. The overflowing read does not update registers or memory and
+no partial instruction enters the trace. These records are execution facts
+only; they contain no cycle counts or timing estimates.
+
+Two boundary controls compare the visible general-register snapshot
+against a max-step run at the same PC. Both an unsupported-instruction hook and
+an instruction-record overflow preserve that snapshot and the committed trace
+count; overflow keeps its explicit flag. A traced access with no page-table
+mapping stops as `unmappedAccess` before flexe's slow/MMIO callback. The MMIO
+fixture's callback counter remains zero, so peripheral side effects cannot
+escape an instruction rollback. With no access hook installed, flexe's normal
+slow/MMIO path is unchanged.
+
+## TimingMachine replay experiment
+
+`timing-replay-test.ts` decodes the 53-record binary trace again and turns
+every instruction into an instruction fetch and every data record into a load
+or store. It submits that exact single-core order to the ESP32-S3 pack's
+unchanged `TimingMachine`. The generated
+`dist/rgb565-timing-replay.json` exposes address resolution, physical backing,
+cache emission, resource, cost provenance, and execution status for each trace
+record.
+
+The replay uses the gate-harness sdkconfig at SHA-256
+`65cfb5deebc36666fb3247ec5bc91aaf9de2d9a8c2642eb1666ec5b3e485bb92`:
+16 KiB, 8-way, 32-byte-line instruction cache and 32 KiB, 8-way,
+64-byte-line data cache. IROM MMU entry 13 is mapped to flash physical page 0
+only to exercise the flash, cache, and MSPI route. That physical page is an
+experiment input, not an observed hardware MMU snapshot. The two 4 KiB runner
+data pages are covered by one explicit internal-SRAM experiment region.
+
+The replay resolves all 43 instruction fetches, five loads, and five stores.
+It emits 44 instruction-cache hits, two line fills on MSPI, and ten SRAM bypass
+events. There are 44 hit emissions because the three-byte instruction at
+`0x420d4e1e` crosses the 32-byte cache-line boundary and touches both lines.
+The per-record evidence SHA-256 is
+`33f124d74e42944bb6901970c6c1cf674b92f5b78a579bc82963b6b33edc2462`.
+
+The timing profile supplies no adopted instruction-cache, line-fill, or SRAM
+cycle costs. Every one of the 56 issued costs stays explicitly unknown, the
+machine result is `blocked`, and total cycles are `null`. The replay establishes
+the deterministic accounting path and the exact evidence still needed. It
+does not estimate latency or make a cycle-accuracy claim.
+
 `esp32s3-dynamic-baseline.json` pins all three ELF hashes, extracted-code and
-staging-output hashes, patch hashes, objdump hash, module hash, and stop results.
-The detailed generated record and toolchain provenance live in ignored
-`dist/dynamic-execution.json`.
+staging-output and trace hashes, patch hashes, objdump hash, module hash, stop
+results, access counts, and overflow result. The detailed generated record and
+toolchain provenance live in ignored `dist/dynamic-execution.json`.
+`esp32s3-timing-replay-baseline.json` separately pins the replay configuration,
+source hashes, classification counts, null total, and per-record evidence hash.
 
 ## Minimal interpreter dependency closure
 
@@ -170,13 +238,14 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 39,896 bytes with Zig 0.16.0, SHA-256
-`45707aef5e86e2d86c757ab041a062ac99903b1c793b93d4be09328362baaa5c`.
+The stripped freestanding module is 41,765 bytes with Zig 0.16.0, SHA-256
+`c96e17ac183fbcb37262579ee755623585e646816cfef52ff07c3f98b044aa49`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
-and capacity functions, and `flexe_wasm_run_data`. Those names are audited
-before the tests pass the bytes to Puck's real loader. It has no WASI imports,
-and Puck's loader surface is unchanged.
+and capacity functions, `flexe_wasm_run_data`, and the trace pointer, byte
+length, and capacity functions. Those names are audited before the tests pass
+the bytes to Puck's real loader. It has no WASI imports, and Puck's loader
+surface is unchanged.
 
 The WASI build remains as a comparison. Zig's WASI libc introduces six imports.
 Puck supports `fd_write` and `proc_exit`, but correctly rejects `environ_get`,
