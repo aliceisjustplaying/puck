@@ -22,6 +22,16 @@ export type EventLatency =
       source?: string;
     }>;
 
+export interface MspiBurstSelection {
+  readonly clientId: string;
+  /** Issue-side candidate identity. A cache boundary starts a new sequence. */
+  readonly sequenceId: bigint;
+  readonly lineAddress: bigint;
+  readonly lineSizeBytes: number;
+  readonly firstLineLatency: EventLatency;
+  readonly subsequentLineServiceInterval: EventLatency;
+}
+
 interface CoreEventBase {
   readonly id: string;
   readonly core: CoreId;
@@ -32,6 +42,7 @@ interface CoreEventBase {
 interface MemoryEventBase extends CoreEventBase {
   readonly memory: MemoryRegion;
   readonly bytes: number;
+  readonly mspiBurst?: MspiBurstSelection;
 }
 
 export interface InstructionFetchEvent extends MemoryEventBase {
@@ -142,6 +153,7 @@ export interface UnknownDurationExecution extends ResultBase {
   readonly waitCycles: bigint;
   readonly startCalibration: CalibrationStatus;
   readonly endCalibration: "unknown";
+  readonly latency: Extract<EventLatency, { status: "unknown" }>;
   readonly reason: string;
 }
 
@@ -262,6 +274,27 @@ function validateLatency(value: unknown, path: string): asserts value is EventLa
   throw new Error(`${path}.status must be known or unknown`);
 }
 
+function validateMspiBurst(value: unknown, path: string): asserts value is MspiBurstSelection {
+  if (typeof value !== "object" || value === null) throw new Error(`${path} must be an object`);
+  const burst = value as Partial<MspiBurstSelection>;
+  requireNonEmpty(burst.clientId, `${path}.clientId`);
+  if (typeof burst.sequenceId !== "bigint" || burst.sequenceId < 0n) {
+    throw new Error(`${path}.sequenceId must be a non-negative bigint`);
+  }
+  if (typeof burst.lineAddress !== "bigint" || burst.lineAddress < 0n) {
+    throw new Error(`${path}.lineAddress must be a non-negative bigint`);
+  }
+  requirePositiveBytes(burst.lineSizeBytes, `${path}.lineSizeBytes`);
+  if (burst.lineAddress % BigInt(burst.lineSizeBytes as number) !== 0n) {
+    throw new Error(`${path}.lineAddress must be aligned to lineSizeBytes`);
+  }
+  validateLatency(burst.firstLineLatency, `${path}.firstLineLatency`);
+  validateLatency(
+    burst.subsequentLineServiceInterval,
+    `${path}.subsequentLineServiceInterval`,
+  );
+}
+
 function validateEndpoint(endpoint: DmaEndpoint, path: string): void {
   if (typeof endpoint !== "object" || endpoint === null) throw new Error(`${path} must be an endpoint`);
   if (endpoint.kind === "memory") {
@@ -293,12 +326,24 @@ function validateEvent(event: ExecutionEvent, inputIndex: number): void {
       if (event.core !== 0 && event.core !== 1) throw new Error(`events[${inputIndex}].core must be 0 or 1`);
       validateMemory(event.memory, `events[${inputIndex}].memory`);
       requirePositiveBytes(event.bytes, `events[${inputIndex}].bytes`);
+      if (event.mspiBurst !== undefined) {
+        if (event.memory !== "flash" && event.memory !== "psram") {
+          throw new Error(`events[${inputIndex}].mspiBurst requires flash or psram memory`);
+        }
+        validateMspiBurst(event.mspiBurst, `events[${inputIndex}].mspiBurst`);
+      }
       return;
     case "atomic":
       if (event.core !== 0 && event.core !== 1) throw new Error(`events[${inputIndex}].core must be 0 or 1`);
       validateMemory(event.memory, `events[${inputIndex}].memory`);
       requirePositiveBytes(event.bytes, `events[${inputIndex}].bytes`);
       requireNonEmpty(event.operation, `events[${inputIndex}].operation`);
+      if (event.mspiBurst !== undefined) {
+        if (event.memory !== "flash" && event.memory !== "psram") {
+          throw new Error(`events[${inputIndex}].mspiBurst requires flash or psram memory`);
+        }
+        validateMspiBurst(event.mspiBurst, `events[${inputIndex}].mspiBurst`);
+      }
       return;
     case "cache-op":
       if (event.core !== 0 && event.core !== 1) throw new Error(`events[${inputIndex}].core must be 0 or 1`);
@@ -448,6 +493,40 @@ function candidateCompare(
   return byActor !== 0 ? byActor : left.queued.inputIndex - right.queued.inputIndex;
 }
 
+function mspiBurstFor(event: ExecutionEvent): MspiBurstSelection | null {
+  switch (event.kind) {
+    case "instruction-fetch":
+    case "literal-load":
+    case "load":
+    case "store":
+    case "atomic":
+      return event.mspiBurst ?? null;
+    case "cache-op":
+    case "mmio":
+    case "dma":
+      return null;
+    default:
+      return assertNever(event);
+  }
+}
+
+function serviceLatency(
+  event: ExecutionEvent,
+  previous: MspiBurstSelection | null,
+): EventLatency {
+  const burst = mspiBurstFor(event);
+  if (burst === null) return event.latency;
+  const continues =
+    previous !== null &&
+    previous.clientId === burst.clientId &&
+    previous.sequenceId === burst.sequenceId &&
+    previous.lineSizeBytes === burst.lineSizeBytes &&
+    previous.lineAddress + BigInt(previous.lineSizeBytes) === burst.lineAddress;
+  return continues
+    ? burst.subsequentLineServiceInterval
+    : burst.firstLineLatency;
+}
+
 function knownClock(cycle: bigint, calibration: CalibrationStatus): ReadyClock {
   return Object.freeze({ status: "known", cycle, calibration });
 }
@@ -526,6 +605,7 @@ export function scheduleExecution(
   ]);
   for (const key of queues.keys()) if (!clocks.has(key)) clocks.set(key, INITIAL_CLOCK);
   let mspiClock: ReadyClock = INITIAL_CLOCK;
+  let previousMspiBurst: MspiBurstSelection | null = null;
   const results: ExecutionResult[] = [];
 
   while (true) {
@@ -558,7 +638,12 @@ export function scheduleExecution(
       continue;
     }
 
-    const latency = candidate.queued.event.latency;
+    const latency = candidate.resource === "mspi"
+      ? serviceLatency(candidate.queued.event, previousMspiBurst)
+      : candidate.queued.event.latency;
+    if (candidate.resource === "mspi") {
+      previousMspiBurst = mspiBurstFor(candidate.queued.event);
+    }
     const waitCycles = candidate.startCycle - candidate.actorReadyCycle;
     if (latency.status === "unknown") {
       const reason = latency.reason;
@@ -576,6 +661,7 @@ export function scheduleExecution(
           waitCycles,
           startCalibration: candidate.startCalibration,
           endCalibration: "unknown",
+          latency,
           reason,
         }),
       );

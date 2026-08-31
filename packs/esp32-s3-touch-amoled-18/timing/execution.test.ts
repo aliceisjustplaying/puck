@@ -6,6 +6,7 @@ import {
   type DmaEvent,
   type ExecutionEvent,
   type EventLatency,
+  type MspiBurstSelection,
 } from "./execution";
 
 function known(cycles: bigint, calibration: CalibrationStatus = "calibrated"): EventLatency {
@@ -37,6 +38,30 @@ function dma(
     destination: { kind: "mmio", peripheral: "panel" },
     bytes: 32,
     latency,
+  };
+}
+
+function burstLoad(
+  id: string,
+  lineAddress: bigint,
+  clientId = "cache:0:data:flash",
+): ExecutionEvent {
+  const mspiBurst: MspiBurstSelection = {
+    clientId,
+    sequenceId: 1n,
+    lineAddress,
+    lineSizeBytes: 16,
+    firstLineLatency: known(11n),
+    subsequentLineServiceInterval: known(3n),
+  };
+  return {
+    id,
+    kind: "load",
+    core: 0,
+    memory: "flash",
+    bytes: 16,
+    latency: known(11n),
+    mspiBurst,
   };
 }
 
@@ -139,6 +164,36 @@ describe("resource arbitration", () => {
       "1:flash-subsequent:completed:11-14:mspi",
       "2:psram-first:completed:14-31:mspi",
     ]);
+  });
+
+  test("selects a subsequent interval for contiguous same-client service", () => {
+    const result = scheduleExecution([
+      burstLoad("line-0", 0n),
+      burstLoad("line-1", 16n),
+    ], { sameCycleTieBreak: "input-order" });
+    expect(projection(result.events)).toEqual([
+      "0:line-0:completed:0-11:mspi",
+      "1:line-1:completed:11-14:mspi",
+    ]);
+    expect(result.events.map((event) =>
+      event.status === "completed" ? event.latency.cycles : null,
+    )).toEqual([11n, 3n]);
+  });
+
+  test("restarts a contiguous cache line after intervening DMA service", () => {
+    const result = scheduleExecution([
+      burstLoad("line-0", 0n),
+      dma("panel-dma", "panel", 0n, "flash", known(7n)),
+      burstLoad("line-1", 16n),
+    ], { sameCycleTieBreak: "input-order" });
+    expect(projection(result.events)).toEqual([
+      "0:line-0:completed:0-11:mspi",
+      "1:panel-dma:completed:11-18:mspi",
+      "2:line-1:completed:18-29:mspi",
+    ]);
+    expect(result.events.map((event) =>
+      event.status === "completed" ? event.latency.cycles : null,
+    )).toEqual([11n, 7n, 11n]);
   });
 
   test("lets SRAM and MMIO progress independently while MSPI is occupied", () => {
