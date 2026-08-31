@@ -82,6 +82,38 @@ phase 2 rolling into phase 3's scheduler, two or three on phase 3 ISA
 families plus one on the memory-system port, one on phase 5 models, one
 owning the board for phase 6 probes.
 
+## Hardware access and cloud lanes
+
+Coding lanes may run on cloud agents with no board access. The board gates
+verification loops, not development, and those batch cleanly:
+
+| Phase | Cloud-agent viable | What still needs the board |
+| --- | --- | --- |
+| 1 | About 95 percent: the ROM ELF is a download, reset values come from the TRM, the replay corpus is in git | Confirming a modeled reset value on silicon, batched as a receipt request |
+| 2 | Fully | Nothing |
+| 3 | About 90 percent: fixture corpus, TS reference model, flexe and QEMU oracles all build without hardware | Silicon-oracle ISA runs: cloud lanes author fixtures, the board owner executes them in batches |
+| 4 | Fully for correctness | Performance gates: cloud Chrome numbers are directional only; the real-time requirement is defined on the maintainer's M1-class machine, so perf validation runs locally |
+| 5 | Fully for the models (datasheets plus receipted facts) | Visual and tear-signal validation against the real panel, batched |
+| 6 | Authoring and analysis only | The build-flash-capture loop itself; this phase is the hardware queue |
+| 7 | Mostly | Final differential-harness runs against the board |
+
+The receipts pipeline is the interface between the two worlds: cloud lanes
+emit hardware request specs (probe firmware, fixture batches), the single
+board-owner lane services the queue, and results land as committed,
+hash-pinned receipt JSON that cloud lanes consume from git. No cloud lane
+ever blocks on a cable.
+
+One enabler must land before cloud lanes start on phase 3: the fixture
+ELFs live in the tinydraw repository's machine-local `out/fixtures/`
+worktrees, so a fresh clone holds hash-pinned references to files it
+cannot obtain. Either attach the fixture ELFs to a release on the fork
+with a download-and-verify path in
+`experiments/esp32s3-flexe-wasm/constants.ts`, or commit pre-extracted
+function bytes as small fixtures. `constants.ts` already honors a
+`TINYDRAW_ROOT` override for checkouts that do have the sibling repo.
+Cloud toolchain needs are all installable: bun, zig, Rust, the Xtensa
+objdump, optionally an Espressif QEMU build. No hardware, no secrets.
+
 ## Standing rules
 
 - Every adopted number keeps its receipt; refusals name their decision-0008
