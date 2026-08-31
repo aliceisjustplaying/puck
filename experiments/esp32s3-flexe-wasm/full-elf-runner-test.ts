@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { DEFAULT_TINYDRAW_ESP32S3_FULL_ELF } from "./constants";
-import { parseXtensaElf32 } from "./elf-image";
+import { parseXtensaElf32, type Elf32LoadSegment, type Elf32XtensaImage } from "./elf-image";
 import { FULL_ELF_STOP_REASONS, buildSparseElfPages, runSparseXtensaElf } from "./full-elf-runner";
 
 const modulePath = resolve(
@@ -23,6 +23,69 @@ const runnerMemory = {
     provenance: "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
   }],
 } as const;
+
+function syntheticSegment(
+  index: number,
+  virtualAddress: number,
+  bytes: readonly number[],
+  memoryBytes: number,
+  permissions: Elf32LoadSegment["permissions"],
+): Elf32LoadSegment {
+  const contents = Uint8Array.from(bytes);
+  return Object.freeze({
+    index,
+    virtualAddress,
+    physicalAddress: virtualAddress,
+    fileOffset: 0,
+    fileBytes: contents.length,
+    memoryBytes,
+    alignment: 1,
+    permissions: Object.freeze(permissions),
+    bytes: contents,
+    sha256: createHash("sha256").update(contents).digest("hex"),
+  });
+}
+
+const crossPageEntry = 0x4037_0fff;
+const crossPageImage: Elf32XtensaImage = Object.freeze({
+  schemaVersion: 1,
+  entryPoint: crossPageEntry,
+  elfBytes: 3,
+  elfSha256: "synthetic-cross-page-fetch",
+  loadSegments: Object.freeze([
+    syntheticSegment(0, crossPageEntry, [0x32], 1, { read: true, write: false, execute: true }),
+    syntheticSegment(1, crossPageEntry + 1, [0xa0, 0x28], 2, { read: true, write: false, execute: true }),
+    syntheticSegment(2, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
+  ]),
+  totalFileBytes: 3,
+  totalMemoryBytes: 0x1003,
+});
+const crossPageRun = await runSparseXtensaElf(moduleBytes, crossPageImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 1,
+});
+assert.equal(crossPageRun.record.reason, FULL_ELF_STOP_REASONS.maxSteps);
+assert.equal(crossPageRun.record.steps, 1);
+assert.equal(crossPageRun.record.pc, crossPageEntry + 3);
+assert.equal(crossPageRun.record.registers[3], 40);
+assert.deepEqual(crossPageRun.trace, [crossPageEntry]);
+
+const nonExecutableTrailingImage: Elf32XtensaImage = Object.freeze({
+  ...crossPageImage,
+  loadSegments: Object.freeze(crossPageImage.loadSegments.map((segment) =>
+    segment.index === 1
+      ? Object.freeze({ ...segment, permissions: Object.freeze({ read: true, write: false, execute: false }) })
+      : segment
+  )),
+});
+const nonExecutableTrailingRun = await runSparseXtensaElf(moduleBytes, nonExecutableTrailingImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 1,
+});
+assert.equal(nonExecutableTrailingRun.record.reason, FULL_ELF_STOP_REASONS.nonExecutablePage);
+assert.equal(nonExecutableTrailingRun.record.steps, 0);
+assert.equal(nonExecutableTrailingRun.record.pc, crossPageEntry);
+assert.deepEqual(nonExecutableTrailingRun.trace, []);
 
 assert.equal(image.entryPoint, 0x4037_5c9c);
 assert.equal(image.elfSha256, "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5");

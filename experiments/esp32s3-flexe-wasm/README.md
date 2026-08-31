@@ -292,6 +292,9 @@ An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
 page count, bounded trace, unsupported-instruction refusal, and first stop,
 including all six instruction encodings and the call-site register state.
+The runner regression also executes a three-byte instruction beginning at
+`0x40370fff` across two adjacent executable pages and refuses the same fetch
+before execution when the trailing page lacks execute permission.
 
 ## Minimal interpreter dependency closure
 
@@ -318,8 +321,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 47,919 bytes with Zig 0.16.0, SHA-256
-`37bef6a27e5f17b959cfcf5a9b5c2ff1a7df7bbf54235cb7fc5dabe2192e8753`.
+The stripped freestanding module is 48,048 bytes with Zig 0.16.0, SHA-256
+`2f53d6ec5253c11ce1c61a3f5c706a75b9e55207310f0b1a96ebe2d74dfeef03`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and

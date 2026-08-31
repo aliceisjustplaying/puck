@@ -97,12 +97,98 @@ index df40210..d09ee70 100644
  }
 
  #endif /* MEMORY_H */
+diff --git a/src/xtensa.c b/src/xtensa.c
+index 24c9792..67dca18 100644
+--- a/src/xtensa.c
++++ b/src/xtensa.c
+@@ -138,14 +138,23 @@ static inline __attribute__((always_inline))
+ int xtensa_fetch_inline(const xtensa_cpu_t *cpu, uint32_t addr, uint32_t *insn_out) {
+     uint8_t *page = cpu->mem->page_table[addr >> 12];
+     if (__builtin_expect(!page, 0)) return 0;
+-    const uint8_t *ptr = page + (addr & 0xFFF);
+-    if (ptr[0] & 0x8) {
+-        *insn_out = ptr[0] | ((uint32_t)ptr[1] << 8);
+-        return 2;
+-    } else {
+-        *insn_out = ptr[0] | ((uint32_t)ptr[1] << 8) | ((uint32_t)ptr[2] << 16);
+-        return 3;
++    uint32_t offset = addr & 0xFFF;
++    uint8_t first = page[offset];
++    uint32_t length = (first & 0x8) ? 2u : 3u;
++    if (__builtin_expect(offset + length <= 0x1000u, 1)) {
++        const uint8_t *ptr = page + offset;
++        *insn_out = ptr[0] | ((uint32_t)ptr[1] << 8) |
++                    (length == 3u ? (uint32_t)ptr[2] << 16 : 0u);
++        return (int)length;
+     }
++    if (addr > UINT32_MAX - (length - 1u)) return 0;
++    uint8_t *next_page = cpu->mem->page_table[(addr >> 12) + 1u];
++    if (!next_page) return 0;
++    uint8_t second = offset == 0xFFFu ? next_page[0] : page[offset + 1u];
++    uint8_t third = offset == 0xFFFu ? next_page[1] : next_page[0];
++    *insn_out = first | ((uint32_t)second << 8) |
++                (length == 3u ? (uint32_t)third << 16 : 0u);
++    return (int)length;
+ }
+
+ /* External version for disasm/trace callers (not performance-critical) */
+@@ -2208,7 +2217,12 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
+
+     /* Invalid PC trap. Slow-path body lives in a noinline helper so
+      * the hot-path branch is just a single range compare. */
+-    if (__builtin_expect(cpu->pc < 0x40000000u || cpu->pc >= 0x40500000u, 0)) {
++    bool external_exec = (cpu->external_exec_begin < cpu->external_exec_end &&
++                          cpu->pc >= cpu->external_exec_begin &&
++                          cpu->pc < cpu->external_exec_end) ||
++                         cpu->mem->page_table[cpu->pc >> 12] != NULL;
++    if (__builtin_expect((cpu->pc < 0x40000000u || cpu->pc >= 0x40500000u) &&
++                         !external_exec, 0)) {
+         cpu->cycle_count = *local_cc;
+         xtensa_invalid_pc_trap(cpu);
+         return -1;
+@@ -2296,6 +2310,10 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
+ have_insn:
+ #endif
+
++    if (cpu->instruction_hook &&
++        cpu->instruction_hook(cpu, cpu->pc, insn, ilen, cpu->instruction_hook_ctx))
++        return -2;
++
+     cpu->_pc_written = false;
+     cpu->pc += (uint32_t)ilen;
+
+diff --git a/src/xtensa.h b/src/xtensa.h
+index 7f70ab1..09e3182 100644
+--- a/src/xtensa.h
++++ b/src/xtensa.h
+@@ -12,6 +12,10 @@ typedef struct xtensa_cpu xtensa_cpu_t;
+ /* PC hook: return non-zero to skip normal fetch/execute for this cycle */
+ typedef int (*xtensa_pc_hook_fn)(xtensa_cpu_t *cpu, uint32_t pc, void *ctx);
+
++/* Instruction hook: return non-zero to stop before executing the instruction. */
++typedef int (*xtensa_instruction_hook_fn)(xtensa_cpu_t *cpu, uint32_t pc,
++                                          uint32_t insn, int length, void *ctx);
++
+ /* Pre-decoded instruction table: entire firmware decoded at load time.
+  * Direct-indexed by (pc - PREDECODE_BASE), no tags, no cache misses.
+  * Packed: bits 0-23 = instruction word, bits 24-25 = ilen (2 or 3).
+@@ -248,6 +252,10 @@ struct xtensa_cpu {
+     xtensa_pc_hook_fn pc_hook;          /* PC hook (for ROM stubs etc.) */
+     void             *pc_hook_ctx;
+     const uint64_t   *pc_hook_bitmap;   /* Fast-path bitmap: skip hook if bit not set */
++    xtensa_instruction_hook_fn instruction_hook;
++    void                       *instruction_hook_ctx;
++    uint32_t                    external_exec_begin;
++    uint32_t                    external_exec_end;
+     uint32_t         *predecode;        /* Pre-decoded instruction table (heap, 20MB) */
+     /* AOT static-recompiled function table.
+      * `aot` is opaque to xtensa.c; xtensa_step_impl just calls
 diff --git a/src/wasm_probe.c b/src/wasm_probe.c
 new file mode 100644
-index 0000000..0c17432
+index 0000000..074376a
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,773 @@
+@@ -0,0 +1,779 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -821,10 +907,16 @@ index 0000000..0c17432
 +            }
 +            uint8_t first = mem->page_table[cpu.pc >> 12][cpu.pc & (PAGE_BYTES - 1u)];
 +            uint32_t instruction_length = (first & 8u) != 0 ? 2u : 3u;
-+            if ((cpu.pc & (PAGE_BYTES - 1u)) + instruction_length > PAGE_BYTES &&
-+                elf_page_index(cpu.pc + instruction_length - 1u) < 0) {
-+                reason = PROBE_STOP_UNLOADED_PAGE;
-+                break;
++            if ((cpu.pc & (PAGE_BYTES - 1u)) + instruction_length > PAGE_BYTES) {
++                int trailing_page = elf_page_index(cpu.pc + instruction_length - 1u);
++                if (trailing_page < 0) {
++                    reason = PROBE_STOP_UNLOADED_PAGE;
++                    break;
++                }
++                if ((elf_page_flags[trailing_page] & 1u) == 0) {
++                    reason = PROBE_STOP_NON_EXECUTABLE_PAGE;
++                    break;
++                }
 +            }
 +        }
 +
@@ -876,58 +968,3 @@ index 0000000..0c17432
 +    return probe_result == 42u ? 0 : 1;
 +}
 +#endif
-diff --git a/src/xtensa.c b/src/xtensa.c
-index 24c9792..bafc154 100644
---- a/src/xtensa.c
-+++ b/src/xtensa.c
-@@ -2208,7 +2208,12 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
-
-     /* Invalid PC trap. Slow-path body lives in a noinline helper so
-      * the hot-path branch is just a single range compare. */
--    if (__builtin_expect(cpu->pc < 0x40000000u || cpu->pc >= 0x40500000u, 0)) {
-+    bool external_exec = (cpu->external_exec_begin < cpu->external_exec_end &&
-+                          cpu->pc >= cpu->external_exec_begin &&
-+                          cpu->pc < cpu->external_exec_end) ||
-+                         cpu->mem->page_table[cpu->pc >> 12] != NULL;
-+    if (__builtin_expect((cpu->pc < 0x40000000u || cpu->pc >= 0x40500000u) &&
-+                         !external_exec, 0)) {
-         cpu->cycle_count = *local_cc;
-         xtensa_invalid_pc_trap(cpu);
-         return -1;
-@@ -2296,6 +2301,10 @@ int xtensa_step_impl(xtensa_cpu_t *cpu, uint64_t *restrict local_cc) {
- have_insn:
- #endif
-
-+    if (cpu->instruction_hook &&
-+        cpu->instruction_hook(cpu, cpu->pc, insn, ilen, cpu->instruction_hook_ctx))
-+        return -2;
-+
-     cpu->_pc_written = false;
-     cpu->pc += (uint32_t)ilen;
-
-diff --git a/src/xtensa.h b/src/xtensa.h
-index 7f70ab1..09e3182 100644
---- a/src/xtensa.h
-+++ b/src/xtensa.h
-@@ -12,6 +12,10 @@ typedef struct xtensa_cpu xtensa_cpu_t;
- /* PC hook: return non-zero to skip normal fetch/execute for this cycle */
- typedef int (*xtensa_pc_hook_fn)(xtensa_cpu_t *cpu, uint32_t pc, void *ctx);
-
-+/* Instruction hook: return non-zero to stop before executing the instruction. */
-+typedef int (*xtensa_instruction_hook_fn)(xtensa_cpu_t *cpu, uint32_t pc,
-+                                          uint32_t insn, int length, void *ctx);
-+
- /* Pre-decoded instruction table: entire firmware decoded at load time.
-  * Direct-indexed by (pc - PREDECODE_BASE), no tags, no cache misses.
-  * Packed: bits 0-23 = instruction word, bits 24-25 = ilen (2 or 3).
-@@ -248,6 +252,10 @@ struct xtensa_cpu {
-     xtensa_pc_hook_fn pc_hook;          /* PC hook (for ROM stubs etc.) */
-     void             *pc_hook_ctx;
-     const uint64_t   *pc_hook_bitmap;   /* Fast-path bitmap: skip hook if bit not set */
-+    xtensa_instruction_hook_fn instruction_hook;
-+    void                       *instruction_hook_ctx;
-+    uint32_t                    external_exec_begin;
-+    uint32_t                    external_exec_end;
-     uint32_t         *predecode;        /* Pre-decoded instruction table (heap, 20MB) */
-     /* AOT static-recompiled function table.
-      * `aot` is opaque to xtensa.c; xtensa_step_impl just calls
