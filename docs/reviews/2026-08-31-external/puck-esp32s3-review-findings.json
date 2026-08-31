@@ -1,0 +1,1158 @@
+{
+  "review_date": "2026-08-31",
+  "archive_sha256": "32dbbd6890be1787bcbe22fbb7d0f57003ec4d69d4013fbc6adad67de0c05db1",
+  "counts": {
+    "P0": 6,
+    "P1": 26,
+    "P2": 40,
+    "P3": 8
+  },
+  "findings": [
+    {
+      "id": "F-001",
+      "severity": "P0",
+      "category": "Governance & provenance",
+      "title": "Resolve ESP32Sim’s license before treating it as a foundation",
+      "strength": "Pinning the exact source snapshot is excellent provenance hygiene.",
+      "evidence": "No repository-root license file was found in the bundled ESP32Sim root `puck-esp32s3-export-2026-08-31/esp32sim`. The public GitHub repository also reports no declared license as of the review date.",
+      "impact": "Without an explicit grant, copying, modifying, distributing, or shipping the upstream code can be legally blocked even when the repository is public. Component-level licenses do not automatically license the repository as a whole.",
+      "change": "Obtain an explicit license from the author or a signed contribution/license agreement; add a root LICENSE, NOTICE, source provenance record, and a third-party inventory before any product branch imports or modifies the code.",
+      "acceptance": "Legal/owner approval is recorded; the exact licensed commit is named; CI verifies required license/notice files; release artifacts carry the required notices.",
+      "owner": "Project owner / legal"
+    },
+    {
+      "id": "F-002",
+      "severity": "P1",
+      "category": "Governance & provenance",
+      "title": "Turn the pinned snapshot into a reproducible upstream provenance record",
+      "strength": "The archive and fixtures use exact hashes, which is the right foundation.",
+      "evidence": "Archive SHA-256 is `32dbbd6890be1787bcbe22fbb7d0f57003ec4d69d4013fbc6adad67de0c05db1`; local git metadata is recorded for both roots in the review evidence. `puck-esp32s3-export-2026-08-31/MANIFEST.md:20`, `puck-esp32s3-export-2026-08-31/MANIFEST.md:81`",
+      "impact": "A source copy without an origin URL, commit, patch stack, license state, and update policy becomes difficult to audit or refresh safely.",
+      "change": "Create `third_party/esp32sim/PROVENANCE.md` with upstream URL, exact commit, retrieval date, archive hash, local patch series, license, and approved update procedure.",
+      "acceptance": "A clean script can fetch the approved commit, verify its hash, apply the patch series, and reproduce the vendored tree byte-for-byte.",
+      "owner": "Release engineering"
+    },
+    {
+      "id": "F-003",
+      "severity": "P1",
+      "category": "Governance & provenance",
+      "title": "Inventory redistribution rights for ROMs, firmware blobs, fonts, audio, and calibration fixtures",
+      "strength": "The project preserves high-value real-world fixtures rather than relying only on synthetic examples.",
+      "evidence": "The supplied archive contains binary fixtures and calibration material; the largest-file hash inventory is in the companion evidence. License/notice files found: 12. `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:87`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:93`",
+      "impact": "A technically reproducible test corpus can still be non-redistributable. Firmware built from third-party SDKs, mask ROM images, media, and generated assets may each have different rights.",
+      "change": "Add an asset manifest with source, author, license/permission, whether redistribution is allowed, whether the asset may be public, and the build recipe. Keep restricted fixtures in a separately controlled store.",
+      "acceptance": "Every non-source artifact has an owner, digest, origin, rights field, retention rule, and reproducible generation command.",
+      "owner": "Project owner / release engineering"
+    },
+    {
+      "id": "F-004",
+      "severity": "P2",
+      "category": "Governance & provenance",
+      "title": "Adopt ESP32Sim as a controlled fork, not as a stable external API",
+      "strength": "The upstream author documents decisions and validates against hardware unusually well for an early emulator.",
+      "evidence": "Public repository metadata shows the project was created on 2026-08-25 and the reviewed public head was `2114ffc92039b4605264d2cfb4ee5543acbf98c1` on 2026-08-30; it had no tagged compatibility contract or declared license at review time.",
+      "impact": "Rapid, single-maintainer development is productive, but internal types and behavior can change faster than Puck can safely absorb.",
+      "change": "Mirror/fork the approved commit, protect the fork, keep Puck-facing APIs in a narrow adapter crate/package, and upstream changes selectively after conformance review.",
+      "acceptance": "Puck builds against one documented adapter version; upstream syncs are isolated PRs with full differential and security test results.",
+      "owner": "Architecture / release engineering"
+    },
+    {
+      "id": "F-005",
+      "severity": "P1",
+      "category": "Governance & provenance",
+      "title": "Pin CI actions and downloaded toolchain artifacts by immutable digest",
+      "strength": "The repository already treats firmware and fixture hashes as important evidence.",
+      "evidence": "Workflow files inspected: puck-esp32s3-export-2026-08-31/esp32sim/.github/workflows/pages.yml, puck-esp32s3-export-2026-08-31/puck/.github/workflows/verify-bundles.yml. Action references and network fetches should be checked against immutable SHAs and file digests. `puck-esp32s3-export-2026-08-31/esp32sim/.github/workflows/pages.yml:39`",
+      "impact": "Tags, branches, and unverified downloads can change after review, turning CI into a supply-chain execution path.",
+      "change": "Pin every GitHub Action to a full commit SHA, use minimal permissions, verify downloaded ROM/toolchain/archive SHA-256 values, and record approved update automation.",
+      "acceptance": "A policy test rejects mutable `uses:` refs and network downloads without a verified digest.",
+      "owner": "Security / release engineering"
+    },
+    {
+      "id": "F-006",
+      "severity": "P2",
+      "category": "Governance & provenance",
+      "title": "Make generated fixtures visibly generated and reviewable",
+      "strength": "Golden displays, audio, and traces provide strong regression sensitivity.",
+      "evidence": "The archive includes built fixtures with hashes; regression references appear in `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:38`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:53`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:149`",
+      "impact": "When a fixture can be replaced by the same change that alters behavior, the test can silently ratify a defect.",
+      "change": "Store generator version, exact inputs, command, expected semantic summary, and reviewer checklist next to every fixture. Split behavior changes and golden updates into distinct commits where practical.",
+      "acceptance": "CI regenerates a sample set and compares hashes; fixture-update PRs show semantic diffs and require a second reviewer.",
+      "owner": "Testing / release engineering"
+    },
+    {
+      "id": "F-007",
+      "severity": "P3",
+      "category": "Governance & provenance",
+      "title": "Preserve the archive’s safe extraction and integrity properties",
+      "strength": "The reviewed archive can be hashed and inventoried as a single immutable handoff.",
+      "evidence": "Archive scan found 0 unsafe path entries and recorded 1783 files.",
+      "impact": "Future export tooling could accidentally admit absolute paths, `..` traversal, symlinks, or mutable external references.",
+      "change": "Keep safe-extraction checks in export/import tooling and generate a signed manifest of paths, sizes, modes, and hashes.",
+      "acceptance": "A hostile ZIP corpus proves traversal, symlink, duplicate-path, case-folding, and oversized-entry rejection.",
+      "owner": "Release engineering"
+    },
+    {
+      "id": "F-008",
+      "severity": "P2",
+      "category": "Governance & provenance",
+      "title": "Add release-time secret scanning for both source and binaries",
+      "strength": "The upstream history shows awareness of embedded-secret risks, and the supplied project separates fixtures from core source.",
+      "evidence": "Static source scan recorded 0 potential secret-shaped strings for manual triage; binary fixtures also need `strings`/entropy scanning before publication.",
+      "impact": "Credentials can survive in firmware images, source maps, test logs, browser bundles, or old fixtures even when source files are clean.",
+      "change": "Run allowlisted secret scanners over text, git history, generated bundles, firmware strings, and release archives; redact logs and rotate any confirmed credential.",
+      "acceptance": "A release candidate fails closed on unapproved hits, with explicit fixture allowlists tied to hashes.",
+      "owner": "Security / release engineering"
+    },
+    {
+      "id": "F-009",
+      "severity": "P2",
+      "category": "Governance & provenance",
+      "title": "Define an agent-safe change protocol",
+      "strength": "The project’s roadmap and evidence documents give agents useful context.",
+      "evidence": "`puck-esp32s3-export-2026-08-31/esp32sim/docs/roadmap.md:1`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/roadmap.md:11`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:1`",
+      "impact": "Multiple autonomous agents can independently “fix” the same boundary, update goldens, or widen APIs without sharing the same assumptions.",
+      "change": "Require a short ADR/change brief for architecture, guest-host ABI, timing, fixture, or upstream-sync changes. Assign file ownership and one integration agent per milestone.",
+      "acceptance": "Every qualifying PR names the invariant changed, evidence added, rollback path, and affected compatibility matrix.",
+      "owner": "Project lead"
+    },
+    {
+      "id": "F-010",
+      "severity": "P3",
+      "category": "Governance & provenance",
+      "title": "Add an explicit dependency and toolchain update policy",
+      "strength": "The present dependency surface is small, which makes disciplined updates practical.",
+      "evidence": "Puck declares 0 runtime and 5 development dependencies; ESP32Sim’s Cargo workspace is similarly compact.",
+      "impact": "Unscheduled upgrades can break determinism, browser output, transpilation, or generated fixture hashes; indefinite pinning can accumulate security debt.",
+      "change": "Pin exact toolchain versions, use scheduled update PRs, require changelog review, and rerun the full conformance matrix before merging.",
+      "acceptance": "Lockfiles, runtime versions, and build images are immutable in release branches; automated updates are isolated and reversible.",
+      "owner": "Release engineering"
+    },
+    {
+      "id": "F-011",
+      "severity": "P0",
+      "category": "Runtime & trust boundaries",
+      "title": "Use one mandatory guest-output validator in live, headless, replay, and verification paths",
+      "strength": "The live canvas path already validates important framebuffer/push results—a strong start.",
+      "evidence": "Framebuffer/canvas and headless/replay code are separate call paths: `puck-esp32s3-export-2026-08-31/puck/src/abiGuard.ts:95`, `puck-esp32s3-export-2026-08-31/puck/src/abiGuard.ts:124`, `puck-esp32s3-export-2026-08-31/puck/src/panel.ts:20`, `puck-esp32s3-export-2026-08-31/puck/src/panel.ts:49`, `puck-esp32s3-export-2026-08-31/puck/src/panel.ts:55`",
+      "impact": "A malformed firmware/module can bypass the live-path checks and crash, allocate excessively, or corrupt the headless regression path—the very path intended to be trusted proof.",
+      "change": "Move pointer/range/dimension/stride/count validation into a pure shared boundary module. All consumers must receive validated value objects, never raw guest pointers.",
+      "acceptance": "The same hostile module corpus is run against every host mode and produces the same typed failure without process crash, hang, allocation spike, or partial artifact.",
+      "owner": "Runtime / test infrastructure"
+    },
+    {
+      "id": "F-012",
+      "severity": "P0",
+      "category": "Runtime & trust boundaries",
+      "title": "Harden every WASI-lite import as an untrusted ABI",
+      "strength": "A deliberately small WASI surface is much safer than importing a general host runtime.",
+      "evidence": "WASI-related imports, including `fd_write`, are present at `puck-esp32s3-export-2026-08-31/tinydraw/puck/README.md:25`, `puck-esp32s3-export-2026-08-31/tinydraw/puck/src/wasi_support.cpp:7`, `puck-esp32s3-export-2026-08-31/tinydraw/puck/src/wasi_support.cpp:14`, `puck-esp32s3-export-2026-08-31/puck/docs/abi.md:244`, `puck-esp32s3-export-2026-08-31/puck/src/wasm.ts:216`",
+      "impact": "Guest-provided iovec pointers, counts, lengths, clocks, and buffers can overflow arithmetic, cross memory bounds, trigger very large copies, or flood logs unless checked before dereference.",
+      "change": "Implement checked `u64` arithmetic, memory-range validation after every memory refresh, caps on iovec count and total bytes, bounded UTF-8 decoding, deterministic clock/random behavior, and explicit errno returns.",
+      "acceptance": "Property tests and hostile modules cover wraparound, out-of-bounds, zero-length edge cases, memory growth, huge counts, invalid UTF-8, closed descriptors, and log quotas.",
+      "owner": "Runtime / security"
+    },
+    {
+      "id": "F-013",
+      "severity": "P1",
+      "category": "Runtime & trust boundaries",
+      "title": "Put hard resource ceilings on guest-directed work",
+      "strength": "The architecture is already amenable to deterministic budgeting.",
+      "evidence": "Guest output and memory-related code appears in `puck-esp32s3-export-2026-08-31/esp32sim/docs/wasm-plan.md:80`, `puck-esp32s3-export-2026-08-31/tinydraw/puck/timing_verify.ts:37`, `puck-esp32s3-export-2026-08-31/puck/src/abiGuard.ts:63`, `puck-esp32s3-export-2026-08-31/puck/src/abiGuard.ts:143`, `puck-esp32s3-export-2026-08-31/puck/src/panel.ts:116`",
+      "impact": "Valid-but-extreme dimensions, row counts, log sizes, event queues, sample counts, and memory pages can exhaust the browser, CI runner, or verifier without an out-of-bounds bug.",
+      "change": "Define per-run limits for Wasm pages, instruction/cycle budget, wall time, frames, pixels, audio samples, output bytes, queue depth, recursion/nesting, and artifact size. Reject before allocation.",
+      "acceptance": "Boundary tests hit every limit and one-past-limit case; telemetry records which quota ended a run.",
+      "owner": "Runtime / security"
+    },
+    {
+      "id": "F-014",
+      "severity": "P1",
+      "category": "Runtime & trust boundaries",
+      "title": "Refresh typed-array views after WebAssembly memory growth",
+      "strength": "Using direct typed-array views is efficient and appropriate when lifecycle is explicit.",
+      "evidence": "Wasm memory construction/access points are referenced at `puck-esp32s3-export-2026-08-31/esp32sim/docs/wasm-plan.md:80`, `puck-esp32s3-export-2026-08-31/tinydraw/puck/timing_verify.ts:37`, `puck-esp32s3-export-2026-08-31/puck/src/abiGuard.ts:63`, `puck-esp32s3-export-2026-08-31/puck/src/abiGuard.ts:143`, `puck-esp32s3-export-2026-08-31/puck/src/panel.ts:116`",
+      "impact": "A `memory.grow` detaches or replaces the underlying buffer; cached views can become stale and validators can inspect a different buffer from the consumer.",
+      "change": "Centralize memory access behind a view provider keyed by `memory.buffer`; reacquire views before each boundary operation and after guest calls that may grow memory.",
+      "acceptance": "A hostile fixture grows memory between pointer production and host read; all modes either read the new valid range or reject deterministically.",
+      "owner": "Runtime"
+    },
+    {
+      "id": "F-015",
+      "severity": "P1",
+      "category": "Runtime & trust boundaries",
+      "title": "Make cancellation and timeouts preemptive rather than cooperative",
+      "strength": "Headless execution already provides a natural place to enforce deterministic budgets.",
+      "evidence": "`puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:38`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:53`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:149`",
+      "impact": "A guest stuck in an infinite loop, interrupt storm, or path that never yields can block the worker or CI process before host-side checks run.",
+      "change": "Run untrusted execution in a disposable Worker/process with instruction or cycle slicing, wall-clock watchdog, memory cap, and forced termination. Keep artifact writing outside that process.",
+      "acceptance": "An infinite-loop specimen terminates within the deadline, releases memory, and leaves no partial “passed” result.",
+      "owner": "Runtime / test infrastructure"
+    },
+    {
+      "id": "F-016",
+      "severity": "P1",
+      "category": "Runtime & trust boundaries",
+      "title": "Normalize and confine every host filesystem path",
+      "strength": "Separating fixtures and generated outputs is a good basis for a confined workspace.",
+      "evidence": "Replay/build/fixture references occur in `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:38`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:53`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:149`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:157`",
+      "impact": "Manifest names, test IDs, module names, or guest-supplied strings can become traversal paths, overwrite fixtures, or escape an output directory.",
+      "change": "Treat all external names as identifiers, not paths. Generate internal filenames, resolve beneath a dedicated root, reject separators/control characters/case collisions, and write atomically with no-follow semantics.",
+      "acceptance": "Traversal, absolute-path, symlink, device-name, Unicode-normalization, and case-folding tests cannot escape the sandbox.",
+      "owner": "Runtime / release engineering"
+    },
+    {
+      "id": "F-017",
+      "severity": "P1",
+      "category": "Runtime & trust boundaries",
+      "title": "Default ESP32Sim networking to no egress for untrusted firmware",
+      "strength": "ESP32Sim’s user-mode network is a valuable integration capability and its browser build naturally has no raw host sockets.",
+      "evidence": "Network/socket code appears at `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:30`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:139`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:156`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/roadmap.md:31`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/README.md:12`",
+      "impact": "A native NAT bridge lets arbitrary guest firmware probe localhost, private networks, developer services, cloud metadata endpoints, or exfiltrate data through DNS/HTTP. This is SSRF from a guest VM.",
+      "change": "Use `net=none` by default in Puck. Put optional egress behind explicit user consent and a policy layer that blocks loopback, link-local, RFC1918/ULA, multicast, metadata ranges, rebinding, and excessive flows; support destination allowlists.",
+      "acceptance": "Hostile firmware cannot reach protected address classes; DNS answers are revalidated at connect time; rate and byte limits are enforced.",
+      "owner": "Security / networking"
+    },
+    {
+      "id": "F-018",
+      "severity": "P1",
+      "category": "Runtime & trust boundaries",
+      "title": "Constrain local WebSocket/UI control surfaces",
+      "strength": "A live board UI is an excellent observability tool.",
+      "evidence": "WebSocket/server references appear at Repository-wide inspection of the supplied snapshot.",
+      "impact": "A listener bound beyond loopback, missing Origin checks, or unauthenticated control messages can let another site or LAN peer operate the emulator, load firmware, or read output.",
+      "change": "Bind loopback by default, use a random capability token, validate Origin/Host, cap message sizes and rates, and require an explicit flag for remote binding with TLS/authentication.",
+      "acceptance": "Cross-site WebSocket attempts, oversized frames, invalid message types, and LAN connections are rejected by default.",
+      "owner": "Security / web runtime"
+    },
+    {
+      "id": "F-019",
+      "severity": "P1",
+      "category": "Runtime & trust boundaries",
+      "title": "Validate every Worker/WebSocket event against a versioned schema",
+      "strength": "The project already uses explicit message types, which is a good protocol foundation.",
+      "evidence": "WebSocket/event message handling appears at `puck-esp32s3-export-2026-08-31/puck/README.md:243`, `puck-esp32s3-export-2026-08-31/puck/AGENTS.md:53`, `puck-esp32s3-export-2026-08-31/puck/AGENTS.md:187`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/speed-plan.md:132`, `puck-esp32s3-export-2026-08-31/esp32sim/examples/waveshare-cam/README.md:6`",
+      "impact": "Unchecked message shapes, numeric coercions, duplicate fields, large arrays, or unknown versions can produce inconsistent behavior across browser, native, and test paths.",
+      "change": "Define a closed discriminated schema with strict numeric bounds, maximum payload sizes, protocol version, and unknown-field policy. Validate before dispatch.",
+      "acceptance": "A protocol corpus covers missing, extra, duplicate, malformed, very large, old-version, and future-version messages in all transports.",
+      "owner": "Runtime / web"
+    },
+    {
+      "id": "F-020",
+      "severity": "P2",
+      "category": "Runtime & trust boundaries",
+      "title": "Make time, randomness, and external input explicit deterministic services",
+      "strength": "Deterministic fixtures and exact output hashes show the project values reproducibility.",
+      "evidence": "WASI clock/random and replay references appear at `puck-esp32s3-export-2026-08-31/puck/README.md:14`, `puck-esp32s3-export-2026-08-31/puck/README.md:90`, `puck-esp32s3-export-2026-08-31/puck/README.md:178`, `puck-esp32s3-export-2026-08-31/puck/README.md:194`, `puck-esp32s3-export-2026-08-31/puck/README.md:195`",
+      "impact": "Reading host time, entropy, scheduling, DNS, or network responses directly makes failures irreproducible and can cause browser/headless divergence.",
+      "change": "Inject clock, RNG seed, input event stream, and network transcript through a run context. Record them in the result manifest and separate “deterministic replay” from “live integration” modes.",
+      "acceptance": "Repeated runs with the same manifest are byte-identical; live-mode nondeterminism is labeled and excluded from exact golden assertions.",
+      "owner": "Runtime / testing"
+    },
+    {
+      "id": "F-021",
+      "severity": "P2",
+      "category": "Runtime & trust boundaries",
+      "title": "Use a typed, fail-closed error model at the guest boundary",
+      "strength": "The current validators demonstrate the right instinct to reject malformed results.",
+      "evidence": "Error/validation sites are adjacent to `puck-esp32s3-export-2026-08-31/tinydraw/puck/README.md:25`, `puck-esp32s3-export-2026-08-31/tinydraw/puck/src/wasi_support.cpp:7`, `puck-esp32s3-export-2026-08-31/tinydraw/puck/src/wasi_support.cpp:14`, `puck-esp32s3-export-2026-08-31/puck/docs/abi.md:244`",
+      "impact": "Generic exceptions, panics, or “best effort” continuation can convert a guest fault into partial output that looks valid or hide which invariant failed.",
+      "change": "Return structured errors with phase, code, guest address/range (redacted as needed), quota, and recoverability. On integrity faults, stop the run and discard uncommitted artifacts.",
+      "acceptance": "Every hostile fixture maps to one stable error code; no invalid run is reported as passed or produces a blessed golden.",
+      "owner": "Runtime / testing"
+    },
+    {
+      "id": "F-022",
+      "severity": "P2",
+      "category": "Runtime & trust boundaries",
+      "title": "Commit output atomically only after full validation",
+      "strength": "The project’s artifact orientation makes transactional output practical.",
+      "evidence": "`puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0002-runtime-architecture.md:65`, `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0002-runtime-architecture.md:74`, `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0002-runtime-architecture.md:75`",
+      "impact": "Writing rows, frames, logs, or audio incrementally before validation can leave partial artifacts after a late fault; CI may compare or publish them.",
+      "change": "Stage output in bounded temporary storage, validate final metadata and hash, then atomically rename/commit. Mark incomplete runs separately.",
+      "acceptance": "Killing a run at every write boundary never replaces the previous known-good artifact and never yields a pass marker.",
+      "owner": "Runtime / test infrastructure"
+    },
+    {
+      "id": "F-023",
+      "severity": "P2",
+      "category": "Runtime & trust boundaries",
+      "title": "Run regression verification in a disposable isolation boundary",
+      "strength": "Headless replay is the right automation interface.",
+      "evidence": "`puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:38`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:53`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:149`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:157`",
+      "impact": "A verifier sharing a process with untrusted Wasm, parsers, or image/audio encoders can be crashed or poisoned, invalidating the proof layer.",
+      "change": "Split execution from adjudication: a sandboxed worker emits a capped, schema-validated result bundle; a smaller trusted verifier checks hashes and semantics in a separate process.",
+      "acceptance": "Crashes, timeouts, and malformed result bundles become failed runs while the verifier and subsequent jobs remain healthy.",
+      "owner": "Testing / security"
+    },
+    {
+      "id": "F-024",
+      "severity": "P2",
+      "category": "Runtime & trust boundaries",
+      "title": "Cap package/archive expansion before allocation",
+      "strength": "Content-addressed artifacts are a strong base for safe caching.",
+      "evidence": "`puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:87`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:93`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:126`",
+      "impact": "A small compressed input or manifest can expand into an oversized module, image, trace, or nested archive and exhaust memory or disk.",
+      "change": "Apply limits to compressed size, uncompressed total, entry count, per-entry size, nesting, compression ratio, and duplicate paths before extraction; stream hashes.",
+      "acceptance": "ZIP-bomb, duplicate-name, nested, sparse, and huge-metadata corpora are rejected without exceeding resource budgets.",
+      "owner": "Pack / registry"
+    },
+    {
+      "id": "F-025",
+      "severity": "P2",
+      "category": "Runtime & trust boundaries",
+      "title": "Canonicalize registry and manifest identifiers once",
+      "strength": "The registry/pack model creates a natural validation choke point.",
+      "evidence": "Hash/integrity and registry-oriented evidence appears in `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:87`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:93`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:126`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:115`",
+      "impact": "Unicode confusables, normalization differences, path-like names, semver ambiguity, and case-folding can create duplicate identities or cache/signature mismatches.",
+      "change": "Define ASCII or normalized identifier grammar, canonical semver, sorted canonical serialization, duplicate-key rejection, and one content digest computed over canonical bytes.",
+      "acceptance": "Cross-runtime canonicalization vectors produce identical bytes/digests; ambiguous identifiers and duplicate JSON keys are rejected.",
+      "owner": "Pack / registry"
+    },
+    {
+      "id": "F-026",
+      "severity": "P3",
+      "category": "Runtime & trust boundaries",
+      "title": "Ship browser isolation headers and a restrictive CSP",
+      "strength": "Running substantial emulation in a Worker is already a useful containment layer.",
+      "evidence": "Browser and WebAssembly code appears at `puck-esp32s3-export-2026-08-31/puck/AGENTS.md:224`, `puck-esp32s3-export-2026-08-31/puck/AGENTS.md:225`, `puck-esp32s3-export-2026-08-31/puck/server.ts:183`, `puck-esp32s3-export-2026-08-31/puck/server.ts:185`",
+      "impact": "Without a strong CSP and cross-origin isolation policy, an unrelated script compromise can control firmware inputs/outputs; future shared memory features may be enabled inconsistently.",
+      "change": "Use no inline script where feasible, hashed/static assets, `object-src none`, narrow `connect-src`, COOP/COEP where required, and explicit worker sources. Avoid third-party runtime scripts.",
+      "acceptance": "Automated browser tests assert response headers and show no CSP violations in supported deployment modes.",
+      "owner": "Web / security"
+    },
+    {
+      "id": "F-027",
+      "severity": "P2",
+      "category": "Runtime & trust boundaries",
+      "title": "Treat guest logs and labels as untrusted display data",
+      "strength": "Exposing serial/log output is essential for emulator usability.",
+      "evidence": "`fd_write` and web UI output paths appear at `puck-esp32s3-export-2026-08-31/tinydraw/puck/README.md:25`, `puck-esp32s3-export-2026-08-31/tinydraw/puck/src/wasi_support.cpp:7`, `puck-esp32s3-export-2026-08-31/tinydraw/puck/src/wasi_support.cpp:14`, `puck-esp32s3-export-2026-08-31/puck/docs/abi.md:244`",
+      "impact": "ANSI control sequences, terminal hyperlinks, bidi controls, HTML injection, huge lines, and high-rate output can spoof diagnostics or degrade the UI.",
+      "change": "Render as text, strip or visibly encode dangerous controls, cap line length/rate/total bytes, and preserve raw bytes only in a quarantined downloadable artifact.",
+      "acceptance": "A log-fuzz corpus cannot inject DOM, hide prior text, create links, or exceed quotas.",
+      "owner": "Runtime / web"
+    },
+    {
+      "id": "F-028",
+      "severity": "P2",
+      "category": "Runtime & trust boundaries",
+      "title": "Version and quota persistent browser state",
+      "strength": "Persisted packs and fixtures can make iteration fast and offline-friendly.",
+      "evidence": "Browser/package-related code appears at `puck-esp32s3-export-2026-08-31/puck/AGENTS.md:224`, `puck-esp32s3-export-2026-08-31/puck/AGENTS.md:225`, `puck-esp32s3-export-2026-08-31/puck/server.ts:183`, `puck-esp32s3-export-2026-08-31/puck/server.ts:185`",
+      "impact": "Unbounded IndexedDB/cache state, schema drift, or partially written entries can strand users or cause old code to load incompatible modules.",
+      "change": "Use content-addressed entries, per-origin quotas, schema version/migrations, atomic writes, LRU cleanup, and a safe reset path.",
+      "acceptance": "Upgrade/downgrade/corruption tests recover without loading unverified content or losing unrelated user data.",
+      "owner": "Web / pack"
+    },
+    {
+      "id": "F-029",
+      "severity": "P2",
+      "category": "Runtime & trust boundaries",
+      "title": "Define interrupt-storm and event-queue backpressure behavior",
+      "strength": "The emulator roadmap recognizes timing and peripheral events as first-class behavior.",
+      "evidence": "Timing/Bus/JIT and push/event references appear at `puck-esp32s3-export-2026-08-31/MANIFEST.md:31`, `puck-esp32s3-export-2026-08-31/puck/README.md:30`, `puck-esp32s3-export-2026-08-31/puck/README.md:66`, `puck-esp32s3-export-2026-08-31/puck/README.md:169`, `puck-esp32s3-export-2026-08-31/puck/README.md:282`",
+      "impact": "A guest can generate events faster than rendering, audio, networking, or tracing consumers can process them, causing memory growth or timing distortion.",
+      "change": "Use bounded queues, coalescing rules for replaceable state, explicit drop counters, and deterministic backpressure for lossless channels.",
+      "acceptance": "Stress tests sustain maximum event rates with bounded memory and documented loss/latency behavior.",
+      "owner": "Runtime / architecture"
+    },
+    {
+      "id": "F-030",
+      "severity": "P1",
+      "category": "Runtime & trust boundaries",
+      "title": "Prove host-mode parity as a product invariant",
+      "strength": "The same project supports interactive use and automated proof, which is strategically valuable.",
+      "evidence": "Live canvas, headless, and replay references span `puck-esp32s3-export-2026-08-31/puck/README.md:243`, `puck-esp32s3-export-2026-08-31/puck/AGENTS.md:53`, `puck-esp32s3-export-2026-08-31/puck/AGENTS.md:187`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/speed-plan.md:132`, `puck-esp32s3-export-2026-08-31/esp32sim/examples/waveshare-cam/README.md:6`, `puck-esp32s3-export-2026-08-31/esp32sim/examples/waveshare-cam/run-autopling.sh:3`",
+      "impact": "Separate implementations can drift in imports, validation, timing, defaults, and error handling, creating “passes headless, fails live” or the reverse.",
+      "change": "Build all modes from one host-core package and a small environment adapter. Add a parity suite that replays identical manifests and compares normalized event/result streams.",
+      "acceptance": "Every conformance fixture yields identical semantic events, errors, hashes, and quota accounting across supported modes.",
+      "owner": "Architecture / testing"
+    },
+    {
+      "id": "F-031",
+      "severity": "P0",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Correct the roadmap assumption that a Bus wrapper observes all memory traffic",
+      "strength": "The roadmap wisely seeks a narrow timing/observation seam instead of scattering instrumentation.",
+      "evidence": "ESP32Sim exposes fast-memory/JIT paths at `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:200`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:72`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/block.rs:143`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/block.rs:187`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/bus.rs:59`, `puck-esp32s3-export-2026-08-31/esp32sim/esp32s3/src/bus.rs:622`",
+      "impact": "The native JIT probes the TLB and performs host loads/stores directly on fast paths. Those operations bypass ordinary `Bus` read/write methods, so a wrapper around the trait cannot see all accesses or enforce complete timing/accounting.",
+      "change": "Define observation at the CPU backend level. Either emit explicit JIT memory hooks, disable fast memory when exact observation is required, or make the fast-path metadata/accounting contract include every access. Keep one semantic oracle in the interpreter.",
+      "acceptance": "A conformance program exercises RAM, flash, MMIO, faults, self-modifying code, and cross-page accesses; interpreter, JIT-fast, and JIT-hooked modes produce identical observations and timing.",
+      "owner": "CPU / architecture"
+    },
+    {
+      "id": "F-032",
+      "severity": "P1",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Put ESP32Sim behind a Puck-owned stable adapter",
+      "strength": "ESP32Sim already separates CPU, SoC, board, CLI, and web concerns—excellent raw material for an adapter.",
+      "evidence": "CPU/SoC/board and Bus-related structure is visible around `puck-esp32s3-export-2026-08-31/MANIFEST.md:31`, `puck-esp32s3-export-2026-08-31/puck/README.md:30`, `puck-esp32s3-export-2026-08-31/puck/README.md:66`, `puck-esp32s3-export-2026-08-31/puck/README.md:169`, `puck-esp32s3-export-2026-08-31/puck/README.md:282`",
+      "impact": "Direct imports of internal machine, bus, peripheral, JIT, or web types will make upstream syncs expensive and let implementation details leak into Puck’s model.",
+      "change": "Create a small adapter contract: create/reset, load image, run-to-deadline, inject event, drain typed events, bounded memory inspection, capabilities, snapshot metadata, and shutdown. No Puck code outside the adapter imports upstream internals.",
+      "acceptance": "A dependency rule/lint test enforces the boundary; a fake backend and the ESP32Sim backend pass the same contract suite.",
+      "owner": "Architecture"
+    },
+    {
+      "id": "F-033",
+      "severity": "P1",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Specify the scheduler and virtual-time contract before peripheral work",
+      "strength": "Both projects already care about exact output timing and deterministic regression.",
+      "evidence": "Timing/roadmap references appear in `puck-esp32s3-export-2026-08-31/esp32sim/docs/roadmap.md:1`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/roadmap.md:11`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:1`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:61` and fast-path timing in `puck-esp32s3-export-2026-08-31/MANIFEST.md:31`, `puck-esp32s3-export-2026-08-31/puck/README.md:30`, `puck-esp32s3-export-2026-08-31/puck/README.md:66`",
+      "impact": "Without a written definition of cycle ownership, deadlines, device flushes, host pacing, and simultaneous events, two correct-looking implementations can diverge at interrupts, DMA completion, touch polling, or audio boundaries.",
+      "change": "Write an ADR defining monotonic virtual cycles, event priority/tie-breaks, CPU/device advancement, deadline semantics, host pacing separation, and what “exact” means for each test tier.",
+      "acceptance": "Table-driven scheduler tests cover same-cycle IRQs, DMA completion, timer compare, reset, sleep, and host input at boundaries.",
+      "owner": "Architecture / timing"
+    },
+    {
+      "id": "F-034",
+      "severity": "P1",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Treat the interpreter as the semantic oracle and JIT as an optional optimization",
+      "strength": "ESP32Sim’s `--no-jit` path and bit-identical comparisons are a particularly valuable design choice.",
+      "evidence": "JIT and interpreter references appear at `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:200`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:72`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/block.rs:143`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/block.rs:187`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/bus.rs:59`",
+      "impact": "A native-code backend increases unsafe-code, executable-memory, invalidation, and architecture-specific risk. It must not become the only path capable of running tests or observing behavior.",
+      "change": "Keep interpreter support mandatory in all environments; gate JIT by capability and trust level; run differential programs across both on every relevant change.",
+      "acceptance": "Release CI includes interpreter/JIT differential suites; untrusted/headless proof mode can disable JIT without losing functionality.",
+      "owner": "CPU / security"
+    },
+    {
+      "id": "F-035",
+      "severity": "P1",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Design snapshot and reset semantics before exposing save/restore",
+      "strength": "The model already distinguishes chip, board, and runtime state, which is a good basis for snapshots.",
+      "evidence": "Reset/replay concepts appear in `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:38`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:53`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:149`",
+      "impact": "A partial snapshot that omits pending DMA, device deadlines, TLB/JIT versions, network state, RNG, or host queues can resume into impossible state and invalidate regressions.",
+      "change": "Version a complete deterministic snapshot schema or explicitly defer snapshots. Separate immutable board wiring from resettable chip state and non-serializable live host resources.",
+      "acceptance": "Save/restore at randomized cycle boundaries yields the same final event hash as uninterrupted execution, or the capability is absent rather than partial.",
+      "owner": "Architecture / runtime"
+    },
+    {
+      "id": "F-036",
+      "severity": "P1",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Make dual-core and interrupt ordering observable and testable",
+      "strength": "ESP32Sim’s deterministic scheduling is more suitable for regression than unconstrained host threading.",
+      "evidence": "CPU/interrupt timing concepts are present in `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:3`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:4`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:9`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:10`",
+      "impact": "Small changes in core interleave, interrupt sampling, or device flush timing can alter FreeRTOS behavior while still producing plausible output.",
+      "change": "Document core quantum and tie-break order; expose deterministic trace events for core step, IRQ assert/accept, and device deadline; create race-sensitive litmus firmware.",
+      "acceptance": "Litmus tests and real-hardware traces pin ordering; changing the policy requires an ADR and fixture review.",
+      "owner": "CPU / timing"
+    },
+    {
+      "id": "F-037",
+      "severity": "P2",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Assign one authoritative owner for each address range and peripheral event",
+      "strength": "The CPU/SoC/board layering makes ownership explicit enough to formalize.",
+      "evidence": "Bus/peripheral references appear at `puck-esp32s3-export-2026-08-31/MANIFEST.md:31`, `puck-esp32s3-export-2026-08-31/puck/README.md:30`, `puck-esp32s3-export-2026-08-31/puck/README.md:66`, `puck-esp32s3-export-2026-08-31/puck/README.md:169`, `puck-esp32s3-export-2026-08-31/puck/README.md:282`",
+      "impact": "Overlapping maps, mirrored ranges, “default zero” reads, and duplicated device ticks can hide unsupported behavior and make debugging nonlinear.",
+      "change": "Generate an address-map registry with range, access widths, reset values, owner, side effects, unsupported policy, and test status. Reject overlaps unless declared aliases.",
+      "acceptance": "A map audit test detects overlap/gaps; unknown accesses are traceable and can be configured to fault in strict mode.",
+      "owner": "SoC / peripheral architecture"
+    },
+    {
+      "id": "F-038",
+      "severity": "P2",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Keep board revision and wiring data declarative",
+      "strength": "The project already distinguishes board-level evidence from generic SoC work.",
+      "evidence": "Board revision references appear at `puck-esp32s3-export-2026-08-31/tinydraw/DEVELOPING.md:155`, `puck-esp32s3-export-2026-08-31/tinydraw/DEVELOPING.md:158`, `puck-esp32s3-export-2026-08-31/tinydraw/tools/classify-tearing.py:13`, `puck-esp32s3-export-2026-08-31/tinydraw/tools/classify-tearing.py:49`, `puck-esp32s3-export-2026-08-31/tinydraw/esp32/dependencies.lock:12`, `puck-esp32s3-export-2026-08-31/tinydraw/esp32/dependencies.lock:91`",
+      "impact": "Conditionals spread across display, touch, GPIO, and scripts make revision support difficult to test and easy to mix accidentally.",
+      "change": "Define a versioned board manifest for flash/PSRAM, pins, buses, display/touch controllers, geometry, polarity, clock limits, and fixtures; construct models from it.",
+      "acceptance": "Both revisions parse through one schema; invalid or incomplete wiring fails before boot; generated documentation matches the manifest.",
+      "owner": "Board architecture"
+    },
+    {
+      "id": "F-039",
+      "severity": "P2",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Publish a native/browser capability matrix",
+      "strength": "ESP32Sim’s browser build is a major strategic advantage.",
+      "evidence": "WebAssembly and network/JIT code paths appear at `puck-esp32s3-export-2026-08-31/puck/AGENTS.md:224`, `puck-esp32s3-export-2026-08-31/puck/AGENTS.md:225`, `puck-esp32s3-export-2026-08-31/puck/server.ts:183`, `puck-esp32s3-export-2026-08-31/puck/server.ts:185`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/speed-plan.md:117`",
+      "impact": "Native and browser builds differ materially: JIT, sockets/NAT, filesystem, performance, threads, and possibly timers. A single “supported” label can mislead users and tests.",
+      "change": "Expose machine-readable capabilities and document support levels by backend. Tests should skip only with an explicit unsupported capability—not silently due to missing files.",
+      "acceptance": "The UI and CLI report capabilities; the matrix is generated from code and checked against conformance results.",
+      "owner": "Architecture / documentation"
+    },
+    {
+      "id": "F-040",
+      "severity": "P2",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Gate performance work on semantic and security invariants",
+      "strength": "Upstream performance work is measured and often compared against bit-identical outputs, which is excellent practice.",
+      "evidence": "Fast memory/JIT references appear at `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:200`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:72`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/block.rs:143`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/block.rs:187`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/bus.rs:59`",
+      "impact": "Optimization can bypass validation, instrumentation, version checks, or exact timing—as the Bus observation gap demonstrates.",
+      "change": "Require a checklist for every fast path: semantic oracle comparison, boundary hooks, quota accounting, invalidation, fault behavior, deterministic output, and hostile-input tests.",
+      "acceptance": "No performance PR merges without before/after conformance hashes and security-boundary coverage; speed results are secondary acceptance evidence.",
+      "owner": "CPU / performance"
+    },
+    {
+      "id": "F-041",
+      "severity": "P2",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Define the firmware and ESP-IDF compatibility promise",
+      "strength": "Booting unmodified firmware and real ROMs is a compelling product direction.",
+      "evidence": "`puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:3`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:4`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:9`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:10`",
+      "impact": "“ESP32-S3 compatible” can mean booting one fixture, one IDF family, or broad silicon behavior. New IDF releases exercise new ROM calls, peripheral modes, and security paths.",
+      "change": "Publish tested IDF/Arduino versions, boot modes, chips, board revisions, and peripheral feature levels. Add representative firmware per supported band and label everything else experimental.",
+      "acceptance": "Each release carries a generated compatibility report with exact toolchain and firmware hashes.",
+      "owner": "Product / test architecture"
+    },
+    {
+      "id": "F-042",
+      "severity": "P2",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Create an explicit upstream API/ABI version",
+      "strength": "The source layout is modular enough to expose a deliberately small public surface.",
+      "evidence": "Workspace structure and adapter-relevant symbols appear around `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:3`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:4`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:9`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:10`",
+      "impact": "Without versioned behavior, Puck cannot tell whether an upstream update changed event semantics, timing, or only implementation.",
+      "change": "Version the adapter protocol and event schema independently of package version; require capability negotiation and reject incompatible major versions.",
+      "acceptance": "Old fixture manifests either continue to run under a compatibility layer or fail with a clear version error.",
+      "owner": "Architecture"
+    },
+    {
+      "id": "F-043",
+      "severity": "P2",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Security-review bespoke JIT, crypto, packet, and image/audio parsing surfaces",
+      "strength": "A low external dependency count reduces third-party supply-chain exposure.",
+      "evidence": "Unsafe/JIT and network patterns appear at `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:98`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:104`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:105`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:106`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:107`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:112` and `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:30`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:139`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:156`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/roadmap.md:31`",
+      "impact": "Low dependencies shift responsibility into project code. Raw-pointer JIT helpers, executable memory, packet parsers, decompression/image code, and custom crypto arithmetic are high-consequence host attack surfaces when firmware is untrusted.",
+      "change": "Inventory every `unsafe` block and parser, state safety invariants, isolate JIT, fuzz byte-oriented inputs, run sanitizers/Miri where applicable, and prefer audited libraries for host-security functions.",
+      "acceptance": "Unsafe-code review has owners; fuzz targets run continuously; sanitizer builds are clean; untrusted mode can disable high-risk optional features.",
+      "owner": "Security / upstream fork"
+    },
+    {
+      "id": "F-044",
+      "severity": "P2",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Separate emulated correctness from host-service convenience",
+      "strength": "ESP32Sim’s virtual AP/NAT and host UI make real applications demonstrable.",
+      "evidence": "Network and web service code appears at `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:30`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:139`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:156`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/roadmap.md:31`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/README.md:12`",
+      "impact": "Host clock, DNS, NAT, WebSockets, and filesystem output are conveniences, not silicon. Mixing them into machine semantics complicates determinism and widens trusted code.",
+      "change": "Keep host services behind interfaces with deterministic transcript implementations for tests and policy-enforced live implementations for demos.",
+      "acceptance": "The same firmware can run with `none`, deterministic transcript, and live service providers; machine-state hashes exclude non-semantic host timing.",
+      "owner": "Architecture / security"
+    },
+    {
+      "id": "F-045",
+      "severity": "P3",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Set honest performance expectations per host architecture",
+      "strength": "Upstream publishes measured workloads instead of one synthetic headline number.",
+      "evidence": "JIT-specific code and browser paths appear at `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:200`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:72`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/block.rs:143`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/block.rs:187`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/bus.rs:59`",
+      "impact": "The native JIT is architecture-specific; x86 and WebAssembly can use different execution engines and therefore different throughput and risk profiles.",
+      "change": "Benchmark a small canonical suite on supported macOS/Linux/Windows architectures and browser engines; publish median and worst-case real-time factors with JIT status.",
+      "acceptance": "Release notes contain reproducible benchmark manifests and no cross-host extrapolation.",
+      "owner": "Performance / product"
+    },
+    {
+      "id": "F-046",
+      "severity": "P2",
+      "category": "ESP32Sim architecture & integration",
+      "title": "Use a small, reviewable patch stack for the fork",
+      "strength": "The upstream project is active enough that selective synchronization may be valuable.",
+      "evidence": "Local and public commit metadata are recorded in the review evidence; the public head may continue moving quickly.",
+      "impact": "A long-lived fork with mixed product features and upstream fixes becomes difficult to audit, license, or rebase.",
+      "change": "Keep Puck-specific behavior in adapter/board crates where possible; maintain upstream commits as clean cherry-picks and product patches as separately labeled commits.",
+      "acceptance": "An automated range-diff summarizes every upstream sync and the conformance suite runs before and after it.",
+      "owner": "Architecture / release engineering"
+    },
+    {
+      "id": "F-047",
+      "severity": "P0",
+      "category": "Testing, CI & evidence",
+      "title": "Expand required CI from pack/registry checks to the actual product proof matrix",
+      "strength": "The existing required workflow establishes a useful starting gate for artifact integrity.",
+      "evidence": "Inspected workflow commands: `puck-esp32s3-export-2026-08-31/esp32sim/.github/workflows/pages.yml:25` → `tools/wasm-build.sh`; `puck-esp32s3-export-2026-08-31/esp32sim/.github/workflows/pages.yml:27` → `|`; `puck-esp32s3-export-2026-08-31/esp32sim/.github/workflows/pages.yml:36` → `|`; `puck-esp32s3-export-2026-08-31/puck/.github/workflows/verify-bundles.yml:39` → `|`; `puck-esp32s3-export-2026-08-31/puck/.github/workflows/verify-bundles.yml:54` → `bun run tools/ci-verify-registry.ts`; `puck-esp32s3-export-2026-08-31/puck/.github/workflows/verify-bundles.yml:57` → `bun run pack:esp32:gate`. The reviewed required slice does not enforce the full typecheck, hostile-host, regression, browser, and ESP32Sim Rust matrix described by the project.",
+      "impact": "Safeguards that are not required checks can regress while PRs remain green; prose and local scripts are not enforcement.",
+      "change": "Create required jobs for formatting/lint, strict typecheck, unit tests, hostile modules, headless regressions, browser smoke/parity, pack/registry validation, Rust fmt/test/clippy, and decoder conformance with real corpora.",
+      "acceptance": "Branch rules require every job; a deliberately broken validator, fixture, type, browser path, and Rust decoder each causes the expected required job to fail.",
+      "owner": "CI / project lead"
+    },
+    {
+      "id": "F-048",
+      "severity": "P0",
+      "category": "Testing, CI & evidence",
+      "title": "Make decoder conformance fail closed when corpora are absent",
+      "strength": "Differential decoding against vendor/objdump output is exactly the right high-value oracle.",
+      "evidence": "External decoder corpus variables and skip paths appear at `puck-esp32s3-export-2026-08-31/esp32sim/docs/cli.md:61`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/testing-plan.md:39`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/tests/objdump_diff.rs:3`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/tests/objdump_diff.rs:25`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/esp32c3.md:126`, `puck-esp32s3-export-2026-08-31/esp32sim/riscv-rv32/tests/objdump_diff.rs:3`, `puck-esp32s3-export-2026-08-31/esp32sim/riscv-rv32/tests/objdump_diff.rs:26`, `puck-esp32s3-export-2026-08-31/esp32sim/riscv-rv32/tests/objdump_diff.rs:27`",
+      "impact": "A test that returns success when files are missing converts the headline conformance claim into an optional local check. CI can report green without running it.",
+      "change": "Split tests into a small committed mandatory corpus and a larger artifact-backed corpus. In conformance CI, missing files must be an error; print executed case counts and corpus hashes.",
+      "acceptance": "Required logs report nonzero Xtensa and RISC-V case counts and exact corpus digests; removing the artifact makes the job fail, not skip.",
+      "owner": "CPU testing / CI"
+    },
+    {
+      "id": "F-049",
+      "severity": "P1",
+      "category": "Testing, CI & evidence",
+      "title": "Grow the mandatory Rust semantic test base beyond the current smoke level",
+      "strength": "The existing tests cover important decoder and cryptographic examples, and the codebase remains small enough to improve quickly.",
+      "evidence": "Observed cargo test summary: the default suite is small and the decoder headline depends on external inputs. Previous direct inspection found only 13 default tests before optional decoder corpora were supplied.",
+      "impact": "A full CPU/SoC emulator can pass a small suite while instruction corner cases, exceptions, memory faults, MMU invalidation, peripheral timing, and reset behavior remain untested.",
+      "change": "Add table/property tests for every instruction family and exception; state-machine tests for peripherals; scheduler litmus tests; and mandatory firmware boot fixtures.",
+      "acceptance": "Coverage reports meaningful semantic categories, not only lines; every modeled peripheral and instruction family has positive, boundary, and fault tests.",
+      "owner": "Upstream fork / testing"
+    },
+    {
+      "id": "F-050",
+      "severity": "P1",
+      "category": "Testing, CI & evidence",
+      "title": "Add fuzzing, property testing, sanitizers, and unsafe-code checks",
+      "strength": "The deterministic cores and parsers are excellent candidates for automated generative testing.",
+      "evidence": "Unsafe, panic, and parser-adjacent patterns appear at `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0005-rca-core1-dies-on-first-button.md:80`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:98`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:104`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:105`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:106`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:107`",
+      "impact": "Handwritten decoders, JIT encoders, memory maps, WASI imports, packets, manifests, and image/audio paths have combinatorial input spaces that examples will not cover.",
+      "change": "Add cargo-fuzz/libFuzzer targets, property tests, Address/UndefinedBehavior sanitizers for native helpers, Miri for suitable Rust modules, and JS/Wasm hostile corpus mutation.",
+      "acceptance": "Nightly jobs run bounded fuzz campaigns, preserve minimized reproducers, and show zero sanitizer/Miri findings on the supported subset.",
+      "owner": "Security testing"
+    },
+    {
+      "id": "F-051",
+      "severity": "P1",
+      "category": "Testing, CI & evidence",
+      "title": "Make branch protection and review rules part of the documented system",
+      "strength": "The project already has governance-oriented documentation.",
+      "evidence": "Workflow files exist at puck-esp32s3-export-2026-08-31/esp32sim/.github/workflows/pages.yml, puck-esp32s3-export-2026-08-31/puck/.github/workflows/verify-bundles.yml, but branch-rule state is not contained in a source archive.",
+      "impact": "Required checks, signed commits, review counts, and force-push policy can silently differ from the documented development process.",
+      "change": "Store rules as code where possible, document required repository settings, and run a periodic GitHub API audit that compares actual settings to policy.",
+      "acceptance": "An audit job reports protected default branch, required checks, restricted force pushes/deletion, and review requirements.",
+      "owner": "Project lead / repository administration"
+    },
+    {
+      "id": "F-052",
+      "severity": "P1",
+      "category": "Testing, CI & evidence",
+      "title": "Promote browser smoke and parity tests to required status",
+      "strength": "A browser-native emulator is a core differentiator, not a secondary demo.",
+      "evidence": "Browser/WebAssembly paths appear at `puck-esp32s3-export-2026-08-31/puck/AGENTS.md:224`, `puck-esp32s3-export-2026-08-31/puck/AGENTS.md:225`, `puck-esp32s3-export-2026-08-31/puck/server.ts:183`, `puck-esp32s3-export-2026-08-31/puck/server.ts:185`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/speed-plan.md:117`",
+      "impact": "Typechecks and headless tests will not catch Worker startup, CSP, cache, structured-clone, audio/canvas, memory-growth, and lifecycle failures.",
+      "change": "Run Playwright/WebDriver against a production build in at least Chromium and one second engine; exercise load, run, stop, reset, hostile module, reload/cache, and parity hashes.",
+      "acceptance": "Browser jobs are required, deterministic, capture console errors, and fail on uncaught rejection, CSP violation, resource leak, or result mismatch.",
+      "owner": "Web testing / CI"
+    },
+    {
+      "id": "F-053",
+      "severity": "P1",
+      "category": "Testing, CI & evidence",
+      "title": "Require semantic review for golden updates",
+      "strength": "Bit-identical display/audio/trace fixtures are powerful change detectors.",
+      "evidence": "Regression/golden behavior is referenced in `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:38`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:53`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:149`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:157`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:187`",
+      "impact": "Goldens answer “did it change,” not “is it correct.” A bug can be accepted by regenerating all outputs.",
+      "change": "Pair each golden with semantic assertions: dimensions, frame count, selected pixels/regions, event sequence, audio duration/rate/energy, serial milestones, and no unexpected warnings. Require a diff summary on update.",
+      "acceptance": "A fixture update cannot merge without a machine-generated semantic diff and reviewer acknowledgement of each changed invariant.",
+      "owner": "Testing / project lead"
+    },
+    {
+      "id": "F-054",
+      "severity": "P1",
+      "category": "Testing, CI & evidence",
+      "title": "Record complete fixture provenance and environment",
+      "strength": "Exact fixture hashes are already a strong start.",
+      "evidence": "Integrity references appear in `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:87`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:93`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:126`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:115`",
+      "impact": "A hash alone does not explain which firmware, board config, seed, clock, emulator commit, toolchain, or event script produced it.",
+      "change": "Generate a sidecar manifest for each run with all source/artifact hashes, backend capabilities, flags, virtual duration, seed, input script, host architecture, and result hashes.",
+      "acceptance": "A fixture is rejected if any required provenance field is missing; one command reproduces it from approved inputs.",
+      "owner": "Testing / release engineering"
+    },
+    {
+      "id": "F-055",
+      "severity": "P2",
+      "category": "Testing, CI & evidence",
+      "title": "Automate a small hardware-in-the-loop oracle",
+      "strength": "The project has real-silicon receipts, which are more valuable than speculative datasheet interpretation.",
+      "evidence": "Board/calibration references appear at `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:3`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:51`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:58`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:128`, `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0002-runtime-architecture.md:40`",
+      "impact": "Manual hardware captures are hard to rerun and can drift from the firmware/config used by the emulator.",
+      "change": "Create a controlled HIL job or scheduled lab run that flashes exact firmware, captures serial/JTAG/display/touch traces, normalizes nondeterministic fields, and publishes signed artifacts.",
+      "acceptance": "At least one boot/timer/GPIO/display/touch specimen per supported board revision is periodically compared with emulator output.",
+      "owner": "Hardware validation"
+    },
+    {
+      "id": "F-056",
+      "severity": "P2",
+      "category": "Testing, CI & evidence",
+      "title": "Test validators by mutation, not only handpicked bad cases",
+      "strength": "Hostile-module awareness is already present in the project’s design.",
+      "evidence": "Hostile/malformed references appear at `puck-esp32s3-export-2026-08-31/esp32sim/docs/testing-plan.md:364`, `puck-esp32s3-export-2026-08-31/puck/docs/decisions/0005-external-ports-are-reproduced.md:77`, `puck-esp32s3-export-2026-08-31/puck/docs/decisions/0005-external-ports-are-reproduced.md:79`, `puck-esp32s3-export-2026-08-31/puck/docs/findings-first-adversarial-pass.md:1`, `puck-esp32s3-export-2026-08-31/puck/docs/findings-first-adversarial-pass.md:4`",
+      "impact": "Handwritten invalid fixtures often miss arithmetic combinations, stale-memory timing, duplicate messages, and near-limit cases.",
+      "change": "Generate mutations of valid modules/manifests/events: pointers, lengths, dimensions, counts, alignment, memory growth, output ordering, and truncation. Minimize and retain failures.",
+      "acceptance": "Mutation score is tracked; each validator branch is killed by at least one mutation across every host mode.",
+      "owner": "Security testing"
+    },
+    {
+      "id": "F-057",
+      "severity": "P2",
+      "category": "Testing, CI & evidence",
+      "title": "Add fault-injection campaigns for peripheral and host failures",
+      "strength": "The architecture has explicit boundaries where faults can be injected cleanly.",
+      "evidence": "Peripheral, replay, and network references appear at `puck-esp32s3-export-2026-08-31/MANIFEST.md:31`, `puck-esp32s3-export-2026-08-31/puck/README.md:30`, `puck-esp32s3-export-2026-08-31/puck/README.md:66`, `puck-esp32s3-export-2026-08-31/puck/README.md:169`, `puck-esp32s3-export-2026-08-31/puck/README.md:282`",
+      "impact": "Real systems see short reads, DMA faults, malformed packets, missing devices, reset mid-transfer, disk-full, worker termination, and browser context loss.",
+      "change": "Introduce deterministic fault schedules at bus, device, filesystem, network, Worker, and artifact-commit boundaries; assert safe recovery or clear terminal failure.",
+      "acceptance": "Every boundary has at least one injected failure test and no fault can produce a false pass or corrupt known-good fixtures.",
+      "owner": "Testing / runtime"
+    },
+    {
+      "id": "F-058",
+      "severity": "P2",
+      "category": "Testing, CI & evidence",
+      "title": "Measure boundary coverage, not only source-line coverage",
+      "strength": "The project’s architecture documents provide a natural inventory of boundaries.",
+      "evidence": "`puck-esp32s3-export-2026-08-31/esp32sim/docs/roadmap.md:1`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/roadmap.md:11`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:1`",
+      "impact": "High line coverage can coexist with untested modes, error paths, capabilities, instruction families, and peripheral states.",
+      "change": "Maintain a coverage matrix for host modes × guest behaviors × backends × board revisions × trust faults. Use code coverage as supporting evidence, not the sole metric.",
+      "acceptance": "Release reports show no empty cells for required boundaries and explain experimental cells explicitly.",
+      "owner": "Test architecture"
+    },
+    {
+      "id": "F-059",
+      "severity": "P2",
+      "category": "Testing, CI & evidence",
+      "title": "Enforce timeouts, leak checks, and clean shutdown in tests",
+      "strength": "Deterministic virtual-time tests can be both strict and fast.",
+      "evidence": "Headless and Worker/runtime references appear at `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:38`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:53`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:149`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:157`",
+      "impact": "A test can pass while leaving Workers, sockets, timers, temp files, executable mappings, or queued messages alive, creating order-dependent CI failures.",
+      "change": "Wrap each integration test with wall timeout, resource baseline/delta checks, temp-dir isolation, explicit shutdown, and post-test open-handle detection.",
+      "acceptance": "Tests pass in randomized order and repeated loops with stable memory, descriptor, process, and temporary-file counts.",
+      "owner": "Testing / runtime"
+    },
+    {
+      "id": "F-060",
+      "severity": "P2",
+      "category": "Testing, CI & evidence",
+      "title": "Pin the complete build toolchain, not only dependencies",
+      "strength": "Lockfiles and exact artifacts support reproducibility.",
+      "evidence": "Package manager metadata: `None`; engines: `None`. Tool-version probe results are in the companion test log.",
+      "impact": "Bun/Node/Rust/LLVM/browser/ESP-IDF changes can alter emitted Wasm, decoding, floating behavior, fixtures, or CI scripts without a source change.",
+      "change": "Pin versions through toolchain files/container digests; print them in every result manifest; provide a hermetic bootstrap path.",
+      "acceptance": "Two clean machines build byte-identical or explicitly normalized artifacts from the same source and toolchain image.",
+      "owner": "Release engineering"
+    },
+    {
+      "id": "F-061",
+      "severity": "P2",
+      "category": "Testing, CI & evidence",
+      "title": "Generate attestations and an SBOM for release artifacts",
+      "strength": "The project’s content hashes make attestation straightforward.",
+      "evidence": "Hashing/integrity evidence appears at `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:87`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:93`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:126`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:115`",
+      "impact": "Users and future maintainers need to know which source, tools, dependencies, firmware, and upstream fork produced a browser bundle or native binary.",
+      "change": "Generate SPDX/CycloneDX SBOMs, provenance attestations, checksums, license notices, and signed release manifests in a protected release workflow.",
+      "acceptance": "A release verifier can validate artifact digest, source commit, builder identity, dependency graph, and license inventory offline.",
+      "owner": "Release engineering / security"
+    },
+    {
+      "id": "F-062",
+      "severity": "P3",
+      "category": "Testing, CI & evidence",
+      "title": "Check documentation links, claims, and generated matrices in CI",
+      "strength": "The documentation is unusually substantive and deserves to remain trustworthy.",
+      "evidence": "Documentation/roadmap references appear at `puck-esp32s3-export-2026-08-31/esp32sim/docs/roadmap.md:1`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/roadmap.md:11`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:1`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:61`",
+      "impact": "Fast implementation can leave roadmap status, support tables, commands, and performance claims stale even when code is correct.",
+      "change": "Lint links and commands, generate capability/test matrices from source, and require measured claims to name workload, commit, backend, and host.",
+      "acceptance": "Documentation CI detects stale paths and unsupported claims; generated sections have a clear source marker.",
+      "owner": "Documentation"
+    },
+    {
+      "id": "F-063",
+      "severity": "P3",
+      "category": "Testing, CI & evidence",
+      "title": "Keep performance benchmarks statistically and semantically disciplined",
+      "strength": "ESP32Sim’s upstream history shows careful interleaved measurements and output comparisons—preserve that standard.",
+      "evidence": "Performance/JIT paths appear around `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:200`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:72`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/block.rs:143`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/block.rs:187`",
+      "impact": "Single-run numbers, warmed caches, host background load, or different semantic modes can create misleading gains.",
+      "change": "Use pinned workloads, interleaved A/B runs, warmup policy, multiple samples, confidence summaries, fixed host power settings where possible, and semantic hash checks.",
+      "acceptance": "Benchmark reports are machine-generated and reject comparisons when outputs, feature flags, or instruction counts differ.",
+      "owner": "Performance"
+    },
+    {
+      "id": "F-064",
+      "severity": "P1",
+      "category": "Board scope & roadmap",
+      "title": "Make the V2 CO5300/CST820 board the first supported hardware target",
+      "strength": "The supplied project has stronger direct evidence for this revision, including calibration and a proven banded DMA approach.",
+      "evidence": "V2/controller references appear at `puck-esp32s3-export-2026-08-31/tinydraw/DEVELOPING.md:155`, `puck-esp32s3-export-2026-08-31/tinydraw/DEVELOPING.md:158`, `puck-esp32s3-export-2026-08-31/tinydraw/tools/classify-tearing.py:13`, `puck-esp32s3-export-2026-08-31/tinydraw/tools/classify-tearing.py:49`, `puck-esp32s3-export-2026-08-31/tinydraw/esp32/dependencies.lock:12`, `puck-esp32s3-export-2026-08-31/tinydraw/esp32/dependencies.lock:91`, `puck-esp32s3-export-2026-08-31/tinydraw/puck/CMakeLists.txt:13`, `puck-esp32s3-export-2026-08-31/tinydraw/puck/platform/puck_platform.h:8`",
+      "impact": "Trying to implement two display/touch stacks at once multiplies unknowns and makes failures hard to localize.",
+      "change": "Declare V2 as the first acceptance target; freeze its wiring, timings, orientation, pixel format, touch transform, and boot fixture before adding the original revision.",
+      "acceptance": "One V2 firmware boots, renders known TinyDraw scenes, accepts scripted touch, and matches hardware captures within documented tolerances.",
+      "owner": "Board / product"
+    },
+    {
+      "id": "F-065",
+      "severity": "P1",
+      "category": "Board scope & roadmap",
+      "title": "Treat SH8601/FT3168 support as unvalidated inherited evidence",
+      "strength": "Retaining the earlier revision’s notes is useful research, not wasted work.",
+      "evidence": "Original-controller references appear at `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:51`, `puck-esp32s3-export-2026-08-31/puck/packs/esp32-s3-touch-amoled-18/gotchas.md:26`, `puck-esp32s3-export-2026-08-31/puck/packs/esp32-s3-touch-amoled-18/gotchas.md:27`, `puck-esp32s3-export-2026-08-31/puck/packs/web/AGENTS.md:73`, `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/AGENTS.md:44`, `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/AGENTS.md:337`",
+      "impact": "A driver or trace from a related project does not prove this board’s reset, bus mode, command set, geometry, timing, or touch transform. Calling it supported too early would create false confidence.",
+      "change": "Label the path experimental until an original-revision board is acquired and its own boot/display/touch traces are captured. Keep interfaces ready, but do not implement speculative compatibility branches.",
+      "acceptance": "Support status changes only after board-specific hardware evidence and the same conformance suite used for V2.",
+      "owner": "Board / product"
+    },
+    {
+      "id": "F-066",
+      "severity": "P1",
+      "category": "Board scope & roadmap",
+      "title": "Capture controller transactions before coding detailed display/touch models",
+      "strength": "TinyDraw and calibration assets provide excellent expected visuals.",
+      "evidence": "Display/touch/controller references appear at `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:3`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:51`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:58`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:128`, `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0002-runtime-architecture.md:40`, `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0002-runtime-architecture.md:368`",
+      "impact": "Visual output alone cannot distinguish wrong initialization, pixel packing, address windows, tearing behavior, touch latching, or timing that happens to work in one scene.",
+      "change": "Capture reset/power sequence, SPI/QSPI writes, DMA descriptors, frame windows, touch I2C transactions/interrupts, and orientation transforms from real hardware.",
+      "acceptance": "The model replays captured transactions and passes controller-level assertions before full firmware goldens are accepted.",
+      "owner": "Board / hardware validation"
+    },
+    {
+      "id": "F-067",
+      "severity": "P2",
+      "category": "Board scope & roadmap",
+      "title": "Preserve banded DMA, but specify memory and backpressure invariants",
+      "strength": "The banded design is a strong, practical response to display memory pressure.",
+      "evidence": "Framebuffer/push and board references appear at `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0002-runtime-architecture.md:65`, `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0002-runtime-architecture.md:74`, `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0002-runtime-architecture.md:75`, `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0002-runtime-architecture.md:78`, `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0002-runtime-architecture.md:273`",
+      "impact": "Without explicit maximum band size, stride/alignment, ownership, queue depth, and completion semantics, the optimization can introduce overruns or visual tearing.",
+      "change": "Document buffer ownership and lifecycle, prevalidate all band geometry, cap in-flight bands, and test odd widths, last partial band, orientation, and slow-consumer behavior.",
+      "acceptance": "Memory use stays below a fixed ceiling; randomized band layouts reproduce the full-frame reference exactly and never write outside buffers.",
+      "owner": "Display runtime"
+    },
+    {
+      "id": "F-068",
+      "severity": "P2",
+      "category": "Board scope & roadmap",
+      "title": "Model reset, flash, PSRAM, and boot conditions before rich peripherals",
+      "strength": "ESP32Sim’s real-ROM/full-boot capability is the correct foundation for realistic firmware.",
+      "evidence": "Boot/board/SoC references appear at `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:3`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:4`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:9`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:10`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:17`",
+      "impact": "Peripheral demos can appear healthy while reset cause, straps, flash size/mode, partition offsets, PSRAM mapping, or retained state are wrong.",
+      "change": "Create a board boot contract and conformance fixture for power-on, software reset, watchdog reset, flash/PSRAM geometry, straps, and partition loading.",
+      "acceptance": "Boot logs and selected register/memory checkpoints match real hardware for each supported reset mode.",
+      "owner": "SoC / board"
+    },
+    {
+      "id": "F-069",
+      "severity": "P2",
+      "category": "Board scope & roadmap",
+      "title": "Stage Wi-Fi/BLE after deterministic local board behavior",
+      "strength": "ESP32Sim demonstrates impressive unmodified Wi-Fi progress, so this can be a later differentiator.",
+      "evidence": "Network/Wi-Fi code appears at `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:30`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:139`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:156`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/roadmap.md:31`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/README.md:12`",
+      "impact": "Radio blobs, virtual AP behavior, crypto accelerators, NAT, host DNS/time, and nondeterminism greatly widen the model and security surface.",
+      "change": "First ship offline boot/display/touch/audio/GPIO. Add deterministic scripted network transcripts next, then opt-in live NAT; treat BLE as a separate milestone with its own evidence.",
+      "acceptance": "Each networking tier has explicit capabilities, security policy, deterministic tests, and no effect on offline conformance.",
+      "owner": "Product / networking"
+    },
+    {
+      "id": "F-070",
+      "severity": "P2",
+      "category": "Board scope & roadmap",
+      "title": "Make hardware evidence a release artifact, not tribal knowledge",
+      "strength": "The current real-silicon receipts are a major strength.",
+      "evidence": "Calibration/board references appear at `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:3`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:51`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:58`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:128`, `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0002-runtime-architecture.md:40`",
+      "impact": "Screenshots or notes without exact firmware and capture metadata are difficult for future agents to reproduce or challenge.",
+      "change": "Store normalized traces, photos/screenshots, logic captures, firmware hashes, board serial/revision, probe scripts, and interpretation notes under a signed evidence manifest.",
+      "acceptance": "Every hardware-backed claim in the support matrix links to a reproducible evidence bundle.",
+      "owner": "Hardware validation / documentation"
+    },
+    {
+      "id": "F-071",
+      "severity": "P2",
+      "category": "Board scope & roadmap",
+      "title": "Detect or require board revision explicitly",
+      "strength": "Separate manifests make multiple revisions manageable.",
+      "evidence": "Revision/controller evidence appears at `puck-esp32s3-export-2026-08-31/tinydraw/DEVELOPING.md:155`, `puck-esp32s3-export-2026-08-31/tinydraw/DEVELOPING.md:158`, `puck-esp32s3-export-2026-08-31/tinydraw/tools/classify-tearing.py:13`, `puck-esp32s3-export-2026-08-31/tinydraw/tools/classify-tearing.py:49`, `puck-esp32s3-export-2026-08-31/tinydraw/esp32/dependencies.lock:12`, `puck-esp32s3-export-2026-08-31/tinydraw/esp32/dependencies.lock:91`",
+      "impact": "Silently assuming a controller can send incompatible initialization commands or misinterpret touch coordinates.",
+      "change": "Use a trusted build/manifest selection or safe read-only probe where hardware permits; display the selected revision and reject ambiguous configurations.",
+      "acceptance": "Wrong-revision fixtures fail early with a clear diagnostic, never with a blank screen or partially working touch.",
+      "owner": "Board runtime"
+    },
+    {
+      "id": "F-072",
+      "severity": "P2",
+      "category": "Board scope & roadmap",
+      "title": "Lock down pixel format, endian, stride, clipping, and orientation with property tests",
+      "strength": "TinyDraw calibration material is well suited to precise visual conformance.",
+      "evidence": "Framebuffer and controller references appear at `puck-esp32s3-export-2026-08-31/tinydraw/DEVELOPING.md:155`, `puck-esp32s3-export-2026-08-31/tinydraw/DEVELOPING.md:158`, `puck-esp32s3-export-2026-08-31/tinydraw/tools/classify-tearing.py:13`, `puck-esp32s3-export-2026-08-31/tinydraw/tools/classify-tearing.py:49`, `puck-esp32s3-export-2026-08-31/tinydraw/esp32/dependencies.lock:12`",
+      "impact": "Display bugs often hide in odd widths, byte order, negative clipping, rotated coordinates, alpha/premultiplication, and final partial rows.",
+      "change": "Define canonical internal pixel format and conversion boundaries. Add generated patterns and random rectangles across all orientations, strides, and edge coordinates.",
+      "acceptance": "Reference hashes and pixel probes match software rendering and captured hardware; out-of-range geometry is rejected before memory access.",
+      "owner": "Display / testing"
+    },
+    {
+      "id": "F-073",
+      "severity": "P3",
+      "category": "Board scope & roadmap",
+      "title": "Keep unsupported controller behavior explicit rather than plausible",
+      "strength": "The roadmap’s candid unknowns are a strong habit to preserve.",
+      "evidence": "TODO/unimplemented references appear at `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:77`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:78`, `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0002-runtime-architecture.md:366`, `puck-esp32s3-export-2026-08-31/puck/packs/esp32-s3-touch-amoled-18/docs/decisions/README.md:8`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:253`",
+      "impact": "Returning zero, success, or a fabricated status for unknown commands can let firmware proceed into misleading state and make later debugging much harder.",
+      "change": "In strict mode, trace and fail on unsupported operations; in compatibility mode, log a stable warning with call count and source. Never silently claim support.",
+      "acceptance": "Support reports list every exercised unsupported operation; a release target has none in its required fixtures.",
+      "owner": "Peripheral architecture"
+    },
+    {
+      "id": "F-074",
+      "severity": "P1",
+      "category": "Code quality & maintainability",
+      "title": "Remove panic/unchecked assumptions from untrusted-input paths",
+      "strength": "Rust and TypeScript make explicit error handling practical.",
+      "evidence": "Potential panic/unsafe sites appear at `puck-esp32s3-export-2026-08-31/puck/packs/rp2350-touch-amoled-18/docs/decisions/0005-rca-core1-dies-on-first-button.md:80`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:98`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:104`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:105`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:106`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:107`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:112`, `puck-esp32s3-export-2026-08-31/esp32sim/cli-c3/src/main.rs:115`",
+      "impact": "An `unwrap`, assertion, unchecked index, or panic reachable from firmware, packet, manifest, or file input turns a guest fault into a host-process denial of service.",
+      "change": "Classify call sites by trust, replace reachable panics with typed errors, add bounds checks before indexing, and reserve assertions for internal invariants proven by validated types.",
+      "acceptance": "A panic hook test runs hostile corpora and observes zero host panics; remaining panics are documented unreachable invariants with tests.",
+      "owner": "Runtime / upstream fork"
+    },
+    {
+      "id": "F-075",
+      "severity": "P2",
+      "category": "Code quality & maintainability",
+      "title": "Reduce duplicated host logic by extracting validated domain types",
+      "strength": "The live validator already contains the seeds of reusable domain types.",
+      "evidence": "Validation/framebuffer/headless references appear at `puck-esp32s3-export-2026-08-31/puck/src/abiGuard.ts:95`, `puck-esp32s3-export-2026-08-31/puck/src/abiGuard.ts:124`, `puck-esp32s3-export-2026-08-31/puck/src/panel.ts:20`, `puck-esp32s3-export-2026-08-31/puck/src/panel.ts:49`, `puck-esp32s3-export-2026-08-31/puck/src/panel.ts:55`, `puck-esp32s3-export-2026-08-31/puck/site/dist/emu/main.js:28`",
+      "impact": "Passing primitive tuples and raw pointers between layers invites repeated checks, inconsistent units, and accidental bypass.",
+      "change": "Introduce constructors for validated guest ranges, framebuffer descriptors, pixel bands, log chunks, event timestamps, and artifact IDs; make invalid states unrepresentable.",
+      "acceptance": "Raw guest numeric fields are confined to the ABI module; downstream code accepts only validated types.",
+      "owner": "Architecture / runtime"
+    },
+    {
+      "id": "F-076",
+      "severity": "P2",
+      "category": "Code quality & maintainability",
+      "title": "Put explicit size and numeric conversion helpers in one module",
+      "strength": "Central helpers can make the existing hardening concise rather than repetitive.",
+      "evidence": "Numeric pointer/length and MAX references appear at `puck-esp32s3-export-2026-08-31/esp32sim/docs/speed-plan.md:70`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:182`, `puck-esp32s3-export-2026-08-31/esp32sim/esp32c3/src/machine.rs:42`, `puck-esp32s3-export-2026-08-31/esp32sim/esp32c3/src/machine.rs:56`, `puck-esp32s3-export-2026-08-31/esp32sim/esp32c3/src/machine.rs:183`, `puck-esp32s3-export-2026-08-31/esp32sim/esp32c3/src/machine.rs:187`",
+      "impact": "JavaScript number coercion, signed/unsigned conversion, multiplication overflow, and Rust `usize` conversion differ across 32/64-bit and Wasm/native environments.",
+      "change": "Use checked helpers for guest `u32/u64`, add/multiply/range, `usize` conversion, dimensions, and byte counts. Reject NaN, infinities, fractional values, negatives, and wraparound.",
+      "acceptance": "Cross-language boundary vectors produce the same accept/reject decision and error code.",
+      "owner": "Runtime"
+    },
+    {
+      "id": "F-077",
+      "severity": "P2",
+      "category": "Code quality & maintainability",
+      "title": "Separate debug instrumentation from correctness semantics",
+      "strength": "Tracing and visualization are valuable for reverse engineering and agent productivity.",
+      "evidence": "Trace/debug and Bus/JIT references appear at `puck-esp32s3-export-2026-08-31/MANIFEST.md:31`, `puck-esp32s3-export-2026-08-31/puck/README.md:30`, `puck-esp32s3-export-2026-08-31/puck/README.md:66`, `puck-esp32s3-export-2026-08-31/puck/README.md:169`, `puck-esp32s3-export-2026-08-31/puck/README.md:282`",
+      "impact": "Instrumentation that changes scheduling, memory path, allocations, or device flush cadence can make the observed bug disappear or produce a different machine.",
+      "change": "Define zero-semantic-effect event taps; test tracing on/off equivalence; document any mode that intentionally disables optimization and compare it with the oracle.",
+      "acceptance": "The same deterministic workload has identical semantic hashes with logging/tracing enabled and disabled, excluding the trace artifact itself.",
+      "owner": "Architecture / debugging"
+    },
+    {
+      "id": "F-078",
+      "severity": "P2",
+      "category": "Code quality & maintainability",
+      "title": "Bound caches and make invalidation observable",
+      "strength": "ESP32Sim’s TLB/block/JIT caches are an effective performance strategy.",
+      "evidence": "Fast-memory and cache-adjacent references appear at `puck-esp32s3-export-2026-08-31/esp32sim/docs/decisions.md:200`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/architecture.md:72`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/block.rs:143`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/block.rs:187`, `puck-esp32s3-export-2026-08-31/esp32sim/xtensa-lx7/src/bus.rs:59`, `puck-esp32s3-export-2026-08-31/esp32sim/esp32s3/src/bus.rs:622`",
+      "impact": "Unbounded or stale caches can consume memory, execute code after remap/self-modification, or make failures workload-order dependent.",
+      "change": "Set capacities, expose hit/miss/eviction/invalidation counters, centralize mapping version changes, and stress self-modifying code, flash remap, reset, and long-running workloads.",
+      "acceptance": "Cache memory plateaus under adversarial address streams and interpreter/JIT outputs remain identical after every invalidation case.",
+      "owner": "CPU / performance"
+    },
+    {
+      "id": "F-079",
+      "severity": "P2",
+      "category": "Code quality & maintainability",
+      "title": "Use structured logging with stable event IDs",
+      "strength": "The project produces rich evidence and diagnostic output.",
+      "evidence": "Serial/log transport references appear at `puck-esp32s3-export-2026-08-31/tinydraw/puck/README.md:25`, `puck-esp32s3-export-2026-08-31/tinydraw/puck/src/wasi_support.cpp:7`, `puck-esp32s3-export-2026-08-31/tinydraw/puck/src/wasi_support.cpp:14`, `puck-esp32s3-export-2026-08-31/puck/docs/abi.md:244`, `puck-esp32s3-export-2026-08-31/puck/src/wasm.ts:216`",
+      "impact": "Free-form logs are hard for agents and CI to compare; wording changes can break tests while important warnings are missed.",
+      "change": "Emit structured internal events with stable IDs and fields, then render human-readable text at the edge. Keep guest serial bytes distinct from host diagnostics.",
+      "acceptance": "Tests assert event IDs/fields; text localization or wording changes do not alter semantic results.",
+      "owner": "Runtime / observability"
+    },
+    {
+      "id": "F-080",
+      "severity": "P3",
+      "category": "Code quality & maintainability",
+      "title": "Add ownership maps and module-level invariants to complex files",
+      "strength": "The architecture documentation is already a strong onboarding asset.",
+      "evidence": "Architecture/roadmap documentation appears at `puck-esp32s3-export-2026-08-31/esp32sim/docs/roadmap.md:1`, `puck-esp32s3-export-2026-08-31/esp32sim/docs/roadmap.md:11`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:1`, `puck-esp32s3-export-2026-08-31/puck/docs/roadmap.md:61`",
+      "impact": "High-velocity emulator code can become difficult for multiple agents to change safely when invariants live only in commit messages.",
+      "change": "For scheduler, memory map, JIT, WASI host, registry, display DMA, and replay modules, add concise invariant comments, state diagrams, and CODEOWNERS entries.",
+      "acceptance": "Every high-risk module names its invariants, trusted inputs, owner, and required tests; agent PR templates link to them.",
+      "owner": "Project lead / documentation"
+    }
+  ],
+  "roadmap": [
+    [
+      "Gate 0 — Freeze and authorize the foundation",
+      "Now; 1–3 days",
+      [
+        "Freeze this archive and record its hash, roots, commits, tool versions, and fixture inventory.",
+        "Resolve ESP32Sim license/permission and asset redistribution status.",
+        "Approve the trust model: firmware/modules/packs are untrusted; browser, headless runner, CI, local network, and filesystem are protected assets.",
+        "Name the V2 CO5300/CST820 board as the first hardware acceptance target."
+      ],
+      [
+        "Written license/permission; signed provenance manifest; approved threat model; no unresolved P0 governance decision."
+      ]
+    ],
+    [
+      "Milestone 1 — Harden the Puck execution boundary",
+      "First implementation milestone",
+      [
+        "Extract one shared guest-memory/output validator used by live, headless, replay, and verifier paths.",
+        "Harden WASI-lite imports and numeric conversions; add memory-view refresh and atomic output.",
+        "Add memory/cycle/wall-time/log/frame/queue quotas and disposable Worker/process execution.",
+        "Create hostile module, manifest, event, path, and log corpora."
+      ],
+      [
+        "All hostile cases fail with stable typed errors across every mode; no crash, hang, escape, unbounded allocation, or partial accepted artifact."
+      ]
+    ],
+    [
+      "Milestone 2 — Make CI the executable specification",
+      "Immediately after Milestone 1",
+      [
+        "Require typecheck/lint/unit/hostile/headless/browser/pack-registry jobs.",
+        "Require Rust fmt/test/clippy plus non-skipping decoder corpora with case counts and hashes.",
+        "Pin actions/toolchains/downloads; add clean-room reproducibility and fixture provenance.",
+        "Add semantic golden assertions, timeout/leak checks, and branch-policy audit."
+      ],
+      [
+        "A deliberately injected defect in each boundary is caught by a required job; clean checkout reproduces documented artifacts."
+      ]
+    ],
+    [
+      "Milestone 3 — ESP32Sim adapter feasibility spike",
+      "Before peripheral grafting",
+      [
+        "Create a Puck-owned backend adapter with run-to-deadline and typed event APIs.",
+        "Implement interpreter-only integration first; networking off; JIT off.",
+        "Prove scheduler semantics and interpreter/JIT observation parity, including the fast-memory bypass case.",
+        "Decide fork structure, upstream sync policy, capabilities, and adapter versioning."
+      ],
+      [
+        "Boot one minimal firmware deterministically; identical normalized events in repeated runs; adapter contract tests pass with fake and ESP32Sim backends; no Puck imports of upstream internals."
+      ]
+    ],
+    [
+      "Milestone 4 — V2 board boot/display/touch slice",
+      "First user-visible hardware milestone",
+      [
+        "Capture V2 reset, flash/PSRAM, CO5300, CST820, and DMA transactions.",
+        "Implement board manifest, boot contract, display command path, banded DMA, touch transform, and TinyDraw scenes.",
+        "Compare controller traces and visual/touch outputs with real hardware."
+      ],
+      [
+        "Known firmware boots; exact serial milestones; display semantic/pixel checks; scripted touch; bounded memory; no unsupported operations in strict mode."
+      ]
+    ],
+    [
+      "Milestone 5 — Local peripherals and developer UX",
+      "After V2 vertical slice",
+      [
+        "Add only peripherals demanded by selected firmware, one evidence-backed slice at a time.",
+        "Stabilize replay manifests, structured events, diagnostics, snapshots only if complete, and browser/native capability reporting.",
+        "Add scheduled hardware-in-the-loop runs."
+      ],
+      [
+        "Each peripheral has positive/boundary/fault tests and hardware evidence; browser/headless parity remains green."
+      ]
+    ],
+    [
+      "Milestone 6 — Optional performance and networking",
+      "After correctness gates are stable",
+      [
+        "Enable JIT only behind capability/trust flags and differential CI.",
+        "Add deterministic network transcripts before opt-in policy-controlled NAT.",
+        "Benchmark per host architecture; preserve quotas and observation hooks."
+      ],
+      [
+        "Interpreter/JIT semantic parity; protected-network tests; no boundary bypass; measured real-time targets on named hosts."
+      ]
+    ],
+    [
+      "Milestone 7 — Original board revision and release hardening",
+      "Separate follow-on",
+      [
+        "Acquire SH8601/FT3168 hardware and capture independent evidence.",
+        "Add revision manifest and conformance rather than speculative shared branches.",
+        "Produce SBOM, attestations, signed artifacts, security documentation, support matrix, and incident/update process."
+      ],
+      [
+        "Original revision passes its own hardware suite; release artifacts are licensed, reproducible, signed, and policy-audited."
+      ]
+    ]
+  ],
+  "acceptance_matrix": [
+    [
+      "Guest memory ABI",
+      "OOB, wraparound, stale view, memory growth, alignment",
+      "All modes return same typed error; bounded memory; no host panic"
+    ],
+    [
+      "Runtime quotas",
+      "Infinite loop, frame/log/event floods, huge dimensions",
+      "Forced termination within budget; stable quota code; no partial pass"
+    ],
+    [
+      "WASI-lite",
+      "Iovec count/length/pointer/UTF-8/closed fd",
+      "Correct errno or bounded output; property/mutation tests"
+    ],
+    [
+      "Artifacts",
+      "Path traversal, symlink, disk-full, kill mid-write",
+      "Confined paths; atomic commit; previous goldens preserved"
+    ],
+    [
+      "CPU semantics",
+      "Instruction families, exceptions, MMU, self-modifying code",
+      "Interpreter oracle; mandatory decoder corpus; JIT differential"
+    ],
+    [
+      "Timing",
+      "Same-cycle IRQ/DMA/timer/reset/input",
+      "Documented tie-break order; repeatable event hash; hardware trace where available"
+    ],
+    [
+      "Display",
+      "Odd stride, endian, clipping, rotation, final band",
+      "Pixel/semantic match; no OOB; bounded queue/memory"
+    ],
+    [
+      "Touch",
+      "Transform, interrupt/latch, edge coordinates, multi-event",
+      "Scripted events match hardware/controller trace"
+    ],
+    [
+      "Networking",
+      "No-network default, protected ranges, DNS rebind, quotas",
+      "No protected egress; explicit consent/allowlist; deterministic transcript mode"
+    ],
+    [
+      "Browser parity",
+      "Worker lifecycle, memory growth, CSP/cache/reload",
+      "Production browser tests; same normalized result as headless"
+    ],
+    [
+      "Provenance",
+      "Toolchain, source, firmware, fixture, license, SBOM",
+      "Reproducible manifest and signed release attestation"
+    ]
+  ],
+  "not_to_do": [
+    "Do not start a deep merge or product fork of ESP32Sim until its repository-level license and the bundled asset rights are explicit in writing.",
+    "Do not assume that wrapping ESP32Sim’s `Bus` trait observes every memory access; the JIT fast path bypasses it.",
+    "Do not maintain separate validation logic for live canvas, headless replay, regression, and verification hosts.",
+    "Do not dereference guest pointers, iovecs, dimensions, counts, or strings before checked range and quota validation.",
+    "Do not trust cached typed-array views across guest calls that may grow WebAssembly memory.",
+    "Do not run untrusted firmware in the same long-lived process that adjudicates or publishes test results.",
+    "Do not enable native NAT or unrestricted host networking by default; never allow untrusted firmware implicit access to localhost, private networks, or metadata services.",
+    "Do not expose a control WebSocket beyond loopback without explicit authentication, Origin validation, TLS, and size/rate limits.",
+    "Do not let a required conformance test silently pass because its external corpus or firmware file is missing.",
+    "Do not treat a golden image, WAV, trace, or serial transcript as proof of correctness by itself.",
+    "Do not regenerate goldens in the same opaque step that changes behavior; require a semantic diff and provenance update.",
+    "Do not target CO5300/CST820 and SH8601/FT3168 simultaneously; finish the evidence-backed V2 vertical slice first.",
+    "Do not advertise original-revision support until that exact board has independent hardware traces and conformance results.",
+    "Do not expose ESP32Sim internal machine, bus, JIT, or peripheral types throughout Puck; keep a Puck-owned adapter boundary.",
+    "Do not make JIT availability a correctness requirement or enable it first in untrusted proof modes.",
+    "Do not optimize past validators, quota accounting, memory hooks, cache invalidation, or exact timing checks.",
+    "Do not silently return plausible zeros or success for unsupported registers, commands, or peripheral states in strict mode.",
+    "Do not allow guest or manifest names to become filesystem paths, cache keys, DOM HTML, or shell arguments without canonicalization.",
+    "Do not run arbitrary install/build scripts in trusted developer or release environments without isolation and a reviewed allowlist.",
+    "Do not pin GitHub Actions, toolchains, ROMs, or archives only by mutable tag/URL; verify immutable commits and digests.",
+    "Do not publish firmware, ROMs, SDK-derived binaries, media, or calibration assets until their redistribution status is recorded.",
+    "Do not let agents update architecture, ABI, timing, fixtures, and upstream pins in one unreviewable change; split decisions and preserve rollback points.",
+    "Do not interpret the upstream project’s rapid progress as a stable maintenance or compatibility guarantee; own the fork and its tests.",
+    "Do not claim cross-platform performance from Apple Silicon JIT measurements; report backend, host, workload, and semantic mode.",
+    "Do not call the project release-ready until the security boundary, required CI matrix, provenance, and hardware acceptance gates are all enforced."
+  ]
+}

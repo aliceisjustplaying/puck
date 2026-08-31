@@ -1,0 +1,67 @@
+## node-version
+status=pass rc=0 time=0.01s
+$ node --version
+v22.16.0
+
+
+## bun-version
+status=error rc=None time=0.0s
+$ bun --version
+FileNotFoundError(2, 'No such file or directory')
+
+## npm-version
+status=pass rc=0 time=0.15s
+$ npm --version
+10.9.2
+
+
+## cargo-version
+status=error rc=None time=0.0s
+$ cargo --version
+FileNotFoundError(2, 'No such file or directory')
+
+## rustc-version
+status=error rc=None time=0.0s
+$ rustc --version
+FileNotFoundError(2, 'No such file or directory')
+
+## puck-script:typecheck
+status=fail rc=1 time=0.26s
+$ npm run typecheck -- --runInBand
+
+> typecheck
+> tsc --noEmit --runInBand
+
+error TS5023: Unknown compiler option '--runInBand'.
+
+
+## puck-script:test:hostile
+status=fail rc=127 time=0.11s
+$ npm run test:hostile -- --runInBand
+
+> test:hostile
+> bun run test/hostile/run.ts --runInBand
+
+sh: 1: bun: not found
+
+
+## puck-script:test:regression
+status=fail rc=127 time=0.11s
+$ npm run test:regression -- --runInBand
+
+> test:regression
+> bun run test/regression/run.ts --runInBand
+
+sh: 1: bun: not found
+
+
+## puck-script:build
+status=fail rc=127 time=0.09s
+$ npm run build -- --runInBand
+
+> build
+> bun run build.ts --runInBand
+
+sh: 1: bun: not found
+
+
