@@ -12,12 +12,12 @@ a small hosted-C compatibility patch. A six-byte fixture executes `movi a3,
 from architectural register `a3`. The freestanding module is loaded by Puck's
 real `src/wasm.ts` `instantiate()` function in the executable test.
 
-The dynamic runner also executes an actual scalar function extracted from a
-current ESP32-S3 ELF at its original PC. It stops recoverably before the first
-known PIE gap in a second real ELF function and returns the complete visible
-register file, PC, step count, and stop reason through a versioned record.
-It injects data into S3-style source and destination pages and runs a real
-TinyDraw RGB565 scalar staging function over five pixels.
+The dynamic runner also executes actual functions extracted from current
+ESP32-S3 ELFs at their original PCs. A sparse runner parses all `PT_LOAD`
+segments from the real TinyDraw gate-harness ELF, loads 625 pages, starts at
+its ELF entry point, and reaches a deterministic unloaded-ROM stop. Both paths
+return the visible register file, PC, step count, and stop reason through a
+versioned record.
 
 This does not demonstrate ESP32-S3 support, LX7 or PIE instructions, a browser
 page, timing, caches, dual-core scheduling, or an ESP-IDF boot. It proves that
@@ -213,6 +213,35 @@ toolchain provenance live in ignored `dist/dynamic-execution.json`.
 `esp32s3-timing-replay-baseline.json` separately pins the replay configuration,
 source hashes, classification counts, null total, and per-record evidence hash.
 
+## Sparse full ELF execution
+
+`elf-image.ts` strictly accepts 32-bit little-endian Xtensa executable images
+and validates every `PT_LOAD` file range, 32-bit memory range, alignment, and
+entry-point permission. `full-elf-runner.ts` expands those segments into
+sorted 4 KiB pages, zero-fills `p_memsz - p_filesz`, merges overlapping load
+segments, and preserves the union of their ELF permissions. The module clears
+flexe's default page table before loading the image, so memory that the ELF did
+not declare is absent. It does not supply ROM, MMIO, flash-controller, or
+peripheral behavior.
+
+The gate-harness image is 21,598,616 bytes with SHA-256
+`51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5`.
+Its eight load segments become 625 sparse pages. Execution begins at its ELF
+entry `0x40375c9c`, `call_start_cpu0`. flexe executes `entry`, `l32r`,
+`wsr.vecbase`, `movi.n`, `l32r`, and `callx8`, then stops before fetching the
+undeclared ESP32-S3 ROM target `0x4000057c`. The result is `unloadedPage`, six
+executed instructions, and a six-PC trace. This is the first honest boundary,
+not a boot claim.
+
+Full-image runs accept at most 768 pages, 2,048 caller-identified unsupported
+instruction markers, and 256 executed instructions. The trace contains one PC
+per successfully executed instruction. Oversized bounds, duplicate markers,
+out-of-order pages, invalid permissions, and capacity overruns are refused.
+An executable-permission miss and an unloaded page have distinct recoverable
+stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
+page count, bounded trace, unsupported-instruction refusal, and first stop,
+including all six instruction encodings and the call-site register state.
+
 ## Minimal interpreter dependency closure
 
 The successful build copies six upstream implementation files and headers:
@@ -242,10 +271,10 @@ The stripped freestanding module is 41,765 bytes with Zig 0.16.0, SHA-256
 `c96e17ac183fbcb37262579ee755623585e646816cfef52ff07c3f98b044aa49`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
-and capacity functions, `flexe_wasm_run_data`, and the trace pointer, byte
-length, and capacity functions. Those names are audited before the tests pass
-the bytes to Puck's real loader. It has no WASI imports, and Puck's loader
-surface is unchanged.
+and capacity functions, `flexe_wasm_run_data`, the instruction and memory trace
+functions, and the bounded sparse ELF load, PC trace, refusal, and run
+functions. Those names are audited before the tests pass the bytes to Puck's
+real loader. It has no WASI imports, and Puck's loader surface is unchanged.
 
 The WASI build remains as a comparison. Zig's WASI libc introduces six imports.
 Puck supports `fd_write` and `proc_exit`, but correctly rejects `environ_get`,
@@ -264,11 +293,11 @@ asserts the exact diagnostic. `0002-add-freestanding-shim.patch` supplies:
 - WebAssembly-backed floating-point helpers for the LX6 FPU instructions;
 - a trapping `abort` implementation.
 
-The fixed heap makes the module's minimum memory 337 WebAssembly pages, about
-21.06 MiB. It is enough for this pinned `mem_create()` layout and is not a
-production ownership model. A real backend should let the host size and own
-the regions, replace no-op `free`, and give diagnostic logging structured
-arguments.
+The fixed heap and bounded sparse page pool make the module's minimum memory
+385 WebAssembly pages, about 24.06 MiB. It is enough for this pinned
+`mem_create()` layout and 768 ELF pages, and is not a production ownership
+model. A real backend should let the host size and own the regions, replace
+no-op `free`, and give diagnostic logging structured arguments.
 
 That is a bounded portability patch around the core. The bigger project risk
 remains architectural: this commit models ESP32 LX6 addresses and instructions,

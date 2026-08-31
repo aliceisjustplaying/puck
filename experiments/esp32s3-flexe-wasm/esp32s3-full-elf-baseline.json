@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "inputs": {
+    "elfBytes": 21598616,
+    "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
+    "entryPoint": "0x40375c9c",
+    "loadSegments": 8,
+    "sparsePages": 625,
+    "runnerPatchSha256": "1d93a1f1e03f0fdd8190510d2f7386ae5d8ed87740f58278f7ede6675fc35508",
+    "moduleBytes": 42210,
+    "moduleSha256": "99ae868419a6c6868bd5ecb6f93a0abd39c1664f33b9ae17d234ce7cbb96ced2"
+  },
+  "bounded": {
+    "reason": "maxSteps",
+    "steps": 4,
+    "pc": "0x40375ca7",
+    "trace": ["0x40375c9c", "0x40375c9f", "0x40375ca2", "0x40375ca5"]
+  },
+  "firstStop": {
+    "reason": "unloadedPage",
+    "steps": 6,
+    "pc": "0x4000057c",
+    "instructions": [
+      { "pc": "0x40375c9c", "encoding": "008136" },
+      { "pc": "0x40375c9f", "encoding": "fa1181" },
+      { "pc": "0x40375ca2", "encoding": "13e780" },
+      { "pc": "0x40375ca5", "encoding": "0a0c" },
+      { "pc": "0x40375ca7", "encoding": "fa2681" },
+      { "pc": "0x40375caa", "encoding": "0008e0" }
+    ],
+    "stackPointer": "0x3fcaff80",
+    "registers": [
+      "0x00000000", "0x3fcaff80", "0x00000000", "0x00000000",
+      "0x00000000", "0x00000000", "0x00000000", "0x00000000",
+      "0x80375cad", "0x00000000", "0x00000000", "0x00000000",
+      "0x00000000", "0x00000000", "0x00000000", "0x00000000"
+    ]
+  },
+  "unsupportedRefusal": {
+    "reason": "unsupported",
+    "steps": 0,
+    "pc": "0x40375c9c",
+    "encoding": "0x008136",
+    "length": 3
+  }
+}

@@ -8,22 +8,22 @@ export const FLEXE_DISASSEMBLER_SHA256 =
   "68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0";
 
 const TINYDRAW_ROOT = join(import.meta.dir, "../../../..");
-export const DEFAULT_ESP32S3_OBJDUMP = join(
+export const DEFAULT_ESP32S3_OBJDUMP = process.env.ESP32S3_OBJDUMP ?? join(
   process.env.HOME ?? "/nonexistent",
   ".espressif/tools/xtensa-esp-elf/esp-15.2.0_20251204/xtensa-esp-elf/bin/xtensa-esp32s3-elf-objdump"
 );
-export const DEFAULT_TINYDRAW_ESP32S3_ELF = join(
-  process.env.TINYDRAW_ESP32S3_ELF ?? TINYDRAW_ROOT,
-  process.env.TINYDRAW_ESP32S3_ELF ? "" : "out/build/esp32-panel-probe/tinydraw_esp32.elf"
+export const DEFAULT_TINYDRAW_ESP32S3_ELF = process.env.TINYDRAW_ESP32S3_ELF ?? join(
+  TINYDRAW_ROOT,
+  "out/build/esp32-panel-probe/tinydraw_esp32.elf"
 );
-export const DEFAULT_TINYDRAW_ESP32S3_FIXTURE_ELF = join(
-  process.env.TINYDRAW_ESP32S3_FIXTURE_ELF ?? TINYDRAW_ROOT,
-  process.env.TINYDRAW_ESP32S3_FIXTURE_ELF ? "" : "out/build/esp32-vector-v2-simd-probe/tinydraw_esp32.elf"
+export const DEFAULT_TINYDRAW_ESP32S3_FIXTURE_ELF = process.env.TINYDRAW_ESP32S3_FIXTURE_ELF ?? join(
+  TINYDRAW_ROOT,
+  "out/build/esp32-vector-v2-simd-probe/tinydraw_esp32.elf"
 );
 export const DEFAULT_TINYDRAW_ESP32S3_FIXTURE_SYMBOL = "tinydraw_stage_pixels_swapped_pie";
-export const DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF = join(
-  process.env.TINYDRAW_ESP32S3_STAGING_ELF ?? TINYDRAW_ROOT,
-  process.env.TINYDRAW_ESP32S3_STAGING_ELF ? "" : "out/build/esp32-vector-v2-gate-harness/tinydraw_esp32.elf"
+export const DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF = process.env.TINYDRAW_ESP32S3_STAGING_ELF ?? join(
+  TINYDRAW_ROOT,
+  "out/build/esp32-vector-v2-gate-harness/tinydraw_esp32.elf"
 );
 export const DEFAULT_TINYDRAW_ESP32S3_STAGING_SYMBOL =
   "_ZN8tinydraw5esp3212gate_harness12_GLOBAL__N_1L34stage_pixels_swapped_scalar_oracleEPKtPti";
@@ -53,6 +53,16 @@ export const PUCK_WASI_LITE_IMPORTS = ["clock_time_get", "fd_write", "proc_exit"
 
 export const EXPECTED_FREESTANDING_IMPORTS = ["env.js_log"] as const;
 export const EXPECTED_FREESTANDING_EXPORTS = [
+  "flexe_wasm_elf_begin",
+  "flexe_wasm_elf_load_page",
+  "flexe_wasm_elf_page_capacity",
+  "flexe_wasm_elf_page_input",
+  "flexe_wasm_elf_set_unsupported",
+  "flexe_wasm_elf_trace",
+  "flexe_wasm_elf_trace_capacity",
+  "flexe_wasm_elf_trace_count",
+  "flexe_wasm_elf_unsupported_capacity",
+  "flexe_wasm_elf_unsupported_input",
   "flexe_wasm_data_capacity",
   "flexe_wasm_data_input",
   "flexe_wasm_data_output",
@@ -65,5 +75,6 @@ export const EXPECTED_FREESTANDING_EXPORTS = [
   "flexe_wasm_trace",
   "flexe_wasm_trace_bytes",
   "flexe_wasm_trace_capacity",
+  "flexe_wasm_run_elf",
   "memory"
 ] as const;
