@@ -11,6 +11,7 @@ import {
   runSparseXtensaElf,
   type FullElfRomEvent,
 } from "./full-elf-runner";
+import { TRACE_KINDS, type DecodedTrace } from "./trace-abi";
 
 const modulePath = resolve(
   process.env.FLEXE_WASM_DIST ?? join(import.meta.dir, "dist"),
@@ -75,6 +76,14 @@ assert.equal(crossPageRun.record.steps, 1);
 assert.equal(crossPageRun.record.pc, crossPageEntry + 3);
 assert.equal(crossPageRun.record.registers[3], 40);
 assert.deepEqual(crossPageRun.trace, [crossPageEntry]);
+assert.deepEqual(crossPageRun.memoryTrace.records, [{
+  kind: TRACE_KINDS.instruction,
+  pc: crossPageEntry,
+  address: 0,
+  value: 0,
+  width: 3,
+  instruction: 0x28_a032,
+}]);
 
 const nonExecutableTrailingImage: Elf32XtensaImage = Object.freeze({
   ...crossPageImage,
@@ -92,6 +101,7 @@ assert.equal(nonExecutableTrailingRun.record.reason, FULL_ELF_STOP_REASONS.nonEx
 assert.equal(nonExecutableTrailingRun.record.steps, 0);
 assert.equal(nonExecutableTrailingRun.record.pc, crossPageEntry);
 assert.deepEqual(nonExecutableTrailingRun.trace, []);
+assert.deepEqual(nonExecutableTrailingRun.memoryTrace.records, []);
 
 const topBoundaryImage: Elf32XtensaImage = Object.freeze({
   schemaVersion: 1,
@@ -134,6 +144,7 @@ assert.equal(failedDecoderRun.record.reason, FULL_ELF_STOP_REASONS.stepError);
 assert.equal(failedDecoderRun.record.steps, 0);
 assert.equal(failedDecoderRun.record.pc, failedDecoderImage.entryPoint);
 assert.deepEqual(failedDecoderRun.trace, []);
+assert.deepEqual(failedDecoderRun.memoryTrace.records, []);
 assert.deepEqual(
   failedDecoderRun.record.registers,
   [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -214,6 +225,11 @@ async function assertDataRefusal(
   assert.equal(run.record.steps, 2);
   assert.equal(run.record.pc, permissionCodeBase + (width === 1 ? 5 : 4));
   assert.deepEqual(run.trace, [permissionCodeBase, permissionCodeBase + 2]);
+  assert.deepEqual(
+    run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.instruction).map((record) => record.pc),
+    run.trace,
+  );
+  assert(!run.memoryTrace.records.some((record) => record.pc === run.record.pc), "refused access leaked into the memory trace");
   assert.deepEqual(run.memoryFault, {
     abiVersion: 1,
     structBytes: 40,
@@ -265,6 +281,11 @@ async function assertFullyUnmappedRefusal(
   assert.equal(run.record.steps, 3);
   assert.equal(run.record.pc, permissionCodeBase + unmappedCodePrefix.length);
   assert.deepEqual(run.trace, [permissionCodeBase, permissionCodeBase + 3, permissionCodeBase + 6]);
+  assert.deepEqual(
+    run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.instruction).map((record) => record.pc),
+    run.trace,
+  );
+  assert(!run.memoryTrace.records.some((record) => record.pc === run.record.pc), "unmapped access leaked into the memory trace");
   assert.deepEqual(run.memoryFault, {
     abiVersion: 1,
     structBytes: 40,
@@ -293,6 +314,51 @@ await assertFullyUnmappedRefusal(unmappedPermissionCode.read32, 4, false);
 await assertFullyUnmappedRefusal(unmappedPermissionCode.write8, 1, true);
 await assertFullyUnmappedRefusal(unmappedPermissionCode.write16, 2, true);
 await assertFullyUnmappedRefusal(unmappedPermissionCode.write32, 4, true);
+
+const successfulReadFirstPage = new Uint8Array(4096).fill(0xa5);
+const successfulReadTrailingPage = new Uint8Array(4096).fill(0x5a);
+const successfulReadImage: Elf32XtensaImage = Object.freeze({
+  schemaVersion: 1,
+  entryPoint: permissionCodeBase,
+  elfBytes: permissionCode.read32.length + 8192,
+  elfSha256: "synthetic-successful-cross-page-read32",
+  loadSegments: Object.freeze([
+    syntheticSegment(0, permissionCodeBase, permissionCode.read32, permissionCode.read32.length, {
+      read: true,
+      write: false,
+      execute: true,
+    }),
+    syntheticSegment(1, permissionDataBase, successfulReadFirstPage, 4096, {
+      read: true,
+      write: true,
+      execute: false,
+    }),
+    syntheticSegment(2, permissionTrailingPage, successfulReadTrailingPage, 4096, {
+      read: true,
+      write: true,
+      execute: false,
+    }),
+  ]),
+  totalFileBytes: permissionCode.read32.length + 8192,
+  totalMemoryBytes: permissionCode.read32.length + 8192,
+});
+const successfulRead = await runSparseXtensaElf(moduleBytes, successfulReadImage, {
+  initialStack: permissionStack,
+  maxSteps: 3,
+});
+assert.equal(successfulRead.record.reason, FULL_ELF_STOP_REASONS.maxSteps);
+assert.equal(successfulRead.record.steps, 3);
+assert.deepEqual(
+  successfulRead.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.read),
+  [{
+    kind: TRACE_KINDS.read,
+    pc: permissionCodeBase + 4,
+    address: permissionDataBase + 0x0fff,
+    value: 0x5a5a_5aa5,
+    width: 4,
+    instruction: 0,
+  }],
+);
 
 const collidingEeInventoryPc = 0x4037_5399;
 assert.deepEqual(
@@ -495,6 +561,17 @@ assert.deepEqual(
   [],
   "cache callback leaked into the instruction trace",
 );
+assert.deepEqual(
+  cacheProgress.memoryTrace.records
+    .filter((record) => record.kind === TRACE_KINDS.instruction)
+    .map((record) => record.pc),
+  cacheProgress.trace,
+);
+assert.deepEqual(
+  cacheProgress.memoryTrace.records.filter((record) => cacheEvents.some((event) => event.pc === record.pc)),
+  [],
+  "cache callback leaked into the memory trace",
+);
 
 const refusedInstruction = await runSparseXtensaElf(moduleBytes, image, {
   ...runnerMemory,
@@ -535,6 +612,20 @@ const traceSha256 = (trace: readonly number[]): string => {
   const bytes = new Uint8Array(trace.length * 4);
   const view = new DataView(bytes.buffer);
   trace.forEach((pc, index) => view.setUint32(index * 4, pc, true));
+  return createHash("sha256").update(bytes).digest("hex");
+};
+const memoryTraceSha256 = (trace: DecodedTrace): string => {
+  const bytes = new Uint8Array(trace.records.length * 24);
+  const view = new DataView(bytes.buffer);
+  trace.records.forEach((record, index) => {
+    const offset = index * 24;
+    view.setUint32(offset, record.kind, true);
+    view.setUint32(offset + 4, record.pc, true);
+    view.setUint32(offset + 8, record.address, true);
+    view.setUint32(offset + 12, record.value, true);
+    view.setUint32(offset + 16, record.width, true);
+    view.setUint32(offset + 20, record.instruction, true);
+  });
   return createHash("sha256").update(bytes).digest("hex");
 };
 const baselineRomEvent = (event: FullElfRomEvent) => {
@@ -644,6 +735,8 @@ const actualBaseline = {
     steps: cacheProgress.record.steps,
     pc: hex(cacheProgress.record.pc),
     traceSha256: traceSha256(cacheProgress.trace),
+    memoryTraceRecords: cacheProgress.memoryTrace.count,
+    memoryTraceSha256: memoryTraceSha256(cacheProgress.memoryTrace),
     stackPointer: hex(cacheProgress.record.stackPointer),
     registers: cacheProgress.record.registers.map(paddedHex),
     cacheBootstrap: cacheProgress.cacheBootstrap,
