@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "inputs": {
     "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
-    "moduleSha256": "4b56fa628222fcbc899fc3f46b45aa0d1300eb8e66a328ea2105aedffb7fc2d0",
-    "traceRecordSha256": "e278adc72c086dc8e132a15fcd48ed180b995f36ae1897fa5ff6047af73a3d55",
+    "moduleSha256": "f03d615e6457d5d63e1b7ca1c488d7417dd1c8d7a339048bcd1c463e74facaed",
+    "traceRecordSha256": "8cd88ec63fa678163702120c136edd23d36fd0ad262b1ddbe7cc0edc7e34ea7d",
     "timingProfileSha256": "865ff83c74c126428cfa0b9c6d732db3f0859953489736e4c9a0a483741f30e8",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
     "neutralAdapterSha256": "337da62ff6c9a4f4aab9a09e419d250de22f0cc7fc04110826dd90bc8bf4430c",
@@ -11,9 +11,9 @@
     "loadUseClassifierSha256": "1759fe4d4e9bbf91f8780dbf585ab2b4b2a797ab39f7857cc6ce45f45ac60240"
   },
   "trace": {
-    "records": 325,
-    "instructions": 238,
-    "reads": 63,
+    "records": 332,
+    "instructions": 243,
+    "reads": 65,
     "writes": 24,
     "observedSramPages": [
       "0x3fcab000",
@@ -25,19 +25,19 @@
       "0x40382000"
     ],
     "observedFlashPages": ["0x42000000", "0x42003000"],
-    "observedMmioPages": ["0x600c4000"]
+    "observedMmioPages": ["0x600c0000", "0x600c4000"]
   },
   "replay": {
     "status": "blocked",
     "totalCycles": null,
-    "issuedEvents": 590,
-    "memoryEvents": 301,
-    "mmioEvents": 27,
-    "cpuEvents": 262,
+    "issuedEvents": 602,
+    "memoryEvents": 307,
+    "mmioEvents": 28,
+    "cpuEvents": 267,
     "dependentSramLoadUseHazards": 24,
-    "knownCostEvents": 285,
-    "unknownCostEvents": 305,
-    "issuedProjectionSha256": "19f9bcf3682fc0a67ada5d5a5a7e9a95fb096c9b3b9ac70e53f30a7b253416f3",
+    "knownCostEvents": 290,
+    "unknownCostEvents": 312,
+    "issuedProjectionSha256": "9589860cde334c4fb822289f2bd126452529d89bc741076d4166b22d43f73ca7",
     "loadUseEvidenceSha256": "dc80da9e7210956a63435afa1acb31a4a3db5beb79e90d757582b99d3e30b372"
   }
 }

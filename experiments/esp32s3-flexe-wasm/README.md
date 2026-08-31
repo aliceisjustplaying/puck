@@ -317,8 +317,10 @@ argument shapes and cache state transitions, retain typed ROM events outside
 the instruction trace, and configure the observed 16 KiB, 8-way, 32-byte-line
 instruction-cache mode, suspend and resume the data cache around its observed
 32 KiB, 8-way, 64-byte-line mode, and install the observed instruction and
-data MMU sizes. The real entry advances through 238 decoded instructions and
-stops before an undeclared read of `SYSTEM_SYSCLK_CONF_REG` at `0x600c0060`.
+data MMU sizes. A one-shot, typed `SYSTEM_SYSCLK_CONF_REG` read returns the
+source-backed direct-boot value `0x400`. The real entry advances through 243
+decoded instructions and stops before an undeclared read of
+`SYSTEM_CPU_PER_CONF_REG` at `0x600c0010`.
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 256 executed instructions. The pinned TinyDraw ELF
@@ -336,23 +338,23 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 238-step
-cache-bootstrap boundary produces 325 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 243-step
+cache-bootstrap boundary produces 332 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
 same neutral adapter and `TimingMachine` used by the RGB565 replay. Its address
-map contains only the seven SRAM pages and two flash pages observed in the
-trace, with their ELF or inherited permissions, plus the explicitly modeled
-cache-controller MMIO page. Those seven exact 4 KiB SRAM ranges opt into the
+map contains only the seven SRAM pages, two flash pages, and two controller
+MMIO pages observed in the trace, with their ELF or inherited permissions.
+Those seven exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 325 records issue 590 timing events: 301 memory-system
-events, 27 MMIO accesses, 238 calibrated CPU issue events, and 24 calibrated
-dependent load-use events. Exactly 285 events have adopted costs, including
+literal loads. The 332 records issue 602 timing events: 307 memory-system
+events, 28 MMIO accesses, 243 calibrated CPU issue events, and 24 calibrated
+dependent load-use events. Exactly 290 events have adopted costs, including
 three flash line fills. The baseline pins the hazard count and a projection hash
-of their schedule, consumer IDs, registers, and producer/consumer PCs. The 238
-instruction fetch hits, 40 literal-load hits, and 27 cache-controller MMIO costs
+of their schedule, consumer IDs, registers, and producer/consumer PCs. The 243
+instruction fetch hits, 41 literal-load hits, and 28 controller MMIO costs
 remain unknown, so the replay is blocked and reports no total cycle claim.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
