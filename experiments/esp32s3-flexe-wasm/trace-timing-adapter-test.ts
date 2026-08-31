@@ -200,7 +200,7 @@ function expectLoadUseFailure(decodedTrace: DecodedTrace, message: string): void
 const dependentLoadUse = adaptLoadUse(loadUseTrace(ADDX4_A4_A3_A5));
 assert(
   dependentLoadUse.input.cpu?.map((event) => event.latency.status === "known" ? event.latency.cycles : null)
-    .join(",") === "1,2",
+    .join(",") === "1,1,1",
   "exact dependent SRAM load-use did not add one consumer cycle",
 );
 assert(
@@ -209,7 +209,8 @@ assert(
   "dependent SRAM load-use lost register and PC provenance",
 );
 assert(
-  scheduleExecution(dependentLoadUse.input.cpu ?? []).events.map((event) => event.endCycle).join(",") === "1,3",
+  dependentLoadUse.input.cpu[1]?.id === "trace:02:instruction-fetch:pre-data-cpu" &&
+    scheduleExecution(dependentLoadUse.input.cpu ?? []).events.map((event) => event.endCycle).join(",") === "1,2,3",
   "dependent SRAM load-use did not delay the consumer ready clock by one cycle",
 );
 assert(
@@ -239,6 +240,25 @@ assert(
   ),
   "load outside the caller-declared internal SRAM range gained a hazard cycle",
 );
+const exactRangeGap = adaptFlexeTraceToRuntimeTiming(loadUseTrace(ADDX4_A4_A3_A5), {
+  source: "synthetic exact Flexe multi-range gap trace",
+  sha256,
+  core: 0,
+}, {
+  ...loadUseOptions,
+  dependentSramLoadUseHazard: {
+    ...loadUseOptions.dependentSramLoadUseHazard,
+    internalSram: undefined,
+    internalSramRanges: [
+      { base: 0x3fc9f000, sizeBytes: 0x1000 },
+      { base: 0x3fcb0000, sizeBytes: 0x1000 },
+    ],
+  },
+});
+assert(
+  exactRangeGap.input.cpu?.length === 2,
+  "separate exact SRAM ranges broadened classification across their gap",
+);
 
 const mismatchedBase = loadUseTrace(ADDX4_A4_A3_A5);
 const mismatchedIssuer = Object.freeze({
@@ -254,10 +274,10 @@ const nonsequential = Object.freeze({
     index === 2 ? Object.freeze({ ...record, pc: 0x42001006 }) : record)),
 });
 expectLoadUseFailure(nonsequential, "nonsequential successor");
-expectLoadUseFailure(loadUseTrace(0x000006), "unsupported register-use form");
+expectLoadUseFailure(loadUseTrace(0x000003), "unsupported register-use form");
 expectLoadUseFailure(loadUseTrace(ADDX4_A4_A3_A5, { overflow: true }), "complete non-overflow trace");
 const dependentStoreBase = loadUseTrace(0x006232);
-expectLoadUseFailure(Object.freeze({
+const dependentStore = adaptLoadUse(Object.freeze({
   ...dependentStoreBase,
   count: 4,
   records: Object.freeze([
@@ -271,7 +291,16 @@ expectLoadUseFailure(Object.freeze({
       instruction: 0,
     }),
   ]),
-}), "data whose pre-execution order is unavailable");
+}));
+assert(
+  JSON.stringify((dependentStore.input.issueOrder ?? []).slice(3)) === JSON.stringify([
+    { kind: "memory", accessId: "trace:02:instruction-fetch" },
+    { kind: "cpu", eventId: "trace:02:instruction-fetch:pre-data-cpu" },
+    { kind: "memory", accessId: "trace:03:store" },
+    { kind: "cpu", eventId: "trace:02:instruction-fetch:cpu" },
+  ]),
+  "dependent store hazard was not placed after fetch and before data",
+);
 let wrongLatencyFailure: unknown = null;
 try {
   adaptFlexeTraceToRuntimeTiming(loadUseTrace(ADDX4_A4_A3_A5), {

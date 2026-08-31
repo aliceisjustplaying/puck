@@ -58,7 +58,7 @@ export function adaptFlexeTraceToRuntimeTiming(
       kind === "instruction" &&
       record.width === 3 &&
       record.instruction === XTENSA_MEMW_INSTRUCTION_ENCODING;
-    const cpuCost = loadUseHazards.get(sequence)?.latency ?? options.instructionCpuCost;
+    const loadUseHazard = loadUseHazards.get(sequence);
     return Object.freeze({
       id: `trace:${sequence.toString().padStart(2, "0")}:${timingKind}`,
       sequence,
@@ -72,11 +72,14 @@ export function adaptFlexeTraceToRuntimeTiming(
               value: record.instruction,
               source: `flexe execution trace ABI v${decoded.abiVersion} instruction field`,
             }),
-            ...(cpuCost === undefined || isMemw
+            ...(options.instructionCpuCost === undefined || isMemw
               ? {}
               : {
-                  cpuCost: Object.freeze({ ...cpuCost }),
+                  cpuCost: Object.freeze({ ...options.instructionCpuCost }),
                 }),
+            ...(loadUseHazard === undefined
+              ? {}
+              : { preDataCpuCost: Object.freeze({ ...loadUseHazard.latency }) }),
           }
         : { issuingInstructionAddress: BigInt(record.pc) }),
     });

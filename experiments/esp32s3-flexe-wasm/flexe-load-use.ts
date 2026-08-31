@@ -1,13 +1,18 @@
 import type { EventLatency } from "../../packs/esp32-s3-touch-amoled-18/timing/execution";
+import { XTENSA_MEMW_INSTRUCTION_ENCODING } from "../../packs/esp32-s3-touch-amoled-18/timing/trace-adapter";
 import { TRACE_KINDS, type DecodedTrace, type TraceRecord } from "./trace-abi";
 
 type KnownLatency = Extract<EventLatency, Readonly<{ status: "known" }>>;
 
 export interface FlexeDependentSramLoadUseHazardOptions {
-  readonly internalSram: Readonly<{
+  readonly internalSram?: Readonly<{
     readonly base: number;
     readonly sizeBytes: number;
   }>;
+  readonly internalSramRanges?: readonly Readonly<{
+    readonly base: number;
+    readonly sizeBytes: number;
+  }>[];
   readonly latency: EventLatency;
 }
 
@@ -106,11 +111,20 @@ function exactLoadDestination(instruction: TraceRecord, dataWidth: number, recor
     }
     return t;
   }
+  if (instruction.width === 3 && op0 === 1) {
+    if (dataWidth !== 4) {
+      throw new Error(`flexe trace instruction ${recordIndex} l32r data width must be 4`);
+    }
+    return t;
+  }
   if (instruction.width === 3 && op0 === 2) {
     const r = (encoding >>> 12) & 0xf;
     const width = r === 0 ? 1 : r === 1 || r === 9 ? 2 : r === 2 || r === 11 ? 4 : null;
     if (width === null) {
-      throw new Error(`flexe trace instruction ${recordIndex} is not an exact supported scalar load`);
+      throw new Error(
+        `flexe trace instruction ${recordIndex} encoding 0x${encoding.toString(16)} ` +
+        "is not an exact supported scalar load",
+      );
     }
     if (dataWidth !== width) {
       throw new Error(
@@ -119,7 +133,10 @@ function exactLoadDestination(instruction: TraceRecord, dataWidth: number, recor
     }
     return t;
   }
-  throw new Error(`flexe trace instruction ${recordIndex} is not an exact supported scalar load`);
+  throw new Error(
+    `flexe trace instruction ${recordIndex} encoding 0x${encoding.toString(16)} ` +
+    "is not an exact supported scalar load",
+  );
 }
 
 function exactSourceRegisters(instruction: TraceRecord, recordIndex: number): readonly number[] {
@@ -134,7 +151,10 @@ function exactSourceRegisters(instruction: TraceRecord, recordIndex: number): re
     if (op0 === 12) return Object.freeze(((t >>> 2) & 3) < 2 ? [] : [s]);
     if (op0 === 13 && r === 0) return Object.freeze([s]);
     if (op0 === 13 && r === 15 && s === 0 && t === 3) return Object.freeze([]);
-    throw new Error(`flexe trace instruction ${recordIndex} has an unsupported narrow register-use form`);
+    throw new Error(
+      `flexe trace instruction ${recordIndex} encoding 0x${encoding.toString(16)} ` +
+      "has an unsupported narrow register-use form",
+    );
   }
   if (instruction.width === 3 && op0 === 2) {
     if (r === 0 || r === 1 || r === 2 || r === 9 || r === 11 || r === 12 || r === 13) {
@@ -144,7 +164,26 @@ function exactSourceRegisters(instruction: TraceRecord, recordIndex: number): re
       return Object.freeze([s, t]);
     }
     if (r === 10) return Object.freeze([]);
-    throw new Error(`flexe trace instruction ${recordIndex} has an unsupported LSAI register-use form`);
+    throw new Error(
+      `flexe trace instruction ${recordIndex} encoding 0x${encoding.toString(16)} ` +
+      "has an unsupported LSAI register-use form",
+    );
+  }
+  if (instruction.width === 3 && op0 === 1) return Object.freeze([]);
+  if (instruction.width === 3 && op0 === 5) return Object.freeze([]);
+  if (instruction.width === 3 && op0 === 6) {
+    const n = (encoding >>> 4) & 3;
+    const m = (encoding >>> 6) & 3;
+    if (n === 0) return Object.freeze([]);
+    if (n === 1 || n === 2 || m === 0 || m === 2 || m === 3) return Object.freeze([s]);
+    if (n === 3 && m === 1) {
+      if (r === 0 || r === 1) return Object.freeze([]);
+      if (r === 8 || r === 9 || r === 10) return Object.freeze([s]);
+      throw new Error(`flexe trace instruction ${recordIndex} has an unsupported B1 register-use form`);
+    }
+  }
+  if (instruction.width === 3 && op0 === 7) {
+    return Object.freeze(r === 6 || r === 7 || r === 14 || r === 15 ? [s] : [s, t]);
   }
   if (instruction.width === 3 && op0 === 0) {
     const op1 = (encoding >>> 16) & 0xf;
@@ -152,14 +191,45 @@ function exactSourceRegisters(instruction: TraceRecord, recordIndex: number): re
     if (op1 === 0 && (op2 === 1 || op2 === 2 || op2 === 3 || (op2 >= 8 && op2 <= 15))) {
       return Object.freeze([s, t]);
     }
-    if (op1 === 0 && op2 === 0 && r === 2 && t === 0 && s === 12) return Object.freeze([]);
-    throw new Error(`flexe trace instruction ${recordIndex} has an unsupported QRST register-use form`);
+    if (encoding === XTENSA_MEMW_INSTRUCTION_ENCODING) return Object.freeze([]);
+    if (op1 === 0 && op2 === 0 && r === 0) {
+      const m = (encoding >>> 6) & 3;
+      const n = (encoding >>> 4) & 3;
+      if (m === 2 && (n === 0 || n === 1) && s === 0) return Object.freeze([0]);
+      if (m === 2 && n === 2) return Object.freeze([s]);
+      if (m === 3) return Object.freeze([s]);
+    }
+    if (op1 === 1 && (op2 === 0 || op2 === 1)) return Object.freeze([s]);
+    if (op1 === 1 && (op2 === 2 || op2 === 3 || op2 === 4 || op2 === 6)) {
+      return Object.freeze([t]);
+    }
+    if (op1 === 1 && op2 === 9 && s === 0) return Object.freeze([t]);
+    if (op1 === 1 && op2 === 10 && t === 0) return Object.freeze([s]);
+    if (op1 === 1 && op2 === 11 && s === 0) return Object.freeze([t]);
+    if (op1 === 1 && (op2 === 8 || op2 === 12 || op2 === 13)) return Object.freeze([s, t]);
+    if (op1 === 2 && op2 <= 4) return Object.freeze([]);
+    if (op1 === 2 && (op2 === 6 || op2 === 7 || op2 === 8 || (op2 >= 10 && op2 <= 15))) {
+      return Object.freeze([s, t]);
+    }
+    if (op1 === 3 && (op2 === 0 || op2 === 14)) return Object.freeze([]);
+    if (op1 === 3 && (op2 === 1 || op2 === 15)) return Object.freeze([t]);
+    if (op1 === 3 && (op2 === 2 || op2 === 3 || op2 === 12 || op2 === 13)) {
+      return Object.freeze([s]);
+    }
+    if (op1 === 3 && op2 >= 4 && op2 <= 11) return Object.freeze([s, t]);
+    if (op1 === 4 || op1 === 5) return Object.freeze([t]);
+    throw new Error(
+      `flexe trace instruction ${recordIndex} encoding 0x${encoding.toString(16)} ` +
+      "has an unsupported QRST register-use form",
+    );
   }
-  throw new Error(`flexe trace instruction ${recordIndex} has an unsupported register-use form`);
+  throw new Error(
+    `flexe trace instruction ${recordIndex} encoding 0x${encoding.toString(16)} ` +
+    "has an unsupported register-use form",
+  );
 }
 
-function adjustedLatency(
-  instructionLatency: KnownLatency,
+function hazardEventLatency(
   hazardLatency: KnownLatency,
   producer: TraceRecord,
   consumer: TraceRecord,
@@ -167,15 +237,74 @@ function adjustedLatency(
 ): KnownLatency {
   return Object.freeze({
     status: "known",
-    cycles: instructionLatency.cycles + hazardLatency.cycles,
-    calibration:
-      instructionLatency.calibration === "calibrated" && hazardLatency.calibration === "calibrated"
-        ? "calibrated"
-        : "uncalibrated",
+    cycles: hazardLatency.cycles,
+    calibration: hazardLatency.calibration,
     source:
-      `${instructionLatency.source}; dependent internal SRAM load-use a${register} ` +
-      `0x${producer.pc.toString(16)} -> 0x${consumer.pc.toString(16)}: ${hazardLatency.source}`,
+      `${hazardLatency.source}; dependent internal SRAM load-use a${register} ` +
+      `0x${producer.pc.toString(16)} -> 0x${consumer.pc.toString(16)}`,
   });
+}
+
+interface InternalSramRange {
+  readonly base: number;
+  readonly limit: number;
+}
+
+function internalSramRanges(options: FlexeDependentSramLoadUseHazardOptions): readonly InternalSramRange[] {
+  if (options.internalSram !== undefined && options.internalSramRanges !== undefined) {
+    throw new Error("Flexe dependent SRAM load-use accepts one internalSram source");
+  }
+  const input = options.internalSram === undefined
+    ? options.internalSramRanges
+    : [options.internalSram];
+  if (!Array.isArray(input) || input.length === 0) {
+    throw new Error("Flexe dependent SRAM load-use requires at least one exact SRAM range");
+  }
+  const ranges = input.map((range, index) => {
+    const base = requireUint32(range?.base, `Flexe dependent SRAM ranges[${index}].base`);
+    if (!Number.isSafeInteger(range?.sizeBytes) || range.sizeBytes <= 0) {
+      throw new Error(`Flexe dependent SRAM ranges[${index}].sizeBytes must be a positive safe integer`);
+    }
+    const limit = base + range.sizeBytes;
+    if (!Number.isSafeInteger(limit) || limit > 0x1_0000_0000) {
+      throw new Error(`Flexe dependent SRAM ranges[${index}] must fit the 32-bit address space`);
+    }
+    return Object.freeze({ base, limit });
+  });
+  for (const [index, range] of ranges.entries()) {
+    if (index > 0 && range.base < ranges[index - 1]!.limit) {
+      throw new Error("Flexe dependent SRAM ranges must be ordered and non-overlapping");
+    }
+  }
+  return Object.freeze(ranges);
+}
+
+function accessIsInternalSram(
+  address: number,
+  end: number,
+  ranges: readonly InternalSramRange[],
+  instructionRecordIndex: number,
+): boolean {
+  let cursor = address;
+  let overlaps = false;
+  for (const range of ranges) {
+    if (range.limit <= cursor) continue;
+    if (range.base >= end) break;
+    overlaps = true;
+    if (range.base > cursor) {
+      throw new Error(
+        `flexe trace data access owned by instruction ${instructionRecordIndex} crosses the SRAM boundary`,
+      );
+    }
+    cursor = Math.min(end, range.limit);
+    if (cursor === end) return true;
+  }
+  if (overlaps) {
+    throw new Error(
+      `flexe trace data access owned by instruction ${instructionRecordIndex} crosses the SRAM boundary`,
+    );
+  }
+  return false;
 }
 
 export function detectFlexeDependentSramLoadUseHazards(
@@ -187,7 +316,7 @@ export function detectFlexeDependentSramLoadUseHazards(
   if (typeof options !== "object" || options === null) {
     throw new Error("Flexe dependent SRAM load-use options must be an object");
   }
-  const baseLatency = requireKnownLatency(
+  requireKnownLatency(
     instructionLatency,
     "Flexe dependent SRAM load-use instructionCpuCost",
   );
@@ -198,14 +327,7 @@ export function detectFlexeDependentSramLoadUseHazards(
   if (hazardLatency.cycles !== 1n) {
     throw new Error("Flexe dependent SRAM load-use latency must be exactly 1 cycle");
   }
-  const base = requireUint32(options.internalSram?.base, "Flexe dependent SRAM base");
-  if (!Number.isSafeInteger(options.internalSram?.sizeBytes) || options.internalSram.sizeBytes <= 0) {
-    throw new Error("Flexe dependent SRAM sizeBytes must be a positive safe integer");
-  }
-  const limit = base + options.internalSram.sizeBytes;
-  if (!Number.isSafeInteger(limit) || limit > 0x1_0000_0000) {
-    throw new Error("Flexe dependent SRAM range must fit the 32-bit address space");
-  }
+  const ranges = internalSramRanges(options);
 
   const groups = instructionGroups(decoded);
   const hazards = new Map<number, FlexeLoadUseHazard>();
@@ -213,11 +335,7 @@ export function detectFlexeDependentSramLoadUseHazards(
     const overlapping = group.data.filter(({ record }) => {
       const address = requireUint32(record.address, `flexe trace data address for record ${group.recordIndex}`);
       const end = address + record.width;
-      const overlaps = address < limit && end > base;
-      if (overlaps && (address < base || end > limit)) {
-        throw new Error(`flexe trace data access owned by instruction ${group.recordIndex} crosses the SRAM boundary`);
-      }
-      return overlaps;
+      return accessIsInternalSram(address, end, ranges, group.recordIndex);
     });
     const internalLoads = overlapping.filter(({ record }) => record.kind === TRACE_KINDS.read);
     if (internalLoads.length === 0) continue;
@@ -238,16 +356,11 @@ export function detectFlexeDependentSramLoadUseHazards(
     const register = exactLoadDestination(group.instruction, load.width, group.recordIndex);
     const sources = exactSourceRegisters(next.instruction, next.recordIndex);
     if (!sources.includes(register)) continue;
-    if (next.data.length !== 0) {
-      throw new Error(
-        `flexe trace dependent consumer ${next.recordIndex} has data whose pre-execution order is unavailable`,
-      );
-    }
     hazards.set(next.recordIndex, Object.freeze({
       producerRecordIndex: group.recordIndex,
       consumerRecordIndex: next.recordIndex,
       register,
-      latency: adjustedLatency(baseLatency, hazardLatency, group.instruction, next.instruction, register),
+      latency: hazardEventLatency(hazardLatency, group.instruction, next.instruction, register),
     }));
   }
   return hazards;

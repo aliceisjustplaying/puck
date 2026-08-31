@@ -222,13 +222,15 @@ not enable this mode, so its event accounting and unknown-cost boundary remain
 unchanged.
 
 Dependent internal-SRAM load-use replay is separately opt-in. The caller must
-provide the exact SRAM range, the one-cycle measured hazard cost, and a known
-instruction issue cost. `flexe-load-use.ts` then requires a complete trace,
+provide one exact SRAM range or an ordered list of exact non-overlapping ranges,
+the one-cycle measured hazard cost, and a known instruction issue cost.
+`flexe-load-use.ts` then requires a complete trace,
 matches every data record to its instruction by the ABI issuer PC, decodes a
 bounded set of scalar load destinations and immediate consumer source
 registers, and adds one cycle only on an exact register dependency. Unsupported
 register forms, nonsequential successors, multi-access load instructions, and
-range-crossing accesses are refused. The default bridge remains unchanged.
+accesses that enter an undeclared range gap are refused. The default bridge
+remains unchanged.
 
 The replay uses the gate-harness sdkconfig at SHA-256
 `ac1749b0f5b9c54e3e8e5ffc045b37a434d6b289420a8f9cf0f37fe8a3173d9b`:
@@ -339,8 +341,12 @@ cross-page SRAM regression checks the exact 32-bit value and address.
 same neutral adapter and `TimingMachine` used by the RGB565 replay. Its address
 map contains only the six SRAM pages observed in the trace, with their ELF or
 inherited permissions, plus the explicitly modeled cache-controller MMIO page.
-The 274 records issue 473 timing events: 248 SRAM operations, 26 MMIO accesses,
-and 199 calibrated CPU issue events. Exactly 248 events have adopted costs.
+Those six exact 4 KiB ranges opt into the measured one-cycle dependent SRAM
+load-use hazard without classifying the gaps between them. The 274 records
+issue 492 timing events: 248 SRAM operations, 26 MMIO accesses, 199 calibrated
+CPU issue events, and 19 calibrated dependent load-use events. Exactly 267
+events have adopted costs. The baseline pins the hazard count and a projection
+hash of their schedule, consumer IDs, registers, and producer/consumer PCs.
 The 199 internal-IRAM fetch costs and 26 cache-controller MMIO costs remain
 unknown, so the replay is blocked and reports no total cycle claim.
 An executable-permission miss and an unloaded page have distinct recoverable

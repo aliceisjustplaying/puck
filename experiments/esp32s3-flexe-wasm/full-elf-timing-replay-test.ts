@@ -85,7 +85,9 @@ const modulePath = join(here, "dist/flexe-probe-freestanding.wasm");
 const baselinePath = join(here, "esp32s3-full-elf-timing-replay-baseline.json");
 const timingProfilePath = join(here, "../../packs/esp32-s3-touch-amoled-18/timing.json");
 const timingMachinePath = join(here, "../../packs/esp32-s3-touch-amoled-18/timing/machine.ts");
+const neutralAdapterPath = join(here, "../../packs/esp32-s3-touch-amoled-18/timing/trace-adapter.ts");
 const adapterPath = join(here, "trace-timing-adapter.ts");
+const loadUseClassifierPath = join(here, "flexe-load-use.ts");
 const moduleBytes = await Bun.file(modulePath).arrayBuffer();
 const image = parseXtensaElf32(readFileSync(DEFAULT_TINYDRAW_ESP32S3_FULL_ELF));
 const run = await runSparseXtensaElf(moduleBytes, image, {
@@ -211,6 +213,17 @@ const runtimeTrace = adaptFlexeTraceToRuntimeTiming(run.memoryTrace, {
     "steady-state instruction issue",
     coreCostSource,
   ),
+  dependentSramLoadUseHazard: {
+    internalSramRanges: Object.freeze(EXPECTED_SRAM_PAGES.map((base) => Object.freeze({
+      base,
+      sizeBytes: PAGE_BYTES,
+    }))),
+    latency: calibratedCost(
+      timingProfile.coreSteadyStateCycles.dependentLoadUseHazard.observedAdditionalCycles,
+      "exact dependent internal SRAM load-use",
+      coreCostSource,
+    ),
+  },
 });
 const machine = runRuntimeTimingTrace({
   addressMap,
@@ -223,16 +236,30 @@ assert.equal(machine.cores[0].status, "complete");
 assert.equal(machine.cores[0].accesses.length, 274);
 assert(machine.cores[0].accesses.every((access) => access.status === "resolved"));
 assert.equal(machine.cores[1].accesses.length, 0);
-assert.equal(runtimeTrace.input.cpu?.length, 199);
+assert.equal(runtimeTrace.input.cpu?.length, 218);
 assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "cache").length, 248);
 assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "mmio").length, 26);
-assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "cpu").length, 199);
-assert.equal(machine.issuedEvents.length, 473);
+const cpuEvents = machine.issuedEvents.filter((event) => event.origin.kind === "cpu");
+const loadUseHazards = cpuEvents.filter((event) => event.event.id.endsWith(":pre-data-cpu"));
+const instructionCpuEvents = cpuEvents.filter((event) => event.event.id.endsWith(":cpu"));
+assert.equal(cpuEvents.length, 218);
+assert.equal(loadUseHazards.length, 19);
+assert.equal(instructionCpuEvents.length, 199);
+assert.equal(machine.issuedEvents.length, 492);
 assert.equal(machine.claim.unknownCostEventIds.length, 225);
-assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 248);
-assert(machine.issuedEvents.filter((event) => event.origin.kind === "cpu").every((event) =>
+assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 267);
+assert(cpuEvents.every((event) =>
   event.cost.status === "known" && event.cost.cycles === 1n && event.cost.calibration === "calibrated"
 ));
+assert(loadUseHazards.every((event) =>
+  event.cost.status === "known" && event.cost.source.includes("dependent internal SRAM load-use a")
+));
+assert.equal(machine.issuedEvents.filter((event) =>
+  event.origin.kind === "cache" && event.event.kind === "instruction-fetch" && event.cost.status === "unknown"
+).length, 199);
+assert.equal(machine.issuedEvents.filter((event) =>
+  event.origin.kind === "mmio" && event.cost.status === "unknown"
+).length, 26);
 assert(machine.issuedEvents.filter((event) =>
   event.origin.kind === "cache" && event.event.kind !== "instruction-fetch"
 ).every((event) => event.cost.status === "known" && event.cost.cycles === 0n));
@@ -246,6 +273,14 @@ const issuedProjection = machine.issuedEvents.map((issued) => ({
     ? { status: issued.cost.status, cycles: issued.cost.cycles.toString(), calibration: issued.cost.calibration }
     : { status: issued.cost.status, reason: issued.cost.reason },
 }));
+const loadUseEvidenceProjection = loadUseHazards.map((issued) => ({
+  issueIndex: issued.issueIndex,
+  eventId: issued.event.id,
+  instructionAccessId: issued.origin.kind === "cpu" ? issued.origin.instructionAccessId : null,
+  evidence: issued.cost.status === "known"
+    ? issued.cost.source.slice(issued.cost.source.lastIndexOf("dependent internal SRAM load-use"))
+    : null,
+}));
 const actualBaseline = {
   schemaVersion: 1,
   inputs: {
@@ -254,7 +289,9 @@ const actualBaseline = {
     traceRecordSha256: FULL_TRACE_RECORD_SHA256,
     timingProfileSha256: sha256(timingProfilePath),
     timingMachineSha256: sha256(timingMachinePath),
+    neutralAdapterSha256: sha256(neutralAdapterPath),
     adapterSha256: sha256(adapterPath),
+    loadUseClassifierSha256: sha256(loadUseClassifierPath),
   },
   trace: {
     records: run.memoryTrace.count,
@@ -270,10 +307,14 @@ const actualBaseline = {
     issuedEvents: machine.issuedEvents.length,
     sramEvents: machine.issuedEvents.filter((event) => event.origin.kind === "cache").length,
     mmioEvents: machine.issuedEvents.filter((event) => event.origin.kind === "mmio").length,
-    cpuEvents: machine.issuedEvents.filter((event) => event.origin.kind === "cpu").length,
+    cpuEvents: cpuEvents.length,
+    dependentSramLoadUseHazards: loadUseHazards.length,
     knownCostEvents: machine.issuedEvents.filter((event) => event.cost.status === "known").length,
     unknownCostEvents: machine.claim.unknownCostEventIds.length,
     issuedProjectionSha256: createHash("sha256").update(JSON.stringify(issuedProjection)).digest("hex"),
+    loadUseEvidenceSha256: createHash("sha256")
+      .update(JSON.stringify(loadUseEvidenceProjection))
+      .digest("hex"),
   },
 };
 const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
