@@ -86,8 +86,13 @@ What this repository's project contributes on top, in order of ownership:
 
 ## Risks
 
-Single author, days old, no external contributors at evaluation time. The
-mitigations: MIT license permits forking at the pinned commit; the author's
+Single author, days old, no external contributors at evaluation time.
+Licensing, resolved 2026-08-31 after the external review raised it: the
+repository has no root LICENSE file yet, but the README declares MIT
+twice and every crate declares `license = "MIT"` through the workspace
+manifest; the maintainer accepts that in-repository declaration as the
+basis for the fork, and the author will be asked to add the file. The
+mitigations: the MIT declaration permits forking at the pinned commit; the author's
 track record (MSPSim, maintained for decades) and the project's own
 receipts-adjacent engineering culture (`docs/decisions.md` upstream) argue
 for collaboration first. Contributions are shaped as upstream pull

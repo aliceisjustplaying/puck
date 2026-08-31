@@ -24,10 +24,14 @@ workloads, distribution agreement on RTC and long-window PSRAM paths.
 - **Execution:** esp32sim's `xtensa-lx7` core and `esp32s3` SoC, pinned by
   commit. Fast mode is upstream's behavior, unchanged. **Measured mode**
   is this project's addition: calibrated cycle accounting through
-  `advance_ccount`, a timing wrapper at the `Bus` seam, per-block base
-  costs in the block cache, cache and MSPI models, window-exception costs,
-  and tighter dual-core interleaving quanta. Both modes share one core;
-  fast mode's speed is never taxed by measured mode's bookkeeping.
+  `advance_ccount`, per-block base costs in the block cache, cache and
+  MSPI models, window-exception costs, and tighter dual-core interleaving
+  quanta. Both modes share one core; fast mode's speed is never taxed by
+  measured mode's bookkeeping. Observation is defined at the CPU backend
+  level per decision 0012: the native JIT fast path bypasses the `Bus`
+  trait (review F-031, `xtensa-lx7/src/block.rs:143,187`), so measured
+  mode is interpreter-first and a cross-mode conformance program gates
+  any JIT participation.
 - **Calibration:** this repository's timing lab, receipts, and tier
   vocabulary are the only source of measured-mode costs. Unknown costs
   stay unknowns; totals stay blocked until their events are costed.
@@ -53,10 +57,14 @@ workloads, distribution agreement on RTC and long-window PSRAM paths.
 | C | Contention and co-simulation: measured-mode dual-core quanta, MSPI arbitration, interrupt-delivery timing; correlate against the contended receipt cohorts | 8 to 16 | Authoring yes; correlation runs local | Lane B core |
 | D | wasm JIT backend, upstream-shaped: reach browser real time; re-measure against the browser-speed probes as guards accrue | 12 to 24, long-tail risk | Correctness yes; M1 perf gates local | Lane A working browser baseline |
 | E | Silicon oracle operations: run upstream's JTAG lock-step harness against this project's board; extend it with CCOUNT-delta comparison for measured mode; remaining probe families (arbitration discrimination, PSRAM long-window distributions, cache store and writeback) | 6 to 12, hardware-serialized | Authoring and analysis only | Lane B for CCOUNT comparisons |
-| F | Integration and ship: puck UX wrap (or successor UI), correlation suite passing at the 0008 bounds, docs, publishing | 6 to 10 | Mostly | Lanes C, D |
+| F | Integration and ship: puck UX wrap (or successor UI), correlation suite passing at the 0008 bounds, docs, publishing; the external review's release-gate battery (SBOM, attestations, secret scanning, CSP, branch-policy audit, capability matrix) is this lane's checklist | 8 to 14 | Mostly | Lanes C, D |
+| G | CI as the executable specification: required jobs for typecheck, unit, hostile, regression, browser smoke, Rust fmt/test/clippy, and fail-closed decoder conformance with committed mandatory corpus and case counts (review F-047/F-048/F-052/F-053/F-054) | 4 to 8 | Fully | Nothing |
+| H | Boundary hardening scoped by decision 0012's trust model: one shared guest-output validator across live, headless, replay, and verifier paths; WASI-lite hardening; quotas; memory-view refresh; panic-free untrusted paths (review F-011 through F-014, F-074) | 6 to 12 | Fully | Nothing |
 
-Total roughly 35 to 70 agent-hours (revision 1 estimated 50 to 100; lanes
-1 and 3 collapsed into lane A's adoption cost). The critical path is
+Total roughly 45 to 90 agent-hours (revision 1 estimated 50 to 100; lanes
+1 and 3 collapsed into lane A's adoption cost; lanes G and H were added
+from the accepted external-review findings, see
+[`docs/reviews/2026-08-31-external/RESPONSE.md`](reviews/2026-08-31-external/RESPONSE.md)). The critical path is
 B then C for accuracy, and D for browser real time; the two paths are
 independent of each other. **Demo milestone: lane A alone boots the real
 board image with the panel drawing in the browser at interpreter speed,
@@ -141,5 +149,12 @@ firmware. A second board serves the lane E queue first.
   rule; measured mode adds its own rule: same trace in, same cycle ledger
   out, deterministically.
 - Upstream courtesy: fixes and capabilities upstream wants go upstream
-  first; the fork carries only what upstream declines.
+  first; the fork carries only what upstream declines, in a clean patch
+  stack with `PROVENANCE.md` from day one.
+- Emulator networking defaults to none; live egress is opt-in and never
+  available to gallery or external-bundle execution (decision 0012).
+- No product code outside the adapter imports esp32sim internals; a
+  dependency lint enforces it.
+- Goldens carry semantic assertions and provenance sidecars; a
+  conformance test whose corpus is missing fails, never skips.
 - The correlation suite's first pass is scheduled; its residue is not.
