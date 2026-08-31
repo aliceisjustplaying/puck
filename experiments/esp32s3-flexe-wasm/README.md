@@ -68,10 +68,10 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
-decoder plus this experiment's explicit ESP32-S3 patch surface has 336
+decoder plus this experiment's explicit ESP32-S3 patch surface has 339
 normalized mnemonics. With user-register operands distinguished, it covers
-63,401 rows and 310 raw mnemonics; 875 rows and 31 raw mnemonics remain gaps.
-Those gaps are 30 unimplemented `ee.*` PIE forms covering 176 rows and 699
+63,408 rows and 313 raw mnemonics; 868 rows and 28 raw mnemonics remain gaps.
+Those gaps are 27 unimplemented `ee.*` PIE forms covering 169 rows and 699
 undecodable `.byte` rows. No
 known scalar, QR load/store, THREADPTR, ACCX, QACC, SAR_BYTE, or FFT_BIT_WIDTH
 mnemonic remains in the gap list, and every named user-register form is covered.
@@ -80,7 +80,8 @@ mnemonic remains in the gap list, and every named user-register form is covered.
 `ld.qr`, `st.qr`, `ee.vld.128.ip`, `ee.vld.128.xp`, `ee.vst.128.ip`,
 `ee.vld.l.64.ip`, `ee.vld.h.64.ip`, `ee.vst.h.64.ip`, `ee.vunzip.8`, and
 `ee.vzip.8`, `ee.ldf.64.xp`, `ee.stf.64.xp`, `ee.ld.accx.ip`, and
-`ee.st.accx.ip`. It selects
+`ee.st.accx.ip`, `ee.ld.qacc_h.h.32.ip`, `ee.ld.qacc_l.l.128.ip`, and
+`ee.st.qacc_l.l.128.ip`. It selects
 those semantics only for the ESP32-S3 experiment
 profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
 represented by flexe's core. The profile also implements per-core UR0/UR1
@@ -138,7 +139,7 @@ synthetic caller, restores its stack, and exposes the return value 4 in caller
 register `a10`. A separate fresh run capped at two instructions stops at
 `0x403808f9` before `retw.n`, proving the bound is active.
 
-Six raw conformance fixtures cover the remaining implemented data operations.
+Seven raw conformance fixtures cover the remaining implemented data operations.
 The scalar fixture copies `0x12345678` with `l32i.n` and `s32nb`, then executes
 `lsip` and `ssip`; both base registers advance by four and the run returns
 after six instructions. The QR fixture copies 16 deterministic bytes with
@@ -162,7 +163,10 @@ and independent register postincrements. The adjacent four-byte
 The ACCX memory fixture loads an unaligned 64-bit word into the 40-bit ACCX
 state, reads both user-register halves back, and stores the zero-extended value.
 It proves the upper word is masked to eight bits and negative immediates update
-the original unaligned bases. The adjacent QACC memory form remains fail-closed.
+the original unaligned bases. The QACC memory fixture round-trips the low 128
+bits, loads the high bank's upper 32 bits, and proves forced 16-byte/four-byte
+alignment plus signed scaled postincrements. The adjacent USAR transfer remains
+fail-closed with unchanged registers, trace, and output.
 
 The THREADPTR fixture executes the real reset-path `l32r` and
 `wur.threadptr a8` encoding at `0x40375ce4`, reads UR231 back with
@@ -357,7 +361,7 @@ first undeclared 32-bit MMIO read at
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 512 executed instructions. The pinned TinyDraw ELF
-automatically installs the tracked 1,208-instruction ESP32-S3 ISA gap set before
+automatically installs the tracked 1,154-instruction ESP32-S3 ISA gap set before
 execution. Each marker must match the decoder-width bytes in loaded executable
 memory during setup; stale, mismatched, unloaded, and non-executable markers are
 refused. Once bound, reaching a marked PC stops before LX6 decoding, including
