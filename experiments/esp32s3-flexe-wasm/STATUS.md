@@ -44,6 +44,15 @@ unreviewed candidates in decision 0008 tier terms.
 The phase plan, agent-hour estimates, dependency graph, and restart lane
 allocation live in [`docs/roadmap.md`](../../docs/roadmap.md).
 
+2026-08-31, later the same day: decision
+[`0011`](../../docs/decisions/0011-adopt-esp32sim-execution-foundation.md)
+adopts [esp32sim](https://github.com/joakimeriksson/esp32sim) as the
+execution foundation and supersedes the restart plan below where it
+concerned building an engine here. This experiment is now REFERENCE
+MATERIAL: its fixture corpus, baselines, and bounded-boot evidence feed
+the esp32sim measured-mode work; no further flexe capability lanes. The
+roadmap's revision 2 is authoritative.
+
 Lane redirections when work resumes: boot lane moves from MMIO whitelists
 toward peripheral models with reset-value provenance; ROM lane moves to
 real-ROM loading; ISA lane adds a silicon-oracle fixture corpus (the board
