@@ -41,6 +41,10 @@ commit and every file in the dependency closure must match its recorded SHA-256.
 `ZIG_EXE` can select another Zig executable. Generated binaries live in ignored
 `dist/` and include the upstream MIT license.
 
+The external Espressif QEMU correctness oracle lives in
+`../esp32s3-qemu-oracle/`. It reuses bounded fixture state from this experiment
+through a versioned JSON contract and compares only architectural state.
+
 The ISA inventory additionally needs Espressif's
 `xtensa-esp32s3-elf-objdump` and the two named TinyDraw ELFs below. Override
 their paths with `ESP32S3_OBJDUMP`, `TINYDRAW_ESP32S3_ELF`, and

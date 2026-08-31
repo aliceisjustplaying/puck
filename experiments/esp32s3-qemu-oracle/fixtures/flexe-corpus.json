@@ -1,0 +1,141 @@
+{
+  "schema": "puck/esp32s3-qemu-corpus@v1",
+  "provenance": {
+    "flexeRepository": "https://github.com/levkropp/flexe",
+    "flexeCommit": "34ea9eb6eef921b59a55e6a435c7fc55c5727835",
+    "qemuRepository": "https://github.com/espressif/qemu",
+    "qemuCommit": "febae182e132e4055529be423a818225ebddaa3a",
+    "qemuLicense": "GPL-2.0-only"
+  },
+  "cases": [
+    {
+      "id": "scalar_probe",
+      "description": "Bounded movi plus addi scalar probe from flexe_wasm_probe.",
+      "pc": "0x40070000",
+      "instructionBudget": 2,
+      "codeBytesHex": "32a02832c302",
+      "initialRegisters": {
+        "a3": "0x00000000"
+      },
+      "initialMemory": [],
+      "observeRegisters": ["a3"],
+      "observeMemory": [],
+      "reference": {
+        "termination": "instructionBudgetReached",
+        "finalPc": "0x40070006",
+        "steps": 2,
+        "registers": {
+          "a3": "0x0000002a"
+        },
+        "memory": [],
+        "trace": [
+          {
+            "pc": "0x40070000",
+            "width": 3,
+            "instructionBytesHex": "32a028"
+          },
+          {
+            "pc": "0x40070003",
+            "width": 3,
+            "instructionBytesHex": "32c302"
+          }
+        ]
+      }
+    },
+    {
+      "id": "qr_bitwise_logic",
+      "description": "Ten-step PIE QR bitwise logic fixture from the current flexe dynamic baseline.",
+      "pc": "0x4037f000",
+      "instructionBudget": 10,
+      "codeBytesHex": "a40193a481936434eda4f4ed9435fdc4fffdb401aab481aab401bab481ba",
+      "initialRegisters": {
+        "a10": "0x3fca1000",
+        "a11": "0x3fca2000"
+      },
+      "initialMemory": [
+        {
+          "address": "0x3fca1000",
+          "bytesHex": "0724415e7b98b5d2ef0c294663809dbad7f4112e4b6885a2bfdcf91633506d8aa7c4e1fe1b3855728facc9e603203d5a7794b1ceeb0825425f7c99b6d3f00d2a"
+        },
+        {
+          "address": "0x3fca2000",
+          "bytesHex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "observeRegisters": ["a10", "a11"],
+      "observeMemory": [
+        {
+          "address": "0x3fca2000",
+          "length": 64
+        }
+      ],
+      "reference": {
+        "termination": "instructionBudgetReached",
+        "finalPc": "0x4037f01e",
+        "steps": 10,
+        "registers": {
+          "a10": "0x3fca1020",
+          "a11": "0x3fca2040"
+        },
+        "memory": [
+          {
+            "address": "0x3fca2000",
+            "bytesHex": "0724010e4b088582af0c290623000d8ad7f4112e4b6885a2bfdcf91633506d8ad0d0507030f0307050d0d05050d0f0302f2faf8fcf0fcf8faf2f2fafaf2f0fcf"
+          }
+        ],
+        "trace": [
+          {
+            "pc": "0x4037f000",
+            "width": 3,
+            "instructionBytesHex": "a40193"
+          },
+          {
+            "pc": "0x4037f003",
+            "width": 3,
+            "instructionBytesHex": "a48193"
+          },
+          {
+            "pc": "0x4037f006",
+            "width": 3,
+            "instructionBytesHex": "6434ed"
+          },
+          {
+            "pc": "0x4037f009",
+            "width": 3,
+            "instructionBytesHex": "a4f4ed"
+          },
+          {
+            "pc": "0x4037f00c",
+            "width": 3,
+            "instructionBytesHex": "9435fd"
+          },
+          {
+            "pc": "0x4037f00f",
+            "width": 3,
+            "instructionBytesHex": "c4fffd"
+          },
+          {
+            "pc": "0x4037f012",
+            "width": 3,
+            "instructionBytesHex": "b401aa"
+          },
+          {
+            "pc": "0x4037f015",
+            "width": 3,
+            "instructionBytesHex": "b481aa"
+          },
+          {
+            "pc": "0x4037f018",
+            "width": 3,
+            "instructionBytesHex": "b401ba"
+          },
+          {
+            "pc": "0x4037f01b",
+            "width": 3,
+            "instructionBytesHex": "b481ba"
+          }
+        ]
+      }
+    }
+  ]
+}
