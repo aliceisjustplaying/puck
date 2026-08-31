@@ -35,6 +35,24 @@ function kindFor(record: TraceRecord, index: number): NeutralTraceKind {
   throw new Error(`flexe trace record ${index} has unsupported kind ${record.kind}`);
 }
 
+function exactL32rPcs(decoded: DecodedTrace): ReadonlySet<number> {
+  const encodings = new Map<number, number>();
+  const pcs = new Set<number>();
+  for (const [index, record] of decoded.records.entries()) {
+    if (record.kind !== TRACE_KINDS.instruction) continue;
+    const previous = encodings.get(record.pc);
+    if (previous !== undefined && previous !== record.instruction) {
+      throw new Error(`flexe trace instruction PC 0x${record.pc.toString(16)} has inconsistent encodings`);
+    }
+    encodings.set(record.pc, record.instruction);
+    if (record.width === 3 && (record.instruction & 0xf) === 1) pcs.add(record.pc);
+    if (record.width !== 2 && record.width !== 3) {
+      throw new Error(`flexe trace instruction ${index} has unsupported width ${record.width}`);
+    }
+  }
+  return pcs;
+}
+
 export function adaptFlexeTraceToRuntimeTiming(
   decoded: DecodedTrace,
   provenance: FlexeTraceTimingProvenance,
@@ -45,20 +63,28 @@ export function adaptFlexeTraceToRuntimeTiming(
     options.instructionCpuCost,
     options.dependentSramLoadUseHazard,
   );
+  const l32rPcs = exactL32rPcs(decoded);
   const strictInstructionIdentity =
     options.storeBuffer !== undefined || options.dependentSramLoadUseHazard !== undefined;
   const observations = decoded.records.map((record, sequence) => {
     const kind = kindFor(record, sequence);
+    const literalLoad = kind === "read" && l32rPcs.has(record.pc);
     if (strictInstructionIdentity && kind !== "instruction" && record.instruction !== 0) {
       throw new Error(`flexe trace data record ${sequence} must not carry an instruction encoding`);
     }
-    const timingKind = kind === "instruction" ? "instruction-fetch" : kind === "read" ? "load" : "store";
+    const timingKind = kind === "instruction"
+      ? "instruction-fetch"
+      : literalLoad
+        ? "literal-load"
+        : kind === "read"
+          ? "load"
+          : "store";
     const isMemw =
       options.storeBuffer !== undefined &&
       kind === "instruction" &&
       record.width === 3 &&
       record.instruction === XTENSA_MEMW_INSTRUCTION_ENCODING;
-    const cpuCost = loadUseHazards.get(sequence)?.latency ?? options.instructionCpuCost;
+    const loadUseHazard = loadUseHazards.get(sequence);
     return Object.freeze({
       id: `trace:${sequence.toString().padStart(2, "0")}:${timingKind}`,
       sequence,
@@ -72,13 +98,26 @@ export function adaptFlexeTraceToRuntimeTiming(
               value: record.instruction,
               source: `flexe execution trace ABI v${decoded.abiVersion} instruction field`,
             }),
-            ...(cpuCost === undefined || isMemw
+            ...(options.instructionCpuCost === undefined || isMemw
               ? {}
               : {
-                  cpuCost: Object.freeze({ ...cpuCost }),
+                  cpuCost: Object.freeze({ ...options.instructionCpuCost }),
                 }),
+            ...(loadUseHazard === undefined
+              ? {}
+              : { preDataCpuCost: Object.freeze({ ...loadUseHazard.latency }) }),
           }
-        : { issuingInstructionAddress: BigInt(record.pc) }),
+        : {
+            issuingInstructionAddress: BigInt(record.pc),
+            ...(literalLoad
+              ? {
+                  extension: Object.freeze({
+                    kind: "literal-load" as const,
+                    source: `exact Xtensa L32R encoding at 0x${record.pc.toString(16)}`,
+                  }),
+                }
+              : {}),
+          }),
     });
   });
   const neutral: BoundedNeutralTrace = Object.freeze({

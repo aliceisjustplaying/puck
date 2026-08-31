@@ -33,6 +33,8 @@ export interface NeutralTraceObservation {
   readonly width: number;
   /** Instruction-only CPU duration. Omission becomes an explicit unknown cost. */
   readonly cpuCost?: EventLatency;
+  /** Optional CPU delay issued after this fetch and before any owned data. */
+  readonly preDataCpuCost?: EventLatency;
   /** Exact instruction word as reported by the bounded runtime trace. */
   readonly instructionEncoding?: Readonly<{
     readonly value: number;
@@ -168,6 +170,12 @@ function memoryObservation(
   if (observation.cpuCost !== undefined && observation.kind !== "instruction") {
     throw new Error(`${path}.cpuCost is only valid for an instruction observation`);
   }
+  if (observation.preDataCpuCost !== undefined) {
+    if (observation.kind !== "instruction") {
+      throw new Error(`${path}.preDataCpuCost is only valid for an instruction observation`);
+    }
+    validateLatency(observation.preDataCpuCost, `${path}.preDataCpuCost`);
+  }
   if (observation.cpuCost?.status === "unknown") {
     requireNonEmpty(observation.cpuCost.source, `${path}.cpuCost.source`);
   }
@@ -238,6 +246,16 @@ function cpuEventFor(
     core: observation.core,
     instructionAccessId: observation.id,
     latency,
+  });
+}
+
+function preDataCpuEventFor(observation: NeutralTraceObservation): CpuExecutionEvent {
+  return Object.freeze({
+    id: `${observation.id}:pre-data-cpu`,
+    kind: "cpu",
+    core: observation.core,
+    instructionAccessId: observation.id,
+    latency: Object.freeze({ ...observation.preDataCpuCost! }),
   });
 }
 
@@ -385,6 +403,7 @@ export function adaptNeutralTimingTrace(
     kind: "fence";
     event: TimingMachineFence;
   }>>();
+  const preDataEventAfterSequence = new Map<number, CpuExecutionEvent>();
   const pending: Array<Readonly<{
     closing: Readonly<{ kind: "cpu"; event: CpuExecutionEvent }> | Readonly<{
       kind: "fence";
@@ -417,6 +436,12 @@ export function adaptNeutralTimingTrace(
         instructionAddress: observation.neutral.address,
         lastMemorySequence: observation.sequence,
       });
+      if (observation.neutral.preDataCpuCost !== undefined) {
+        preDataEventAfterSequence.set(
+          observation.sequence,
+          preDataCpuEventFor(observation.neutral),
+        );
+      }
       continue;
     }
     const current = pending[core];
@@ -448,6 +473,8 @@ export function adaptNeutralTimingTrace(
     } else {
       recorder.recordDma(observation.event);
     }
+    const preData = preDataEventAfterSequence.get(observation.sequence);
+    if (preData !== undefined) recorder.recordCpu(preData);
     const closing = eventAfterSequence.get(observation.sequence);
     if (closing?.kind === "cpu") recorder.recordCpu(closing.event);
     if (closing?.kind === "fence") recorder.recordFence(closing.event);

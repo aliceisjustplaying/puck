@@ -222,13 +222,15 @@ not enable this mode, so its event accounting and unknown-cost boundary remain
 unchanged.
 
 Dependent internal-SRAM load-use replay is separately opt-in. The caller must
-provide the exact SRAM range, the one-cycle measured hazard cost, and a known
-instruction issue cost. `flexe-load-use.ts` then requires a complete trace,
+provide one exact SRAM range or an ordered list of exact non-overlapping ranges,
+the one-cycle measured hazard cost, and a known instruction issue cost.
+`flexe-load-use.ts` then requires a complete trace,
 matches every data record to its instruction by the ABI issuer PC, decodes a
 bounded set of scalar load destinations and immediate consumer source
 registers, and adds one cycle only on an exact register dependency. Unsupported
 register forms, nonsequential successors, multi-access load instructions, and
-range-crossing accesses are refused. The default bridge remains unchanged.
+accesses that enter an undeclared range gap are refused. The default bridge
+remains unchanged.
 
 The replay uses the gate-harness sdkconfig at SHA-256
 `ac1749b0f5b9c54e3e8e5ffc045b37a434d6b289420a8f9cf0f37fe8a3173d9b`:
@@ -309,13 +311,14 @@ first undeclared 32-bit MMIO read at
 `0x600c4064` with flags zero. No cache or MMIO behavior is implied.
 
 An explicit cache-bootstrap run maps only the required cache-controller MMIO
-page and accepts nine exact cache ROM invocations across seven callback
+page and accepts 11 exact cache ROM invocations across nine callback
 addresses. The callbacks validate their
 argument shapes and cache state transitions, retain typed ROM events outside
 the instruction trace, and configure the observed 16 KiB, 8-way, 32-byte-line
-instruction-cache mode, suspends the data cache, and configures its observed
-32 KiB, 8-way, 64-byte-line mode. The real entry advances through 216 decoded
-instructions and stops at `rom_Cache_Resume_DCache` at `0x400018c0`.
+instruction-cache mode, suspend and resume the data cache around its observed
+32 KiB, 8-way, 64-byte-line mode, and install the observed instruction and
+data MMU sizes. The real entry advances through 238 decoded instructions and
+stops before an undeclared read of `SYSTEM_SYSCLK_CONF_REG` at `0x600c0060`.
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 256 executed instructions. The pinned TinyDraw ELF
@@ -333,18 +336,24 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 216-step
-cache-bootstrap boundary produces 297 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 238-step
+cache-bootstrap boundary produces 325 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
 same neutral adapter and `TimingMachine` used by the RGB565 replay. Its address
-map contains only the six SRAM pages observed in the trace, with their ELF or
-inherited permissions, plus the explicitly modeled cache-controller MMIO page.
-The 297 records issue 513 timing events: 270 SRAM operations, 27 MMIO accesses,
-and 216 calibrated CPU issue events. Exactly 270 events have adopted costs.
-The 216 internal-IRAM fetch costs and 27 cache-controller MMIO costs remain
-unknown, so the replay is blocked and reports no total cycle claim.
+map contains only the seven SRAM pages and two flash pages observed in the
+trace, with their ELF or inherited permissions, plus the explicitly modeled
+cache-controller MMIO page. Those seven exact 4 KiB SRAM ranges opt into the
+measured one-cycle dependent load-use hazard without classifying their gaps.
+Exact three-byte `L32R` encodings classify their owned reads as instruction-side
+literal loads. The 325 records issue 590 timing events: 301 memory-system
+events, 27 MMIO accesses, 238 calibrated CPU issue events, and 24 calibrated
+dependent load-use events. Exactly 285 events have adopted costs, including
+three flash line fills. The baseline pins the hazard count and a projection hash
+of their schedule, consumer IDs, registers, and producer/consumer PCs. The 238
+instruction fetch hits, 40 literal-load hits, and 27 cache-controller MMIO costs
+remain unknown, so the replay is blocked and reports no total cycle claim.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
 page count, bounded trace, unsupported-instruction refusal, and first stop,
