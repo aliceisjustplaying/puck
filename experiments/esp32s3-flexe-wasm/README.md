@@ -177,10 +177,12 @@ slow/MMIO path is unchanged.
 
 ## TimingMachine replay experiment
 
-`timing-replay-test.ts` decodes the 53-record binary trace again and turns
-every instruction into an instruction fetch and every data record into a load
-or store. It submits that exact single-core order to the ESP32-S3 pack's
-unchanged `TimingMachine`. The generated
+`trace-timing-adapter.ts` is the experiment-only bridge from the flexe ABI to
+the ESP32-S3 pack's bounded neutral trace adapter. It supplies the ABI's
+instruction PC or data address explicitly, preserves all 53 records in their
+single-core observation order, and classifies every instruction as a fetch and
+every data record as a load or store. `timing-replay-test.ts` submits the
+resulting `RuntimeTimingTrace` to the pack's `TimingMachine`. The generated
 `dist/rgb565-timing-replay.json` exposes address resolution, physical backing,
 cache emission, resource, cost provenance, and execution status for each trace
 record.
@@ -197,8 +199,8 @@ The replay resolves all 43 instruction fetches, five loads, and five stores.
 It emits 44 instruction-cache hits, two line fills on MSPI, and ten SRAM bypass
 events. There are 44 hit emissions because the three-byte instruction at
 `0x420d4e1e` crosses the 32-byte cache-line boundary and touches both lines.
-The per-record evidence SHA-256 is
-`33f124d74e42944bb6901970c6c1cf674b92f5b78a579bc82963b6b33edc2462`.
+The path-independent per-record evidence SHA-256 is
+`c96fcf5fd90682a6565f3690e24868f95f11199d6c65f9c9333e045fbbab3a49`.
 
 The timing profile supplies no adopted instruction-cache, line-fill, or SRAM
 cycle costs. Every one of the 56 issued costs stays explicitly unknown, the

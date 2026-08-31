@@ -1,0 +1,50 @@
+import { adaptFlexeTraceToRuntimeTiming } from "./trace-timing-adapter";
+import {
+  TRACE_ABI_VERSION,
+  TRACE_HEADER_BYTES,
+  TRACE_KINDS,
+  TRACE_RECORD_BYTES,
+  type DecodedTrace,
+} from "./trace-abi";
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+const decoded: DecodedTrace = {
+  abiVersion: TRACE_ABI_VERSION,
+  headerBytes: TRACE_HEADER_BYTES,
+  recordBytes: TRACE_RECORD_BYTES,
+  count: 3,
+  capacity: 8,
+  overflow: false,
+  records: [
+    { kind: TRACE_KINDS.instruction, pc: 0x42000000, address: 0, value: 0, width: 3, instruction: 0x123456 },
+    { kind: TRACE_KINDS.read, pc: 0x42000003, address: 0x3fca1000, value: 0x1234, width: 2, instruction: 0 },
+    { kind: TRACE_KINDS.write, pc: 0x42000006, address: 0x3fca2000, value: 0x3412, width: 2, instruction: 0 },
+  ],
+};
+const sha256 = "b".repeat(64);
+const trace = adaptFlexeTraceToRuntimeTiming(decoded, {
+  source: "synthetic flexe trace",
+  sha256,
+  core: 1,
+});
+const accesses = trace.input.cores[1];
+assert(trace.input.cores[0].length === 0, "flexe bridge invented core 0 activity");
+assert(accesses.length === 3, "flexe bridge omitted a trace record");
+assert(
+  JSON.stringify(accesses.map((access) => [access.id, access.kind, access.address.toString(16), access.bytes])) ===
+    JSON.stringify([
+      ["trace:00:instruction-fetch", "instruction-fetch", "42000000", 3],
+      ["trace:01:load", "load", "3fca1000", 2],
+      ["trace:02:store", "store", "3fca2000", 2],
+    ]),
+  "flexe bridge changed the ABI record accounting",
+);
+assert(trace.provenance?.digest?.value === sha256, "flexe bridge lost the trace digest");
+assert(trace.provenance.bounds.capacity === 8, "flexe bridge lost the trace capacity");
+assert(trace.claim.coverage === "caller-reported-events-only", "flexe bridge overclaimed coverage");
+assert(trace.claim.cycleAccurate === false, "flexe bridge made a cycle claim");
+
+console.log(JSON.stringify({ records: accesses.length, core: 1, sha256 }));

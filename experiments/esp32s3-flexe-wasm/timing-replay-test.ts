@@ -5,16 +5,14 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { AddressMapConfiguration, AddressRegion, VirtualMemoryAccess } from "../../packs/esp32-s3-touch-amoled-18/timing/address-map";
+import type { AddressMapConfiguration, AddressRegion } from "../../packs/esp32-s3-touch-amoled-18/timing/address-map";
 import {
   ESP32_S3_CACHE_BANK_TOPOLOGY,
   type CacheConfiguration,
   type CacheLatency
 } from "../../packs/esp32-s3-touch-amoled-18/timing/cache";
-import {
-  runTimingMachine,
-  type TimingMachineConfiguration
-} from "../../packs/esp32-s3-touch-amoled-18/timing/machine";
+import type { TimingMachineConfiguration } from "../../packs/esp32-s3-touch-amoled-18/timing/machine";
+import { runRuntimeTimingTrace } from "../../packs/esp32-s3-touch-amoled-18/timing/runtime-trace";
 import {
   ESP32_S3_EXTERNAL_WINDOWS,
   ESP32_S3_IDF_V6_0_2_MMU_METADATA,
@@ -26,13 +24,16 @@ import {
 } from "../../packs/esp32-s3-touch-amoled-18/timing/mmu";
 import { DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF } from "./constants";
 import { sha256 } from "./lib";
-import { TRACE_KINDS, decodeTraceBytes, type TraceRecord } from "./trace-abi";
+import { TRACE_KINDS, decodeTraceBytes, type DecodedTrace } from "./trace-abi";
+import { adaptFlexeTraceToRuntimeTiming } from "./trace-timing-adapter";
 
 const TRACE_SHA256 = "ae24fd0b6d4e84dcbbad7e393c0be39058e5a04b2386f099bde1e0127103b9b4";
 const TRACE_CAPACITY = 128;
 const SRAM_BASE = 0x3fca0000n;
 const SRAM_SIZE = 0x10000n;
 const EXPERIMENT_FLASH_PHYSICAL_PAGE = 0;
+const TRACE_PROVENANCE_SOURCE = "experiments/esp32s3-flexe-wasm/dist/rgb565-execution-trace.bin";
+const TIMING_PROFILE_SOURCE = "packs/esp32-s3-touch-amoled-18/timing.json";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -42,33 +43,16 @@ function hex(value: number | bigint): string {
   return `0x${value.toString(16)}`;
 }
 
-function decodeTrace(bytes: Uint8Array): TraceRecord[] {
+function decodeTrace(bytes: Uint8Array): DecodedTrace {
   assert(createHash("sha256").update(bytes).digest("hex") === TRACE_SHA256, "RGB565 binary trace changed");
   const decoded = decodeTraceBytes(bytes, TRACE_CAPACITY);
   assert(!decoded.overflow, "complete RGB565 trace is marked overflowed");
   assert(decoded.count === 53, `expected 53 trace records, got ${decoded.count}`);
-  const records = [...decoded.records];
+  const records = decoded.records;
   assert(records.filter((record) => record.kind === TRACE_KINDS.instruction).length === 43, "trace lost an instruction fetch");
   assert(records.filter((record) => record.kind === TRACE_KINDS.read).length === 5, "trace lost a source read");
   assert(records.filter((record) => record.kind === TRACE_KINDS.write).length === 5, "trace lost a destination write");
-  return records;
-}
-
-function accessFor(record: TraceRecord, index: number): VirtualMemoryAccess {
-  const kind =
-    record.kind === TRACE_KINDS.instruction
-      ? "instruction-fetch"
-      : record.kind === TRACE_KINDS.read
-        ? "load"
-        : "store";
-  const address = record.kind === TRACE_KINDS.instruction ? record.pc : record.address;
-  return Object.freeze({
-    id: `trace:${index.toString().padStart(2, "0")}:${kind}`,
-    core: 0 as const,
-    kind,
-    address: BigInt(address),
-    bytes: record.width
-  });
+  return decoded;
 }
 
 function unknownCost(component: string, source: string): CacheLatency {
@@ -88,7 +72,8 @@ const timingMachinePath = join(here, "../../packs/esp32-s3-touch-amoled-18/timin
 const mmuPath = join(here, "../../packs/esp32-s3-touch-amoled-18/timing/mmu.ts");
 const cachePath = join(here, "../../packs/esp32-s3-touch-amoled-18/timing/cache.ts");
 const sdkconfigPath = join(dirname(DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF), "sdkconfig");
-const trace = decodeTrace(new Uint8Array(await Bun.file(tracePath).arrayBuffer()));
+const decodedTrace = decodeTrace(new Uint8Array(await Bun.file(tracePath).arrayBuffer()));
+const trace = decodedTrace.records;
 const timingProfile = JSON.parse(readFileSync(timingProfilePath, "utf8"));
 assert(timingProfile.claimBoundary?.cycleAccurate === false, "timing profile claim boundary changed");
 
@@ -140,7 +125,7 @@ const addressMap: AddressMapConfiguration = Object.freeze({
   regions: Object.freeze([...externalMap.regions, sramRegion].sort((left, right) => (left.base < right.base ? -1 : 1)))
 });
 
-const costSource = `timing profile ${timingProfilePath} SHA-256 ${sha256(timingProfilePath)}`;
+const costSource = `timing profile ${TIMING_PROFILE_SOURCE} SHA-256 ${sha256(timingProfilePath)}`;
 const cache: CacheConfiguration = Object.freeze({
   addressBits: 32,
   metadata: Object.freeze({
@@ -191,16 +176,19 @@ const machineConfig: TimingMachineConfiguration = Object.freeze({
   cache,
   mmioCost: () => unknownCost("MMIO access", costSource)
 });
-const accesses = trace.map(accessFor);
-const machine = runTimingMachine(machineConfig, {
-  cores: [accesses, []],
-  architecturalInterleave: accesses.map((access) => access.id),
-  dma: []
+const runtimeTrace = adaptFlexeTraceToRuntimeTiming(decodedTrace, {
+  source: TRACE_PROVENANCE_SOURCE,
+  sha256: TRACE_SHA256,
+  core: 0
 });
+const accesses = runtimeTrace.input.cores[0];
+const machine = runRuntimeTimingTrace(machineConfig, runtimeTrace);
 
 assert(machine.status === "blocked", `expected unknown costs to block timing, got ${machine.status}`);
 assert(machine.claim.architectureCalibration === "uncalibrated", "replay architecture became calibrated");
 assert(machine.claim.costCalibration === "unknown", "replay costs became calibrated without evidence");
+assert(machine.claim.coverage === "caller-reported-events-only", "replay overclaimed trace coverage");
+assert(machine.claim.cycleAccurate === false, "replay acquired a cycle-accurate claim");
 assert(machine.cores[0].status === "complete", "trace address resolution faulted");
 assert(machine.cores[0].accesses.length === trace.length, "TimingMachine omitted a trace access");
 assert(machine.cores[1].accesses.length === 0, "replay invented core 1 activity");
@@ -336,7 +324,10 @@ const report = {
     totalCycles: null,
     reason: actualBaseline.summary.totalCyclesReason
   },
-  provenance: actualBaseline.inputs,
+  provenance: {
+    inputs: actualBaseline.inputs,
+    runtimeTrace: runtimeTrace.provenance
+  },
   configuration: {
     ...actualBaseline.configuration,
     flashPhysicalPageClaim: "experiment route only, not an observed hardware MMU snapshot",

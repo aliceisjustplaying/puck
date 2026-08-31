@@ -1,0 +1,245 @@
+import { describe, expect, test } from "bun:test";
+import type { AddressMapConfiguration } from "./address-map";
+import {
+  ESP32_S3_CACHE_BANK_TOPOLOGY,
+  type CacheConfiguration,
+  type CacheLatency,
+} from "./cache";
+import type { DmaEvent } from "./execution";
+import type { TimingMachineConfiguration } from "./machine";
+import { runRuntimeTimingTrace } from "./runtime-trace";
+import {
+  adaptNeutralTimingTrace,
+  type BoundedNeutralTrace,
+  type NeutralTraceObservation,
+} from "./trace-adapter";
+
+const DIGEST = "a".repeat(64);
+
+function observation(
+  id: string,
+  sequence: number,
+  core: 0 | 1,
+  kind: NeutralTraceObservation["kind"],
+  address: bigint,
+  width: number,
+): NeutralTraceObservation {
+  return { id, sequence, core, kind, address, width };
+}
+
+function neutral(observations: readonly NeutralTraceObservation[]): BoundedNeutralTrace {
+  return {
+    schemaVersion: 1,
+    capacity: observations.length,
+    overflow: false,
+    provenance: {
+      source: "synthetic-neutral-trace",
+      format: "synthetic-v1",
+      digest: { algorithm: "sha256", value: DIGEST },
+    },
+    observations,
+  };
+}
+
+function unknown(component: string): CacheLatency {
+  return {
+    status: "unknown",
+    reason: `${component} has no adopted cost`,
+    source: "synthetic-unknown-costs",
+  };
+}
+
+function configuration(): TimingMachineConfiguration {
+  const addressMap: AddressMapConfiguration = {
+    addressBits: 32,
+    metadata: { architectureCalibration: "uncalibrated", source: "synthetic-map" },
+    regions: [{
+      id: "sram",
+      base: 0x1000n,
+      size: 0x1000n,
+      kind: "sram",
+      permissions: { read: true, write: true, execute: true },
+      cacheability: "uncached",
+      physical: { backingId: "sram", offset: 0n },
+    }],
+  };
+  const cache: CacheConfiguration = {
+    addressBits: 32,
+    metadata: { architectureCalibration: "uncalibrated", source: "synthetic-cache" },
+    topology: ESP32_S3_CACHE_BANK_TOPOLOGY,
+    instruction: {
+      lineSizeBytes: 16,
+      sets: 1,
+      ways: 1,
+      replacement: "least-recently-used",
+      writePolicy: "read-only",
+    },
+    data: {
+      lineSizeBytes: 16,
+      sets: 1,
+      ways: 1,
+      replacement: "least-recently-used",
+      writePolicy: "write-back",
+      allocateOnStoreMiss: true,
+      dirtyInvalidate: "writeback",
+    },
+    costs: {
+      hit: {
+        instructionFetch: unknown("instruction hit"),
+        load: unknown("load hit"),
+        store: unknown("store hit"),
+      },
+      lineFill: unknown("line fill"),
+      dirtyWriteback: unknown("writeback"),
+      writeThrough: unknown("write through"),
+      uncached: {
+        instructionFetch: unknown("uncached instruction"),
+        load: unknown("uncached load"),
+        store: unknown("uncached store"),
+      },
+      sram: {
+        instructionFetch: unknown("SRAM instruction"),
+        load: unknown("SRAM load"),
+        store: unknown("SRAM store"),
+      },
+      maintenance: unknown("maintenance"),
+    },
+  };
+  return { addressMap, cache, mmioCost: () => unknown("MMIO") };
+}
+
+function dma(): DmaEvent {
+  return {
+    id: "panel-dma",
+    kind: "dma",
+    channel: "panel",
+    earliest: { cycle: 0n, calibration: "uncalibrated", source: "caller DMA readiness" },
+    source: { kind: "memory", memory: "sram" },
+    destination: { kind: "mmio", peripheral: "panel" },
+    bytes: 64,
+    latency: { status: "unknown", reason: "caller supplied no DMA cost" },
+  };
+}
+
+describe("bounded neutral timing trace adapter", () => {
+  test("preserves explicit two-core streams, total order, IDs, and provenance", () => {
+    const trace = adaptNeutralTimingTrace(neutral([
+      observation("core-1-write", 2, 1, "write", 0x1104n, 2),
+      observation("core-1-read", 0, 1, "read", 0x1100n, 4),
+      observation("core-0-instruction", 1, 0, "instruction", 0x1000n, 3),
+    ]));
+
+    expect(trace.input.cores.map((core) => core.map((access) => access.id))).toEqual([
+      ["core-0-instruction"],
+      ["core-1-read", "core-1-write"],
+    ]);
+    expect(trace.input.architecturalInterleave).toEqual([
+      "core-1-read",
+      "core-0-instruction",
+      "core-1-write",
+    ]);
+    expect(trace.observationOrder).toEqual([
+      { sequence: 0, kind: "memory", accessId: "core-1-read" },
+      { sequence: 1, kind: "memory", accessId: "core-0-instruction" },
+      { sequence: 2, kind: "memory", accessId: "core-1-write" },
+    ]);
+    expect(trace.provenance).toEqual({
+      source: "synthetic-neutral-trace",
+      format: "synthetic-v1",
+      digest: { algorithm: "sha256", value: DIGEST },
+      bounds: { capacity: 3, observed: 3, overflow: false },
+      extensions: [],
+    });
+    expect(trace.claim).toMatchObject({
+      coverage: "caller-reported-events-only",
+      cycleAccurate: false,
+      countsOnlyInstrumentedEvents: true,
+    });
+  });
+
+  test("rejects duplicate and gapped total observation order", () => {
+    expect(() => adaptNeutralTimingTrace(neutral([
+      observation("a", 0, 0, "read", 0x1000n, 4),
+      observation("b", 0, 1, "read", 0x1004n, 4),
+    ]))).toThrow("neutral trace total observation order must contain sequence 1 exactly once");
+    expect(() => adaptNeutralTimingTrace(neutral([
+      observation("a", 1, 0, "read", 0x1000n, 4),
+    ]))).toThrow("neutral trace total observation order must contain sequence 0 exactly once");
+  });
+
+  test("retains overflow and refuses records beyond the declared bound", () => {
+    const bounded = {
+      ...neutral([observation("only", 0, 0, "read", 0x1000n, 4)]),
+      overflow: true,
+    };
+    expect(adaptNeutralTimingTrace(bounded).provenance?.bounds).toEqual({
+      capacity: 1,
+      observed: 1,
+      overflow: true,
+    });
+    expect(() => adaptNeutralTimingTrace({ ...bounded, capacity: 0 })).toThrow(
+      "neutral trace observed 1 records beyond capacity 0",
+    );
+  });
+
+  test("rejects unsupported kinds and widths at the neutral boundary", () => {
+    expect(() => adaptNeutralTimingTrace(neutral([
+      observation("bad-kind", 0, 0, "maintenance" as NeutralTraceObservation["kind"], 0x1000n, 4),
+    ]))).toThrow("neutral trace observations[0].kind must be instruction, read, or write");
+    expect(() => adaptNeutralTimingTrace(neutral([
+      observation("bad-instruction", 0, 0, "instruction", 0x1000n, 4),
+    ]))).toThrow("neutral trace observations[0].width 4 is unsupported for instruction");
+    expect(() => adaptNeutralTimingTrace(neutral([
+      observation("bad-data", 0, 0, "read", 0x1000n, 3),
+    ]))).toThrow("neutral trace observations[0].width 3 is unsupported for read");
+  });
+
+  test("keeps literal loads behind a caller-sourced read extension", () => {
+    const ordinary = observation("ordinary", 0, 0, "read", 0x1000n, 4);
+    const literal: NeutralTraceObservation = {
+      ...observation("literal", 1, 0, "read", 0x1004n, 4),
+      extension: { kind: "literal-load", source: "caller decoder classification" },
+    };
+    const trace = adaptNeutralTimingTrace(neutral([ordinary, literal]));
+    expect(trace.input.cores[0].map((access) => access.kind)).toEqual(["load", "literal-load"]);
+    expect(trace.provenance?.extensions).toEqual([{
+      accessId: "literal",
+      kind: "literal-load",
+      source: "caller decoder classification",
+    }]);
+
+    expect(() => adaptNeutralTimingTrace(neutral([{
+      ...observation("instruction", 0, 0, "instruction", 0x1000n, 2),
+      extension: { kind: "literal-load", source: "invalid extension" },
+    }]))).toThrow("neutral trace observations[0] literal-load extension requires a read observation");
+  });
+
+  test("coexists with explicitly ordered DMA without inventing a transfer", () => {
+    const trace = adaptNeutralTimingTrace(neutral([
+      observation("before", 0, 0, "read", 0x1000n, 4),
+      observation("after", 2, 1, "write", 0x1004n, 4),
+    ]), [{ sequence: 1, event: dma() }]);
+    expect(trace.input.dma.map((event) => event.id)).toEqual(["panel-dma"]);
+    expect(trace.input.issueOrder).toEqual([
+      { kind: "memory", accessId: "before" },
+      { kind: "dma", eventId: "panel-dma" },
+      { kind: "memory", accessId: "after" },
+    ]);
+    expect(trace.observationOrder.map((entry) => entry.kind)).toEqual(["memory", "dma", "memory"]);
+  });
+
+  test("retains unknown costs and refuses cycle claims", () => {
+    const trace = adaptNeutralTimingTrace(neutral([
+      observation("fetch", 0, 0, "instruction", 0x1000n, 2),
+      observation("read", 1, 0, "read", 0x1004n, 4),
+      observation("write", 2, 0, "write", 0x1008n, 4),
+    ]));
+    const result = runRuntimeTimingTrace(configuration(), trace);
+    expect(result.status).toBe("blocked");
+    expect(result.claim.costCalibration).toBe("unknown");
+    expect(result.claim.cycleAccurate).toBe(false);
+    expect(result.claim.coverage).toBe("caller-reported-events-only");
+    expect(result.claim.unknownCostEventIds).toHaveLength(3);
+    expect(result.provenance).toEqual(trace.provenance);
+  });
+});

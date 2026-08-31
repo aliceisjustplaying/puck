@@ -43,6 +43,6 @@
     "mspiEvents": 2,
     "totalCycles": null,
     "totalCyclesReason": "all cache and SRAM latency costs remain unadopted",
-    "perRecordSha256": "33f124d74e42944bb6901970c6c1cf674b92f5b78a579bc82963b6b33edc2462"
+    "perRecordSha256": "c96fcf5fd90682a6565f3690e24868f95f11199d6c65f9c9333e045fbbab3a49"
   }
 }

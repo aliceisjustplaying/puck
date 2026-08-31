@@ -18,6 +18,7 @@ requireSuccess(run([process.execPath, join(here, "run.ts")], here));
 requireSuccess(run([process.execPath, join(here, "puck-loader-test.ts")], here));
 requireSuccess(run([process.execPath, join(here, "elf-image-test.ts")], here));
 requireSuccess(run([process.execPath, join(here, "trace-abi-test.ts")], here));
+requireSuccess(run([process.execPath, join(here, "trace-timing-adapter-test.ts")], here));
 requireSuccess(run([process.execPath, join(here, "dynamic-runner-test.ts")], here));
 requireSuccess(run([process.execPath, join(here, "timing-replay-test.ts")], here));
 requireSuccess(run([process.execPath, join(here, "freestanding-blocker.ts")], here));

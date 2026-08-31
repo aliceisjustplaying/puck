@@ -37,15 +37,36 @@ export interface RuntimeTimingClaim {
   readonly hostTraceTimeIsSimulatedTime: false;
 }
 
+export interface RuntimeTraceProvenance {
+  readonly source: string;
+  readonly format: string;
+  readonly digest: Readonly<{
+    algorithm: "sha256";
+    value: string;
+  }> | null;
+  readonly bounds: Readonly<{
+    capacity: number;
+    observed: number;
+    overflow: boolean;
+  }>;
+  readonly extensions: readonly Readonly<{
+    accessId: string;
+    kind: "literal-load";
+    source: string;
+  }>[];
+}
+
 export interface RuntimeTimingTrace {
   readonly schemaVersion: 1;
   readonly claim: Readonly<RuntimeTimingClaim>;
+  readonly provenance?: Readonly<RuntimeTraceProvenance>;
   readonly observationOrder: readonly RuntimeTraceObservation[];
   readonly input: TimingMachineInput;
 }
 
 export interface RuntimeTimingResult extends Omit<TimingMachineResult, "claim"> {
   readonly claim: TimingMachineClaim & RuntimeTimingClaim;
+  readonly provenance?: Readonly<RuntimeTraceProvenance>;
   readonly observationOrder: readonly RuntimeTraceObservation[];
 }
 
@@ -129,10 +150,18 @@ export class RuntimeTimingTraceRecorder {
     });
   }
 
-  recordMemory(observation: RuntimeMemoryObservation): string {
+  recordMemory(observation: RuntimeMemoryObservation, suppliedId?: string): string {
     validateMemoryObservation(observation);
-    const id = `runtime-access:${this.#nextAccessId}`;
-    this.#nextAccessId += 1;
+    let id = suppliedId === undefined
+      ? `runtime-access:${this.#nextAccessId}`
+      : requireNonEmpty(suppliedId, "runtime memory access id");
+    if (suppliedId === undefined) {
+      while (this.#ids.has(id)) {
+        this.#nextAccessId += 1;
+        id = `runtime-access:${this.#nextAccessId}`;
+      }
+      this.#nextAccessId += 1;
+    }
     if (this.#ids.has(id)) throw new Error(`runtime trace event id ${id} is already in use`);
     this.#ids.add(id);
     const access: VirtualMemoryAccess = Object.freeze({
@@ -217,6 +246,14 @@ export function runRuntimeTimingTrace(
   if (!Array.isArray(trace.input.issueOrder)) {
     throw new Error("runtime timing trace input.issueOrder is required");
   }
+  if (trace.provenance !== undefined) {
+    if (typeof trace.provenance !== "object" || trace.provenance === null) {
+      throw new Error("runtime timing trace provenance must be an object");
+    }
+    if (trace.provenance.source !== trace.claim.source) {
+      throw new Error("runtime timing trace provenance.source must match claim.source");
+    }
+  }
   if (trace.observationOrder.length !== trace.input.issueOrder.length) {
     throw new Error("runtime timing trace observationOrder and input.issueOrder lengths must match");
   }
@@ -256,6 +293,7 @@ export function runRuntimeTimingTrace(
   return Object.freeze({
     ...machine,
     claim,
+    ...(trace.provenance === undefined ? {} : { provenance: trace.provenance }),
     observationOrder: Object.freeze(
       trace.observationOrder.map((observation) => Object.freeze({ ...observation })),
     ),
