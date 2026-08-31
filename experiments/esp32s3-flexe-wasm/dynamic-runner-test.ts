@@ -278,7 +278,8 @@ const objdumpVersion = run([DEFAULT_ESP32S3_OBJDUMP, "--version"]);
 requireSuccess(objdumpVersion);
 const patchPaths = {
   runner: join(import.meta.dir, "patches/0001-add-wasi-probe.patch"),
-  freestanding: join(import.meta.dir, "patches/0002-add-freestanding-shim.patch")
+  freestanding: join(import.meta.dir, "patches/0002-add-freestanding-shim.patch"),
+  machine: join(import.meta.dir, "patches/0003-add-s3-machine-runner.patch")
 };
 const baseline = JSON.parse(readFileSync(join(import.meta.dir, "esp32s3-dynamic-baseline.json"), "utf8"));
 const actualBaseline = {
@@ -286,6 +287,7 @@ const actualBaseline = {
     flexeCommit: FLEXE_COMMIT,
     runnerPatchSha256: sha256(patchPaths.runner),
     freestandingPatchSha256: sha256(patchPaths.freestanding),
+    machinePatchSha256: sha256(patchPaths.machine),
     moduleBytes: statSync(modulePath).size,
     moduleSha256,
     objdumpSha256: sha256(DEFAULT_ESP32S3_OBJDUMP),
@@ -349,7 +351,8 @@ const report = {
       freestanding: {
         path: patchPaths.freestanding,
         sha256: actualBaseline.inputs.freestandingPatchSha256
-      }
+      },
+      machine: { path: patchPaths.machine, sha256: actualBaseline.inputs.machinePatchSha256 }
     },
     zig: { executable: process.env.ZIG_EXE ?? "zig", version: commandVersion(process.env.ZIG_EXE ?? "zig") },
     module: {

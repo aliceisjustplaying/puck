@@ -28,11 +28,12 @@ try {
 
   const patches = [
     join(here, "patches", "0001-add-wasi-probe.patch"),
-    join(here, "patches", "0002-add-freestanding-shim.patch")
+    join(here, "patches", "0002-add-freestanding-shim.patch"),
+    join(here, "patches", "0003-add-s3-machine-runner.patch")
   ];
   for (const patch of patches) {
-    requireSuccess(run(["git", "apply", "--check", patch], stage));
-    requireSuccess(run(["git", "apply", patch], stage));
+    requireSuccess(run(["git", "apply", "--recount", "--check", patch], stage));
+    requireSuccess(run(["git", "apply", "--recount", patch], stage));
   }
 
   mkdirSync(output, { recursive: true });
@@ -44,7 +45,8 @@ try {
     "-Isrc",
     "src/xtensa.c",
     "src/memory.c",
-    "src/wasm_probe.c"
+    "src/wasm_probe.c",
+    "src/wasm_machine.c"
   ];
 
   requireSuccess(
@@ -70,6 +72,13 @@ try {
         "-Wl,--export=flexe_wasm_data_output",
         "-Wl,--export=flexe_wasm_data_capacity",
         "-Wl,--export=flexe_wasm_run_data",
+        "-Wl,--export=flexe_wasm_machine_input",
+        "-Wl,--export=flexe_wasm_machine_input_capacity",
+        "-Wl,--export=flexe_wasm_machine_reset",
+        "-Wl,--export=flexe_wasm_machine_map",
+        "-Wl,--export=flexe_wasm_machine_load",
+        "-Wl,--export=flexe_wasm_machine_begin",
+        "-Wl,--export=flexe_wasm_machine_run",
         "-Wl,--export-memory",
         "-Wl,--strip-all",
         "-o",
@@ -99,6 +108,13 @@ try {
         "-Wl,--export=flexe_wasm_data_output",
         "-Wl,--export=flexe_wasm_data_capacity",
         "-Wl,--export=flexe_wasm_run_data",
+        "-Wl,--export=flexe_wasm_machine_input",
+        "-Wl,--export=flexe_wasm_machine_input_capacity",
+        "-Wl,--export=flexe_wasm_machine_reset",
+        "-Wl,--export=flexe_wasm_machine_map",
+        "-Wl,--export=flexe_wasm_machine_load",
+        "-Wl,--export=flexe_wasm_machine_begin",
+        "-Wl,--export=flexe_wasm_machine_run",
         "-Wl,--export-memory",
         "-Wl,--strip-all",
         "-o",

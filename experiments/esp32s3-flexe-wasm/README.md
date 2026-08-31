@@ -89,6 +89,27 @@ real named TinyDraw PIE kernel, not a linear decode from a literal pool.
 
 ## Dynamic ELF execution
 
+`machine-runner.ts` loads every `PT_LOAD` segment from a complete caller-owned
+ESP32-S3 ELF into sparse pages, establishes the ESP-IDF v6.0.2 ROM boot stack,
+and runs from the ELF entry with a strict step bound. It models only the 99
+interrupt-map registers and four EXTMEM and assist-debug registers exercised by
+the early boot path. Unknown memory, MMIO, and ROM calls produce versioned stop
+records.
+
+The sole ROM API behavior is `esp_rom_get_reset_reason(int)`. ESP-IDF v6.0.2
+aliases it to `rtc_get_reset_reason` at `0x4000057c`; its Linux ROM shim returns
+`RESET_REASON_CHIP_POWER_ON`, value 1. The runner services the entry's calls for
+CPU 0 and CPU 1 through the call8 ABI. On the current real TinyDraw panel-probe
+ELF, flexe executes 19 decoded instructions, records two reset-reason events,
+and stops before the next unloaded ROM function, `memset` at `0x400011e8`.
+No ROM bytes, MMU reset mappings, or cycle costs are inferred.
+
+```text
+bun run experiments/esp32s3-flexe-wasm/machine-runner.ts \
+  experiments/esp32s3-flexe-wasm/dist/flexe-probe-freestanding.wasm \
+  out/build/esp32-panel-probe/tinydraw_esp32.elf 1000
+```
+
 `elf-fixture.ts` extracts contiguous function bytes directly from Espressif
 objdump output and reverses each displayed encoding into target memory order.
 `dynamic-runner-test.ts` writes those caller-supplied bytes into the module's
@@ -170,11 +191,12 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 39,896 bytes with Zig 0.16.0, SHA-256
-`45707aef5e86e2d86c757ab041a062ac99903b1c793b93d4be09328362baaa5c`.
+The stripped freestanding module is 46,487 bytes with Zig 0.16.0, SHA-256
+`135cd51c13fc5d3d6bc6dc807474f29527f30879f1d2d6aa1c3dfdf170e0e8dc`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
-and capacity functions, and `flexe_wasm_run_data`. Those names are audited
+and capacity functions, `flexe_wasm_run_data`, and the bounded machine loader
+and runner functions. Those names are audited
 before the tests pass the bytes to Puck's real loader. It has no WASI imports,
 and Puck's loader surface is unchanged.
 

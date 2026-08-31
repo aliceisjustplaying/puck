@@ -16,6 +16,7 @@ verifySource(source);
 requireSuccess(run([process.execPath, join(here, "build.ts")], here));
 requireSuccess(run([process.execPath, join(here, "run.ts")], here));
 requireSuccess(run([process.execPath, join(here, "puck-loader-test.ts")], here));
+requireSuccess(run([process.execPath, "test", join(here, "machine-runner.test.ts")], here));
 requireSuccess(run([process.execPath, join(here, "dynamic-runner-test.ts")], here));
 requireSuccess(run([process.execPath, join(here, "freestanding-blocker.ts")], here));
 requireSuccess(run([process.execPath, join(here, "isa-inventory-test.ts")], here));

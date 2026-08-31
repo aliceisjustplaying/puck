@@ -1,0 +1,489 @@
+diff --git a/src/memory.h b/src/memory.h
+index 092bd12..5801901 100644
+--- a/src/memory.h
++++ b/src/memory.h
+@@ -10,10 +10,12 @@ extern "C" {
+ /* MMIO callback types */
+ typedef uint32_t (*mmio_read_fn)(void *ctx, uint32_t addr);
+ typedef void     (*mmio_write_fn)(void *ctx, uint32_t addr, uint32_t val);
++typedef void     (*memory_fault_fn)(void *ctx, uint32_t addr, uint32_t width, int write);
+ 
+ /* Constants for struct definition */
+ #define MEM_PERIPH_PAGES    128         /* 512KB / 4KB */
++#define MEM_S3_PERIPH_PAGES 16          /* 0x600C0000-0x600CFFFF */
+ #define MEM_PAGE_TABLE_SIZE (1u << 20)  /* 1M pages covering 4GB */
+ 
+ typedef struct {
+@@ -33,7 +35,10 @@ struct xtensa_mem {
+     uint8_t *rtc_slow;
+     uint8_t *psram;
+     mmio_handler_t mmio[MEM_PERIPH_PAGES];
++    mmio_handler_t s3_mmio[MEM_S3_PERIPH_PAGES];
+     uint8_t *page_table[MEM_PAGE_TABLE_SIZE];
++    memory_fault_fn fault;
++    void *fault_ctx;
+ };
+ 
+ typedef struct xtensa_mem xtensa_mem_t;
+diff --git a/src/memory.c b/src/memory.c
+index 73b216d..8ddfcac 100644
+--- a/src/memory.c
++++ b/src/memory.c
+@@ -46,6 +46,9 @@
+ #define PSRAM_SIZE      (4 * 1024 * 1024)
+ 
+ #define PAGE_SIZE    4096
++#define S3_PERIPH_BASE 0x600C0000u
++#define S3_PERIPH_END  0x600D0000u
+ 
+ /* Populate page table entries for a contiguous region */
+ static void page_table_map(xtensa_mem_t *mem, uint32_t base, uint32_t end, uint8_t *host) {
+@@ -149,6 +152,12 @@ static mmio_handler_t *mmio_lookup(xtensa_mem_t *mem, uint32_t addr) {
+         if (h->read || h->write)
+             return h;
+     }
++    if (addr >= S3_PERIPH_BASE && addr < S3_PERIPH_END) {
++        int page = (addr - S3_PERIPH_BASE) / PAGE_SIZE;
++        mmio_handler_t *h = &mem->s3_mmio[page];
++        if (h->read || h->write)
++            return h;
++    }
+     return NULL;
+ }
++
++static int s3_mmio_access_valid(uint32_t addr, uint32_t width) {
++    if (addr < S3_PERIPH_BASE || addr >= S3_PERIPH_END) return 1;
++    return width == 4 && (addr & 3u) == 0;
++}
+ 
+@@ -158,34 +172,46 @@ uint8_t mem_read8_slow(xtensa_mem_t *mem, uint32_t addr) {
+     uint32_t xaddr = translate_ahb_alias(addr);
+     mmio_handler_t *h = mmio_lookup(mem, xaddr);
+-    if (h && h->read) return (uint8_t)h->read(h->ctx, xaddr);
++    if (h && h->read && s3_mmio_access_valid(xaddr, 1)) return (uint8_t)h->read(h->ctx, xaddr);
++    if (mem->fault) mem->fault(mem->fault_ctx, addr, 1, 0);
+     return 0;
+ }
+ 
+ uint16_t mem_read16_slow(xtensa_mem_t *mem, uint32_t addr) {
+     uint32_t xaddr = translate_ahb_alias(addr);
+     mmio_handler_t *h = mmio_lookup(mem, xaddr);
+-    if (h && h->read) return (uint16_t)h->read(h->ctx, xaddr);
++    if (h && h->read && s3_mmio_access_valid(xaddr, 2)) return (uint16_t)h->read(h->ctx, xaddr);
++    if (mem->fault) mem->fault(mem->fault_ctx, addr, 2, 0);
+     return 0;
+ }
+ 
+ uint32_t mem_read32_slow(xtensa_mem_t *mem, uint32_t addr) {
+     uint32_t xaddr = translate_ahb_alias(addr);
+     mmio_handler_t *h = mmio_lookup(mem, xaddr);
+-    if (h && h->read) return h->read(h->ctx, xaddr);
++    if (h && h->read && s3_mmio_access_valid(xaddr, 4)) return h->read(h->ctx, xaddr);
++    if (mem->fault) mem->fault(mem->fault_ctx, addr, 4, 0);
+     return 0;
+ }
+ 
+ void mem_write8_slow(xtensa_mem_t *mem, uint32_t addr, uint8_t val) {
+     uint32_t xaddr = translate_ahb_alias(addr);
+     mmio_handler_t *h = mmio_lookup(mem, xaddr);
+-    if (h && h->write) h->write(h->ctx, xaddr, val);
++    if (h && h->write && s3_mmio_access_valid(xaddr, 1)) { h->write(h->ctx, xaddr, val); return; }
++    if (mem->fault) mem->fault(mem->fault_ctx, addr, 1, 1);
+ }
+ 
+ void mem_write16_slow(xtensa_mem_t *mem, uint32_t addr, uint16_t val) {
+     uint32_t xaddr = translate_ahb_alias(addr);
+     mmio_handler_t *h = mmio_lookup(mem, xaddr);
+-    if (h && h->write) h->write(h->ctx, xaddr, val);
++    if (h && h->write && s3_mmio_access_valid(xaddr, 2)) { h->write(h->ctx, xaddr, val); return; }
++    if (mem->fault) mem->fault(mem->fault_ctx, addr, 2, 1);
+ }
+ 
+ void mem_write32_slow(xtensa_mem_t *mem, uint32_t addr, uint32_t val) {
+     uint32_t xaddr = translate_ahb_alias(addr);
+     mmio_handler_t *h = mmio_lookup(mem, xaddr);
+-    if (h && h->write) h->write(h->ctx, xaddr, val);
++    if (h && h->write && s3_mmio_access_valid(xaddr, 4)) { h->write(h->ctx, xaddr, val); return; }
++    if (mem->fault) mem->fault(mem->fault_ctx, addr, 4, 1);
+ }
+@@ -219,6 +240,17 @@ int mem_register_mmio_range(xtensa_mem_t *mem, uint32_t base, uint32_t size,
+                             mmio_read_fn read_fn, mmio_write_fn write_fn, void *ctx) {
++    if (!mem || size == 0 || base + size < base) return -1;
++    if (base >= S3_PERIPH_BASE && base + size <= S3_PERIPH_END) {
++        int start_page = (base - S3_PERIPH_BASE) / PAGE_SIZE;
++        int num_pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
++        for (int i = 0; i < num_pages; i++) {
++            mem->s3_mmio[start_page + i].read = read_fn;
++            mem->s3_mmio[start_page + i].write = write_fn;
++            mem->s3_mmio[start_page + i].ctx = ctx;
++        }
++        return 0;
++    }
+     if (!mem || base < PERIPH_BASE || base + size > PERIPH_END)
+         return -1;
+diff --git a/src/wasm_machine.c b/src/wasm_machine.c
+new file mode 100644
+index 0000000..874105b
+--- /dev/null
++++ b/src/wasm_machine.c
+@@ -0,0 +1,349 @@
++/*
++ * Bounded ESP32-S3 machine runner for Puck's pinned flexe experiment.
++ *
++ * Addresses and reset values are from ESP-IDF v6.0.2:
++ * components/xtensa/esp32s3/include/xtensa/config/core-isa.h
++ * components/soc/esp32s3/include/soc/soc.h
++ * components/soc/esp32s3/register/soc/interrupt_core0_reg.h
++ * components/soc/esp32s3/register/soc/interrupt_core1_reg.h
++ * components/soc/esp32s3/register/soc/extmem_reg.h
++ * components/soc/esp32s3/register/soc/assist_debug_reg.h
++ *
++ * This runner loads caller-supplied ELF PT_LOAD bytes. It does not supply a
++ * ROM image, infer MMU entries, or return zero from unknown MMIO. Every
++ * missing fetch, data access, and register stops with a versioned record.
++ */
++#include "xtensa.h"
++#include "memory.h"
++#include <stdint.h>
++#include <string.h>
++
++#ifdef FLEXE_PROBE_NATIVE
++#define FLEXE_EXPORT(name)
++#else
++#define FLEXE_EXPORT(name) __attribute__((export_name(name)))
++#endif
++
++#define PAGE_BYTES 4096u
++#define MACHINE_PAGE_CAPACITY 192u
++#define MACHINE_INPUT_CAPACITY PAGE_BYTES
++#define MACHINE_RESULT_ABI_VERSION 2u
++#define MACHINE_INTERRUPT_SOURCE_COUNT 99u
++#define MACHINE_INTERRUPT_DEFAULT 16u
++#define MACHINE_INTERRUPT_MASK 0x1fu
++#define MACHINE_MMIO_INTERRUPT_BASE 0x600c2000u
++#define MACHINE_MMIO_EXTMEM_BASE 0x600c4000u
++#define MACHINE_MMIO_ASSIST_BASE 0x600ce000u
++#define EXTMEM_DCACHE_CTRL1 0x600c4004u
++#define EXTMEM_ICACHE_CTRL1 0x600c4064u
++#define ASSIST_CORE1_PDEBUG_ENABLE 0x600ce0d8u
++#define ASSIST_CORE1_RECORDING 0x600ce0dcu
++#define ESP_ROM_GET_RESET_REASON 0x4000057cu
++#define RESET_REASON_CHIP_POWER_ON 1u
++#define WINDOW_CALLINC 2u
++
++enum machine_stop_reason {
++    MACHINE_STOP_MAX_STEPS = 1,
++    MACHINE_STOP_UNMAPPED_EXECUTE = 2,
++    MACHINE_STOP_UNSUPPORTED_MMIO_READ = 3,
++    MACHINE_STOP_UNSUPPORTED_MMIO_WRITE = 4,
++    MACHINE_STOP_UNMAPPED_READ = 5,
++    MACHINE_STOP_UNMAPPED_WRITE = 6,
++    MACHINE_STOP_STEP_ERROR = 7,
++    MACHINE_STOP_CPU_STOPPED = 8,
++    MACHINE_STOP_INVALID_ARGUMENT = 9,
++    MACHINE_STOP_PAGE_CAPACITY = 10,
++    MACHINE_STOP_UNSUPPORTED_ROM_CALL = 11,
++};
++
++struct machine_result {
++    uint32_t abi_version;
++    uint32_t struct_bytes;
++    uint32_t reason;
++    uint32_t steps;
++    uint32_t pc;
++    uint32_t fault_address;
++    uint32_t access_width;
++    uint32_t write_value;
++    uint32_t vecbase;
++    uint32_t ps;
++    uint32_t intenable;
++    uint32_t interrupt;
++    uint32_t exccause;
++    uint32_t excvaddr;
++    uint32_t stack_pointer;
++    uint32_t rom_reset_reason_calls;
++    uint32_t reset_reason;
++};
++
++struct mapped_page {
++    uint32_t guest_page;
++    uint8_t bytes[PAGE_BYTES];
++};
++
++static xtensa_cpu_t machine_cpu;
++static xtensa_mem_t *machine_mem;
++static struct mapped_page machine_pages[MACHINE_PAGE_CAPACITY];
++static uint32_t machine_page_count;
++static uint8_t machine_input[MACHINE_INPUT_CAPACITY];
++static struct machine_result machine_result;
++static uint32_t interrupt_map[2][MACHINE_INTERRUPT_SOURCE_COUNT];
++static uint32_t extmem_dcache_ctrl1;
++static uint32_t extmem_icache_ctrl1;
++static uint32_t assist_core1_pdebug_enable;
++static uint32_t assist_core1_recording;
++static uint32_t active_write_value;
++static uint32_t rom_reset_reason_calls;
++static int machine_faulted;
++
++static void result_base(uint32_t reason) {
++    machine_result.abi_version = MACHINE_RESULT_ABI_VERSION;
++    machine_result.struct_bytes = (uint32_t)sizeof(machine_result);
++    machine_result.reason = reason;
++    machine_result.pc = machine_cpu.pc;
++    machine_result.vecbase = machine_cpu.vecbase;
++    machine_result.ps = machine_cpu.ps;
++    machine_result.intenable = machine_cpu.intenable;
++    machine_result.interrupt = machine_cpu.interrupt;
++    machine_result.exccause = machine_cpu.exccause;
++    machine_result.excvaddr = machine_cpu.excvaddr;
++    machine_result.stack_pointer = ar_read(&machine_cpu, 1);
++    machine_result.rom_reset_reason_calls = rom_reset_reason_calls;
++    machine_result.reset_reason = RESET_REASON_CHIP_POWER_ON;
++}
++
++static void stop_access(uint32_t reason, uint32_t address, uint32_t width) {
++    if (machine_faulted) return;
++    machine_faulted = 1;
++    result_base(reason);
++    machine_result.fault_address = address;
++    machine_result.access_width = width;
++    machine_result.write_value = active_write_value;
++}
++
++static int mapped_page_index(uint32_t guest_page) {
++    for (uint32_t i = 0; i < machine_page_count; i++)
++        if (machine_pages[i].guest_page == guest_page) return (int)i;
++    return -1;
++}
++
++static int ensure_page(uint32_t guest_page) {
++    int existing = mapped_page_index(guest_page);
++    if (existing >= 0) return existing;
++    if (machine_page_count >= MACHINE_PAGE_CAPACITY) return -1;
++    uint32_t index = machine_page_count++;
++    machine_pages[index].guest_page = guest_page;
++    memset(machine_pages[index].bytes, 0, PAGE_BYTES);
++    machine_mem->page_table[guest_page >> 12] = machine_pages[index].bytes;
++    return (int)index;
++}
++
++static int interrupt_register(uint32_t address, uint32_t *core, uint32_t *source) {
++    uint32_t offset = address - MACHINE_MMIO_INTERRUPT_BASE;
++    if (offset < MACHINE_INTERRUPT_SOURCE_COUNT * 4u && (offset & 3u) == 0) {
++        *core = 0;
++        *source = offset >> 2;
++        return 1;
++    }
++    if (offset >= 0x800u && offset < 0x800u + MACHINE_INTERRUPT_SOURCE_COUNT * 4u &&
++        (offset & 3u) == 0) {
++        *core = 1;
++        *source = (offset - 0x800u) >> 2;
++        return 1;
++    }
++    return 0;
++}
++
++static uint32_t machine_mmio_read(void *unused, uint32_t address) {
++    (void)unused;
++    uint32_t core;
++    uint32_t source;
++    if (interrupt_register(address, &core, &source)) return interrupt_map[core][source];
++    if (address == EXTMEM_DCACHE_CTRL1) return extmem_dcache_ctrl1;
++    if (address == EXTMEM_ICACHE_CTRL1) return extmem_icache_ctrl1;
++    if (address == ASSIST_CORE1_PDEBUG_ENABLE) return assist_core1_pdebug_enable;
++    if (address == ASSIST_CORE1_RECORDING) return assist_core1_recording;
++    stop_access(MACHINE_STOP_UNSUPPORTED_MMIO_READ, address, 4);
++    return 0;
++}
++
++static void machine_mmio_write(void *unused, uint32_t address, uint32_t value) {
++    (void)unused;
++    active_write_value = value;
++    uint32_t core;
++    uint32_t source;
++    if (interrupt_register(address, &core, &source)) {
++        interrupt_map[core][source] = value & MACHINE_INTERRUPT_MASK;
++        return;
++    }
++    if (address == EXTMEM_DCACHE_CTRL1) { extmem_dcache_ctrl1 = value & 3u; return; }
++    if (address == EXTMEM_ICACHE_CTRL1) { extmem_icache_ctrl1 = value & 3u; return; }
++    if (address == ASSIST_CORE1_PDEBUG_ENABLE) { assist_core1_pdebug_enable = value & 1u; return; }
++    if (address == ASSIST_CORE1_RECORDING) { assist_core1_recording = value & 1u; return; }
++    stop_access(MACHINE_STOP_UNSUPPORTED_MMIO_WRITE, address, 4);
++}
++
++static void machine_memory_fault(void *unused, uint32_t address, uint32_t width, int write) {
++    (void)unused;
++    uint32_t reason = write ? MACHINE_STOP_UNMAPPED_WRITE : MACHINE_STOP_UNMAPPED_READ;
++    if (address >= 0x600c0000u && address < 0x600d0000u)
++        reason = write ? MACHINE_STOP_UNSUPPORTED_MMIO_WRITE : MACHINE_STOP_UNSUPPORTED_MMIO_READ;
++    stop_access(reason, address, width);
++}
++
++/*
++ * ESP-IDF v6.0.2 aliases esp_rom_get_reset_reason to rtc_get_reset_reason at
++ * 0x4000057c and declares soc_reset_reason_t esp_rom_get_reset_reason(int).
++ * Its Linux ROM shim returns RESET_REASON_CHIP_POWER_ON. The entry sequence
++ * calls this address with callx8 for CPU 0 and CPU 1, so return through the
++ * active call8 register window and expose only that boot-exercised behavior.
++ */
++static int machine_rom_reset_reason(void) {
++    int callinc = XT_PS_CALLINC(machine_cpu.ps);
++    if (callinc != (int)WINDOW_CALLINC) {
++        stop_access(MACHINE_STOP_UNSUPPORTED_ROM_CALL, machine_cpu.pc, 0);
++        return 0;
++    }
++    uint32_t cpu_no = ar_read(&machine_cpu, (uint32_t)callinc * 4u + 2u);
++    if (cpu_no > 1u) {
++        active_write_value = cpu_no;
++        stop_access(MACHINE_STOP_UNSUPPORTED_ROM_CALL, machine_cpu.pc, 0);
++        return 0;
++    }
++    ar_write(&machine_cpu, (uint32_t)callinc * 4u + 2u, RESET_REASON_CHIP_POWER_ON);
++    uint32_t return_address = ar_read(&machine_cpu, (uint32_t)callinc * 4u);
++    machine_cpu.pc = 0x40000000u | (return_address & 0x3fffffffu);
++    XT_PS_SET_CALLINC(machine_cpu.ps, 0);
++    rom_reset_reason_calls++;
++    return 1;
++}
++
++FLEXE_EXPORT("flexe_wasm_machine_input")
++uint32_t flexe_wasm_machine_input(void) {
++    return (uint32_t)(uintptr_t)machine_input;
++}
++
++FLEXE_EXPORT("flexe_wasm_machine_input_capacity")
++uint32_t flexe_wasm_machine_input_capacity(void) {
++    return MACHINE_INPUT_CAPACITY;
++}
++
++FLEXE_EXPORT("flexe_wasm_machine_reset")
++uint32_t flexe_wasm_machine_reset(void) {
++    memset(&machine_result, 0, sizeof(machine_result));
++    memset(&machine_cpu, 0, sizeof(machine_cpu));
++    if (!machine_mem) machine_mem = mem_create();
++    if (!machine_mem) {
++        result_base(MACHINE_STOP_PAGE_CAPACITY);
++        return (uint32_t)(uintptr_t)&machine_result;
++    }
++    mem_reset(machine_mem);
++    memset(machine_mem->page_table, 0, sizeof(machine_mem->page_table));
++    memset(machine_mem->s3_mmio, 0, sizeof(machine_mem->s3_mmio));
++    machine_mem->fault = machine_memory_fault;
++    machine_mem->fault_ctx = 0;
++    machine_page_count = 0;
++    machine_faulted = 0;
++    active_write_value = 0;
++    rom_reset_reason_calls = 0;
++    for (uint32_t core = 0; core < 2; core++)
++        for (uint32_t source = 0; source < MACHINE_INTERRUPT_SOURCE_COUNT; source++)
++            interrupt_map[core][source] = MACHINE_INTERRUPT_DEFAULT;
++    extmem_dcache_ctrl1 = 3;
++    extmem_icache_ctrl1 = 3;
++    assist_core1_pdebug_enable = 0;
++    assist_core1_recording = 0;
++    if (mem_register_mmio_range(machine_mem, MACHINE_MMIO_INTERRUPT_BASE, PAGE_BYTES,
++                                machine_mmio_read, machine_mmio_write, 0) != 0 ||
++        mem_register_mmio_range(machine_mem, MACHINE_MMIO_EXTMEM_BASE, PAGE_BYTES,
++                                machine_mmio_read, machine_mmio_write, 0) != 0 ||
++        mem_register_mmio_range(machine_mem, MACHINE_MMIO_ASSIST_BASE, PAGE_BYTES,
++                                machine_mmio_read, machine_mmio_write, 0) != 0) {
++        result_base(MACHINE_STOP_INVALID_ARGUMENT);
++    }
++    if (machine_result.reason == 0) result_base(MACHINE_STOP_MAX_STEPS);
++    return (uint32_t)(uintptr_t)&machine_result;
++}
++
++FLEXE_EXPORT("flexe_wasm_machine_map")
++uint32_t flexe_wasm_machine_map(uint32_t address, uint32_t length) {
++    if (!machine_mem || length == 0 || address + length < address) return 0;
++    uint32_t first = address & ~(PAGE_BYTES - 1u);
++    uint32_t last = (address + length - 1u) & ~(PAGE_BYTES - 1u);
++    for (uint32_t page = first;; page += PAGE_BYTES) {
++        if (ensure_page(page) < 0) return 0;
++        if (page == last) break;
++    }
++    return 1;
++}
++
++FLEXE_EXPORT("flexe_wasm_machine_load")
++uint32_t flexe_wasm_machine_load(uint32_t address, uint32_t length) {
++    if (!machine_mem || length == 0 || length > MACHINE_INPUT_CAPACITY ||
++        address + length < address) return 0;
++    return mem_load(machine_mem, address, machine_input, length) == 0 ? 1u : 0u;
++}
++
++FLEXE_EXPORT("flexe_wasm_machine_begin")
++uint32_t flexe_wasm_machine_begin(uint32_t entry, uint32_t stack_pointer) {
++    if (!machine_mem || !mem_get_ptr(machine_mem, entry) ||
++        !mem_get_ptr(machine_mem, stack_pointer - 1u)) {
++        memset(&machine_result, 0, sizeof(machine_result));
++        result_base(MACHINE_STOP_INVALID_ARGUMENT);
++        return (uint32_t)(uintptr_t)&machine_result;
++    }
++    memset(&machine_cpu, 0, sizeof(machine_cpu));
++    xtensa_cpu_init(&machine_cpu);
++    machine_cpu.mem = machine_mem;
++    machine_cpu.pc = entry;
++    machine_cpu.running = true;
++    machine_cpu.ps = (1u << 18) | (WINDOW_CALLINC << 16);
++    machine_cpu.windowbase = 0;
++    machine_cpu.windowstart = 1;
++    machine_cpu.window_callsize[0] = WINDOW_CALLINC;
++    machine_cpu.external_exec_begin = 0x40000000u;
++    machine_cpu.external_exec_end = 0x44000000u;
++    ar_write(&machine_cpu, 1, stack_pointer);
++    machine_faulted = 0;
++    memset(&machine_result, 0, sizeof(machine_result));
++    result_base(MACHINE_STOP_MAX_STEPS);
++    return (uint32_t)(uintptr_t)&machine_result;
++}
++
++FLEXE_EXPORT("flexe_wasm_machine_run")
++uint32_t flexe_wasm_machine_run(uint32_t max_steps) {
++    if (!machine_mem || max_steps == 0) {
++        result_base(MACHINE_STOP_INVALID_ARGUMENT);
++        return (uint32_t)(uintptr_t)&machine_result;
++    }
++    machine_faulted = 0;
++    memset(&machine_result, 0, sizeof(machine_result));
++    uint32_t steps = 0;
++    while (steps < max_steps) {
++        if (machine_cpu.pc == ESP_ROM_GET_RESET_REASON) {
++            if (!machine_rom_reset_reason()) break;
++            continue;
++        }
++        if (!mem_get_ptr(machine_mem, machine_cpu.pc)) {
++            stop_access(MACHINE_STOP_UNMAPPED_EXECUTE, machine_cpu.pc, 0);
++            break;
++        }
++        active_write_value = 0;
++        int status = xtensa_step(&machine_cpu);
++        if (machine_faulted) break;
++        if (status != 0) {
++            result_base(MACHINE_STOP_STEP_ERROR);
++            break;
++        }
++        steps++;
++        if (!machine_cpu.running) {
++            result_base(MACHINE_STOP_CPU_STOPPED);
++            break;
++        }
++    }
++    if (!machine_faulted && machine_result.reason == 0)
++        result_base(MACHINE_STOP_MAX_STEPS);
++    machine_result.steps = steps;
++    if (!machine_faulted) {
++        machine_result.pc = machine_cpu.pc;
++        machine_result.vecbase = machine_cpu.vecbase;
++        machine_result.ps = machine_cpu.ps;
++        machine_result.intenable = machine_cpu.intenable;
++        machine_result.interrupt = machine_cpu.interrupt;
++        machine_result.exccause = machine_cpu.exccause;
++        machine_result.excvaddr = machine_cpu.excvaddr;
++        machine_result.stack_pointer = ar_read(&machine_cpu, 1);
++        machine_result.rom_reset_reason_calls = rom_reset_reason_calls;
++        machine_result.reset_reason = RESET_REASON_CHIP_POWER_ON;
++    }
++    return (uint32_t)(uintptr_t)&machine_result;
++}
