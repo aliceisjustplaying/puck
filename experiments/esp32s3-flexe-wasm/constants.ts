@@ -58,6 +58,7 @@ export const EXPECTED_FREESTANDING_EXPORTS = [
   "flexe_wasm_elf_begin",
   "flexe_wasm_elf_cache_state",
   "flexe_wasm_elf_rtc_mmio_state",
+  "flexe_wasm_elf_regi2c_mmio_state",
   "flexe_wasm_elf_system_mmio_state",
   "flexe_wasm_elf_configure_rom",
   "flexe_wasm_elf_copy_page",

@@ -20,6 +20,12 @@ import {
   type Esp32S3DirectBootSystemMmioState,
 } from "./direct-boot-system-mmio";
 import {
+  createEsp32S3DirectBootRegi2cMmio,
+  readEsp32S3DirectBootRegi2cMmio,
+  writeEsp32S3DirectBootRegi2cMmio,
+  type Esp32S3DirectBootRegi2cMmioState,
+} from "./direct-boot-regi2c-mmio";
+import {
   ESP32S3_ROM_CACHE_MODE_CALLBACKS,
   ESP32S3_ROM_CACHE_CALLINC,
   advanceEsp32S3DirectAppCacheBootstrap,
@@ -99,6 +105,7 @@ export interface FullElfRunResult {
   readonly cacheBootstrap: Esp32S3DirectAppCacheBootstrapState | null;
   readonly systemMmio: Esp32S3DirectBootSystemMmioState | null;
   readonly rtcMmio: Esp32S3DirectBootRtcMmioState | null;
+  readonly regi2cMmio: Esp32S3DirectBootRegi2cMmioState | null;
   readonly cpuTicks: Esp32S3DirectBootCpuTicksState | null;
   readonly memoryFault: FullElfMemoryFault | null;
   readonly capturedPages: readonly CapturedElfPage[];
@@ -173,6 +180,8 @@ export type FullElfRomEvent = Readonly<
       value: number;
     }
   | { kind: "rtcMmioWrite"; pc: number; address: number; width: number; value: number }
+  | { kind: "regi2cMmioRead"; pc: number; address: number; width: number; value: number }
+  | { kind: "regi2cMmioWrite"; pc: number; address: number; width: number; value: number }
   | { kind: "cpuTicksPerUs"; pc: number; ticksPerUs: number; callinc: number }
   | { kind: "systemMmioWrite"; pc: number; address: number; width: number; value: number }
   )
@@ -183,6 +192,7 @@ interface FullElfExports {
   flexe_wasm_elf_begin(): number;
   flexe_wasm_elf_cache_state(): number;
   flexe_wasm_elf_rtc_mmio_state(): number;
+  flexe_wasm_elf_regi2c_mmio_state(): number;
   flexe_wasm_elf_system_mmio_state(): number;
   flexe_wasm_elf_configure_rom(
     resetReasonCore0: number,
@@ -319,6 +329,7 @@ export async function runSparseXtensaElf(
     "flexe_wasm_elf_begin",
     "flexe_wasm_elf_cache_state",
     "flexe_wasm_elf_rtc_mmio_state",
+    "flexe_wasm_elf_regi2c_mmio_state",
     "flexe_wasm_elf_system_mmio_state",
     "flexe_wasm_elf_configure_rom",
     "flexe_wasm_elf_copy_page",
@@ -596,6 +607,15 @@ export async function runSparseXtensaElf(
         value: words[4],
         afterInstructionCount,
       }));
+    } else if (words[0] === 13 || words[0] === 14) {
+      romEvents.push(Object.freeze({
+        kind: words[0] === 13 ? "regi2cMmioRead" : "regi2cMmioWrite",
+        pc: words[1],
+        address: words[2],
+        width: words[3],
+        value: words[4],
+        afterInstructionCount,
+      }));
     } else throw new Error(`unknown full ELF ROM event ${words[0]}`);
   }
   let cacheBootstrap = options.rom?.cacheBootstrap
@@ -606,6 +626,9 @@ export async function runSparseXtensaElf(
     : null;
   let rtcMmio = options.rom?.cacheBootstrap
     ? createEsp32S3DirectBootRtcMmio()
+    : null;
+  let regi2cMmio = options.rom?.cacheBootstrap
+    ? createEsp32S3DirectBootRegi2cMmio()
     : null;
   let cpuTicks = options.rom?.cpuTicksPerUs === 40
     ? createEsp32S3DirectBootCpuTicks()
@@ -750,6 +773,27 @@ export async function runSparseXtensaElf(
       rtcMmio = write.state;
       continue;
     }
+    if (event.kind === "regi2cMmioRead" || event.kind === "regi2cMmioWrite") {
+      assert(regi2cMmio !== null && systemMmio !== null && rtcMmio !== null && cpuTicks !== null &&
+        systemMmio.readCount === 6 && systemMmio.cpuPerReadCount === 5 &&
+        systemMmio.writeCount === 3 && systemMmio.cpuPerWriteCount === 1 &&
+        rtcMmio.readCount === 2 && rtcMmio.optionsWriteCount === 2 && cpuTicks.configured,
+      "REGI2C MMIO preceded the exact BBPLL restore state");
+      const access = {
+        pc: event.pc,
+        address: event.address,
+        width: event.width,
+        isWrite: event.kind === "regi2cMmioWrite",
+        clockRestoreComplete: true,
+      } as const;
+      const dispatched = event.kind === "regi2cMmioRead"
+        ? readEsp32S3DirectBootRegi2cMmio(regi2cMmio, access)
+        : writeEsp32S3DirectBootRegi2cMmio(regi2cMmio, { ...access, value: event.value });
+      assert(dispatched.handled && dispatched.status === "accepted", "full ELF module violated REGI2C MMIO contract");
+      assert(dispatched.value === event.value, "REGI2C MMIO value differs");
+      regi2cMmio = dispatched.state;
+      continue;
+    }
     if (event.kind !== "cache") continue;
     assert(cacheBootstrap !== null, "full ELF module returned an unconfigured cache event");
     assert(event.sequenceIndex === cacheBootstrap.sequenceIndex, "cache event sequence index differs");
@@ -819,6 +863,15 @@ export async function runSparseXtensaElf(
     assert(stateWords[11] === rtcMmio.optionsWriteCount, "RTC_CNTL_OPTIONS0 write count differs");
     assert(stateWords[12] === (rtcMmio.optionsLastWritePc ?? 0), "RTC_CNTL_OPTIONS0 writer differs");
   }
+  if (regi2cMmio) {
+    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_regi2c_mmio_state(), 20, "ELF REGI2C MMIO state");
+    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 5);
+    assert(stateWords[0] === regi2cMmio.anaConf0, "I2C_MST_ANA_CONF0 state differs");
+    assert(stateWords[1] === regi2cMmio.readCount, "I2C_MST_ANA_CONF0 read count differs");
+    assert(stateWords[2] === (regi2cMmio.lastReadPc ?? 0), "I2C_MST_ANA_CONF0 reader differs");
+    assert(stateWords[3] === regi2cMmio.writeCount, "I2C_MST_ANA_CONF0 write count differs");
+    assert(stateWords[4] === (regi2cMmio.lastWritePc ?? 0), "I2C_MST_ANA_CONF0 writer differs");
+  }
   const captureAddresses = [...(options.capturePages ?? [])];
   assert(new Set(captureAddresses).size === captureAddresses.length, "captured ELF pages must be unique");
   const capturedPages = captureAddresses.map((address) => {
@@ -840,6 +893,7 @@ export async function runSparseXtensaElf(
     cacheBootstrap,
     systemMmio,
     rtcMmio,
+    regi2cMmio,
     cpuTicks,
     memoryFault,
     capturedPages: Object.freeze(capturedPages),

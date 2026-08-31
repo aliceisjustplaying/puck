@@ -650,6 +650,27 @@ const undeclaredRtcMmio = await runSparseXtensaElf(moduleBytes, undeclaredRtcMmi
 assert.equal(undeclaredRtcMmio.record.reason, FULL_ELF_STOP_REASONS.readPermission);
 assert.equal(undeclaredRtcMmio.record.steps, 1);
 assert.equal(undeclaredRtcMmio.memoryFault?.address, 0x6000_80c4);
+const undeclaredRegi2cMmioImage: Elf32XtensaImage = Object.freeze({
+  ...cacheMmioProbeImage,
+  elfSha256: "synthetic-undeclared-regi2c-mmio-read",
+  loadSegments: Object.freeze(cacheMmioProbeImage.loadSegments.map((segment) =>
+    segment.index === 1
+      ? syntheticSegment(1, 0x4037_4514, [0x44, 0xe0, 0x00, 0x60], 4, {
+          read: true,
+          write: false,
+          execute: false,
+        })
+      : segment
+  )),
+});
+const undeclaredRegi2cMmio = await runSparseXtensaElf(moduleBytes, undeclaredRegi2cMmioImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 2,
+  rom: { resetReasons: [1, 1], cacheBootstrap: true },
+});
+assert.equal(undeclaredRegi2cMmio.record.reason, FULL_ELF_STOP_REASONS.readPermission);
+assert.equal(undeclaredRegi2cMmio.record.steps, 1);
+assert.equal(undeclaredRegi2cMmio.memoryFault?.address, 0x6000_e044);
 
 assert.equal(image.entryPoint, 0x4037_5c9c);
 assert.equal(image.elfSha256, "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5");
@@ -743,7 +764,8 @@ const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   maxSteps: 512,
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true, cpuTicksPerUs: 40 },
 });
-assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.readPermission);
+assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.unloadedPage);
+assert.equal(cacheProgress.record.pc, 0x4000_1c38);
 assert(cacheProgress.record.steps > 356, "RTC_CNTL_DATE XTAL write did not advance the real ELF");
 assert.notEqual(cacheProgress.record.pc, 0x4037_730f);
 assert.deepEqual(cacheProgress.cacheBootstrap, {
@@ -853,6 +875,21 @@ assert.deepEqual(cacheProgress.rtcMmio, {
   optionsWriteCount: 2,
   optionsLastWritePc: 0x4037_f649,
 });
+assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "regi2cMmioRead")), [
+  { kind: "regi2cMmioRead", pc: 0x4037_f6b8, address: 0x6000_e040, width: 4, value: 0x0100_0004 },
+  { kind: "regi2cMmioRead", pc: 0x4037_f6c7, address: 0x6000_e040, width: 4, value: 0x0100_0000 },
+]);
+assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "regi2cMmioWrite")), [
+  { kind: "regi2cMmioWrite", pc: 0x4037_f6c2, address: 0x6000_e040, width: 4, value: 0x0100_0000 },
+  { kind: "regi2cMmioWrite", pc: 0x4037_f6d1, address: 0x6000_e040, width: 4, value: 0x0100_0008 },
+]);
+assert.deepEqual(cacheProgress.regi2cMmio, {
+  anaConf0: 0x0100_0008,
+  readCount: 2,
+  lastReadPc: 0x4037_f6c7,
+  writeCount: 2,
+  lastWritePc: 0x4037_f6d1,
+});
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "cpuTicksPerUs")), [
   { kind: "cpuTicksPerUs", pc: 0x4000_1a4c, ticksPerUs: 40, callinc: 2 },
 ]);
@@ -867,17 +904,7 @@ assert.deepEqual(cacheProgress.cpuTicks, {
   ticksPerUs: 40,
   lastPc: 0x4000_1a4c,
 });
-assert.deepEqual(cacheProgress.memoryFault, {
-  abiVersion: 1,
-  structBytes: 40,
-  pc: 0x4037_f6b8,
-  address: 0x6000_e040,
-  width: 4,
-  isWrite: false,
-  deniedAddress: 0x6000_e040,
-  deniedPage: 0x6000_e000,
-  deniedFlags: 0,
-});
+assert.equal(cacheProgress.memoryFault, null);
 await assert.rejects(
   runSparseXtensaElf(moduleBytes, image, {
     ...runnerMemory,
@@ -1006,7 +1033,8 @@ const baselineRomEvent = (event: FullElfRomEvent) => {
     };
   }
   if (event.kind === "systemMmioRead" || event.kind === "systemMmioWrite" ||
-      event.kind === "rtcMmioRead" || event.kind === "rtcMmioWrite") {
+      event.kind === "rtcMmioRead" || event.kind === "rtcMmioWrite" ||
+      event.kind === "regi2cMmioRead" || event.kind === "regi2cMmioWrite") {
     return {
       kind: event.kind,
       pc: hex(event.pc),
@@ -1115,6 +1143,7 @@ const actualBaseline = {
     cacheBootstrap: cacheProgress.cacheBootstrap,
     systemMmio: cacheProgress.systemMmio,
     rtcMmio: cacheProgress.rtcMmio,
+    regi2cMmio: cacheProgress.regi2cMmio,
     cpuTicks: cacheProgress.cpuTicks,
     events: cacheProgress.romEvents.map(baselineRomEvent),
   },

@@ -393,14 +393,19 @@ The subsequent BBPLL-disable RMW reads `RTC_CNTL_OPTIONS0_REG` at
 the OPTIONS0 RMW at `0x4037f640`/`0x4037f649`, repeats the 40 MHz
 `RTC_XTAL_FREQ_REG` read, and preserves the 480 MHz PLL selection in
 `SYSTEM_CPU_PER_CONF_REG` with the RMW at `0x4037f6a8`/`0x4037f6b3`.
+The following source-backed REGI2C sequence inherits `I2C_MST_ANA_CONF0_REG`
+as `0x01000004` after the bootloader observed calibration completion and selected
+`BBPLL_STOP_FORCE_HIGH`. The RMWs at `0x4037f6b8`/`0x4037f6c2` and
+`0x4037f6c7`/`0x4037f6d1` clear FORCE_HIGH and set FORCE_LOW, producing
+`0x01000000` then `0x01000008`.
 Other RTCCNTL addresses, access shapes, readers, orderings, and repeats
 are refused. The next
 exact ROM callback, `esp_rom_set_cpu_ticks_per_us` at `0x40001a4c`,
 accepts argument 40 with CALLINC 2 only after both clock-query cycles. The real
-image now executes 419 instructions and stops on the first distinct analog-I2C
-controller read at `0x6000e040` from PC `0x4037f6b8`; the typed event log
-contains the CPU-ticks callback, eleven SYSTEM reads, four SYSTEM writes, five
-RTCCNTL reads, and three source-backed RTCCNTL writes.
+image now executes 455 instructions and stops at the following unloaded ROM
+callback `_xtos_set_intlevel` at `0x40001c38`; the typed event log contains the
+CPU-ticks callback, eleven SYSTEM reads, four SYSTEM writes, five RTCCNTL reads,
+three RTCCNTL writes, and the two REGI2C reads and writes.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
@@ -427,26 +432,26 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 419-step
-PLL-restore boundary produces 578 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 455-step
+REGI2C calibration-start boundary produces 622 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
 same neutral adapter and `TimingMachine` used by the RGB565 replay. Its address
-map contains only the nine SRAM pages, two flash pages, and three controller
+map contains only the eleven SRAM pages, two flash pages, and four controller
 MMIO pages observed in the trace, with their ELF or inherited permissions.
-Those nine exact 4 KiB SRAM ranges opt into the
+Those eleven exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 578 records issue 1,045 timing events: 531 memory-system
-events, 50 MMIO accesses, 419 calibrated CPU issue events, and 29 calibrated
+literal loads. The 622 records issue 1,127 timing events: 571 memory-system
+events, 54 MMIO accesses, 455 calibrated CPU issue events, and 31 calibrated
 dependent load-use events, plus 16 configured ROM callback boundaries with
-explicitly unknown CPU durations. Exactly 1,007 events have adopted costs,
+explicitly unknown CPU durations. Exactly 1,085 events have adopted costs,
 including 28 exact MMIO reads, three exact not-taken `beqz` paths, three flash
 line fills, and every zero-miss cache hit. The baseline pins the branch
 classifier, hazard count, and a projection hash of their schedule, consumer
 IDs, registers, and producer/consumer PCs, plus the ROM callback boundary
-provenance. The 22 controller MMIO costs and 16 ROM callback durations keep the
+provenance. The 26 controller MMIO costs and 16 ROM callback durations keep the
 replay blocked with no total cycle claim. The baseline also pins the exact
 address, direction, width, peripheral, and count of all observed MMIO access
 classes so hardware-adopted costs cannot silently broaden their scope.
