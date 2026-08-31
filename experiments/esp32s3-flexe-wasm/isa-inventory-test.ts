@@ -22,7 +22,8 @@ assert(normalizeMnemonic("wur.threadptr") === "wur", "implemented user-register 
 assert(normalizeMnemonic("rur.accx_1") === "rur", "implemented ACCX aliases must normalize");
 assert(normalizeMnemonic("rur.qacc_h_0") === "rur", "implemented QACC aliases must normalize");
 assert(normalizeMnemonic("rur.sar_byte") === "rur", "implemented 4-bit user-register aliases must normalize");
-assert(normalizeMnemonic("rur.ua_state_0") === "rur.ua_state_0", "unknown user registers must remain explicit gaps");
+assert(normalizeMnemonic("rur.ua_state_0") === "rur", "implemented UA_STATE aliases must normalize");
+assert(normalizeMnemonic("rur.unassigned_12") === "rur.unassigned_12", "unknown user registers must remain explicit gaps");
 assert(normalizeMnemonic("ee.vld.128.ip") === "ee.vld.128.ip", "PIE mnemonics must stay exact");
 
 const parsed = parseDisassembly(`Disassembly of section .iram0.text:

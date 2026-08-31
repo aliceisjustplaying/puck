@@ -462,7 +462,20 @@ assert(sarFftRun.record.steps === 6, `SAR/FFT fixture executed ${sarFftRun.recor
 assert(sarFftRun.record.registers[12] === 0xb, "SAR_BYTE did not preserve exactly its low 4 bits");
 assert(sarFftRun.record.registers[13] === 0x5, "FFT_BIT_WIDTH did not preserve exactly its low 4 bits");
 
-const unknownUserRegisterFixture = conformanceFixture("esp32s3_unknown_user_register", [0x80, 0x0f, 0xf3]);
+const uaStateFixture = conformanceFixture("esp32s3_ua_state_roundtrip", [
+  0x1c, 0x1a, 0x2c, 0x2b, 0x3c, 0x3c, 0x4c, 0x4d,
+  0xa0, 0x0f, 0xf3, 0xb0, 0x10, 0xf3, 0xc0, 0x11, 0xf3, 0xd0, 0x12, 0xf3,
+  0xf0, 0x20, 0xe3, 0x00, 0x31, 0xe3, 0x10, 0x41, 0xe3, 0x20, 0x51, 0xe3
+]);
+const uaStateRun = await runFresh(moduleBytes, uaStateFixture, { maxSteps: 12 });
+assert(uaStateRun.record.reason === STOP_REASONS.maxSteps, `UA_STATE fixture stopped with ${uaStateRun.record.reasonName}`);
+assert(uaStateRun.record.steps === 12, `UA_STATE fixture executed ${uaStateRun.record.steps} instructions`);
+assert(
+  uaStateRun.record.registers.slice(2, 6).every((value, index) => value === [0x11, 0x22, 0x33, 0x44][index]),
+  "UA_STATE round trip changed a value"
+);
+
+const unknownUserRegisterFixture = conformanceFixture("esp32s3_unknown_user_register", [0x80, 0x0c, 0xf3]);
 const unknownUserRegisterRun = await runFresh(moduleBytes, unknownUserRegisterFixture, { maxSteps: 1 });
 assert(
   unknownUserRegisterRun.record.reason === STOP_REASONS.stepError,
@@ -807,6 +820,12 @@ const actualBaseline = {
     sarByte: sarFftRun.record.registers[12],
     fftBitWidth: sarFftRun.record.registers[13]
   },
+  uaStateIsa: {
+    codeSha256: uaStateFixture.codeSha256,
+    reason: uaStateRun.record.reasonName,
+    steps: uaStateRun.record.steps,
+    values: uaStateRun.record.registers.slice(2, 6)
+  },
   entry: {
     symbol: entry.symbol,
     pc: `0x${entry.pc.toString(16)}`,
@@ -899,6 +918,7 @@ assert(
     accxIsa: baseline.accxIsa,
     qaccIsa: baseline.qaccIsa,
     sarFftIsa: baseline.sarFftIsa,
+    uaStateIsa: baseline.uaStateIsa,
     entry: baseline.entry,
     pie: baseline.pie,
     staging: baseline.staging,
