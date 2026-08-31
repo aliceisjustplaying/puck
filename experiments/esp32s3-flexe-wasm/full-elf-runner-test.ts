@@ -535,6 +535,41 @@ assert.deepEqual(
   "adjacent QACC zero changed full-ELF registers",
 );
 
+const unsupportedBroadcastXpEntry = 0x4037_2400;
+const unsupportedBroadcastXpImage: Elf32XtensaImage = Object.freeze({
+  schemaVersion: 1,
+  entryPoint: unsupportedBroadcastXpEntry,
+  elfBytes: 3,
+  elfSha256: "synthetic-unsupported-ee-vldbc-16-xp",
+  loadSegments: Object.freeze([
+    syntheticSegment(0, unsupportedBroadcastXpEntry, [0xa4, 0x4c, 0x8d], 3, {
+      read: true,
+      write: false,
+      execute: true,
+    }),
+    syntheticSegment(1, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
+  ]),
+  totalFileBytes: 3,
+  totalMemoryBytes: 0x1003,
+});
+const unsupportedBroadcastXpRun = await runSparseXtensaElf(moduleBytes, unsupportedBroadcastXpImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 1,
+  unsupported: [{ pc: unsupportedBroadcastXpEntry, encoding: 0x8d4ca4 }],
+});
+assert.equal(unsupportedBroadcastXpRun.record.reason, FULL_ELF_STOP_REASONS.unsupported);
+assert.equal(unsupportedBroadcastXpRun.record.steps, 0);
+assert.equal(unsupportedBroadcastXpRun.record.unsupportedPc, unsupportedBroadcastXpEntry);
+assert.equal(unsupportedBroadcastXpRun.record.unsupportedEncoding, 0x8d4ca4);
+assert.equal(unsupportedBroadcastXpRun.record.unsupportedLength, 3);
+assert.deepEqual(unsupportedBroadcastXpRun.trace, []);
+assert.deepEqual(unsupportedBroadcastXpRun.memoryTrace.records, []);
+assert.deepEqual(
+  unsupportedBroadcastXpRun.record.registers,
+  [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "adjacent broadcast XP changed full-ELF registers",
+);
+
 const cacheMmioProbeEntry = 0x4037_5c3b;
 const cacheMmioProbeImage: Elf32XtensaImage = Object.freeze({
   schemaVersion: 1,
