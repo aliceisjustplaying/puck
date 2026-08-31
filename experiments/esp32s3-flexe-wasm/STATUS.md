@@ -41,6 +41,9 @@ ELF-verified encodings, raw logs, and hashes:
 `tinydraw/calibration/esp32s3-core-timing/README.md`. All remain
 unreviewed candidates in decision 0008 tier terms.
 
+The phase plan, agent-hour estimates, dependency graph, and restart lane
+allocation live in [`docs/roadmap.md`](../../docs/roadmap.md).
+
 Lane redirections when work resumes: boot lane moves from MMIO whitelists
 toward peripheral models with reset-value provenance; ROM lane moves to
 real-ROM loading; ISA lane adds a silicon-oracle fixture corpus (the board
