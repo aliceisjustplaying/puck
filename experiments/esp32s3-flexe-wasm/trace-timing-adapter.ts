@@ -11,6 +11,7 @@ import {
 } from "../../packs/esp32-s3-touch-amoled-18/timing/trace-adapter";
 import type { EventLatency } from "../../packs/esp32-s3-touch-amoled-18/timing/execution";
 import type { RuntimeTimingTrace } from "../../packs/esp32-s3-touch-amoled-18/timing/runtime-trace";
+import { classifyFlexeBeqzCpuCosts, type FlexeBeqzTimingOptions } from "./flexe-beqz";
 import {
   detectFlexeDependentSramLoadUseHazards,
   type FlexeDependentSramLoadUseHazardOptions,
@@ -26,6 +27,7 @@ export interface FlexeTraceTimingProvenance {
 export interface FlexeTraceTimingOptions extends NeutralTraceAdapterOptions {
   readonly instructionCpuCost?: EventLatency;
   readonly dependentSramLoadUseHazard?: FlexeDependentSramLoadUseHazardOptions;
+  readonly beqzCpuCost?: FlexeBeqzTimingOptions;
 }
 
 function kindFor(record: TraceRecord, index: number): NeutralTraceKind {
@@ -63,9 +65,12 @@ export function adaptFlexeTraceToRuntimeTiming(
     options.instructionCpuCost,
     options.dependentSramLoadUseHazard,
   );
+  const beqzCpuCosts = classifyFlexeBeqzCpuCosts(decoded, options.beqzCpuCost);
   const l32rPcs = exactL32rPcs(decoded);
   const strictInstructionIdentity =
-    options.storeBuffer !== undefined || options.dependentSramLoadUseHazard !== undefined;
+    options.storeBuffer !== undefined ||
+    options.dependentSramLoadUseHazard !== undefined ||
+    options.beqzCpuCost !== undefined;
   const observations = decoded.records.map((record, sequence) => {
     const kind = kindFor(record, sequence);
     const literalLoad = kind === "read" && l32rPcs.has(record.pc);
@@ -85,6 +90,7 @@ export function adaptFlexeTraceToRuntimeTiming(
       record.width === 3 &&
       record.instruction === XTENSA_MEMW_INSTRUCTION_ENCODING;
     const loadUseHazard = loadUseHazards.get(sequence);
+    const instructionCpuCost = beqzCpuCosts.get(sequence) ?? options.instructionCpuCost;
     return Object.freeze({
       id: `trace:${sequence.toString().padStart(2, "0")}:${timingKind}`,
       sequence,
@@ -98,10 +104,10 @@ export function adaptFlexeTraceToRuntimeTiming(
               value: record.instruction,
               source: `flexe execution trace ABI v${decoded.abiVersion} instruction field`,
             }),
-            ...(options.instructionCpuCost === undefined || isMemw
+            ...(instructionCpuCost === undefined || isMemw
               ? {}
               : {
-                  cpuCost: Object.freeze({ ...options.instructionCpuCost }),
+                  cpuCost: Object.freeze({ ...instructionCpuCost }),
                 }),
             ...(loadUseHazard === undefined
               ? {}

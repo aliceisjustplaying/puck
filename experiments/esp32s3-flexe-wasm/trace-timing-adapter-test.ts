@@ -272,6 +272,79 @@ assert(
   independentLoadUse.input.cpu?.every((event) => event.latency.status === "known" && event.latency.cycles === 1n),
   "independent SRAM load gained a hazard cycle",
 );
+
+const BEQZ_A2_PLUS_8 = 0x004216;
+function beqzTrace(nextPc: number): DecodedTrace {
+  return {
+    ...decoded,
+    count: 2,
+    records: [
+      {
+        kind: TRACE_KINDS.instruction,
+        pc: 0x42002000,
+        address: 0,
+        value: 0,
+        width: 3,
+        instruction: BEQZ_A2_PLUS_8,
+      },
+      {
+        kind: TRACE_KINDS.instruction,
+        pc: nextPc,
+        address: 0,
+        value: 0,
+        width: 3,
+        instruction: 0x002232,
+      },
+    ],
+  };
+}
+function adaptBeqz(decodedTrace: DecodedTrace) {
+  return adaptFlexeTraceToRuntimeTiming(decodedTrace, {
+    source: "synthetic exact Flexe beqz trace",
+    sha256,
+    core: 0,
+  }, {
+    instructionCpuCost: known(1n, "measured steady-state issue"),
+    beqzCpuCost: {
+      taken: {
+        status: "known",
+        cycles: 2n,
+        calibration: "calibrated",
+        source: "measured repeated beqz taken path",
+      },
+      notTaken: {
+        status: "known",
+        cycles: 1n,
+        calibration: "calibrated",
+        source: "measured repeated beqz not-taken path",
+      },
+    },
+  });
+}
+const takenBeqz = adaptBeqz(beqzTrace(0x42002008));
+const notTakenBeqz = adaptBeqz(beqzTrace(0x42002003));
+assert(
+  takenBeqz.input.cpu[0]?.latency.status === "known" &&
+    takenBeqz.input.cpu[0].latency.cycles === 2n &&
+    takenBeqz.input.cpu[0].latency.source.includes("exact beqz taken 0x42002000 -> 0x42002008"),
+  "exact taken beqz lost its calibrated path cost",
+);
+assert(
+  notTakenBeqz.input.cpu[0]?.latency.status === "known" &&
+    notTakenBeqz.input.cpu[0].latency.cycles === 1n &&
+    notTakenBeqz.input.cpu[0].latency.source.includes("exact beqz not-taken 0x42002000 -> 0x42002003"),
+  "exact not-taken beqz lost its calibrated path cost",
+);
+let impossibleBeqzFailure: unknown = null;
+try {
+  adaptBeqz(beqzTrace(0x42002006));
+} catch (error) {
+  impossibleBeqzFailure = error;
+}
+assert(
+  impossibleBeqzFailure instanceof Error && impossibleBeqzFailure.message.includes("neither sequential"),
+  "exact beqz timing accepted an impossible successor",
+);
 assert(
   scheduleExecution(independentLoadUse.input.cpu ?? []).events.map((event) => event.endCycle).join(",") === "1,2",
   "independent SRAM load changed the steady-state ready clock",
