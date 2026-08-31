@@ -170,6 +170,13 @@ intercept. This adopts only trace-proven same-value 32-bit writes to SYSTEM
 `0x600c0060` and EXTMEM `0x600c4004` and `0x600c4064`; writes without an
 observed exact prior value, value-changing writes, AUTOLOAD, and RTC remain excluded.
 
+The full-boot RTC read cohort is retained under
+[`evidence/rtc-boot-read-70cc31a/`](evidence/rtc-boot-read-70cc31a/README.md).
+Two strict 100-sample boots measure matched 2,048- and 4,096-read bodies for
+`0x600080c0` and `0x600081fc`. Their median additive slopes span 87.8096 to
+87.9258 cycles per read and are not integer scalars; both addresses therefore
+remain absent from `mmioAccessCycles`.
+
 The first ROM callback adoption is checked in as
 [`evidence/esp32s3-rev02-tinydraw-0b187a0-rom-callback-adoption.json`](evidence/esp32s3-rev02-tinydraw-0b187a0-rom-callback-adoption.json).
 Matched no-op call shapes on two clean boots give exact costs of 31 cycles for
