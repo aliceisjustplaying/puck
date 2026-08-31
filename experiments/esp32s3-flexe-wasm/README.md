@@ -68,7 +68,7 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
-decoder plus this experiment's explicit ESP32-S3 patch surface has 358
+decoder plus this experiment's explicit ESP32-S3 patch surface has 371
 normalized mnemonics. With user-register operands distinguished, it covers
 63,427 rows and 320 raw mnemonics; 849 rows and 21 raw mnemonics remain gaps.
 Those gaps are 20 unimplemented `ee.*` PIE forms covering 150 rows and 699
@@ -83,7 +83,10 @@ mnemonic remains in the gap list, and every named user-register form is covered.
 `ee.st.accx.ip`, all eight `ee.[ld/st].qacc_[h/l].[h.32/l.128].ip`
 transfers, `ee.[ld/st].ua_state.ip`, `ee.ld.128.usar.ip`, `ee.vldbc.32.ip`,
 `ee.ldqa.s16.128.ip`, `ee.movi.32.q`, `ee.zero.q`, `ee.ld.128.usar.xp`,
-`ee.vldbc.16.ip`, `ee.vst.l.64.ip`, and the four `ee.[ldf/stf].128.[ip/xp]`
+`ee.vldbc.16.ip`, `ee.vst.l.64.ip`, all four `ee.[vld/vst].[l/h].64.xp`
+half-QR transfers, `ee.ldqa.u16.128.ip`, `ee.ldqa.u8.128.ip`,
+`ee.andq`, `ee.orq`, `ee.xorq`, `ee.notq`, `ee.vcmp.eq.s16`,
+`ee.vprelu.s16`, `ee.vprelu.s8`, and the four `ee.[ldf/stf].128.[ip/xp]`
 forms. It selects
 those semantics only for the ESP32-S3 experiment
 profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
@@ -150,10 +153,9 @@ after six instructions. The QR fixture copies 16 deterministic bytes with
 fixture loads q7 through an intentionally unaligned base and proves that the
 aligned access and AR increment are independent. A half-QR fixture
 proves low-half load, high-half load, and high-half store preservation, forced
-eight-byte address alignment, and sign-extended negative post-increments. The
-adjacent unimplemented `ee.vld.l.64.xp` encoding stops before execution with
-unchanged registers,
-trace, and output. Exact code
+eight-byte address alignment, and sign-extended negative post-increments. A
+register-postincrement half-QR fixture covers both halves in both transfer
+directions with independent pointer updates. Exact code
 hashes, outputs, step counts, and post-incremented registers are pinned in the
 dynamic baseline.
 
@@ -182,13 +184,19 @@ its signed scaled immediate to the unaligned base. It also proves
 `ee.vldbc.32.ip` broadcasts one aligned word to all four QR lanes. The adjacent
 register-postincrement USAR form remains fail-closed.
 
-The signed QACC lane fixture loads eight deliberately mixed-sign 16-bit lanes,
-sign-extends each to 40 bits, and pins their exact packed QACC_L/QACC_H user
-register words. The adjacent unsigned lane form remains fail-closed.
+The QACC lane fixtures cover signed 16-bit, unsigned 16-bit, and unsigned
+8-bit loads, pinning each lane's exact 40-bit packed QACC_L/QACC_H words.
+Adjacent register-postincrement lane-load forms remain fail-closed.
 
 The QR scalar fixture clears a QR, writes all four 32-bit selectors from
 different address registers, and round-trips the result. The adjacent
 whole-QACC zero form remains fail-closed in dynamic and sparse execution.
+
+QR bitwise fixtures cover AND, OR, XOR, and NOT across all 128 bits. The
+halfword compare fixture writes all-ones or zero per signed 16-bit lane, and
+parametric-ReLU fixtures cover signed 16-bit and signed 8-bit lanes with exact
+arithmetic-shift and width behavior. Adjacent compare and ReLU encodings stop
+before execution with unchanged register, trace, and memory state.
 
 The additional aligned-transfer fixture covers register-postincrement USAR
 loads, unsigned halfword broadcast loads, and low-half QR stores. It pins

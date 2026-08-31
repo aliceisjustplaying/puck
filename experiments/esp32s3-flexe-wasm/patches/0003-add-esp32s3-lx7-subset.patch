@@ -276,7 +276,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2186,317 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2186,452 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -297,6 +297,13 @@ index 67dca18..e72666d 100644
 +static inline int32_t esp32s3_imm8x4(const uint32_t insn) {
 +    uint32_t encoded = ((insn >> 8) & 0x7fu) | (((insn >> 22) & 1u) << 7);
 +    return sign_extend(encoded, 8) * 4;
++}
++
++static inline int64_t esp32s3_asr64(int64_t value, unsigned shift) {
++    if (!shift) return value;
++    uint64_t shifted = (uint64_t)value >> shift;
++    if (value < 0) shifted |= UINT64_MAX << (64 - shift);
++    return (int64_t)shifted;
 +}
 +
 +static inline void esp32s3_copy_from_memory(xtensa_cpu_t *cpu, uint8_t *output,
@@ -320,6 +327,26 @@ index 67dca18..e72666d 100644
 +        unsigned shift = bit % 32;
 +        output[word] |= (uint32_t)(value << shift);
 +        output[word + 1] |= (uint32_t)(value >> (32 - shift));
++    }
++}
++
++static inline void esp32s3_pack_qacc_unsigned(xtensa_cpu_t *cpu,
++                                               uint32_t output[5],
++                                               uint32_t address,
++                                               unsigned element_bytes) {
++    unsigned lane_bits = element_bytes == 1 ? 20 : 40;
++    unsigned lane_count = 8 / element_bytes;
++    for (unsigned i = 0; i < 5; i++) output[i] = 0;
++    for (unsigned lane = 0; lane < lane_count; lane++) {
++        uint64_t value = element_bytes == 1
++            ? mem_read8(cpu->mem, address + lane)
++            : mem_read16(cpu->mem, address + lane * 2);
++        unsigned bit = lane * lane_bits;
++        unsigned word = bit / 32;
++        unsigned shift = bit % 32;
++        output[word] |= (uint32_t)(value << shift);
++        if (shift + element_bytes * 8 > 32)
++            output[word + 1] |= (uint32_t)(value >> (32 - shift));
 +    }
 +}
 +
@@ -371,6 +398,33 @@ index 67dca18..e72666d 100644
 +        uint32_t base = ar_read(cpu, base_register);
 +        uint32_t increment = ar_read(cpu, increment_register);
 +        esp32s3_copy_from_memory(cpu, cpu->qr[q], base & ~15u, 16);
++        ar_write(cpu, base_register, base + increment);
++        return 1;
++    }
++
++    uint32_t half_xp_opcode = insn & 0xcf700fu;
++    if (half_xp_opcode == 0x8d3004u || half_xp_opcode == 0x8d6004u ||
++        half_xp_opcode == 0xcd4004u || half_xp_opcode == 0xcd0004u) {
++        unsigned q = esp32s3_qr(insn);
++        unsigned base_register = XT_T(insn);
++        unsigned increment_register = (insn >> 8) & 15u;
++        uint32_t base = ar_read(cpu, base_register);
++        uint32_t increment = ar_read(cpu, increment_register);
++        uint32_t address = base & ~7u;
++        switch (half_xp_opcode) {
++        case 0x8d3004u:
++            esp32s3_copy_from_memory(cpu, cpu->qr[q], address, 8);
++            break;
++        case 0x8d6004u:
++            esp32s3_copy_from_memory(cpu, cpu->qr[q] + 8, address, 8);
++            break;
++        case 0xcd4004u:
++            esp32s3_copy_to_memory(cpu, address, cpu->qr[q], 8);
++            break;
++        default:
++            esp32s3_copy_to_memory(cpu, address, cpu->qr[q] + 8, 8);
++            break;
++        }
 +        ar_write(cpu, base_register, base + increment);
 +        return 1;
 +    }
@@ -441,6 +495,75 @@ index 67dca18..e72666d 100644
 +        memset(cpu->qr[q], 0, 16);
 +        return 1;
 +    }
++    if ((insn & 0xcf7f2fu) == 0xcd7f04u) {
++        unsigned destination = esp32s3_qr(insn);
++        unsigned source = (((insn >> 6) & 3u) << 1) | ((insn >> 4) & 1u);
++        for (unsigned i = 0; i < 16; i++) cpu->qr[destination][i] = ~cpu->qr[source][i];
++        return 1;
++    }
++    if ((insn & 0xcf20ffu) == 0x8e0094u) {
++        unsigned destination = esp32s3_qr(insn);
++        unsigned source_x = (insn >> 8) & 7u;
++        unsigned source_y = ((insn >> 11) & 3u) | (((insn >> 14) & 1u) << 2);
++        for (unsigned lane = 0; lane < 8; lane++) {
++            uint16_t x, y, result;
++            memcpy(&x, cpu->qr[source_x] + lane * 2, 2);
++            memcpy(&y, cpu->qr[source_y] + lane * 2, 2);
++            result = x == y ? 0xffffu : 0u;
++            memcpy(cpu->qr[destination] + lane * 2, &result, 2);
++        }
++        return 1;
++    }
++    uint32_t prelu_opcode = insn & 0xcf200fu;
++    if (prelu_opcode == 0x8c0004u || prelu_opcode == 0x8c2004u) {
++        unsigned destination = esp32s3_qr(insn);
++        unsigned source_x = (insn >> 8) & 7u;
++        unsigned source_y = ((insn >> 11) & 3u) | (((insn >> 14) & 1u) << 2);
++        unsigned shift_register = XT_T(insn);
++        unsigned element_bytes = prelu_opcode == 0x8c0004u ? 2 : 1;
++        unsigned shift_mask = element_bytes == 2 ? 63u : 31u;
++        unsigned shift = ar_read(cpu, shift_register) & shift_mask;
++        unsigned lanes = 16 / element_bytes;
++        for (unsigned lane = 0; lane < lanes; lane++) {
++            int32_t x, y;
++            if (element_bytes == 2) {
++                uint16_t raw_x, raw_y;
++                memcpy(&raw_x, cpu->qr[source_x] + lane * 2, 2);
++                memcpy(&raw_y, cpu->qr[source_y] + lane * 2, 2);
++                x = sign_extend(raw_x, 16);
++                y = sign_extend(raw_y, 16);
++            } else {
++                x = sign_extend(cpu->qr[source_x][lane], 8);
++                y = sign_extend(cpu->qr[source_y][lane], 8);
++            }
++            int64_t result = x <= 0 ? esp32s3_asr64((int64_t)x * y, shift) : x;
++            if (element_bytes == 2) {
++                uint16_t value = result;
++                memcpy(cpu->qr[destination] + lane * 2, &value, 2);
++            } else {
++                cpu->qr[destination][lane] = (uint8_t)result;
++            }
++        }
++        return 1;
++    }
++    uint32_t logical_opcode = insn & 0xcf730fu;
++    if (logical_opcode == 0xcd3004u || logical_opcode == 0xcd7004u ||
++        logical_opcode == 0xcd3104u) {
++        unsigned destination = esp32s3_qr(insn);
++        unsigned source_x = (((insn >> 6) & 3u) << 1) | ((insn >> 4) & 1u);
++        unsigned source_y = (((insn >> 10) & 3u) << 1) | ((insn >> 5) & 1u);
++        for (unsigned i = 0; i < 16; i++) {
++            uint8_t x = cpu->qr[source_x][i];
++            uint8_t y = cpu->qr[source_y][i];
++            if (logical_opcode == 0xcd3004u)
++                cpu->qr[destination][i] = x & y;
++            else if (logical_opcode == 0xcd7004u)
++                cpu->qr[destination][i] = x | y;
++            else
++                cpu->qr[destination][i] = x ^ y;
++        }
++        return 1;
++    }
 +    if ((insn & 0xcf730fu) == 0xcd3204u) {
 +        unsigned q = esp32s3_qr(insn);
 +        uint32_t value = ar_read(cpu, XT_T(insn));
@@ -482,6 +605,18 @@ index 67dca18..e72666d 100644
 +        uint32_t address = base & ~15u;
 +        esp32s3_pack_qacc_s16(cpu, cpu->qacc_l, address);
 +        esp32s3_pack_qacc_s16(cpu, cpu->qacc_h, address + 8);
++        ar_write(cpu, base_register, base + (uint32_t)esp32s3_imm8x16(insn));
++        return 1;
++    }
++
++    uint32_t unsigned_qacc_opcode = insn & 0xbf800fu;
++    if (unsigned_qacc_opcode == 0x050004u || unsigned_qacc_opcode == 0x150004u) {
++        unsigned base_register = XT_T(insn);
++        uint32_t base = ar_read(cpu, base_register);
++        uint32_t address = base & ~15u;
++        unsigned element_bytes = unsigned_qacc_opcode == 0x150004u ? 1 : 2;
++        esp32s3_pack_qacc_unsigned(cpu, cpu->qacc_l, address, element_bytes);
++        esp32s3_pack_qacc_unsigned(cpu, cpu->qacc_h, address + 8, element_bytes);
 +        ar_write(cpu, base_register, base + (uint32_t)esp32s3_imm8x16(insn));
 +        return 1;
 +    }
@@ -594,7 +729,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2736,8 @@ have_insn:
+@@ -2319,6 +2871,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -603,7 +738,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +2764,16 @@ have_insn:
+@@ -2345,14 +2899,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -624,7 +759,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +2787,8 @@ have_insn:
+@@ -2366,6 +2922,8 @@ have_insn:
          }
      }
 
