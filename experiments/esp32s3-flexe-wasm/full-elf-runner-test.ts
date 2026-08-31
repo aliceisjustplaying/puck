@@ -866,12 +866,12 @@ assert.deepEqual(lx7Progress.memoryFault, {
 
 const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   ...runnerMemory,
-  maxSteps: 768,
+  maxSteps: 1_024,
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true, cpuTicksPerUs: 40 },
 });
 assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.romRefused);
-assert.equal(cacheProgress.record.steps, 724);
-assert.equal(cacheProgress.record.pc, 0x4000_1c38);
+assert.equal(cacheProgress.record.steps, 792);
+assert.equal(cacheProgress.record.pc, 0x4000_5d60);
 assert(cacheProgress.record.steps > 356, "RTC_CNTL_DATE XTAL write did not advance the real ELF");
 assert.notEqual(cacheProgress.record.pc, 0x4037_730f);
 assert.deepEqual(cacheProgress.cacheBootstrap, {
@@ -1003,8 +1003,9 @@ assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) =>
   { kind: "intlevelRestore", pc: 0x4000_1c38, restorePs: 0x0004_0c00, previousPs: 0x0004_0c03, callinc: 2 },
   { kind: "intlevelRestore", pc: 0x4000_1c38, restorePs: 0x0004_0c03, previousPs: 0x0004_0c03, callinc: 2 },
   { kind: "intlevelRestore", pc: 0x4000_1c38, restorePs: 0x0004_0c00, previousPs: 0x0004_0c03, callinc: 2 },
+  { kind: "intlevelRestore", pc: 0x4000_1c38, restorePs: 0x0004_0c00, previousPs: 0x0004_0c03, callinc: 2 },
 ]);
-assert.deepEqual(cacheProgress.intlevel, { intlevel: 0, restoreCount: 6, lastPc: 0x4000_1c38 });
+assert.deepEqual(cacheProgress.intlevel, { intlevel: 0, restoreCount: 7, lastPc: 0x4000_1c38 });
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "bbpllRomWrite")), [
   {
     kind: "bbpllRomWrite",

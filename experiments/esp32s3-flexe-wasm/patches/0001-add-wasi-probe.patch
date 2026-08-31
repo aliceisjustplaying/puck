@@ -191,7 +191,7 @@ index 0000000..55a269c
 +#define PAGE_BYTES 4096u
 +#define ELF_PAGE_CAPACITY 768u
 +#define ELF_TRACE_CAPACITY 1024u
-+#define ELF_MEMORY_TRACE_CAPACITY 1024u
++#define ELF_MEMORY_TRACE_CAPACITY 2048u
 +#define ELF_UNSUPPORTED_CAPACITY 2048u
 +#define ELF_ROM_EVENT_CAPACITY 64u
 +#define ELF_ROM_EVENT_WORDS 6u
@@ -1388,7 +1388,7 @@ index 0000000..55a269c
 +        uint32_t expected_restore_ps = restore_count == 1u || restore_count == 4u
 +                                           ? ESP32S3_DIRECT_BOOT_INTLEVEL_PRESERVE_PS
 +                                           : ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS;
-+        if (callinc != 2u || restore_count >= 6u || restore_ps != expected_restore_ps ||
++        if (callinc != 2u || restore_count >= 7u || restore_ps != expected_restore_ps ||
 +            previous_ps != ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS ||
 +            XT_PS_INTLEVEL(target_cpu->ps) != 3u ||
 +            elf_regi2c_mmio_event_count(ELF_ROM_EVENT_REGI2C_MMIO_READ) != 2u ||

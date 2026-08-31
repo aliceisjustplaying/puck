@@ -437,7 +437,9 @@ instructions before the second `rom_i2c_writeReg` call writes the source-backed
 The runner accepts that exact ordered call with CALLINC 2 and interrupt level 3,
 then accepts the fifth `_xtos_set_intlevel` restore with saved PS `0x00040c03`.
 The sixth restore accepts saved PS `0x00040c00`; execution reaches 724
-instructions before refusing the seventh interrupt-level boundary.
+instructions before the seventh restore accepts the same saved PS. The runner
+then reaches 792 instructions and refuses the third `rom_i2c_writeReg` call;
+its observed arguments are block `0x66`, host 1, register 3, data `0x08`.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
@@ -459,13 +461,13 @@ trace contains one PC per successfully executed instruction. Oversized bounds,
 duplicate markers, out-of-order pages, invalid permissions, unwritable ROM bulk
 destinations, and capacity overruns are refused.
 
-The full-image runner also exports a separate 1,024-record version 1 memory
+The full-image runner also exports a separate 2,048-record version 1 memory
 trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 724-step
-seventh-interrupt-level boundary produces 961 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 792-step
+third-BBPLL-write boundary produces 1,045 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
@@ -475,12 +477,12 @@ MMIO pages observed in the trace, with their ELF or inherited permissions.
 Those twelve exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 961 records issue 1,775 timing events: 910 memory-system
-events, 54 MMIO accesses, 724 calibrated CPU issue events, and 63 calibrated
-dependent load-use events, plus 24 configured ROM callback boundaries. The
-replay adopts seven exact not-taken `beqz` paths, 40 exact MMIO accesses, and
-four exact ROM callback classes. Exactly 1,741 events have adopted costs; 14
-controller MMIO costs and 20 ROM callback durations remain unknown, so no total
+literal loads. The 1,045 records issue 1,934 timing events: 994 memory-system
+events, 54 MMIO accesses, 792 calibrated CPU issue events, and 69 calibrated
+dependent load-use events, plus 25 configured ROM callback boundaries. The
+replay adopts nine exact not-taken `beqz` paths, 40 exact MMIO accesses, and
+four exact ROM callback classes. Exactly 1,899 events have adopted costs; 14
+controller MMIO costs and 21 ROM callback durations remain unknown, so no total
 cycle claim is made. The baseline pins exact branch, MMIO, load-use, and
 callback evidence projections.
 An executable-permission miss and an unloaded page have distinct recoverable
