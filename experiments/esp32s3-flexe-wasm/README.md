@@ -312,9 +312,14 @@ PLL source value `0x400` at `0x600c0060`, read once from PC `0x403771a5`, and
 the 80 MHz CPU period value `0x4` at `0x600c0010`, read in order from PCs
 `0x403771d6` and `0x403771ff`. All are aligned 32-bit reads after MMU setup.
 Other registers, access shapes, readers, orderings, duplicates, and a third
-CPU-period read are refused. The real image now executes 271 instructions and
-stops at PC `0x40377159` on the first undeclared RTCCNTL read, address
-`0x600080c0`; the typed event log contains exactly the three SYSTEM reads.
+CPU-period read are refused. After those SYSTEM reads, the runner exposes one
+ordered 32-bit read of RTCCNTL `RTC_XTAL_FREQ_REG` at `0x600080c0` from PC
+`0x40377159`. TinyDraw configures a 40 MHz crystal and keeps ROM logging on, so
+the bootloader-persisted duplicated-half value is `0x00280028`. Other RTCCNTL
+addresses, access shapes, readers, orderings, and repeats are refused. The real
+image now executes 290 instructions and stops at PC `0x403771a5` on its next
+SYSTEM clock-source read; the typed event log contains three SYSTEM reads and
+one RTCCNTL read.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
@@ -341,23 +346,23 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 271-step
-cache-bootstrap boundary produces 376 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 290-step
+cache-bootstrap boundary produces 405 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
 same neutral adapter and `TimingMachine` used by the RGB565 replay. Its address
-map contains only the eight SRAM pages, two flash pages, and two controller
+map contains only the eight SRAM pages, two flash pages, and three controller
 MMIO pages observed in the trace, with their ELF or inherited permissions.
 Those eight exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 376 records issue 675 timing events: 349 memory-system
-events, 30 MMIO accesses, 271 calibrated CPU issue events, and 25 calibrated
-dependent load-use events. Exactly 645 events have adopted costs, including
+literal loads. The 405 records issue 723 timing events: 377 memory-system
+events, 31 MMIO accesses, 290 calibrated CPU issue events, and 25 calibrated
+dependent load-use events. Exactly 692 events have adopted costs, including
 three flash line fills and every zero-miss cache hit. The baseline pins the
 hazard count and a projection hash of their schedule, consumer IDs, registers,
-and producer/consumer PCs. Only the 30 controller MMIO costs remain unknown,
+and producer/consumer PCs. Only the 31 controller MMIO costs remain unknown,
 so the replay is blocked and reports no total cycle claim.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,

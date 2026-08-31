@@ -463,6 +463,27 @@ const undeclaredSystemMmio = await runSparseXtensaElf(moduleBytes, undeclaredSys
 assert.equal(undeclaredSystemMmio.record.reason, FULL_ELF_STOP_REASONS.readPermission);
 assert.equal(undeclaredSystemMmio.record.steps, 1);
 assert.equal(undeclaredSystemMmio.memoryFault?.address, 0x600c_0064);
+const undeclaredRtcMmioImage: Elf32XtensaImage = Object.freeze({
+  ...cacheMmioProbeImage,
+  elfSha256: "synthetic-undeclared-rtc-mmio-read",
+  loadSegments: Object.freeze(cacheMmioProbeImage.loadSegments.map((segment) =>
+    segment.index === 1
+      ? syntheticSegment(1, 0x4037_4514, [0xc4, 0x80, 0x00, 0x60], 4, {
+          read: true,
+          write: false,
+          execute: false,
+        })
+      : segment
+  )),
+});
+const undeclaredRtcMmio = await runSparseXtensaElf(moduleBytes, undeclaredRtcMmioImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 2,
+  rom: { resetReasons: [1, 1], cacheBootstrap: true },
+});
+assert.equal(undeclaredRtcMmio.record.reason, FULL_ELF_STOP_REASONS.readPermission);
+assert.equal(undeclaredRtcMmio.record.steps, 1);
+assert.equal(undeclaredRtcMmio.memoryFault?.address, 0x6000_80c4);
 
 assert.equal(image.entryPoint, 0x4037_5c9c);
 assert.equal(image.elfSha256, "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5");
@@ -547,8 +568,8 @@ const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true },
 });
 assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.readPermission);
-assert(cacheProgress.record.steps > 249, "second SYSTEM_CPU_PER_CONF read did not advance the real ELF");
-assert.notEqual(cacheProgress.record.pc, 0x4037_71ff);
+assert(cacheProgress.record.steps > 271, "RTC_XTAL_FREQ read did not advance the real ELF");
+assert.notEqual(cacheProgress.record.pc, 0x4037_7159);
 assert.deepEqual(cacheProgress.cacheBootstrap, {
   sequenceIndex: 6,
   complete: true,
@@ -611,15 +632,23 @@ assert.deepEqual(cacheProgress.systemMmio, {
   cpuPerReadCount: 2,
   cpuPerLastReadPc: 0x4037_71ff,
 });
+assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "rtcMmioRead"), [
+  { kind: "rtcMmioRead", pc: 0x4037_7159, address: 0x6000_80c0, width: 4, value: 0x0028_0028 },
+]);
+assert.deepEqual(cacheProgress.rtcMmio, {
+  xtalFreqReg: 0x0028_0028,
+  readCount: 1,
+  lastReadPc: 0x4037_7159,
+});
 assert.deepEqual(cacheProgress.memoryFault, {
   abiVersion: 1,
   structBytes: 40,
-  pc: 0x4037_7159,
-  address: 0x6000_80c0,
+  pc: 0x4037_71a5,
+  address: 0x600c_0060,
   width: 4,
   isWrite: false,
-  deniedAddress: 0x6000_80c0,
-  deniedPage: 0x6000_8000,
+  deniedAddress: 0x600c_0060,
+  deniedPage: 0x600c_0000,
   deniedFlags: 0,
 });
 assert.deepEqual(
@@ -741,7 +770,7 @@ const baselineRomEvent = (event: FullElfRomEvent) => {
       dataBytes: event.dataBytes,
     };
   }
-  if (event.kind === "systemMmioRead") {
+  if (event.kind === "systemMmioRead" || event.kind === "rtcMmioRead") {
     return {
       kind: event.kind,
       pc: hex(event.pc),
@@ -841,6 +870,7 @@ const actualBaseline = {
     registers: cacheProgress.record.registers.map(paddedHex),
     cacheBootstrap: cacheProgress.cacheBootstrap,
     systemMmio: cacheProgress.systemMmio,
+    rtcMmio: cacheProgress.rtcMmio,
     events: cacheProgress.romEvents.map(baselineRomEvent),
   },
   unsupportedRefusal: {

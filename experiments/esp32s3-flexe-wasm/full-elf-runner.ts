@@ -2,6 +2,11 @@ import { instantiate } from "../../src/wasm";
 import type { Elf32XtensaImage } from "./elf-image";
 import { ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY } from "./esp32s3-full-elf-unsupported";
 import {
+  createEsp32S3DirectBootRtcMmio,
+  readEsp32S3DirectBootRtcMmio,
+  type Esp32S3DirectBootRtcMmioState,
+} from "./direct-boot-rtc-mmio";
+import {
   createEsp32S3DirectBootSystemMmio,
   readEsp32S3DirectBootSystemMmio,
   type Esp32S3DirectBootSystemMmioState,
@@ -85,6 +90,7 @@ export interface FullElfRunResult {
   readonly romEvents: readonly FullElfRomEvent[];
   readonly cacheBootstrap: Esp32S3DirectAppCacheBootstrapState | null;
   readonly systemMmio: Esp32S3DirectBootSystemMmioState | null;
+  readonly rtcMmio: Esp32S3DirectBootRtcMmioState | null;
   readonly memoryFault: FullElfMemoryFault | null;
   readonly capturedPages: readonly CapturedElfPage[];
 }
@@ -149,12 +155,20 @@ export type FullElfRomEvent = Readonly<
       width: number;
       value: number;
     }
+  | {
+      kind: "rtcMmioRead";
+      pc: number;
+      address: number;
+      width: number;
+      value: number;
+    }
 >;
 
 interface FullElfExports {
   memory: WebAssembly.Memory;
   flexe_wasm_elf_begin(): number;
   flexe_wasm_elf_cache_state(): number;
+  flexe_wasm_elf_rtc_mmio_state(): number;
   flexe_wasm_elf_system_mmio_state(): number;
   flexe_wasm_elf_configure_rom(
     resetReasonCore0: number,
@@ -288,6 +302,7 @@ export async function runSparseXtensaElf(
   for (const name of [
     "flexe_wasm_elf_begin",
     "flexe_wasm_elf_cache_state",
+    "flexe_wasm_elf_rtc_mmio_state",
     "flexe_wasm_elf_system_mmio_state",
     "flexe_wasm_elf_configure_rom",
     "flexe_wasm_elf_copy_page",
@@ -517,6 +532,14 @@ export async function runSparseXtensaElf(
         width: words[3],
         value: words[4],
       }));
+    } else if (words[0] === 9) {
+      romEvents.push(Object.freeze({
+        kind: "rtcMmioRead",
+        pc: words[1],
+        address: words[2],
+        width: words[3],
+        value: words[4],
+      }));
     } else throw new Error(`unknown full ELF ROM event ${words[0]}`);
   }
   let cacheBootstrap = options.rom?.cacheBootstrap
@@ -524,6 +547,9 @@ export async function runSparseXtensaElf(
     : null;
   let systemMmio = options.rom?.cacheBootstrap
     ? createEsp32S3DirectBootSystemMmio()
+    : null;
+  let rtcMmio = options.rom?.cacheBootstrap
+    ? createEsp32S3DirectBootRtcMmio()
     : null;
   for (const event of romEvents) {
     if (event.kind === "cacheMode") {
@@ -588,6 +614,22 @@ export async function runSparseXtensaElf(
       systemMmio = read.state;
       continue;
     }
+    if (event.kind === "rtcMmioRead") {
+      assert(systemMmio?.readCount === 1 && systemMmio.cpuPerReadCount === 2,
+        "RTC MMIO read preceded SYSTEM clock reads");
+      assert(rtcMmio !== null, "full ELF module returned unconfigured RTC MMIO");
+      const read = readEsp32S3DirectBootRtcMmio(rtcMmio, {
+        pc: event.pc,
+        address: event.address,
+        width: event.width,
+        isWrite: false,
+        systemMmioComplete: true,
+      });
+      assert(read.handled && read.status === "accepted", "full ELF module violated RTC MMIO contract");
+      assert(read.value === event.value, "RTC MMIO read value differs");
+      rtcMmio = read.state;
+      continue;
+    }
     if (event.kind !== "cache") continue;
     assert(cacheBootstrap !== null, "full ELF module returned an unconfigured cache event");
     assert(event.sequenceIndex === cacheBootstrap.sequenceIndex, "cache event sequence index differs");
@@ -636,6 +678,13 @@ export async function runSparseXtensaElf(
     assert(stateWords[4] === systemMmio.cpuPerReadCount, "SYSTEM_CPU_PER_CONF read count differs");
     assert(stateWords[5] === (systemMmio.cpuPerLastReadPc ?? 0), "SYSTEM_CPU_PER_CONF reader differs");
   }
+  if (rtcMmio) {
+    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_rtc_mmio_state(), 12, "ELF RTC MMIO state");
+    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 3);
+    assert(stateWords[0] === rtcMmio.xtalFreqReg, "RTC_XTAL_FREQ state differs");
+    assert(stateWords[1] === rtcMmio.readCount, "RTC_XTAL_FREQ read count differs");
+    assert(stateWords[2] === (rtcMmio.lastReadPc ?? 0), "RTC_XTAL_FREQ reader differs");
+  }
   const captureAddresses = [...(options.capturePages ?? [])];
   assert(new Set(captureAddresses).size === captureAddresses.length, "captured ELF pages must be unique");
   const capturedPages = captureAddresses.map((address) => {
@@ -656,6 +705,7 @@ export async function runSparseXtensaElf(
     romEvents: Object.freeze(romEvents),
     cacheBootstrap,
     systemMmio,
+    rtcMmio,
     memoryFault,
     capturedPages: Object.freeze(capturedPages),
   });
