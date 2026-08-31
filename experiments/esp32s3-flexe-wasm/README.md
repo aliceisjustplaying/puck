@@ -289,11 +289,16 @@ persists user register 231, reaches 34 decoded instructions, and refuses the
 first undeclared 32-bit MMIO read at
 `0x600c4064` with flags zero. No cache or MMIO behavior is implied.
 
-Full-image runs accept at most 768 pages, 2,048 caller-identified unsupported
-instruction markers, 64 ROM events, and 256 executed instructions. The trace
-contains one PC per successfully executed instruction. Oversized bounds,
-duplicate markers, out-of-order pages, invalid permissions, unwritable ROM
-bulk destinations, and capacity overruns are refused.
+Full-image runs accept at most 768 pages, 2,048 unsupported instruction
+markers, 64 ROM events, and 256 executed instructions. The pinned TinyDraw ELF
+automatically installs the tracked 1,985-instruction ESP32-S3 ISA gap set before
+execution. Each marker must match the decoder-width bytes in loaded executable
+memory during setup; stale, mismatched, unloaded, and non-executable markers are
+refused. Once bound, reaching a marked PC stops before LX6 decoding, including
+four-byte `ee.*` forms whose first two bytes collide with an LX6 encoding. The
+trace contains one PC per successfully executed instruction. Oversized bounds,
+duplicate markers, out-of-order pages, invalid permissions, unwritable ROM bulk
+destinations, and capacity overruns are refused.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
 page count, bounded trace, unsupported-instruction refusal, and first stop,
