@@ -4,7 +4,7 @@
     "traceSha256": "5de26fe4432e5af5c95d99d32ee0d3d68260e712bb5dd20c60eb1315f295c4eb",
     "stagingElfSha256": "522b33cb491bbc9c8a61a364b3c986c7f1d013bcdf228f79791981f7fcad1491",
     "sdkconfigSha256": "ac1749b0f5b9c54e3e8e5ffc045b37a434d6b289420a8f9cf0f37fe8a3173d9b",
-    "timingProfileSha256": "58a8a3662953c5c00dadb3636bff05328829e006fe4ea0726011e7c042ef5d03",
+    "timingProfileSha256": "865ff83c74c126428cfa0b9c6d732db3f0859953489736e4c9a0a483741f30e8",
     "timingMachineSha256": "9d48f95da1da91064a99b3a6c771081a47835cd65ed832e45552849eb5a23fd1",
     "mmuSha256": "fe55f294fceb898337299c46d1400e576e65ad7216462b5b4da0b46ecfed9448",
     "cacheSha256": "1545e87b17e7efdc908fd8fa6be4fe81a9b7c6876229693824fe5463b323bb00"
@@ -14,6 +14,18 @@
     "flashPhysicalPage": 0,
     "sramBase": "0x3fca0000",
     "sramBytes": 65536,
+    "coreSteadyStateCycles": {
+      "instructionIssueCycles": 1,
+      "independentSramAccessAdditiveCycles": {
+        "load": 0,
+        "store": 0
+      },
+      "dependentLoadUseHazard": {
+        "status": "unmodeled",
+        "observedAdditionalCycles": 1,
+        "reason": "runtime traces do not identify register dependencies"
+      }
+    },
     "instructionCache": {
       "bytes": 16384,
       "lineBytes": 32,
@@ -43,7 +55,7 @@
     },
     "mspiEvents": 2,
     "totalCycles": null,
-    "totalCyclesReason": "CPU, cache-hit, and SRAM latency costs remain unadopted; cache line fills are calibrated",
-    "perRecordSha256": "c588bd3610a35d1c20d9ea8f572f29046ae23acaa3f5d9041c143a1eabde8ce3"
+    "totalCyclesReason": "cache-hit latency remains unadopted and the observed dependent SRAM load-use hazard is unmodeled",
+    "perRecordSha256": "2a2179316a9be69d133e230f8754ee971d9147922f5965e0cb138940a956cd94"
   }
 }

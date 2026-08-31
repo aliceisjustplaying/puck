@@ -67,6 +67,15 @@ function unknownCost(component: string, source: string): CacheLatency {
   });
 }
 
+function calibratedCost(cycles: number, component: string, source: string): CacheLatency {
+  return Object.freeze({
+    status: "known",
+    cycles: BigInt(cycles),
+    calibration: "calibrated",
+    source: `${source}; ${component}`,
+  });
+}
+
 function calibratedLineFill(
   cost: CacheLineFillProfileCost,
   source: string,
@@ -74,15 +83,13 @@ function calibratedLineFill(
   firstLineLatency: CacheLatency;
   subsequentLineServiceInterval: CacheLatency;
 }> {
-  const known = (cycles: number, component: string): CacheLatency => Object.freeze({
-    status: "known",
-    cycles: BigInt(cycles),
-    calibration: "calibrated",
-    source: `${source}; ${component}`,
-  });
   return Object.freeze({
-    firstLineLatency: known(cost.firstLineCycles, "first line"),
-    subsequentLineServiceInterval: known(cost.subsequentLineCycles, "contiguous subsequent line"),
+    firstLineLatency: calibratedCost(cost.firstLineCycles, "first line", source),
+    subsequentLineServiceInterval: calibratedCost(
+      cost.subsequentLineCycles,
+      "contiguous subsequent line",
+      source,
+    ),
   });
 }
 
@@ -99,6 +106,10 @@ const decodedTrace = decodeTrace(new Uint8Array(await Bun.file(tracePath).arrayB
 const trace = decodedTrace.records;
 const timingProfile = parseTimingProfile(JSON.parse(readFileSync(timingProfilePath, "utf8")));
 assert(timingProfile.claimBoundary.cycleAccurate === false, "timing profile claim boundary changed");
+assert(
+  timingProfile.coreSteadyStateCycles.dependentLoadUseHazard.status === "unmodeled",
+  "dependent SRAM load-use hazard left the claim boundary",
+);
 
 const sdkconfig = readFileSync(sdkconfigPath, "utf8");
 for (const line of [
@@ -151,6 +162,8 @@ const addressMap: AddressMapConfiguration = Object.freeze({
 const costSource = `timing profile ${TIMING_PROFILE_SOURCE} SHA-256 ${sha256(timingProfilePath)}`;
 const cacheLineFillSource =
   `${costSource}; evidence ${timingProfile.cacheLineFillCycles.evidence}`;
+const coreCyclesSource =
+  `${costSource}; evidence ${timingProfile.coreSteadyStateCycles.evidence}`;
 const cache: CacheConfiguration = Object.freeze({
   addressBits: 32,
   metadata: Object.freeze({
@@ -208,8 +221,16 @@ const cache: CacheConfiguration = Object.freeze({
     }),
     sram: Object.freeze({
       instructionFetch: unknownCost("internal SRAM instruction fetch", costSource),
-      load: unknownCost("internal SRAM load", costSource),
-      store: unknownCost("internal SRAM store", costSource)
+      load: calibratedCost(
+        timingProfile.coreSteadyStateCycles.independentSramAccessAdditiveCycles.load,
+        "independent SRAM load additive cost",
+        coreCyclesSource,
+      ),
+      store: calibratedCost(
+        timingProfile.coreSteadyStateCycles.independentSramAccessAdditiveCycles.store,
+        "independent SRAM store additive cost",
+        coreCyclesSource,
+      )
     }),
     maintenance: unknownCost("cache maintenance", costSource)
   })
@@ -223,6 +244,12 @@ const runtimeTrace = adaptFlexeTraceToRuntimeTiming(decodedTrace, {
   source: TRACE_PROVENANCE_SOURCE,
   sha256: TRACE_SHA256,
   core: 0
+}, {
+  instructionCpuCost: calibratedCost(
+    timingProfile.coreSteadyStateCycles.instructionIssueCycles,
+    "steady-state instruction issue",
+    coreCyclesSource,
+  ),
 });
 const accesses = runtimeTrace.input.cores[0];
 const machine = runRuntimeTimingTrace(machineConfig, runtimeTrace);
@@ -332,9 +359,14 @@ const counts = Object.fromEntries([...new Set(emissionKinds)].sort().map((kind) 
 assert(JSON.stringify(counts) === JSON.stringify({ hit: 44, "line-fill": 2, "sram-bypass": 10 }), `unexpected replay emissions ${JSON.stringify(counts)}`);
 const cpuEvents = machine.issuedEvents.filter((issued) => issued.origin.kind === "cpu");
 assert(cpuEvents.length === 43, `expected 43 CPU events, got ${cpuEvents.length}`);
+assert(cpuEvents.every((event) =>
+  event.cost.status === "known" &&
+  event.cost.cycles === 1n &&
+  event.cost.calibration === "calibrated"
+), "CPU events did not use the adopted one-cycle steady-state issue cost");
 assert(machine.issuedEvents.length === 99, `expected 99 issued events, got ${machine.issuedEvents.length}`);
 assert(machine.execution.events.filter((event) => event.resource === "mspi").length === 2, "instruction misses did not reach MSPI");
-assert(machine.claim.unknownCostEventIds.length === 97, "adopted line-fill costs changed unexpectedly");
+assert(machine.claim.unknownCostEventIds.length === 44, "adopted steady-state costs changed unexpectedly");
 const calibratedLineFills = perRecord.flatMap((record) =>
   record.timing.emissions.filter((emission) => emission.kind === "line-fill")
 );
@@ -357,6 +389,12 @@ for (const record of perRecord.filter((candidate) => candidate.trace.kind !== "i
     JSON.stringify(record.timing.emissions.map((emission) => emission.kind)) === JSON.stringify(["sram-bypass"]),
     `${record.access.id} did not use the SRAM bypass path`
   );
+  assert(
+    record.timing.emissions[0]?.cost.status === "known" &&
+      record.timing.emissions[0].cost.cycles === "0" &&
+      record.timing.emissions[0].cost.calibration === "calibrated",
+    `${record.access.id} did not use the adopted zero additive independent SRAM cost`,
+  );
 }
 
 const perRecordJson = JSON.stringify(perRecord);
@@ -376,6 +414,12 @@ const actualBaseline = {
     flashPhysicalPage: EXPERIMENT_FLASH_PHYSICAL_PAGE,
     sramBase: hex(SRAM_BASE),
     sramBytes: Number(SRAM_SIZE),
+    coreSteadyStateCycles: {
+      instructionIssueCycles: timingProfile.coreSteadyStateCycles.instructionIssueCycles,
+      independentSramAccessAdditiveCycles:
+        timingProfile.coreSteadyStateCycles.independentSramAccessAdditiveCycles,
+      dependentLoadUseHazard: timingProfile.coreSteadyStateCycles.dependentLoadUseHazard,
+    },
     instructionCache: { bytes: 16_384, lineBytes: 32, sets: 64, ways: 8 },
     dataCache: { bytes: 32_768, lineBytes: 64, sets: 64, ways: 8 },
     latencyStatus: "partially-calibrated"
@@ -391,7 +435,8 @@ const actualBaseline = {
     emissions: counts,
     mspiEvents: machine.execution.events.filter((event) => event.resource === "mspi").length,
     totalCycles: null,
-    totalCyclesReason: "CPU, cache-hit, and SRAM latency costs remain unadopted; cache line fills are calibrated",
+    totalCyclesReason:
+      "cache-hit latency remains unadopted and the observed dependent SRAM load-use hazard is unmodeled",
     perRecordSha256
   }
 };

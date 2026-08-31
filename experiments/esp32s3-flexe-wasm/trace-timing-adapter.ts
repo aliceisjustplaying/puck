@@ -7,6 +7,7 @@ import {
   type BoundedNeutralTrace,
   type NeutralTraceKind,
 } from "../../packs/esp32-s3-touch-amoled-18/timing/trace-adapter";
+import type { EventLatency } from "../../packs/esp32-s3-touch-amoled-18/timing/execution";
 import type { RuntimeTimingTrace } from "../../packs/esp32-s3-touch-amoled-18/timing/runtime-trace";
 import { TRACE_KINDS, type DecodedTrace, type TraceRecord } from "./trace-abi";
 
@@ -14,6 +15,10 @@ export interface FlexeTraceTimingProvenance {
   readonly source: string;
   readonly sha256: string;
   readonly core: 0 | 1;
+}
+
+export interface FlexeTraceTimingOptions {
+  readonly instructionCpuCost?: EventLatency;
 }
 
 function kindFor(record: TraceRecord, index: number): NeutralTraceKind {
@@ -26,6 +31,7 @@ function kindFor(record: TraceRecord, index: number): NeutralTraceKind {
 export function adaptFlexeTraceToRuntimeTiming(
   decoded: DecodedTrace,
   provenance: FlexeTraceTimingProvenance,
+  options: FlexeTraceTimingOptions = {},
 ): RuntimeTimingTrace {
   const observations = decoded.records.map((record, sequence) => {
     const kind = kindFor(record, sequence);
@@ -37,6 +43,9 @@ export function adaptFlexeTraceToRuntimeTiming(
       kind,
       address: BigInt(kind === "instruction" ? record.pc : record.address),
       width: record.width,
+      ...(kind === "instruction" && options.instructionCpuCost !== undefined
+        ? { cpuCost: options.instructionCpuCost }
+        : {}),
     });
   });
   const neutral: BoundedNeutralTrace = Object.freeze({
