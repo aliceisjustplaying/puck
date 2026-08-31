@@ -33,9 +33,18 @@ export type CacheLatency =
       source: string;
     }>;
 
+export interface CacheLineFillBurstCost {
+  /** Cost from an idle or broken fill sequence through completion of its first line. */
+  readonly firstLineLatency: CacheLatency;
+  /** Completion-to-completion service interval for the next contiguous line. */
+  readonly subsequentLineServiceInterval: CacheLatency;
+}
+
+export type ScopedCacheLineFillCost = CacheLatency | Readonly<CacheLineFillBurstCost>;
+
 export type ExternalCacheLineFillCosts = Readonly<{
-  instruction: Readonly<Record<"flash" | "psram", CacheLatency>>;
-  data: Readonly<Record<"flash" | "psram", CacheLatency>>;
+  instruction: Readonly<Record<"flash" | "psram", ScopedCacheLineFillCost>>;
+  data: Readonly<Record<"flash" | "psram", ScopedCacheLineFillCost>>;
 }>;
 
 export type CacheLineFillCost = CacheLatency | ExternalCacheLineFillCosts;
@@ -170,6 +179,14 @@ interface AccessSegment {
   readonly lineAddress: bigint;
 }
 
+interface PreviousLineFill {
+  readonly core: CoreId;
+  readonly cache: CacheKind;
+  readonly memory: "flash" | "psram";
+  readonly lineAddress: bigint;
+  readonly lineSizeBytes: number;
+}
+
 const CACHE_KINDS: readonly CacheKind[] = ["instruction", "data"];
 
 function requireNonEmpty(value: unknown, path: string): string {
@@ -219,6 +236,25 @@ function isCacheLatency(value: CacheLineFillCost): value is CacheLatency {
   return "status" in value;
 }
 
+function isScopedCacheLatency(value: ScopedCacheLineFillCost): value is CacheLatency {
+  return "status" in value;
+}
+
+function validateScopedLineFillCost(cost: ScopedCacheLineFillCost, path: string): void {
+  if (typeof cost !== "object" || cost === null) {
+    throw new Error(`${path} is required`);
+  }
+  if (isScopedCacheLatency(cost)) {
+    validateCost(cost, path);
+    return;
+  }
+  validateCost(cost.firstLineLatency, `${path}.firstLineLatency`);
+  validateCost(
+    cost.subsequentLineServiceInterval,
+    `${path}.subsequentLineServiceInterval`,
+  );
+}
+
 function validateLineFillCost(cost: CacheLineFillCost, path: string): void {
   if (typeof cost !== "object" || cost === null) {
     throw new Error(`${path} is required; the cache model has no default latency`);
@@ -232,8 +268,8 @@ function validateLineFillCost(cost: CacheLineFillCost, path: string): void {
     if (typeof byMemory !== "object" || byMemory === null) {
       throw new Error(`${path}.${cache} is required`);
     }
-    validateCost(byMemory.flash, `${path}.${cache}.flash`);
-    validateCost(byMemory.psram, `${path}.${cache}.psram`);
+    validateScopedLineFillCost(byMemory.flash, `${path}.${cache}.flash`);
+    validateScopedLineFillCost(byMemory.psram, `${path}.${cache}.psram`);
   }
 }
 
@@ -364,6 +400,7 @@ export class CacheStateMachine {
   readonly #banks = new Map<string, CacheBank>();
   readonly #traceIds = new Set<string>();
   readonly #addressLimit: bigint;
+  #previousLineFill: PreviousLineFill | null = null;
 
   constructor(config: CacheConfiguration) {
     validateConfiguration(config);
@@ -528,9 +565,36 @@ export class CacheStateMachine {
     }
   }
 
-  #lineFillCost(cache: CacheKind, memory: "flash" | "psram"): CacheLatency {
+  #breakLineFillBurst(): void {
+    this.#previousLineFill = null;
+  }
+
+  #lineFillCost(
+    core: CoreId,
+    cache: CacheKind,
+    memory: "flash" | "psram",
+    lineAddress: bigint,
+    lineSizeBytes: number,
+  ): CacheLatency {
     const cost = this.#config.costs.lineFill;
-    return isCacheLatency(cost) ? cost : cost[cache][memory];
+    if (isCacheLatency(cost)) return cost;
+    const scoped = cost[cache][memory];
+    if (isScopedCacheLatency(scoped)) {
+      this.#breakLineFillBurst();
+      return scoped;
+    }
+    const previous = this.#previousLineFill;
+    const continues =
+      previous !== null &&
+      previous.core === core &&
+      previous.cache === cache &&
+      previous.memory === memory &&
+      previous.lineSizeBytes === lineSizeBytes &&
+      previous.lineAddress + BigInt(previous.lineSizeBytes) === lineAddress;
+    this.#previousLineFill = { core, cache, memory, lineAddress, lineSizeBytes };
+    return continues
+      ? scoped.subsequentLineServiceInterval
+      : scoped.firstLineLatency;
   }
 
   #memoryEvent(
@@ -584,6 +648,7 @@ export class CacheStateMachine {
     const emissions: CacheEmission[] = [];
 
     if (trace.memory === "sram") {
+      this.#breakLineFillBurst();
       const { address, bytes } = this.#validateRange(trace.address, trace.bytes, `trace ${trace.id}`);
       this.#emit(
         emissions,
@@ -602,6 +667,7 @@ export class CacheStateMachine {
 
     for (const segment of this.#segments(trace, geometry)) {
       if (trace.cacheability === "uncached") {
+        this.#breakLineFillBurst();
         const cost = this.#uncachedCost(trace.kind);
         this.#emit(
           emissions,
@@ -628,6 +694,7 @@ export class CacheStateMachine {
         trace.kind === "store" &&
         !this.#config.data.allocateOnStoreMiss
       ) {
+        this.#breakLineFillBurst();
         const bypassKind =
           this.#config.data.writePolicy === "write-through" ? "write-through" : "uncached";
         const bypassCost =
@@ -652,7 +719,10 @@ export class CacheStateMachine {
       if (way < 0) {
         way = this.#victimWay(bank, geometry, setIndex);
         const victim = ways[way]!;
-        if (victim.valid && victim.dirty) this.#writeback(emissions, trace, cache, victim);
+        if (victim.valid && victim.dirty) {
+          this.#breakLineFillBurst();
+          this.#writeback(emissions, trace, cache, victim);
+        }
         const fillEvent =
           trace.kind === "instruction-fetch" || trace.kind === "literal-load"
             ? ({
@@ -676,7 +746,13 @@ export class CacheStateMachine {
           segment.lineAddress,
           geometry.lineSizeBytes,
           segment.lineAddress,
-          this.#lineFillCost(cache, trace.memory),
+          this.#lineFillCost(
+            trace.core,
+            cache,
+            trace.memory,
+            segment.lineAddress,
+            geometry.lineSizeBytes,
+          ),
           fillEvent,
         );
         Object.assign(victim, {
@@ -687,6 +763,8 @@ export class CacheStateMachine {
           lineAddress: segment.lineAddress,
           lastUsed: 0n,
         });
+      } else {
+        this.#breakLineFillBurst();
       }
 
       const line = ways[way]!;
@@ -719,6 +797,7 @@ export class CacheStateMachine {
             this.#config.costs.writeThrough,
             this.#memoryEvent(trace, trace.memory, segment.bytes),
           );
+          this.#breakLineFillBurst();
         }
       }
     }
@@ -745,6 +824,7 @@ export class CacheStateMachine {
       throw new Error(`trace ${trace.id}.scope.kind must be all or range`);
     }
 
+    this.#breakLineFillBurst();
     const caches = trace.cache === "both" ? CACHE_KINDS : [trace.cache];
     const emissions: CacheEmission[] = [];
     for (const cache of caches) {

@@ -128,6 +128,19 @@ describe("resource arbitration", () => {
     });
   });
 
+  test("preserves first-line and subsequent-line durations on the shared MSPI clock", () => {
+    const result = scheduleExecution([
+      coreLoad("flash-first", 0, "flash", known(11n)),
+      coreLoad("flash-subsequent", 0, "flash", known(3n)),
+      coreLoad("psram-first", 1, "psram", known(17n)),
+    ], { sameCycleTieBreak: "input-order" });
+    expect(projection(result.events)).toEqual([
+      "0:flash-first:completed:0-11:mspi",
+      "1:flash-subsequent:completed:11-14:mspi",
+      "2:psram-first:completed:14-31:mspi",
+    ]);
+  });
+
   test("lets SRAM and MMIO progress independently while MSPI is occupied", () => {
     const result = scheduleExecution([
       coreLoad("flash-long", 0, "flash", known(20n)),

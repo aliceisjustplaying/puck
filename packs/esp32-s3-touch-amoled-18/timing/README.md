@@ -27,6 +27,25 @@ result.
 | Evidence report CLI | [`calibration-report.ts`](calibration-report.ts) | Reads receipt JSON files or flat directories, retains receipt and boot-log hashes, and writes byte-stable candidate JSON with exact integers and rationals as decimal strings. Adoption stays `unreviewed`; cache and ISA calibration are not claimed. |
 | Xtensa WebAssembly experiment | [`../../../experiments/esp32s3-flexe-wasm/`](../../../experiments/esp32s3-flexe-wasm/) | Executes a real TinyDraw RGB565 kernel through Puck's loader with a bounded instruction and data-access trace, then replays it through this timing machine. |
 
+## Line-fill burst boundary
+
+`costs.lineFill` still accepts one known or unknown scalar cost, and still
+accepts instruction/data costs scoped by flash/PSRAM. A scoped cost may now
+provide `firstLineLatency` and `subsequentLineServiceInterval`. Both values are
+ordinary explicit cache latencies with their own calibration and source.
+
+A burst is a maximal sequence of cache-miss line fills in the cache machine's
+architectural issue order. The next fill uses the subsequent-line interval only
+when it is for the same core, cache kind, and backing path, and its line address
+is exactly one line size above the preceding fill. The local hit emitted for the
+same newly filled segment does not break the sequence. A hit-only segment,
+address gap or reversal, core change, instruction/data cache change,
+flash/PSRAM switch, SRAM or uncached access, dirty writeback, write-through, or
+cache maintenance starts a new burst. This classifies only requested misses. It
+does not add a prefetch or reserve MSPI beyond the emitted events. The execution
+scheduler continues to arbitrate every emitted flash and PSRAM event on its one
+shared two-core MSPI clock.
+
 The ledger report consumes a built emulator:
 
 ```sh

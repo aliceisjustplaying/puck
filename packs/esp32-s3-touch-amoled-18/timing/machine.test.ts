@@ -3,6 +3,8 @@ import type { AddressMapConfiguration, AddressRegion, VirtualMemoryAccess } from
 import {
   ESP32_S3_CACHE_BANK_TOPOLOGY,
   type CacheConfiguration,
+  type CacheLineFillBurstCost,
+  type CacheLineFillCost,
   type CacheLatency,
 } from "./cache";
 import type { DmaEvent } from "./execution";
@@ -77,6 +79,15 @@ const known = (
   source = "synthetic-machine-cost",
 ): CacheLatency => ({ status: "known", cycles, calibration, source });
 
+const burst = (first: bigint, subsequent: bigint): CacheLineFillBurstCost => ({
+  firstLineLatency: known(first, "calibrated", "synthetic-first-line-cost"),
+  subsequentLineServiceInterval: known(
+    subsequent,
+    "calibrated",
+    "synthetic-subsequent-line-cost",
+  ),
+});
+
 function addressMap(): AddressMapConfiguration {
   return {
     addressBits: 32,
@@ -88,7 +99,7 @@ function addressMap(): AddressMapConfiguration {
   };
 }
 
-function cache(lineFill: CacheLatency = known(10n)): CacheConfiguration {
+function cache(lineFill: CacheLineFillCost = known(10n)): CacheConfiguration {
   return {
     addressBits: 32,
     metadata: {
@@ -136,7 +147,7 @@ function cache(lineFill: CacheLatency = known(10n)): CacheConfiguration {
   };
 }
 
-function configuration(lineFill: CacheLatency = known(10n)): TimingMachineConfiguration {
+function configuration(lineFill: CacheLineFillCost = known(10n)): TimingMachineConfiguration {
   return {
     addressMap: addressMap(),
     cache: cache(lineFill),
@@ -218,6 +229,59 @@ describe("two-core composition and shared resources", () => {
     expect(completedWindow(result, fills[0]!.event.id)).toEqual([0n, 10n]);
     expect(completedWindow(result, fills[1]!.event.id)).toEqual([10n, 20n]);
     expect(result.cores.map((core) => core.status)).toEqual(["complete", "complete"]);
+  });
+
+  test("applies sequential fill intervals and restarts on gaps, cores, and paths", () => {
+    const lineFill: CacheLineFillCost = {
+      instruction: { flash: burst(11n, 3n), psram: burst(13n, 4n) },
+      data: { flash: burst(17n, 5n), psram: burst(19n, 6n) },
+    };
+    const sequential = runTimingMachine(
+      configuration(lineFill),
+      input(
+        [
+          access("seq-0", 0, "instruction-fetch", 0x4000n),
+          access("seq-1", 0, "instruction-fetch", 0x4010n),
+          access("random", 0, "instruction-fetch", 0x4040n),
+        ],
+        [],
+      ),
+    );
+    expect(
+      sequential.issuedEvents
+        .filter((issued) => issued.event.id.endsWith("line-fill"))
+        .map((issued) => issued.cost.status === "known" ? issued.cost.cycles : null),
+    ).toEqual([11n, 3n, 11n]);
+
+    const switched = runTimingMachine(
+      configuration(lineFill),
+      input(
+        [
+          access("flash-data-0", 0, "load", 0x5000n),
+          access("flash-data-1", 0, "load", 0x5010n),
+          access("flash-data-after", 0, "load", 0x5020n),
+        ],
+        [access("psram-between", 1, "load", 0x2020n)],
+        [],
+        ["flash-data-0", "flash-data-1", "psram-between", "flash-data-after"],
+      ),
+    );
+    const fillCosts = switched.issuedEvents
+      .filter((issued) => issued.event.id.endsWith("line-fill"))
+      .map((issued) => [
+        issued.origin.kind === "cache" ? issued.origin.accessId : null,
+        issued.cost.status === "known" ? issued.cost.cycles : null,
+        issued.cost.status === "known" ? issued.cost.source : null,
+      ]);
+    expect(fillCosts).toEqual([
+      ["flash-data-0", 17n, "synthetic-first-line-cost"],
+      ["flash-data-1", 5n, "synthetic-subsequent-line-cost"],
+      ["psram-between", 19n, "synthetic-first-line-cost"],
+      ["flash-data-after", 17n, "synthetic-first-line-cost"],
+    ]);
+    expect(switched.execution.events.filter((event) => event.resource === "mspi").every(
+      (event, index, events) => index === 0 || (event.startCycle ?? 0n) >= (events[index - 1]?.endCycle ?? 0n),
+    )).toBe(true);
   });
 
   test("lets internal SRAM on one core complete while the other core occupies MSPI", () => {

@@ -3,6 +3,7 @@ import {
   CacheStateMachine,
   ESP32_S3_CACHE_BANK_TOPOLOGY,
   type CacheConfiguration,
+  type CacheLineFillBurstCost,
   type CacheLineFillCost,
   type CacheLatency,
 } from "./cache";
@@ -13,6 +14,11 @@ const measured = (cycles: bigint): CacheLatency => ({
   cycles,
   calibration: "calibrated",
   source: "synthetic-test-receipt",
+});
+
+const burst = (first: bigint, subsequent: bigint): CacheLineFillBurstCost => ({
+  firstLineLatency: measured(first),
+  subsequentLineServiceInterval: measured(subsequent),
 });
 
 function configuration(
@@ -111,6 +117,19 @@ describe("configuration and address boundaries", () => {
     invalidTopology.topology.data = "clustered";
     expect(() => new CacheStateMachine(invalidTopology as unknown as CacheConfiguration)).toThrow(
       "config.topology.data must be per-core or shared",
+    );
+
+    const incompleteBurst = configuration({
+      lineFill: {
+        instruction: {
+          flash: { firstLineLatency: measured(8n) } as unknown as CacheLineFillBurstCost,
+          psram: measured(8n),
+        },
+        data: { flash: measured(8n), psram: measured(8n) },
+      },
+    });
+    expect(() => new CacheStateMachine(incompleteBurst)).toThrow(
+      "subsequentLineServiceInterval is required",
     );
 
     const architectureOverclaim = configuration() as unknown as {
@@ -223,6 +242,70 @@ describe("line boundaries and bank topology", () => {
         cost: { status: "known", cycles: candidate.cycles },
       });
     }
+  });
+
+  test("selects first-line latency and contiguous service interval per cache and backing", () => {
+    const lineFill: CacheLineFillCost = {
+      instruction: { flash: burst(11n, 3n), psram: burst(12n, 4n) },
+      data: { flash: burst(21n, 5n), psram: burst(22n, 6n) },
+    };
+    const cases = [
+      { kind: "instruction-fetch" as const, memory: "flash" as const, costs: [11n, 3n] },
+      { kind: "instruction-fetch" as const, memory: "psram" as const, costs: [12n, 4n] },
+      { kind: "load" as const, memory: "flash" as const, costs: [21n, 5n] },
+      { kind: "load" as const, memory: "psram" as const, costs: [22n, 6n] },
+    ];
+    for (const [index, candidate] of cases.entries()) {
+      const step = new CacheStateMachine(configuration({ lineFill })).process({
+        id: `burst-${index}`,
+        core: 0,
+        kind: candidate.kind,
+        memory: candidate.memory,
+        address: 0n,
+        bytes: 32,
+        cacheability: "cached",
+      });
+      expect(
+        step.emissions
+          .filter((emission) => emission.kind === "line-fill")
+          .map((emission) => emission.cost.status === "known" ? emission.cost.cycles : null),
+      ).toEqual(candidate.costs);
+    }
+  });
+
+  test("starts a new burst after an address gap, path or core switch, or hit-only gap", () => {
+    const lineFill: CacheLineFillCost = {
+      instruction: { flash: burst(10n, 2n), psram: burst(20n, 4n) },
+      data: { flash: burst(30n, 6n), psram: burst(40n, 8n) },
+    };
+    const machine = new CacheStateMachine(configuration({ lineFill, ways: 8 }));
+    const fillCost = (
+      id: string,
+      core: 0 | 1,
+      memory: "flash" | "psram",
+      address: bigint,
+    ): bigint | null => {
+      const fill = machine.process({
+        id,
+        kind: "instruction-fetch",
+        core,
+        memory,
+        address,
+        bytes: 4,
+        cacheability: "cached",
+      }).emissions.find((emission) => emission.kind === "line-fill");
+      return fill?.cost.status === "known" ? fill.cost.cycles : null;
+    };
+
+    expect(fillCost("first", 0, "flash", 0n)).toBe(10n);
+    expect(fillCost("contiguous", 0, "flash", 16n)).toBe(2n);
+    expect(fillCost("address-gap", 0, "flash", 48n)).toBe(10n);
+    expect(fillCost("path-switch", 0, "psram", 64n)).toBe(20n);
+    expect(fillCost("path-switch-back", 0, "flash", 64n)).toBe(10n);
+    expect(fillCost("core-switch", 1, "flash", 80n)).toBe(10n);
+    expect(fillCost("core-contiguous", 1, "flash", 96n)).toBe(2n);
+    expect(fillCost("hit-only-gap", 1, "flash", 96n)).toBeNull();
+    expect(fillCost("after-hit-gap", 1, "flash", 112n)).toBe(10n);
   });
 
   test("models per-core instruction banks and one shared data bank", () => {
@@ -585,6 +668,43 @@ describe("execution integration and claim boundary", () => {
       "blocked",
     ]);
     expect(schedule.calibration.status).toBe("unknown");
+  });
+
+  test("keeps an unknown subsequent-line interval explicit", () => {
+    const unknownInterval: CacheLatency = {
+      status: "unknown",
+      reason: "sequential interval not adopted",
+      source: "unreviewed-hardware-candidate",
+    };
+    const machine = new CacheStateMachine(configuration({
+      lineFill: {
+        instruction: { flash: burst(10n, 2n), psram: burst(20n, 4n) },
+        data: {
+          flash: burst(30n, 6n),
+          psram: {
+            firstLineLatency: measured(40n),
+            subsequentLineServiceInterval: unknownInterval,
+          },
+        },
+      },
+    }));
+    const step = machine.process({
+      id: "unknown-burst-tail",
+      kind: "load",
+      core: 0,
+      memory: "psram",
+      address: 0n,
+      bytes: 32,
+      cacheability: "cached",
+    });
+    expect(step.emissions.filter((emission) => emission.kind === "line-fill").map((emission) => emission.cost)).toEqual([
+      measured(40n),
+      unknownInterval,
+    ]);
+    expect(step.claim.costCalibration).toBe("unknown");
+    expect(step.claim.unknownCostEventIds).toEqual([
+      "cache:unknown-burst-tail:2:line-fill",
+    ]);
   });
 
   test("keeps the architecture claim uncalibrated even when every supplied cost is calibrated", () => {
