@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "inputs": {
     "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
-    "moduleSha256": "ba8d1e70802775c2e31e1ca9971f1302c6341477c8195559ab1fd06d5d7be77e",
+    "moduleSha256": "8643b071f42937d2e762db82fe4c96b1231b8f867d4f083cedd2df9c7d09d543",
     "traceRecordSha256": "5f186e25e99daccb890bc93daaabc2c2abe9ebbd725c5ed038bea3433f0c8b04",
     "timingProfileSha256": "8dfbf2f51aa77d69eb98a0eed87d8d2442a2a9584ac21c5d238291398918f15b",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
@@ -122,7 +122,7 @@
     "dependentSramLoadUseHazards": 28,
     "knownCostEvents": 836,
     "unknownCostEvents": 35,
-    "issuedProjectionSha256": "659da9ce1f52f7f4a6c0d88fece62b6f7fea615f09e5127a932962070ca17d38",
+    "issuedProjectionSha256": "f044be785884565cf905b938870fb646083cefbd5724a3e97cb5d3bd199ca2cc",
     "loadUseEvidenceSha256": "5f9e894a887960bea8359009766a7b5b26fbba3befd6ae219bda79b9372284ed"
   }
 }

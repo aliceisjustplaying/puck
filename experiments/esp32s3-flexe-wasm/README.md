@@ -431,8 +431,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 55,497 bytes with Zig 0.16.0, SHA-256
-`355af8bc3967d6ad5a687aaf313546687c933d14eb65894be4f9c3ccd31b4b31`.
+The stripped freestanding module is 67,233 bytes with Zig 0.16.0, SHA-256
+`8643b071f42937d2e762db82fe4c96b1231b8f867d4f083cedd2df9c7d09d543`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and

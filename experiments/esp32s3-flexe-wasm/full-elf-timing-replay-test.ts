@@ -429,7 +429,7 @@ const mmioAccessBreakdown = [...mmioBreakdownByKey.values()].sort((left, right) 
   left.operation.localeCompare(right.operation) ||
   left.peripheral.localeCompare(right.peripheral)
 );
-assert.equal(mmioAccessBreakdown.reduce((sum, entry) => sum + entry.count, 0), 36);
+assert.equal(mmioAccessBreakdown.reduce((sum, entry) => sum + entry.count, 0), 40);
 const flashLineFills = machine.issuedEvents.filter((event) =>
   event.origin.kind === "cache" && event.origin.regionId.startsWith("full-elf:flash-page:") &&
   event.event.id.endsWith(":line-fill")
