@@ -275,13 +275,52 @@ describe("two-core composition and shared resources", () => {
       ]);
     expect(fillCosts).toEqual([
       ["flash-data-0", 17n, "synthetic-first-line-cost"],
-      ["flash-data-1", 5n, "synthetic-subsequent-line-cost"],
+      ["flash-data-1", 17n, "synthetic-first-line-cost"],
       ["psram-between", 19n, "synthetic-first-line-cost"],
       ["flash-data-after", 17n, "synthetic-first-line-cost"],
     ]);
     expect(switched.execution.events.filter((event) => event.resource === "mspi").every(
       (event, index, events) => index === 0 || (event.startCycle ?? 0n) >= (events[index - 1]?.endCycle ?? 0n),
     )).toBe(true);
+  });
+
+  test("classifies contiguous fills from MSPI service order across DMA arbitration", () => {
+    const lineFill: CacheLineFillCost = {
+      instruction: { flash: burst(11n, 3n), psram: burst(13n, 4n) },
+      data: { flash: burst(17n, 5n), psram: burst(19n, 6n) },
+    };
+    const accesses = [
+      access("fill-0", 0, "load", 0x5000n),
+      access("fill-1", 0, "load", 0x5010n),
+    ];
+    const uninterrupted = runTimingMachine(
+      configuration(lineFill),
+      input(accesses, []),
+    );
+    const transfer = dma("dma-between", 4n);
+    const interrupted = runTimingMachine(configuration(lineFill), {
+      ...input(accesses, [], [transfer]),
+      issueOrder: [
+        { kind: "memory", accessId: "fill-0" },
+        { kind: "dma", eventId: "dma-between" },
+        { kind: "memory", accessId: "fill-1" },
+      ],
+    });
+    const fillCosts = (result: ReturnType<typeof runTimingMachine>): bigint[] =>
+      result.issuedEvents
+        .filter((issued) => issued.event.id.endsWith("line-fill"))
+        .map((issued) => issued.cost.status === "known" ? issued.cost.cycles : -1n);
+
+    expect(fillCosts(uninterrupted)).toEqual([17n, 5n]);
+    expect(fillCosts(interrupted)).toEqual([17n, 17n]);
+    expect(interrupted.execution.events
+      .filter((event) => event.resource === "mspi")
+      .map((event) => [event.eventId, event.startCycle, event.endCycle]))
+      .toEqual([
+        ["cache:fill-0:segment:0:cache:0:line-fill", 0n, 17n],
+        ["dma-between", 17n, 21n],
+        ["cache:fill-1:segment:0:cache:0:line-fill", 21n, 38n],
+      ]);
   });
 
   test("lets internal SRAM on one core complete while the other core occupies MSPI", () => {

@@ -222,8 +222,31 @@ function provenance(
     eventId: event.id,
     calibration: "unknown",
     reason: event.latency.reason,
-    source: sourceForUnknown,
+    source: event.latency.source ?? sourceForUnknown,
   });
+}
+
+function applyServiceLatencies(
+  issued: readonly IssuedMachineEvent[],
+  execution: ExecutionSchedule,
+): readonly IssuedMachineEvent[] {
+  const byId = new Map(execution.events.map((result) => [result.eventId, result]));
+  return Object.freeze(issued.map((record) => {
+    if (!("mspiBurst" in record.event) || record.event.mspiBurst === undefined) return record;
+    const result = byId.get(record.event.id);
+    if (result?.status !== "completed" && result?.status !== "started-unknown-duration") {
+      return record;
+    }
+    const event = Object.freeze({
+      ...record.event,
+      latency: result.latency,
+    }) as ExecutionEvent;
+    return Object.freeze({
+      ...record,
+      event,
+      cost: provenance(event, record.cost.source),
+    });
+  }));
 }
 
 interface OrderedArchitecturalAccess {
@@ -552,7 +575,8 @@ export function runTimingMachine(
     issued.map((record) => record.event),
     validatedInput.hasExplicitIssueOrder ? { sameCycleTieBreak: "input-order" } : undefined,
   );
-  const costProvenance = Object.freeze(issued.map((record) => record.cost));
+  const servicedIssued = applyServiceLatencies(issued, execution);
+  const costProvenance = Object.freeze(servicedIssued.map((record) => record.cost));
   const directUncalibratedEventIds = Object.freeze(
     costProvenance
       .filter((cost) => cost.status === "known" && cost.calibration === "uncalibrated")
@@ -593,7 +617,7 @@ export function runTimingMachine(
       architecturalOrder.map((entry) => entry.access.id),
     ),
     cores,
-    issuedEvents: Object.freeze(issued),
+    issuedEvents: servicedIssued,
     execution,
   });
 }

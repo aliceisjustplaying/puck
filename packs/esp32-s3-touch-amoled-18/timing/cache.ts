@@ -4,6 +4,7 @@ import type {
   EventLatency,
   ExecutionEvent,
   MemoryRegion,
+  MspiBurstSelection,
 } from "./execution";
 
 export type CacheKind = "instruction" | "data";
@@ -185,6 +186,12 @@ interface PreviousLineFill {
   readonly memory: "flash" | "psram";
   readonly lineAddress: bigint;
   readonly lineSizeBytes: number;
+  readonly sequenceId: bigint;
+}
+
+interface LineFillTiming {
+  readonly cost: CacheLatency;
+  readonly mspiBurst?: MspiBurstSelection;
 }
 
 const CACHE_KINDS: readonly CacheKind[] = ["instruction", "data"];
@@ -373,7 +380,11 @@ function toExecutionLatency(cost: CacheLatency): EventLatency {
       source: cost.source,
     };
   }
-  return { status: "unknown", reason: `${cost.reason}; source: ${cost.source}` };
+  return {
+    status: "unknown",
+    reason: `${cost.reason}; source: ${cost.source}`,
+    source: cost.source,
+  };
 }
 
 function costCalibration(cost: CacheLatency): CalibrationStatus | "unknown" {
@@ -401,6 +412,7 @@ export class CacheStateMachine {
   readonly #traceIds = new Set<string>();
   readonly #addressLimit: bigint;
   #previousLineFill: PreviousLineFill | null = null;
+  #lineFillSequence = 0n;
 
   constructor(config: CacheConfiguration) {
     validateConfiguration(config);
@@ -575,13 +587,13 @@ export class CacheStateMachine {
     memory: "flash" | "psram",
     lineAddress: bigint,
     lineSizeBytes: number,
-  ): CacheLatency {
+  ): LineFillTiming {
     const cost = this.#config.costs.lineFill;
-    if (isCacheLatency(cost)) return cost;
+    if (isCacheLatency(cost)) return { cost };
     const scoped = cost[cache][memory];
     if (isScopedCacheLatency(scoped)) {
       this.#breakLineFillBurst();
-      return scoped;
+      return { cost: scoped };
     }
     const previous = this.#previousLineFill;
     const continues =
@@ -591,10 +603,24 @@ export class CacheStateMachine {
       previous.memory === memory &&
       previous.lineSizeBytes === lineSizeBytes &&
       previous.lineAddress + BigInt(previous.lineSizeBytes) === lineAddress;
-    this.#previousLineFill = { core, cache, memory, lineAddress, lineSizeBytes };
-    return continues
-      ? scoped.subsequentLineServiceInterval
-      : scoped.firstLineLatency;
+    if (!continues) this.#lineFillSequence += 1n;
+    const sequenceId = continues ? previous.sequenceId : this.#lineFillSequence;
+    this.#previousLineFill = { core, cache, memory, lineAddress, lineSizeBytes, sequenceId };
+    return {
+      cost: continues
+        ? scoped.subsequentLineServiceInterval
+        : scoped.firstLineLatency,
+      mspiBurst: Object.freeze({
+        clientId: `cache:${core}:${cache}:${memory}`,
+        sequenceId,
+        lineAddress,
+        lineSizeBytes,
+        firstLineLatency: toExecutionLatency(scoped.firstLineLatency),
+        subsequentLineServiceInterval: toExecutionLatency(
+          scoped.subsequentLineServiceInterval,
+        ),
+      }),
+    };
   }
 
   #memoryEvent(
@@ -737,6 +763,13 @@ export class CacheStateMachine {
                 memory: trace.memory,
                 bytes: geometry.lineSizeBytes,
               } as const);
+        const fillTiming = this.#lineFillCost(
+          trace.core,
+          cache,
+          trace.memory,
+          segment.lineAddress,
+          geometry.lineSizeBytes,
+        );
         this.#emit(
           emissions,
           trace,
@@ -746,14 +779,8 @@ export class CacheStateMachine {
           segment.lineAddress,
           geometry.lineSizeBytes,
           segment.lineAddress,
-          this.#lineFillCost(
-            trace.core,
-            cache,
-            trace.memory,
-            segment.lineAddress,
-            geometry.lineSizeBytes,
-          ),
-          fillEvent,
+          fillTiming.cost,
+          { ...fillEvent, mspiBurst: fillTiming.mspiBurst },
         );
         Object.assign(victim, {
           valid: true,

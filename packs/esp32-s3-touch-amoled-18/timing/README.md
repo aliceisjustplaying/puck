@@ -35,17 +35,20 @@ accepts instruction/data costs scoped by flash/PSRAM. A scoped cost may now
 provide `firstLineLatency` and `subsequentLineServiceInterval`. Both values are
 ordinary explicit cache latencies with their own calibration and source.
 
-A burst is a maximal sequence of cache-miss line fills in the cache machine's
-architectural issue order. The next fill uses the subsequent-line interval only
-when it is for the same core, cache kind, and backing path, and its line address
-is exactly one line size above the preceding fill. The local hit emitted for the
-same newly filled segment does not break the sequence. A hit-only segment,
-address gap or reversal, core change, instruction/data cache change,
-flash/PSRAM switch, SRAM or uncached access, dirty writeback, write-through, or
-cache maintenance starts a new burst. This classifies only requested misses. It
-does not add a prefetch or reserve MSPI beyond the emitted events. The execution
-scheduler continues to arbitrate every emitted flash and PSRAM event on its one
-shared two-core MSPI clock.
+A burst candidate is a maximal sequence of cache-miss line fills in the cache
+machine's architectural issue order. The local hit emitted for a newly filled
+segment does not break that candidate. A hit-only segment, address gap or
+reversal, core change, instruction/data cache change, flash/PSRAM switch, SRAM
+or uncached access, dirty writeback, write-through, or cache maintenance starts
+a new candidate.
+
+The execution scheduler selects the actual first-line or subsequent-line cost
+when the fill starts service on the shared MSPI clock. A subsequent interval is
+used only when the immediately preceding serviced MSPI event belongs to the
+same candidate and its line address is exactly one line size lower. Intervening
+DMA or another MSPI client therefore restarts the fill cost. This classifies
+only requested misses. It does not add a prefetch or reserve MSPI beyond the
+emitted events.
 
 The ledger report consumes a built emulator:
 
