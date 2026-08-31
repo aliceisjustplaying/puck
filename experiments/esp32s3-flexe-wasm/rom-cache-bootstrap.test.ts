@@ -4,6 +4,7 @@ import {
   ESP32S3_DIRECT_APP_CACHE_REGISTERS,
   ESP32S3_DIRECT_APP_INSTRUCTION_CACHE_MODE,
   ESP32S3_DIRECT_APP_DATA_CACHE_MODE,
+  ESP32S3_DIRECT_APP_CACHE_MMU_SIZES,
   ESP32S3_CACHE_REGISTER_ADDRESSES,
   ESP32S3_ROM_CACHE_CALLBACKS,
   ESP32S3_ROM_CACHE_CALLINC,
@@ -11,6 +12,7 @@ import {
   advanceEsp32S3DirectAppCacheBootstrap,
   configureEsp32S3DirectAppInstructionCache,
   configureEsp32S3DirectAppDataCache,
+  configureEsp32S3DirectAppCacheMmuSizes,
   createEsp32S3DirectAppCacheBootstrap,
   suspendEsp32S3DirectAppDataCache,
   resumeEsp32S3DirectAppDataCache,
@@ -439,5 +441,103 @@ describe("ESP32-S3 direct app cache bootstrap", () => {
     const resumed = resumeEsp32S3DirectAppDataCache(dataMode.state, invocation);
     if (!resumed.handled || resumed.status !== "accepted") throw new Error("resume refused");
     expect(resumeEsp32S3DirectAppDataCache(resumed.state, invocation).status).toBe("refused");
+  });
+
+  test("sets the observed instruction and data MMU table sizes after data cache resume", () => {
+    expect(ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureMmuSizes).toBe(0x4000_1914);
+    expect(ESP32S3_DIRECT_APP_CACHE_MMU_SIZES).toEqual({ instructionBytes: 0x3c, dataBytes: 0x3c4 });
+    let state = createEsp32S3DirectAppCacheBootstrap();
+    for (const call of ESP32S3_DIRECT_APP_CACHE_BOOTSTRAP_SEQUENCE) {
+      state = accepted(state, call.pc, call.arguments).state;
+    }
+    const instructionMode = configureEsp32S3DirectAppInstructionCache(state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureInstruction,
+      callinc: 2,
+      arguments: [0x4000, 8, 32],
+    });
+    if (!instructionMode.handled || instructionMode.status !== "accepted") throw new Error("mode refused");
+    const suspended = suspendEsp32S3DirectAppDataCache(instructionMode.state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.suspendData,
+      callinc: 2,
+      arguments: [],
+    });
+    if (!suspended.handled || suspended.status !== "accepted") throw new Error("suspend refused");
+    const dataMode = configureEsp32S3DirectAppDataCache(suspended.state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureData,
+      callinc: 2,
+      arguments: [0x8000, 8, 64],
+    });
+    if (!dataMode.handled || dataMode.status !== "accepted") throw new Error("data mode refused");
+    const resumed = resumeEsp32S3DirectAppDataCache(dataMode.state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.resumeData,
+      callinc: 2,
+      arguments: [0],
+    });
+    if (!resumed.handled || resumed.status !== "accepted") throw new Error("resume refused");
+    const configured = configureEsp32S3DirectAppCacheMmuSizes(resumed.state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureMmuSizes,
+      callinc: 2,
+      arguments: [0x3c, 0x3c4],
+    });
+    expect(configured.handled).toBe(true);
+    expect(configured.status).toBe("accepted");
+    if (configured.handled && configured.status === "accepted") {
+      expect(configured.returnValue).toBeNull();
+      expect(configured.state.mmuSizes).toEqual(ESP32S3_DIRECT_APP_CACHE_MMU_SIZES);
+      expect(configured.state.dataSuspended).toBe(false);
+      expect(configured.state.dataSuspendReturn).toBe(0);
+    }
+  });
+
+  test("refuses early, repeated, malformed-size, or wrong-CALLINC MMU size calls", () => {
+    const invocation = {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureMmuSizes,
+      callinc: 2,
+      arguments: [0x3c, 0x3c4],
+    } as const;
+    const initial = createEsp32S3DirectAppCacheBootstrap();
+    expect(configureEsp32S3DirectAppCacheMmuSizes(initial, invocation).status).toBe("refused");
+
+    let state = initial;
+    for (const call of ESP32S3_DIRECT_APP_CACHE_BOOTSTRAP_SEQUENCE) {
+      state = accepted(state, call.pc, call.arguments).state;
+    }
+    const instructionMode = configureEsp32S3DirectAppInstructionCache(state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureInstruction,
+      callinc: 2,
+      arguments: [0x4000, 8, 32],
+    });
+    if (!instructionMode.handled || instructionMode.status !== "accepted") throw new Error("mode refused");
+    const suspended = suspendEsp32S3DirectAppDataCache(instructionMode.state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.suspendData,
+      callinc: 2,
+      arguments: [],
+    });
+    if (!suspended.handled || suspended.status !== "accepted") throw new Error("suspend refused");
+    const dataMode = configureEsp32S3DirectAppDataCache(suspended.state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureData,
+      callinc: 2,
+      arguments: [0x8000, 8, 64],
+    });
+    if (!dataMode.handled || dataMode.status !== "accepted") throw new Error("data mode refused");
+    const resumed = resumeEsp32S3DirectAppDataCache(dataMode.state, {
+      pc: ESP32S3_ROM_CACHE_MODE_CALLBACKS.resumeData,
+      callinc: 2,
+      arguments: [0],
+    });
+    if (!resumed.handled || resumed.status !== "accepted") throw new Error("resume refused");
+    for (const malformed of [
+      { ...invocation, callinc: 1 },
+      { ...invocation, arguments: [0x38, 0x3c8] },
+      { ...invocation, arguments: [0x3c, 0x3c0] },
+      { ...invocation, arguments: [0x3d, 0x3c3] },
+    ]) {
+      const refused = configureEsp32S3DirectAppCacheMmuSizes(resumed.state, malformed);
+      expect(refused.status).toBe("refused");
+      if (refused.handled) expect(refused.state).toBe(resumed.state);
+    }
+    const configured = configureEsp32S3DirectAppCacheMmuSizes(resumed.state, invocation);
+    if (!configured.handled || configured.status !== "accepted") throw new Error("MMU sizes refused");
+    expect(configureEsp32S3DirectAppCacheMmuSizes(configured.state, invocation).status).toBe("refused");
   });
 });
