@@ -187,13 +187,13 @@ cache activity; the distinct 835-cycle warmed repeat is retained but not general
 ## What remains before a cycle-accurate claim
 
 - A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core has a
-  bounded S3 patch and leaves 774 unsupported panel-inventory rows plus 4,302
-  full-image rows represented by 590 fail-closed markers. Static inventory is
+  bounded S3 patch and leaves 756 unsupported panel-inventory rows plus 4,157
+  full-image rows represented by 445 fail-closed markers. Static inventory is
   not whole-program execution coverage.
-- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 671 real
-  instructions. Its current timing replay emits 1,644 events and adopts exact
-  costs for 1,612, including 40 matched MMIO accesses and four exact ROM
-  callbacks. The remaining 14 MMIO costs and 18 ROM callback durations block a total. It does not provide the complete
+- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 704 real
+  instructions. Its current timing replay emits 1,729 events and adopts exact
+  costs for 1,696, including 40 matched MMIO accesses and four exact ROM
+  callbacks. The remaining 14 MMIO costs and 19 ROM callback durations block a total. It does not provide the complete
   ESP32-S3 data map, interrupt matrix,
   peripherals, ESP-IDF boot, or real dual-core execution.
 - Cache-store hits, dependent load-use modeling, dirty writeback, DMA ordering,
