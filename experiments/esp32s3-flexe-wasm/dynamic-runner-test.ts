@@ -418,16 +418,17 @@ assert(
 );
 
 const accxFixture = conformanceFixture("esp32s3_accx_roundtrip", [
+  0xb2, 0xa1, 0xab,
   0xa0, 0x00, 0xf3,
   0xb0, 0x01, 0xf3,
   0x00, 0xc0, 0xe3,
   0x10, 0xd0, 0xe3
 ]);
-const accxRun = await runFresh(moduleBytes, accxFixture, { maxSteps: 4 });
+const accxRun = await runFresh(moduleBytes, accxFixture, { maxSteps: 5 });
 assert(accxRun.record.reason === STOP_REASONS.maxSteps, `ACCX fixture stopped with ${accxRun.record.reasonName}`);
-assert(accxRun.record.steps === 4, `ACCX fixture executed ${accxRun.record.steps} instructions`);
+assert(accxRun.record.steps === 5, `ACCX fixture executed ${accxRun.record.steps} instructions`);
 assert(accxRun.record.registers[12] === INITIAL_SOURCE, "ACCX_0 round trip changed its value");
-assert(accxRun.record.registers[13] === INITIAL_DESTINATION, "ACCX_1 round trip changed its value");
+assert(accxRun.record.registers[13] === 0xab, "ACCX_1 did not preserve exactly its low 8 bits");
 
 const unknownUserRegisterFixture = conformanceFixture("esp32s3_unknown_user_register", [0x80, 0x02, 0xf3]);
 const unknownUserRegisterRun = await runFresh(moduleBytes, unknownUserRegisterFixture, { maxSteps: 1 });

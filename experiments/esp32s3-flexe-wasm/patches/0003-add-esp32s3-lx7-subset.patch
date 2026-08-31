@@ -81,7 +81,7 @@ diff --git a/src/xtensa.c b/src/xtensa.c
 index 67dca18..e72666d 100644
 --- a/src/xtensa.c
 +++ b/src/xtensa.c
-@@ -1552,19 +1552,41 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -1552,19 +1552,43 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
                  ar_write(cpu, r, ar_read(cpu, s));
              break;
          case 14: /* RUR */
@@ -114,8 +114,10 @@ index 67dca18..e72666d 100644
 +            { int ur = cpu->esp32s3_profile ? (r << 4) | s : (s << 4) | r;
                switch (ur) {
 +              case 0:
++                  if (cpu->esp32s3_profile) cpu->accx[0] = ar_read(cpu, t);
++                  break;
 +              case 1:
-+                  if (cpu->esp32s3_profile) cpu->accx[ur] = ar_read(cpu, t);
++                  if (cpu->esp32s3_profile) cpu->accx[1] = ar_read(cpu, t) & 0xffu;
 +                  break;
 +              case 231:
 +                  if (cpu->esp32s3_profile) cpu->threadptr = ar_read(cpu, t);
@@ -129,7 +131,7 @@ index 67dca18..e72666d 100644
                }
              } break;
          default: break;
-@@ -1615,6 +1637,10 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -1615,6 +1639,10 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
              uint32_t addr = ar_read(cpu, s) + (uint32_t)((int32_t)(r << 2) - 64);
              mem_write32(cpu->mem, addr, ar_read(cpu, t));
          } break;
@@ -140,7 +142,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2106,92 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2108,92 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -233,7 +235,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2431,8 @@ have_insn:
+@@ -2319,6 +2433,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -242,7 +244,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +2459,16 @@ have_insn:
+@@ -2345,14 +2461,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -263,7 +265,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +2482,8 @@ have_insn:
+@@ -2366,6 +2484,8 @@ have_insn:
          }
      }
 
