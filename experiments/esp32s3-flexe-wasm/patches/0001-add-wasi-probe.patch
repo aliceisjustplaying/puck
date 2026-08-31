@@ -165,7 +165,7 @@ index df40210..b4a61a8 100644
  #endif /* MEMORY_H */
 diff --git a/src/wasm_probe.c b/src/wasm_probe.c
 new file mode 100644
-index 0000000..8550176
+index 0000000..a750870
 --- /dev/null
 +++ b/src/wasm_probe.c
 @@ -0,0 +1,884 @@
@@ -501,7 +501,7 @@ index 0000000..8550176
 +    while (remaining > 0) {
 +        int page = elf_page_index(current);
 +        uint32_t flags = page >= 0 ? elf_page_flags[page] : 0u;
-+        if (page >= 0 && mem->page_table[current >> 12] != NULL &&
++        if (page < 0 || mem->page_table[current >> 12] == NULL ||
 +            (flags & required) == 0) {
 +            denied_address = current;
 +            denied_page = page;

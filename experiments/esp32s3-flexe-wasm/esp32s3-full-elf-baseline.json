@@ -9,10 +9,10 @@
     "inheritedPages": 3,
     "initialStack": "0x3fce9700",
     "initialStackProvenance": "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
-    "runnerPatchSha256": "8ea2d65a4fe7dd6be27d281bb6700ab6b826928783b3df58a34b17740a9ea4bd",
+    "runnerPatchSha256": "f7ebbbf2d281f0adaee715316a9d8887bf2afe3d838954b82d7e4433c396a68a",
     "esp32s3PatchSha256": "815f8ac67279aaa55775e470b66c7954c895d41d5388fa8de9c6b035e91fea0c",
-    "moduleBytes": 49928,
-    "moduleSha256": "0cf0680c06386d19c6ae0c9e42cc84f73cc67d865e10d3b8c876e4d4793dfb18"
+    "moduleBytes": 49931,
+    "moduleSha256": "49dfd5931477220a6091d8aa7f45bdc2d573e9724f467d1024c9cf851a05bc4b"
   },
   "bounded": {
     "reason": "maxSteps",
@@ -62,17 +62,26 @@
     ]
   },
   "lx7Progress": {
-    "reason": "unloadedPage",
-    "steps": 57,
-    "pc": "0x4000186c",
-    "traceSha256": "1b9775de8f100224f6a90d9d453d60383df9692b3ac9e9b8eca74da33ddeeee3",
-    "stackPointer": "0x3fce9680",
+    "reason": "readPermission",
+    "steps": 38,
+    "pc": "0x40375c44",
+    "traceSha256": "20d858420bfb876785d0049eaf6478ed1495aa1fd484d3892673e7033e8e9afa",
+    "stackPointer": "0x3fce96a0",
     "registers": [
-      "0x80375c68", "0x3fce9680", "0x00000001", "0x00000002",
+      "0x80375cef", "0x3fce96a0", "0x50000000", "0x00000000",
+      "0x00000000", "0x600c4064", "0x600c4004", "0x00000000",
       "0x00000000", "0x00000000", "0x00000000", "0x00000000",
-      "0x80382ae6", "0x00000000", "0x00000000", "0x00000000",
       "0x00000000", "0x00000000", "0x00000000", "0x00000000"
-    ]
+    ],
+    "memoryFault": {
+      "pc": "0x40375c44",
+      "address": "0x600c4064",
+      "width": 4,
+      "isWrite": false,
+      "deniedAddress": "0x600c4064",
+      "deniedPage": "0x600c4000",
+      "deniedFlags": 0
+    }
   },
   "unsupportedRefusal": {
     "reason": "unsupported",
