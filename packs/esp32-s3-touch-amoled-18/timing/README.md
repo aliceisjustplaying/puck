@@ -7,9 +7,10 @@ not simulated chip time.
 
 [`../timing.json`](../timing.json) is the device profile and machine-readable
 claim boundary. It records configured CPU, PSRAM, and flash clocks, the measured
-panel bus clock, and explicit calibration state. A configured or measured clock
-does not calibrate the scheduler, cache, ISA, memory latency, or whole-machine
-result.
+panel bus clock, measured cache-line fill ladders, steady-state instruction
+issue, independent SRAM access costs, and explicit calibration state. These
+bounded costs do not calibrate cache hits, dependent pipeline hazards,
+interrupts, peripherals, or the whole-machine result.
 
 ## What is here
 
@@ -114,17 +115,15 @@ byte for byte. Its adoption status remains `unreviewed`.
 
 ## What remains before a cycle-accurate claim
 
-- A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core now
-  has a bounded S3 patch, but the current real-ELF inventory still has 74
-  unsupported raw mnemonics: 38 PIE `ee.*` forms, 35 user-register forms, and
-  undecodable `.byte` rows. Static inventory is not whole-program execution
-  coverage.
-- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches the first
-  reset-path ROM call. It does not provide that ROM, the complete ESP32-S3 data
-  map, interrupt matrix, peripherals, ESP-IDF boot, or real dual-core execution.
-- Cache geometry and behavior, SRAM latency, flash and PSRAM fills, shared MSPI
-  arbitration, DMA ordering, interrupts, and dual-core interleaving need
-  hardware-backed sources and correlation.
+- A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core has a
+  bounded S3 patch and fail-closed markers for 1,985 decoded inventory gaps.
+  Static inventory is not whole-program execution coverage.
+- The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 195 real
+  instructions through six cache ROM callbacks. It does not provide the next
+  ROM callback, the complete ESP32-S3 data map, interrupt matrix, peripherals,
+  ESP-IDF boot, or real dual-core execution.
+- Cache-hit latency, dependent load-use hazards, dirty writeback, DMA ordering,
+  interrupts, and dual-core correlation still need hardware-backed treatment.
 - Hardware receipts are bounded CCOUNT microbenchmarks. Mapping them to
   architectural instruction, cache, or bus costs remains
   `microbenchmarkToArchitecturalCost: "unreviewed"`.

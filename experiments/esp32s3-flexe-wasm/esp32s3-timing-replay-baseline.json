@@ -56,6 +56,6 @@
     "mspiEvents": 2,
     "totalCycles": null,
     "totalCyclesReason": "cache-hit latency remains unadopted and the observed dependent SRAM load-use hazard is unmodeled",
-    "perRecordSha256": "2a2179316a9be69d133e230f8754ee971d9147922f5965e0cb138940a956cd94"
+    "perRecordSha256": "e5052d3394365f869432c8b953f87dc87edf0c4254f7ac82a96ab700c237086e"
   }
 }

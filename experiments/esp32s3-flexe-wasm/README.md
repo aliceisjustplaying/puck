@@ -222,20 +222,21 @@ experiment input, not an observed hardware MMU snapshot. The two 4 KiB runner
 data pages are covered by one explicit internal-SRAM experiment region.
 
 The replay resolves all 43 instruction fetches, five loads, and five stores.
-It also emits 43 per-core CPU execution events, each with an explicit unknown
-cost because this trace supplies no instruction timing. The memory path emits
+It also emits 43 per-core CPU execution events with the calibrated one-cycle
+steady-state issue cost. The memory path emits
 44 instruction-cache hits, two line fills on MSPI, and ten SRAM bypass events.
 There are 44 hit emissions because the three-byte instruction at
 `0x4205823e` crosses the 32-byte cache-line boundary and touches both lines.
 The path-independent per-record evidence SHA-256, including each instruction's
 CPU event, is
-`c588bd3610a35d1c20d9ea8f572f29046ae23acaa3f5d9041c143a1eabde8ce3`.
+`e5052d3394365f869432c8b953f87dc87edf0c4254f7ac82a96ab700c237086e`.
 
-The timing profile supplies calibrated instruction-cache flash line fills, so
-two of the 99 issued costs are known. CPU, cache-hit, and SRAM costs remain
-explicitly unknown, the machine result is `blocked`, and total cycles are
-`null`. The replay establishes the deterministic accounting path and the exact
-evidence still needed. It does not make a cycle-accuracy claim.
+The timing profile supplies calibrated instruction-cache flash line fills,
+one-cycle steady-state instruction issue, and zero additive independent SRAM
+load and store costs. Fifty-five of the 99 issued costs are known. The 44 cache
+hits remain explicitly unknown, and the measured one-cycle dependent load-use
+hazard is not represented by this trace. The machine result is `blocked` and
+total cycles are `null`.
 
 `esp32s3-dynamic-baseline.json` pins all three ELF hashes, extracted-code and
 staging-output and trace hashes, patch hashes, objdump hash, module hash, stop
@@ -289,6 +290,13 @@ persists user register 231, reaches 34 decoded instructions, and refuses the
 first undeclared 32-bit MMIO read at
 `0x600c4064` with flags zero. No cache or MMIO behavior is implied.
 
+An explicit cache-bootstrap run maps only the required cache-controller MMIO
+page and enables six exact ROM callbacks. The callbacks validate their argument
+shapes and cache state transitions, retain typed ROM events outside the
+instruction trace, and advance the real entry through 195 decoded instructions.
+Execution then stops at the next unimplemented ROM callback,
+`rom_config_instruction_cache_mode` at `0x40001a1c`.
+
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 256 executed instructions. The pinned TinyDraw ELF
 automatically installs the tracked 1,985-instruction ESP32-S3 ISA gap set before
@@ -336,8 +344,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 49,959 bytes with Zig 0.16.0, SHA-256
-`04972dcd606a86a753f1006a637b3b2ee82824ee252d30bd28d8a95892eada7d`.
+The stripped freestanding module is 52,897 bytes with Zig 0.16.0, SHA-256
+`dbcd7f9629f3a905614d1ffe4424f72829a76bbe191e7d19a6e511b690eb559f`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and
