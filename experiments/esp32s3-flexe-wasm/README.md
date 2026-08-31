@@ -271,17 +271,19 @@ The host may explicitly configure two narrow ROM ABI callbacks. Reset reason
 at `0x4000057c` returns one caller-supplied value per core. `memset` at
 `0x400011e8` accepts at most 64 KiB, validates every destination page and its
 write permission before changing memory, and returns the destination pointer.
-Neither callback is enabled by default. Each call consumes one bounded trace
-step. A separate bounded ROM-event trace summarizes reset-reason arguments and
-results or the full `memset` destination, byte value, and length. It assigns no
-timing to the bulk operation.
+Neither callback is enabled by default. Calls appear only as typed, bounded ROM
+events; they do not enter the instruction PC trace or decoded-instruction count.
+The event records summarize reset-reason arguments and results or the full
+`memset` destination, byte value, and length. They assign no timing to the bulk
+operation.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
 `0x3fcabe60`, and records the real zero-length clear at `0x50000000`. A refusal
-control deliberately marks `wur.threadptr` at `0x40375ce7` and stops after 31
-steps. The integrated LX7 run executes that instruction, persists user register
-231, reaches 38 steps, and refuses the first undeclared 32-bit MMIO read at
+control deliberately marks `wur.threadptr` at `0x40375ce7` and stops after 27
+decoded instructions. The integrated LX7 run executes that instruction,
+persists user register 231, reaches 34 decoded instructions, and refuses the
+first undeclared 32-bit MMIO read at
 `0x600c4064` with flags zero. No cache or MMIO behavior is implied.
 
 Full-image runs accept at most 768 pages, 2,048 caller-identified unsupported
@@ -326,8 +328,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 49,931 bytes with Zig 0.16.0, SHA-256
-`49dfd5931477220a6091d8aa7f45bdc2d573e9724f467d1024c9cf851a05bc4b`.
+The stripped freestanding module is 49,959 bytes with Zig 0.16.0, SHA-256
+`04972dcd606a86a753f1006a637b3b2ee82824ee252d30bd28d8a95892eada7d`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and

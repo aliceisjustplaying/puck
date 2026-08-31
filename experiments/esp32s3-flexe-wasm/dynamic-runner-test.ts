@@ -424,6 +424,18 @@ assert(
   `unknown user register stopped with ${unknownUserRegisterRun.record.reasonName}`
 );
 assert(unknownUserRegisterRun.record.steps === 0, "unknown user register was counted as executed");
+assert(unknownUserRegisterRun.record.pc === unknownUserRegisterFixture.pc, "failed decoder step changed PC");
+assert(unknownUserRegisterRun.trace.count === 0, "failed decoder step leaked a trace record");
+const failedStepRegisters = Array<number>(16).fill(0);
+failedStepRegisters[1] = INITIAL_STACK;
+failedStepRegisters[8] = ((2 << 30) | (unknownUserRegisterRun.record.returnPc & 0x3fff_ffff)) >>> 0;
+failedStepRegisters[10] = INITIAL_SOURCE;
+failedStepRegisters[11] = INITIAL_DESTINATION;
+failedStepRegisters[12] = 1;
+assert(
+  unknownUserRegisterRun.record.registers.every((value, index) => value === failedStepRegisters[index]),
+  "failed decoder step changed registers",
+);
 
 const entry = extractElfFunction(DEFAULT_ESP32S3_OBJDUMP, DEFAULT_TINYDRAW_ESP32S3_ELF, "call_start_cpu0");
 const entryAuxiliary = extractElfRange(DEFAULT_ESP32S3_OBJDUMP, DEFAULT_TINYDRAW_ESP32S3_ELF, 0x40374000, 4096);

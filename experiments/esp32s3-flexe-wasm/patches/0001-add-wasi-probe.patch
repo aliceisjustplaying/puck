@@ -165,10 +165,10 @@ index df40210..b4a61a8 100644
  #endif /* MEMORY_H */
 diff --git a/src/wasm_probe.c b/src/wasm_probe.c
 new file mode 100644
-index 0000000..a750870
+index 0000000..232766d
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,884 @@
+@@ -0,0 +1,891 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -879,6 +879,7 @@ index 0000000..a750870
 +            break;
 +        }
 +        if (step_result != 0) {
++            rollback_step();
 +            reason = PROBE_STOP_STEP_ERROR;
 +            break;
 +        }
@@ -996,6 +997,8 @@ index 0000000..a750870
 +        }
 +
 +        uint32_t executed_pc = cpu.pc;
++        uint32_t trace_checkpoint = elf_trace_count;
++        uint32_t rom_event_checkpoint = elf_rom_event_count;
 +        cpu_checkpoint = cpu;
 +        int step_result = xtensa_step(&cpu);
 +        if (elf_memory_fault.hit) {
@@ -1013,9 +1016,13 @@ index 0000000..a750870
 +            break;
 +        }
 +        if (step_result != 0) {
++            cpu = cpu_checkpoint;
++            elf_trace_count = trace_checkpoint;
++            elf_rom_event_count = rom_event_checkpoint;
 +            reason = PROBE_STOP_STEP_ERROR;
 +            break;
 +        }
++        if (configured_rom) continue;
 +        elf_trace[elf_trace_count++] = executed_pc;
 +        steps++;
 +        if (!cpu.running) {
