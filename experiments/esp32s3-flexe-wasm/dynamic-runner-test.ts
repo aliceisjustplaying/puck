@@ -8,6 +8,7 @@ import {
   DEFAULT_TINYDRAW_ESP32S3_ELF,
   DEFAULT_TINYDRAW_ESP32S3_FIXTURE_ELF,
   DEFAULT_TINYDRAW_ESP32S3_FIXTURE_SYMBOL,
+  DEFAULT_TINYDRAW_ESP32S3_FULL_ELF,
   DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF,
   DEFAULT_TINYDRAW_ESP32S3_STAGING_SYMBOL,
   EXPECTED_FREESTANDING_EXPORTS,
@@ -142,12 +143,12 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-function conformanceFixture(symbol: string, bytes: number[]): ExtractedElfFunction {
+function conformanceFixture(symbol: string, bytes: number[], pc = 0x4037f000): ExtractedElfFunction {
   const code = Uint8Array.from(bytes);
   return {
     symbol,
-    pc: 0x4037f000,
-    endPc: 0x4037f000 + code.length,
+    pc,
+    endPc: pc + code.length,
     bytes: code,
     codeSha256: createHash("sha256").update(code).digest("hex"),
     elfSha256: "instruction-conformance-fixture",
@@ -384,6 +385,45 @@ assert(
 );
 assert(scalarIsaRun.record.registers[10] === 0x3fca1004, "lsip did not post-increment its base");
 assert(scalarIsaRun.record.registers[11] === 0x3fca2004, "ssip did not post-increment its base");
+
+const qrIsaFixture = conformanceFixture("esp32s3_qr_load_store", [
+  0x36, 0x21, 0x00,
+  0x24, 0x20, 0xcd,
+  0x34, 0x60, 0xcd,
+  0x1d, 0xf0
+]);
+const qrIsaInput = Uint8Array.from({ length: 16 }, (_, index) => index * 11);
+const qrIsaRun = await runFresh(moduleBytes, qrIsaFixture, { data: qrIsaInput });
+assert(qrIsaRun.record.reason === STOP_REASONS.returned, `QR ISA fixture stopped with ${qrIsaRun.record.reasonName}`);
+assert(qrIsaRun.record.steps === 4, `QR ISA fixture executed ${qrIsaRun.record.steps} instructions`);
+assert(
+  qrIsaRun.dataOutput.every((byte, index) => byte === qrIsaInput[index]),
+  `QR ISA fixture output changed: ${Buffer.from(qrIsaRun.dataOutput).toString("hex")}`
+);
+
+const threadptrFixture = conformanceFixture("esp32s3_threadptr_roundtrip", [
+  0x36, 0x21, 0x00,
+  0x81, 0x12, 0xfa,
+  0x80, 0xe7, 0xf3,
+  0x70, 0x2e, 0xe3,
+  0x1d, 0xf0
+], 0x40375ce1);
+const threadptrLiterals = extractElfRange(DEFAULT_ESP32S3_OBJDUMP, DEFAULT_TINYDRAW_ESP32S3_FULL_ELF, 0x40374000, 4096);
+const threadptrRun = await runFresh(moduleBytes, threadptrFixture, { auxiliary: threadptrLiterals });
+assert(threadptrRun.record.reason === STOP_REASONS.returned, `THREADPTR fixture stopped with ${threadptrRun.record.reasonName}`);
+assert(threadptrRun.record.steps === 5, `THREADPTR fixture executed ${threadptrRun.record.steps} instructions`);
+assert(
+  threadptrRun.record.registers[10] === 0x3fcabf20,
+  `THREADPTR round trip returned 0x${threadptrRun.record.registers[10].toString(16)}`
+);
+
+const unknownUserRegisterFixture = conformanceFixture("esp32s3_unknown_user_register", [0x30, 0x00, 0xf3]);
+const unknownUserRegisterRun = await runFresh(moduleBytes, unknownUserRegisterFixture, { maxSteps: 1 });
+assert(
+  unknownUserRegisterRun.record.reason === STOP_REASONS.stepError,
+  `unknown user register stopped with ${unknownUserRegisterRun.record.reasonName}`
+);
+assert(unknownUserRegisterRun.record.steps === 0, "unknown user register was counted as executed");
 
 const entry = extractElfFunction(DEFAULT_ESP32S3_OBJDUMP, DEFAULT_TINYDRAW_ESP32S3_ELF, "call_start_cpu0");
 const entryAuxiliary = extractElfRange(DEFAULT_ESP32S3_OBJDUMP, DEFAULT_TINYDRAW_ESP32S3_ELF, 0x40374000, 4096);
@@ -668,6 +708,24 @@ const actualBaseline = {
     sourceAfter: `0x${scalarIsaRun.record.registers[10].toString(16)}`,
     destinationAfter: `0x${scalarIsaRun.record.registers[11].toString(16)}`
   },
+  qrIsa: {
+    codeSha256: qrIsaFixture.codeSha256,
+    outputHex: Buffer.from(qrIsaRun.dataOutput).toString("hex"),
+    reason: qrIsaRun.record.reasonName,
+    steps: qrIsaRun.record.steps
+  },
+  threadptrIsa: {
+    codeSha256: threadptrFixture.codeSha256,
+    literalPageSha256: threadptrLiterals.sha256,
+    reason: threadptrRun.record.reasonName,
+    steps: threadptrRun.record.steps,
+    returnRegister: "a10",
+    returnValue: `0x${threadptrRun.record.registers[10].toString(16)}`,
+    unknownCodeSha256: unknownUserRegisterFixture.codeSha256,
+    unknownReason: unknownUserRegisterRun.record.reasonName,
+    unknownSteps: unknownUserRegisterRun.record.steps,
+    unknownPc: `0x${unknownUserRegisterRun.record.pc.toString(16)}`
+  },
   entry: {
     symbol: entry.symbol,
     pc: `0x${entry.pc.toString(16)}`,
@@ -755,6 +813,8 @@ assert(
     inputs: baseline.inputs,
     scalar: baseline.scalar,
     scalarIsa: baseline.scalarIsa,
+    qrIsa: baseline.qrIsa,
+    threadptrIsa: baseline.threadptrIsa,
     entry: baseline.entry,
     pie: baseline.pie,
     staging: baseline.staging,
