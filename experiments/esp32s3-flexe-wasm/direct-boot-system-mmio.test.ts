@@ -8,6 +8,7 @@ import {
   ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_READ_PC,
   ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_WRITE_PC,
   ESP32S3_DIRECT_BOOT_SYSCLK_POST_ADJUST_READ_PC,
+  ESP32S3_DIRECT_BOOT_SYSCLK_XTAL_WRITE_PC,
   ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_READ_PC,
   ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_WRITE_PC,
   ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC,
@@ -370,6 +371,36 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
     if (!postAdjustRead.handled || postAdjustRead.status !== "accepted") {
       throw new Error("post-adjust read refused");
     }
+    const xtalWriteAccess = {
+      ...writeAccess,
+      pc: ESP32S3_DIRECT_BOOT_SYSCLK_XTAL_WRITE_PC,
+      value: 0,
+    } as const;
+    const beforePostAdjustRead = writeEsp32S3DirectBootSystemMmio(adjustWrite.state, xtalWriteAccess);
+    expect(beforePostAdjustRead.status).toBe("refused");
+    if (beforePostAdjustRead.handled) expect(beforePostAdjustRead.state).toBe(adjustWrite.state);
+    const wrongXtalValue = writeEsp32S3DirectBootSystemMmio(postAdjustRead.state, {
+      ...xtalWriteAccess,
+      value: 0x400,
+    });
+    expect(wrongXtalValue.status).toBe("refused");
+    if (wrongXtalValue.handled) expect(wrongXtalValue.state).toBe(postAdjustRead.state);
+    const xtalWrite = writeEsp32S3DirectBootSystemMmio(postAdjustRead.state, xtalWriteAccess);
+    expect(xtalWrite).toEqual({
+      handled: true,
+      status: "accepted",
+      value: 0,
+      state: {
+        ...postAdjustRead.state,
+        sysclkConf: 0,
+        writeCount: 3,
+        lastWritePc: 0x4037_72b8,
+      },
+    });
+    if (!xtalWrite.handled || xtalWrite.status !== "accepted") throw new Error("XTAL source write refused");
+    const repeatedXtalWrite = writeEsp32S3DirectBootSystemMmio(xtalWrite.state, xtalWriteAccess);
+    expect(repeatedXtalWrite.status).toBe("refused");
+    if (repeatedXtalWrite.handled) expect(repeatedXtalWrite.state).toBe(xtalWrite.state);
     const sixthRead = readEsp32S3DirectBootSystemMmio(postAdjustRead.state, postAdjustReadAccess);
     expect(sixthRead.status).toBe("refused");
     if (sixthRead.handled) expect(sixthRead.state).toBe(postAdjustRead.state);

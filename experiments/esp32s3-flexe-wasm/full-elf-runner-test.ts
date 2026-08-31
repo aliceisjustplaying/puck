@@ -602,9 +602,9 @@ const cacheProgress = await runSparseXtensaElf(moduleBytes, image, {
   maxSteps: 512,
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true, cpuTicksPerUs: 40 },
 });
-assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.writePermission);
-assert(cacheProgress.record.steps > 333, "post-adjust SYSTEM_SYSCLK_CONF read did not advance the real ELF");
-assert.notEqual(cacheProgress.record.pc, 0x4037_72aa);
+assert.equal(cacheProgress.record.reason, FULL_ELF_STOP_REASONS.readPermission);
+assert(cacheProgress.record.steps > 338, "XTAL source SYSTEM_SYSCLK_CONF write did not advance the real ELF");
+assert.notEqual(cacheProgress.record.pc, 0x4037_72b8);
 assert.deepEqual(cacheProgress.cacheBootstrap, {
   sequenceIndex: 6,
   complete: true,
@@ -668,16 +668,17 @@ assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "syste
 assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "systemMmioWrite"), [
   { kind: "systemMmioWrite", pc: 0x4037_727d, address: 0x600c_0060, width: 4, value: 0x400 },
   { kind: "systemMmioWrite", pc: 0x4037_72a5, address: 0x600c_0060, width: 4, value: 0x400 },
+  { kind: "systemMmioWrite", pc: 0x4037_72b8, address: 0x600c_0060, width: 4, value: 0 },
 ]);
 assert.deepEqual(cacheProgress.systemMmio, {
-  sysclkConf: 0x400,
+  sysclkConf: 0,
   readCount: 5,
   lastReadPc: 0x4037_72aa,
   cpuPerConf: 0x4,
   cpuPerReadCount: 4,
   cpuPerLastReadPc: 0x4037_71ff,
-  writeCount: 2,
-  lastWritePc: 0x4037_72a5,
+  writeCount: 3,
+  lastWritePc: 0x4037_72b8,
 });
 assert.deepEqual(cacheProgress.romEvents.filter((event) => event.kind === "rtcMmioRead"), [
   { kind: "rtcMmioRead", pc: 0x4037_7159, address: 0x6000_80c0, width: 4, value: 0x0028_0028 },
@@ -698,12 +699,12 @@ assert.deepEqual(cacheProgress.cpuTicks, {
 assert.deepEqual(cacheProgress.memoryFault, {
   abiVersion: 1,
   structBytes: 40,
-  pc: 0x4037_72b8,
-  address: 0x600c_0060,
+  pc: 0x4037_7301,
+  address: 0x6000_81fc,
   width: 4,
-  isWrite: true,
-  deniedAddress: 0x600c_0060,
-  deniedPage: 0x600c_0000,
+  isWrite: false,
+  deniedAddress: 0x6000_81fc,
+  deniedPage: 0x6000_8000,
   deniedFlags: 0,
 });
 await assert.rejects(
