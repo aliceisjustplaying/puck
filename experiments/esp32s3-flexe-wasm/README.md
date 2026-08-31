@@ -253,7 +253,7 @@ There are 44 hit emissions because the three-byte instruction at
 `0x4205823e` crosses the 32-byte cache-line boundary and touches both lines.
 The path-independent per-record evidence SHA-256, including each instruction's
 CPU event, is
-`91da0ebccc05153f259e542c5c052449116a4094a827ac9ca8d7b370a6c2acc9`.
+`b6f14edb9237cf68deceb8ef92e56e247830671a310cb55306024994393f60c4`.
 
 The timing profile supplies calibrated instruction-cache flash line fills,
 one-cycle steady-state instruction issue, zero additive independent SRAM
