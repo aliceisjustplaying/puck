@@ -1,6 +1,17 @@
 # ESP32-S3 cycle-model roadmap
 
-Date: 2026-08-31, revision 3. Revision 2 followed decision
+Date: 2026-08-31, revision 4. Revision 3 folded in the external review;
+revision 4 adopts decisions
+[0013](decisions/0013-product-identity-fork-owns-the-product.md)
+(product identity: the fork owns the product, puck is the donor,
+evidence, and decision repository) and
+[0014](decisions/0014-measured-scheduler-and-adapter-contract.md) (the
+accepted, trimmed measured scheduler and adapter contract). The final
+product is a browser-hosted cycle-accurate ESP32-S3 emulator built from
+our esp32sim fork, scoped to the complete SoC plus the exact Waveshare
+ESP32-S3-Touch-AMOLED-1.8 board; the first useful milestone is real
+TinyDraw firmware boot, draw, and touch in the browser. Revision 2
+followed decision
 [0011](decisions/0011-adopt-esp32sim-execution-foundation.md) adopted
 [esp32sim](https://github.com/joakimeriksson/esp32sim) as the execution
 foundation. Companion to decisions
@@ -59,11 +70,11 @@ brief.
 | --- | --- | --- | --- | --- |
 | 0 | ESP-IDF 6.1 rebaseline of this project's receipts and fixtures (checklist below) | 2 to 4, plus one board session | No, needs the board | Nothing; unchanged by 0011 |
 | A | Adoption and exact-board fidelity: pin esp32sim and fork; the `--board none` boot baseline is already recorded (`experiments/esp32sim-adoption/`). Implement the AMOLED-1.8 `BoardModel` for the maintainer's board revision exactly: CO5300-class QSPI panel device with GRAM, TE timing, and scan-out position (the GP-SPI2 master itself is already modeled upstream) (validated against the firmware's stated `te_edge=rising clock_mhz=40` contract, the measured 40 MHz receipts, and tinydraw's tearing classifiers), CST816S-family touch, QMI8658, PCF85063A, TCA9554 (upstream has it); adopt chip identity (efuses, strap, MAC, revision 2) from the physical board via upstream's JTAG flow. Radio, battery analog, and temperature stay out of scope. | 8 to 16 | Mostly; identity adoption and visual checks local | Nothing |
-| B | Measured mode and the backend adapter (decision 0012): the Puck-owned adapter contract, observation defined at the CPU backend level (a `Bus` wrapper alone is insufficient, review F-031), interpreter-first execution, per-block cost sums, cache and line-fill models, window-exception and loop-alignment costs, tier-carrying cost types per decision 0008; differential-tested against the TypeScript timing machine on shared traces, with a cross-mode conformance program gating any JIT participation | 10 to 20 | Fully | Nothing (design spike first, see below) |
+| B | Measured mode and the fork-owned Rust adapter per decision 0014: versioned `backend-api` crate and contract tests, measured interpreter scheduler (deferred completion-phase access, pending instructions, device deadlines, budgets, slice invariance), observation at the CPU backend level (a `Bus` wrapper alone is insufficient, review F-031), timing-profile schema 2 importer and tier-carrying ledger per decision 0008, per-block cost sums, cache and line-fill models, window-exception and loop-alignment costs; one-shot differential gate against the existing TypeScript timing machine (receipt, then retire it), with a cross-mode conformance program gating any JIT participation | 10 to 20 | Fully | Nothing (spike accepted, implementation phase) |
 | C | Contention and co-simulation: measured-mode dual-core quanta, MSPI arbitration, interrupt-delivery timing; correlate against the contended receipt cohorts | 8 to 16 | Authoring yes; correlation runs local | Lane B core |
 | D | wasm JIT backend, upstream-shaped: reach browser real time; re-measure against the browser-speed probes as guards accrue | 12 to 24, long-tail risk | Correctness yes; M1 perf gates local | Lane A working browser baseline |
 | E | Silicon oracle operations: run upstream's JTAG lock-step harness against this project's board; extend it with CCOUNT-delta comparison for measured mode; remaining probe families (arbitration discrimination, PSRAM long-window distributions, cache store and writeback) | 6 to 12, hardware-serialized | Authoring and analysis only | Lane B for CCOUNT comparisons |
-| F | Integration and ship: puck UX wrap (or successor UI), correlation suite passing at the 0008 bounds, docs, publishing; the external review's release-gate battery (SBOM, attestations, secret scanning, CSP, branch-policy audit, capability matrix) is this lane's checklist | 8 to 14 | Mostly | Lanes C, D |
+| F | Integration and ship: fork-owned thin web UI shell over the versioned Wasm interface, reusing selected puck UI and browser pieces with provenance, correlation suite passing at the 0008 bounds, docs, publishing; the external review's release-gate battery (SBOM, attestations, secret scanning, CSP, branch-policy audit, capability matrix) is this lane's checklist | 8 to 14 | Mostly | Lanes C, D |
 | G | CI as the executable specification: required jobs for typecheck, unit, hostile, regression, browser smoke, Rust fmt/test/clippy, and fail-closed decoder conformance with committed mandatory corpus and case counts (review F-047/F-048/F-052/F-053/F-054) | 4 to 8 | Fully | Nothing |
 | H | Boundary hardening scoped by decision 0012's trust model: one shared guest-output validator across live, headless, replay, and verifier paths; WASI-lite hardening; quotas; memory-view refresh; panic-free untrusted paths (review F-011 through F-014, F-074) | 6 to 12 | Fully | Nothing |
 
@@ -76,13 +87,10 @@ independent of each other. **Demo milestone: lane A alone boots the real
 board image with the panel drawing in the browser at interpreter speed,
 6 to 12 agent-hours in.**
 
-The lane B design spike replaces the old co-simulation toy: a short,
-throwaway branch in the esp32sim fork answering how timing-driven
-execution, lazy device-time delivery, and block-batched CCOUNT reconcile
-in measured mode, and where decision 0012's adapter and CPU-level
-observation seams land in real code. Its deliverable is still an
-interface spec, now written against real code instead of a toy, run
-interpreter-only with networking off per the review's Milestone 3 shape.
+The lane B design spike is complete: its draft was reviewed, trimmed,
+and accepted as decision 0014, which is now the normative contract
+(interpreter-only, single core, networking off, fail closed). Lane B is
+in the implementation phase against that record.
 
 ## What retired, what carries over
 
@@ -167,8 +175,11 @@ firmware. A second board serves the lane E queue first.
   stack with `PROVENANCE.md` from day one.
 - Emulator networking defaults to none; live egress is opt-in and never
   available to gallery or external-bundle execution (decision 0012).
-- No product code outside the adapter imports esp32sim internals; a
-  dependency lint enforces it.
+- No browser TypeScript or other product caller imports esp32sim
+  internals; all machine access crosses the fork-owned Rust adapter, and
+  dependency lint enforces it (decisions 0013, 0014).
+- TypeScript work is minimized: the fork's web shell is a thin transport
+  and UI client; no TypeScript execution engine is ever built.
 - Goldens carry semantic assertions and provenance sidecars; a
   conformance test whose corpus is missing fails, never skips.
 - The correlation suite's first pass is scheduled; its residue is not.

@@ -56,7 +56,14 @@ external adversarial review the same day
 produced decision
 [`0012`](../../docs/decisions/0012-trust-model-and-backend-adapter.md)
 (trust model, backend adapter, CPU-level observation) and roadmap lanes G
-and H. The roadmap's revision 3 is authoritative.
+and H. Lane B's design spike then completed and was dispositioned:
+decision
+[0013](../../docs/decisions/0013-product-identity-fork-owns-the-product.md)
+makes the fork the product and puck the donor, evidence, and decision
+repository, and decision
+[0014](../../docs/decisions/0014-measured-scheduler-and-adapter-contract.md)
+accepts the trimmed measured scheduler and adapter contract. The
+roadmap's revision 4 is authoritative.
 
 Lane redirections when work resumes: boot lane moves from MMIO whitelists
 toward peripheral models with reset-value provenance; ROM lane moves to
