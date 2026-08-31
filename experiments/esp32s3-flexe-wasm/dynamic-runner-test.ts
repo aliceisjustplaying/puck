@@ -742,6 +742,38 @@ assert(signedVmulasRun.record.registers[11] === INITIAL_DESTINATION + 16, "signe
 assert(signedVmulasRun.record.registers[12] === 1493, "signed VMULAS QUP produced the wrong ACCX low word");
 assert(signedVmulasRun.record.registers[13] === 0, "signed VMULAS QUP produced the wrong ACCX high byte");
 
+const immediateVmulasCases = [
+  { name: "s8", opcodeHigh: 0x2c, accxLow: 0xffff_f8d6, accxHigh: 0xff },
+  { name: "u16", opcodeHigh: 0x4c, accxLow: 0xffaf_05d5, accxHigh: 0 },
+  { name: "u8", opcodeHigh: 0x6c, accxLow: 0x0001_b1d6, accxHigh: 0 }
+] as const;
+const immediateVmulasRuns = [];
+for (const vmulasCase of immediateVmulasCases) {
+  const fixture = conformanceFixture(`esp32s3_vmulas_${vmulasCase.name}_accx_ld_ip_qup`, [
+    0xa4, 0x81, 0x83,
+    0xa4, 0x01, 0x93,
+    0xa4, 0x81, 0x93,
+    0xa4, 0x01, 0xa3,
+    0x0c, 0x19,
+    0x90, 0x0d, 0xf3,
+    0xae, 0x5f, 0x34, vmulasCase.opcodeHigh,
+    0x00, 0xc0, 0xe3,
+    0x10, 0xd0, 0xe3,
+    0xb4, 0x81, 0x9a
+  ]);
+  const run = await runFresh(moduleBytes, fixture, { data: signedVmulasInput, maxSteps: 10 });
+  assert(run.record.reason === STOP_REASONS.maxSteps, `${vmulasCase.name} ACCX immediate VMULAS QUP stopped with ${run.record.reasonName}`);
+  assert(run.record.steps === 10, `${vmulasCase.name} ACCX immediate VMULAS QUP executed ${run.record.steps} instructions`);
+  assert(
+    run.dataOutput.every((byte, index) => byte === signedVmulasExpected[index]),
+    `${vmulasCase.name} ACCX immediate VMULAS QUP output changed: ${Buffer.from(run.dataOutput).toString("hex")}`
+  );
+  assert(run.record.registers[10] === INITIAL_SOURCE + 48, `${vmulasCase.name} ACCX immediate VMULAS QUP applied the wrong immediate`);
+  assert(run.record.registers[12] === vmulasCase.accxLow, `${vmulasCase.name} ACCX immediate VMULAS QUP produced the wrong low word`);
+  assert(run.record.registers[13] === vmulasCase.accxHigh, `${vmulasCase.name} ACCX immediate VMULAS QUP produced the wrong high byte`);
+  immediateVmulasRuns.push({ vmulasCase, fixture, run });
+}
+
 const unsignedVmulasQupFixture = conformanceFixture("esp32s3_vmulas_u8_accx_ld_xp_qup", [
   0xa4, 0x81, 0x83,
   0xa4, 0x01, 0x93,
@@ -1521,6 +1553,16 @@ const actualBaseline = {
     signedSourceAfter: `0x${signedVmulasRun.record.registers[10].toString(16)}`,
     signedAccxLow: `0x${signedVmulasRun.record.registers[12].toString(16)}`,
     signedAccxHigh: `0x${signedVmulasRun.record.registers[13].toString(16)}`,
+    immediateVariants: immediateVmulasRuns.map(({ vmulasCase, fixture, run }) => ({
+      name: vmulasCase.name,
+      codeSha256: fixture.codeSha256,
+      outputHex: Buffer.from(run.dataOutput).toString("hex"),
+      reason: run.record.reasonName,
+      steps: run.record.steps,
+      sourceAfter: `0x${run.record.registers[10].toString(16)}`,
+      accxLow: `0x${run.record.registers[12].toString(16)}`,
+      accxHigh: `0x${run.record.registers[13].toString(16)}`
+    })),
     unsignedCodeSha256: unsignedVmulasQupFixture.codeSha256,
     unsignedOutputHex: Buffer.from(unsignedVmulasRun.dataOutput).toString("hex"),
     unsignedReason: unsignedVmulasRun.record.reasonName,

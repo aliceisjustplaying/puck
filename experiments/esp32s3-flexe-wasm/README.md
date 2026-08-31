@@ -68,10 +68,10 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
-decoder plus this experiment's explicit ESP32-S3 patch surface has 375
+decoder plus this experiment's explicit ESP32-S3 patch surface has 378
 normalized mnemonics. With user-register operands distinguished, it covers
-63,502 rows and 322 raw mnemonics; 774 rows and 19 raw mnemonics remain gaps.
-Those gaps are 18 unimplemented `ee.*` PIE forms covering 75 rows and 699
+63,520 rows and 325 raw mnemonics; 756 rows and 16 raw mnemonics remain gaps.
+Those gaps are 15 unimplemented `ee.*` PIE forms covering 57 rows and 699
 undecodable `.byte` rows. No
 known scalar, QR load/store, THREADPTR, ACCX, QACC, SAR_BYTE, or FFT_BIT_WIDTH
 mnemonic remains in the gap list, and every named user-register form is covered.
@@ -87,8 +87,9 @@ transfers, `ee.[ld/st].ua_state.ip`, `ee.ld.128.usar.ip`, `ee.vldbc.32.ip`,
 `ee.vldbc.16.ip`, `ee.vst.l.64.ip`, all four `ee.[vld/vst].[l/h].64.xp`
 half-QR transfers, `ee.ldqa.u16.128.ip`, `ee.ldqa.u8.128.ip`,
 `ee.andq`, `ee.orq`, `ee.xorq`, `ee.notq`, `ee.vcmp.eq.s16`,
-`ee.vprelu.s16`, `ee.vprelu.s8`, `ee.vmulas.s16.accx.ld.ip.qup`,
-`ee.vmulas.u8.accx.ld.xp.qup`, and the four `ee.[ldf/stf].128.[ip/xp]`
+`ee.vprelu.s16`, `ee.vprelu.s8`, all four signed/unsigned 8/16-bit
+`ee.vmulas.*.accx.ld.ip.qup` forms, `ee.vmulas.u8.accx.ld.xp.qup`, and the four
+`ee.[ldf/stf].128.[ip/xp]`
 forms. It selects
 those semantics only for the ESP32-S3 experiment
 profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
@@ -170,6 +171,9 @@ fail-closed in dynamic and sparse execution. A four-register fixture round-trips
 32 deterministic bytes through the immediate and register-postincrement
 `ee.ldf.128` and `ee.stf.128` forms, including forced 16-byte alignment. The
 adjacent `ee.vmulas.s16.accx.ld.xp.qup` form remains fail-closed.
+The ACCX immediate QUP fixtures cover signed byte and halfword products,
+unsigned byte and halfword products, 40-bit saturation, aligned loads, signed
+postincrements, and SAR_BYTE shifting while preserving aliased inputs.
 
 The ACCX memory fixture loads an unaligned 64-bit word into the 40-bit ACCX
 state, reads both user-register halves back, and stores the zero-extended value.
@@ -445,7 +449,7 @@ first undeclared 32-bit MMIO read at
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 1,024 executed instructions. The pinned TinyDraw ELF
-automatically installs the tracked 590-instruction ESP32-S3 ISA gap set before
+automatically installs the tracked 445-instruction ESP32-S3 ISA gap set before
 execution. Each marker must match the decoder-width bytes in loaded executable
 memory during setup; stale, mismatched, unloaded, and non-executable markers are
 refused. Once bound, reaching a marked PC stops before LX6 decoding, including
