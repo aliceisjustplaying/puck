@@ -461,6 +461,37 @@ assert(
   "adjacent half XP refusal changed registers"
 );
 
+const float64XpFixture = conformanceFixture("esp32s3_float_pair_register_postincrement", [
+  0x3b, 0xaa,
+  0xa0, 0xfc, 0x06,
+  0x3b, 0xbb,
+  0xb0, 0xfc, 0x07
+]);
+const float64XpInput = Uint8Array.from([0x01, 0x00, 0xc0, 0x7f, 0xef, 0xbe, 0xad, 0xde]);
+const float64XpRun = await runFresh(moduleBytes, float64XpFixture, { data: float64XpInput, maxSteps: 4 });
+assert(float64XpRun.record.reason === STOP_REASONS.maxSteps, `float-pair XP fixture stopped with ${float64XpRun.record.reasonName}`);
+assert(float64XpRun.record.steps === 4, `float-pair XP fixture executed ${float64XpRun.record.steps} instructions`);
+assert(
+  float64XpRun.dataOutput.every((byte, index) => byte === float64XpInput[index]),
+  `float-pair XP fixture changed payload bits: ${Buffer.from(float64XpRun.dataOutput).toString("hex")}`
+);
+assert(float64XpRun.record.registers[10] === INITIAL_SOURCE + 7, "float-pair load did not add its register postincrement");
+assert(float64XpRun.record.registers[11] === INITIAL_DESTINATION + 7, "float-pair store did not add its register postincrement");
+
+const unsupportedFloat128Fixture = conformanceFixture("esp32s3_unsupported_ldf_128_xp", [0xae, 0x1c, 0x0f, 0x8f]);
+const unsupportedFloat128Run = await runFresh(moduleBytes, unsupportedFloat128Fixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0x1cae }
+});
+assert(unsupportedFloat128Run.record.reason === STOP_REASONS.unsupported, "adjacent float-128 XP form did not fail closed");
+assert(unsupportedFloat128Run.record.steps === 0, "adjacent float-128 XP form was counted as executed");
+assert(unsupportedFloat128Run.trace.count === 0, "adjacent float-128 XP refusal leaked a trace record");
+assert(unsupportedFloat128Run.dataOutput.length === 0, "adjacent float-128 XP refusal exposed data output");
+assert(
+  unsupportedFloat128Run.record.registers.every((value, index) => value === unsupportedXpRegisters[index]),
+  "adjacent float-128 XP refusal changed registers"
+);
+
 const threadptrFixture = conformanceFixture("esp32s3_threadptr_roundtrip", [
   0x36, 0x21, 0x00,
   0x81, 0x12, 0xfa,
@@ -866,6 +897,17 @@ const actualBaseline = {
     unsupportedReason: unsupportedXpRun.record.reasonName,
     unsupportedEncoding: `0x${unsupportedXpRun.record.unsupportedEncoding.toString(16)}`
   },
+  float64XpIsa: {
+    codeSha256: float64XpFixture.codeSha256,
+    outputHex: Buffer.from(float64XpRun.dataOutput).toString("hex"),
+    reason: float64XpRun.record.reasonName,
+    steps: float64XpRun.record.steps,
+    sourceAfter: `0x${float64XpRun.record.registers[10].toString(16)}`,
+    destinationAfter: `0x${float64XpRun.record.registers[11].toString(16)}`,
+    unsupportedCodeSha256: unsupportedFloat128Fixture.codeSha256,
+    unsupportedReason: unsupportedFloat128Run.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedFloat128Run.record.unsupportedEncoding.toString(16)}`
+  },
   threadptrIsa: {
     codeSha256: threadptrFixture.codeSha256,
     literalPageSha256: threadptrLiterals.sha256,
@@ -995,6 +1037,7 @@ assert(
     qrIsa: baseline.qrIsa,
     qrXpIsa: baseline.qrXpIsa,
     halfQrIsa: baseline.halfQrIsa,
+    float64XpIsa: baseline.float64XpIsa,
     threadptrIsa: baseline.threadptrIsa,
     accxIsa: baseline.accxIsa,
     qaccIsa: baseline.qaccIsa,
