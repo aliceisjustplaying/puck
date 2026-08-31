@@ -17,6 +17,28 @@ export type MemoryPath =
   | "flash-to-internal"
   | "other";
 
+export interface HardwareCacheCounters {
+  readonly ibus: Readonly<{
+    accesses: number;
+    misses: number;
+  }>;
+  readonly dbus: Readonly<{
+    accesses: number;
+    flashMisses: number;
+    psramMisses: number;
+  }>;
+}
+
+export const CACHE_COUNTER_PREDICTOR_ORDER = Object.freeze([
+  "ibus.accesses",
+  "ibus.misses",
+  "dbus.accesses",
+  "dbus.flashMisses",
+  "dbus.psramMisses",
+] as const);
+
+export type CacheCounterPredictor = (typeof CACHE_COUNTER_PREDICTOR_ORDER)[number];
+
 export interface HardwareSample {
   readonly ordinal: number;
   readonly startCore: 0 | 1;
@@ -24,6 +46,7 @@ export interface HardwareSample {
   readonly startCcount: number;
   readonly endCcount: number;
   readonly cycles: number;
+  readonly cacheCounters?: HardwareCacheCounters;
 }
 
 export interface KernelDescriptor {
@@ -101,6 +124,30 @@ export interface ExactRationalSummary {
   readonly max: ExactRational;
 }
 
+export interface ExactCounterSeriesSummary {
+  readonly total: bigint;
+  readonly squaredTotal: bigint;
+  readonly cycleProductTotal: bigint;
+  readonly values: ExactIntegerSummary;
+}
+
+export interface ExactCacheCounterSummary {
+  readonly count: number;
+  readonly cyclesTotal: bigint;
+  readonly cyclesSquaredTotal: bigint;
+  readonly predictorOrder: readonly CacheCounterPredictor[];
+  readonly gramMatrix: readonly (readonly bigint[])[];
+  readonly ibus: Readonly<{
+    accesses: ExactCounterSeriesSummary;
+    misses: ExactCounterSeriesSummary;
+  }>;
+  readonly dbus: Readonly<{
+    accesses: ExactCounterSeriesSummary;
+    flashMisses: ExactCounterSeriesSummary;
+    psramMisses: ExactCounterSeriesSummary;
+  }>;
+}
+
 export interface CalibrationCandidate {
   readonly candidateVersion: 1;
   readonly status: "candidate";
@@ -136,6 +183,7 @@ export interface CalibrationCandidate {
     cycles: ExactIntegerSummary;
     bytesPerSample: bigint;
     cyclesPerByte: ExactRationalSummary | null;
+    cacheCounters?: ExactCacheCounterSummary;
   }>;
 }
 
@@ -303,6 +351,50 @@ function parseCounter(value: unknown): ParsedHardwareCalibrationReceipt["counter
   };
 }
 
+function parseCacheCounters(value: unknown, path: string): HardwareCacheCounters {
+  const counters = objectAt(value, path);
+  exactKeys(counters, ["ibus", "dbus"], path);
+  const ibus = objectAt(counters.ibus, `${path}.ibus`);
+  exactKeys(ibus, ["accesses", "misses"], `${path}.ibus`);
+  const dbus = objectAt(counters.dbus, `${path}.dbus`);
+  exactKeys(dbus, ["accesses", "flashMisses", "psramMisses"], `${path}.dbus`);
+  const ibusAccesses = integerAt(ibus.accesses, `${path}.ibus.accesses`, 0, UINT32_MAX);
+  const ibusMisses = integerAt(ibus.misses, `${path}.ibus.misses`, 0, UINT32_MAX);
+  const dbusAccesses = integerAt(dbus.accesses, `${path}.dbus.accesses`, 0, UINT32_MAX);
+  const dbusFlashMisses = integerAt(
+    dbus.flashMisses,
+    `${path}.dbus.flashMisses`,
+    0,
+    UINT32_MAX,
+  );
+  const dbusPsramMisses = integerAt(
+    dbus.psramMisses,
+    `${path}.dbus.psramMisses`,
+    0,
+    UINT32_MAX,
+  );
+  if (ibusMisses > ibusAccesses) {
+    fail(`${path}.ibus.misses`, `must not exceed ${path}.ibus.accesses`);
+  }
+  if (BigInt(dbusFlashMisses) + BigInt(dbusPsramMisses) > BigInt(dbusAccesses)) {
+    fail(
+      `${path}.dbus`,
+      "flashMisses plus psramMisses must not exceed accesses for a bounded probe",
+    );
+  }
+  return {
+    ibus: {
+      accesses: ibusAccesses,
+      misses: ibusMisses,
+    },
+    dbus: {
+      accesses: dbusAccesses,
+      flashMisses: dbusFlashMisses,
+      psramMisses: dbusPsramMisses,
+    },
+  };
+}
+
 function parseMeasurement(
   value: unknown,
   counterCore: 0 | 1,
@@ -326,10 +418,28 @@ function parseMeasurement(
   if (measurement.samples.length < MINIMUM_HARDWARE_SAMPLES) {
     fail("$.measurement.samples", `must contain at least ${MINIMUM_HARDWARE_SAMPLES} samples`);
   }
+  let cacheCounterPresence: boolean | undefined;
   const samples = measurement.samples.map((sampleValue, index): HardwareSample => {
     const path = `$.measurement.samples[${index}]`;
     const sample = objectAt(sampleValue, path);
-    exactKeys(sample, ["ordinal", "startCore", "endCore", "startCcount", "endCcount", "cycles"], path);
+    const hasCacheCounters = Object.hasOwn(sample, "cacheCounters");
+    if (cacheCounterPresence === undefined) cacheCounterPresence = hasCacheCounters;
+    if (cacheCounterPresence !== hasCacheCounters) {
+      fail("$.measurement.samples", "must either all include cacheCounters or all omit it");
+    }
+    exactKeys(
+      sample,
+      [
+        "ordinal",
+        "startCore",
+        "endCore",
+        "startCcount",
+        "endCcount",
+        "cycles",
+        ...(hasCacheCounters ? ["cacheCounters"] : []),
+      ],
+      path,
+    );
     const ordinal = integerAt(sample.ordinal, `${path}.ordinal`, 0);
     if (ordinal !== index) fail(`${path}.ordinal`, `must equal its zero-based array index ${index}`);
     const startCore = enumAt(sample.startCore, [0, 1] as const, `${path}.startCore`);
@@ -341,7 +451,10 @@ function parseMeasurement(
     const cycles = integerAt(sample.cycles, `${path}.cycles`, 1, UINT32_MAX);
     const expected = (endCcount - startCcount + UINT32_MODULUS) % UINT32_MODULUS;
     if (cycles !== expected) fail(`${path}.cycles`, `must equal the unsigned 32-bit CCOUNT delta ${expected}`);
-    return { ordinal, startCore, endCore, startCcount, endCcount, cycles };
+    const base = { ordinal, startCore, endCore, startCcount, endCcount, cycles };
+    return hasCacheCounters
+      ? { ...base, cacheCounters: parseCacheCounters(sample.cacheCounters, `${path}.cacheCounters`) }
+      : base;
   });
   return {
     kind: "ccount-kernel",
@@ -483,6 +596,68 @@ export function exactIntegerSummary(values: readonly bigint[]): ExactIntegerSumm
   });
 }
 
+function counterSeriesSummary(
+  samples: readonly HardwareSample[],
+  counterOf: (counters: HardwareCacheCounters) => number,
+): ExactCounterSeriesSummary {
+  const pairs = samples.map((sample) => ({
+    cycles: BigInt(sample.cycles),
+    counter: BigInt(counterOf(sample.cacheCounters!)),
+  }));
+  const values = pairs.map((pair) => pair.counter);
+  return Object.freeze({
+    total: values.reduce((total, value) => total + value, 0n),
+    squaredTotal: values.reduce((total, value) => total + value * value, 0n),
+    cycleProductTotal: pairs.reduce((total, pair) => total + pair.counter * pair.cycles, 0n),
+    values: exactIntegerSummary(values),
+  });
+}
+
+function cacheCounterVector(counters: HardwareCacheCounters): readonly bigint[] {
+  return Object.freeze([
+    BigInt(counters.ibus.accesses),
+    BigInt(counters.ibus.misses),
+    BigInt(counters.dbus.accesses),
+    BigInt(counters.dbus.flashMisses),
+    BigInt(counters.dbus.psramMisses),
+  ]);
+}
+
+function counterGramMatrix(samples: readonly HardwareSample[]): readonly (readonly bigint[])[] {
+  const vectors = samples.map((sample) => cacheCounterVector(sample.cacheCounters!));
+  return Object.freeze(
+    CACHE_COUNTER_PREDICTOR_ORDER.map((_, row) =>
+      Object.freeze(
+        CACHE_COUNTER_PREDICTOR_ORDER.map((_, column) =>
+          vectors.reduce((total, vector) => total + vector[row]! * vector[column]!, 0n),
+        ),
+      ),
+    ),
+  );
+}
+
+function cacheCounterSummary(samples: readonly HardwareSample[]): ExactCacheCounterSummary {
+  return Object.freeze({
+    count: samples.length,
+    cyclesTotal: samples.reduce((total, sample) => total + BigInt(sample.cycles), 0n),
+    cyclesSquaredTotal: samples.reduce(
+      (total, sample) => total + BigInt(sample.cycles) * BigInt(sample.cycles),
+      0n,
+    ),
+    predictorOrder: CACHE_COUNTER_PREDICTOR_ORDER,
+    gramMatrix: counterGramMatrix(samples),
+    ibus: Object.freeze({
+      accesses: counterSeriesSummary(samples, (counters) => counters.ibus.accesses),
+      misses: counterSeriesSummary(samples, (counters) => counters.ibus.misses),
+    }),
+    dbus: Object.freeze({
+      accesses: counterSeriesSummary(samples, (counters) => counters.dbus.accesses),
+      flashMisses: counterSeriesSummary(samples, (counters) => counters.dbus.flashMisses),
+      psramMisses: counterSeriesSummary(samples, (counters) => counters.dbus.psramMisses),
+    }),
+  });
+}
+
 function rationalSummary(summary: ExactIntegerSummary, bytes: bigint): ExactRationalSummary {
   return Object.freeze({
     min: rational(summary.min, bytes),
@@ -501,6 +676,7 @@ export function aggregateCalibrationCohort(
   const expectedCohort = cohortKey(first);
   const expectedDescriptor = descriptorKey(first);
   const expectedSampleCount = first.measurement.samples.length;
+  const expectedCacheCounterPresence = first.measurement.samples[0]!.cacheCounters !== undefined;
   const bootIds = new Set<string>();
   const receiptHashes = new Set<string>();
   for (const receipt of receipts) {
@@ -512,6 +688,9 @@ export function aggregateCalibrationCohort(
     }
     if (receipt.measurement.samples.length !== expectedSampleCount) {
       fail("cohort", "sample counts must agree exactly so every boot has equal weight");
+    }
+    if ((receipt.measurement.samples[0]!.cacheCounters !== undefined) !== expectedCacheCounterPresence) {
+      fail("cohort", "cache-counter presence must agree exactly across receipts");
     }
     if (receiptHashes.has(receipt.receiptSha256)) fail("cohort", "contains a duplicate receipt");
     receiptHashes.add(receipt.receiptSha256);
@@ -526,6 +705,7 @@ export function aggregateCalibrationCohort(
   const cycles = receipts.flatMap((receipt) =>
     receipt.measurement.samples.map((sample) => BigInt(sample.cycles)),
   );
+  const samples = receipts.flatMap((receipt) => receipt.measurement.samples);
   const cycleSummary = exactIntegerSummary(cycles);
   const bytesPerSample =
     BigInt(descriptor.bytesPerIteration) * BigInt(descriptor.iterationsPerSample);
@@ -570,6 +750,7 @@ export function aggregateCalibrationCohort(
       cycles: cycleSummary,
       bytesPerSample,
       cyclesPerByte: bytesPerSample === 0n ? null : rationalSummary(cycleSummary, bytesPerSample),
+      ...(expectedCacheCounterPresence ? { cacheCounters: cacheCounterSummary(samples) } : {}),
     },
   });
 }

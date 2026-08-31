@@ -25,6 +25,7 @@ interface ReceiptOptions {
   readonly bytesPerIteration?: number;
   readonly kernel?: string;
   readonly counterCore?: 0 | 1;
+  readonly cacheCounters?: boolean;
 }
 
 function receiptValue(options: ReceiptOptions = {}): Record<string, unknown> {
@@ -39,6 +40,14 @@ function receiptValue(options: ReceiptOptions = {}): Record<string, unknown> {
       startCcount,
       endCcount: (startCcount + sampleCycles) % UINT32_MODULUS,
       cycles: sampleCycles,
+      ...(options.cacheCounters
+        ? {
+            cacheCounters: {
+              ibus: { accesses: ordinal + 1, misses: ordinal % 2 },
+              dbus: { accesses: 2 * (ordinal + 1), flashMisses: 1, psramMisses: 0 },
+            },
+          }
+        : {}),
     };
   });
   return {
@@ -112,6 +121,64 @@ describe("hardware receipt adoption boundary", () => {
     });
     expect(parsed.receiptSha256).toMatch(/^[0-9a-f]{64}$/);
     expect(parsed.boot.bootLogSha256).toBe("b".repeat(64));
+  });
+
+  test("retains strict uint32 cache counters and rejects mixed sample presence", () => {
+    const parsed = parse({ cacheCounters: true });
+    expect(parsed.measurement.samples[0]!.cacheCounters).toEqual({
+      ibus: { accesses: 1, misses: 0 },
+      dbus: { accesses: 2, flashMisses: 1, psramMisses: 0 },
+    });
+
+    const boundary = receiptValue({ cacheCounters: true });
+    const boundarySample = ((boundary.measurement as Record<string, unknown>).samples as Record<
+      string,
+      unknown
+    >[])[0]!;
+    (boundarySample.cacheCounters as { ibus: { accesses: number } }).ibus.accesses = UINT32_MODULUS - 1;
+    expect(parseHardwareCalibrationReceipt(JSON.stringify(boundary)).measurement.samples[0]!.cacheCounters)
+      .toMatchObject({ ibus: { accesses: UINT32_MODULUS - 1 } });
+
+    const mixed = receiptValue({ cacheCounters: true });
+    const mixedSample = ((mixed.measurement as Record<string, unknown>).samples as Record<string, unknown>[])[1]!;
+    delete mixedSample.cacheCounters;
+    expect(() => parseHardwareCalibrationReceipt(JSON.stringify(mixed))).toThrow(
+      "must either all include cacheCounters or all omit it",
+    );
+
+    const overflow = receiptValue({ cacheCounters: true });
+    const overflowSample = ((overflow.measurement as Record<string, unknown>).samples as Record<
+      string,
+      unknown
+    >[])[0]!;
+    const counters = overflowSample.cacheCounters as { ibus: { accesses: number } };
+    counters.ibus.accesses = UINT32_MODULUS;
+    expect(() => parseHardwareCalibrationReceipt(JSON.stringify(overflow))).toThrow(
+      "$.measurement.samples[0].cacheCounters.ibus.accesses must be an integer from 0 through 4294967295",
+    );
+
+    const impossibleIbus = receiptValue({ cacheCounters: true });
+    const impossibleIbusSample = ((impossibleIbus.measurement as Record<string, unknown>)
+      .samples as Record<string, unknown>[])[0]!;
+    (impossibleIbusSample.cacheCounters as { ibus: { misses: number } }).ibus.misses = 2;
+    expect(() => parseHardwareCalibrationReceipt(JSON.stringify(impossibleIbus))).toThrow(
+      "$.measurement.samples[0].cacheCounters.ibus.misses must not exceed $.measurement.samples[0].cacheCounters.ibus.accesses",
+    );
+
+    const impossibleDbus = receiptValue({ cacheCounters: true });
+    const impossibleDbusSample = ((impossibleDbus.measurement as Record<string, unknown>)
+      .samples as Record<string, unknown>[])[0]!;
+    (impossibleDbusSample.cacheCounters as { dbus: { psramMisses: number } }).dbus.psramMisses = 2;
+    expect(() => parseHardwareCalibrationReceipt(JSON.stringify(impossibleDbus))).toThrow(
+      "$.measurement.samples[0].cacheCounters.dbus flashMisses plus psramMisses must not exceed accesses for a bounded probe",
+    );
+
+    const drift = receiptValue({ cacheCounters: true });
+    const driftSample = ((drift.measurement as Record<string, unknown>).samples as Record<string, unknown>[])[0]!;
+    (driftSample.cacheCounters as { dbus: Record<string, unknown> }).dbus.unexpected = 1;
+    expect(() => parseHardwareCalibrationReceipt(JSON.stringify(drift))).toThrow(
+      "$.measurement.samples[0].cacheCounters.dbus keys must be exactly",
+    );
   });
 
   test("rejects dirty builds and schema drift", () => {
@@ -229,6 +296,112 @@ describe("calibration cohorts", () => {
       cacheClaim: "not-claimed",
       isaClaim: "not-claimed",
     });
+  });
+
+  test("summarizes cache counters with exact multivariate sufficient statistics", () => {
+    const first = parse({
+      bootId: "boot-a",
+      logHash: "a".repeat(64),
+      cycles: DEFAULT_CYCLES,
+      cacheCounters: true,
+    });
+    const second = parse({
+      bootId: "boot-b",
+      logHash: "b".repeat(64),
+      capturedAt: "2026-08-30T20:01:00.000Z",
+      cycles: DEFAULT_CYCLES,
+      cacheCounters: true,
+    });
+    const counters = aggregateCalibrationCohort([second, first]).samples.cacheCounters;
+
+    expect(counters).toEqual({
+      count: 200,
+      cyclesTotal: 10100n,
+      cyclesSquaredTotal: 676700n,
+      predictorOrder: [
+        "ibus.accesses",
+        "ibus.misses",
+        "dbus.accesses",
+        "dbus.flashMisses",
+        "dbus.psramMisses",
+      ],
+      gramMatrix: [
+        [676700n, 5100n, 1353400n, 10100n, 0n],
+        [5100n, 100n, 10200n, 100n, 0n],
+        [1353400n, 10200n, 2706800n, 20200n, 0n],
+        [10100n, 100n, 20200n, 200n, 0n],
+        [0n, 0n, 0n, 0n, 0n],
+      ],
+      ibus: {
+        accesses: {
+          total: 10100n,
+          squaredTotal: 676700n,
+          cycleProductTotal: 676700n,
+          values: { min: 1n, p50: 50n, p90: 90n, p99: 99n, max: 100n },
+        },
+        misses: {
+          total: 100n,
+          squaredTotal: 100n,
+          cycleProductTotal: 5100n,
+          values: { min: 0n, p50: 0n, p90: 1n, p99: 1n, max: 1n },
+        },
+      },
+      dbus: {
+        accesses: {
+          total: 20200n,
+          squaredTotal: 2706800n,
+          cycleProductTotal: 1353400n,
+          values: { min: 2n, p50: 100n, p90: 180n, p99: 198n, max: 200n },
+        },
+        flashMisses: {
+          total: 200n,
+          squaredTotal: 200n,
+          cycleProductTotal: 10100n,
+          values: { min: 1n, p50: 1n, p90: 1n, p99: 1n, max: 1n },
+        },
+        psramMisses: {
+          total: 0n,
+          squaredTotal: 0n,
+          cycleProductTotal: 0n,
+          values: { min: 0n, p50: 0n, p90: 0n, p99: 0n, max: 0n },
+        },
+      },
+    });
+    expect(() => aggregateCalibrationCohort([first, parse({ bootId: "boot-b" })])).toThrow(
+      "cache-counter presence must agree exactly across receipts",
+    );
+  });
+
+  test("keeps uint32 counter maxima exact in products and cohort totals", () => {
+    interface HardwareCounters {
+      ibus: { accesses: number; misses: number };
+      dbus: { accesses: number; flashMisses: number; psramMisses: number };
+    }
+    const maximum = UINT32_MODULUS - 1;
+    const maximumReceipt = (options: ReceiptOptions) => {
+      const value = receiptValue({ ...options, cacheCounters: true });
+      const samples = (value.measurement as { samples: { cacheCounters: HardwareCounters }[] }).samples;
+      for (const sample of samples) {
+        sample.cacheCounters = {
+          ibus: { accesses: maximum, misses: maximum },
+          dbus: { accesses: maximum, flashMisses: maximum, psramMisses: 0 },
+        };
+      }
+      return parseHardwareCalibrationReceipt(JSON.stringify(value));
+    };
+    const first = maximumReceipt({ bootId: "boot-a", logHash: "a".repeat(64) });
+    const second = maximumReceipt({
+      bootId: "boot-b",
+      logHash: "b".repeat(64),
+      capturedAt: "2026-08-30T20:01:00.000Z",
+    });
+    const counters = aggregateCalibrationCohort([first, second]).samples.cacheCounters!;
+    const maximumBigInt = BigInt(maximum);
+
+    expect(counters.ibus.accesses.total).toBe(maximumBigInt * 200n);
+    expect(counters.ibus.accesses.cycleProductTotal).toBe(maximumBigInt * 10100n);
+    expect(counters.gramMatrix[0]![0]).toBe(maximumBigInt * maximumBigInt * 200n);
+    expect(counters.gramMatrix[0]![4]).toBe(0n);
   });
 
   test("requires two distinct boots and rejects duplicate boot/measurement pairs", () => {

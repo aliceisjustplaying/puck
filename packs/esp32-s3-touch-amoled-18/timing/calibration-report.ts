@@ -5,7 +5,10 @@ import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import {
   buildCalibrationCandidates,
   parseHardwareCalibrationReceipt,
+  type CacheCounterPredictor,
   type CalibrationCandidate,
+  type ExactCacheCounterSummary,
+  type ExactCounterSeriesSummary,
   type ExactIntegerSummary,
   type ExactRational,
   type ExactRationalSummary,
@@ -46,6 +49,30 @@ interface DecimalRationalSummary {
   readonly max: DecimalRational;
 }
 
+interface DecimalCounterSeriesSummary {
+  readonly total: string;
+  readonly squaredTotal: string;
+  readonly cycleProductTotal: string;
+  readonly values: DecimalIntegerSummary;
+}
+
+interface DecimalCacheCounterSummary {
+  readonly count: number;
+  readonly cyclesTotal: string;
+  readonly cyclesSquaredTotal: string;
+  readonly predictorOrder: readonly CacheCounterPredictor[];
+  readonly gramMatrix: readonly (readonly string[])[];
+  readonly ibus: Readonly<{
+    accesses: DecimalCounterSeriesSummary;
+    misses: DecimalCounterSeriesSummary;
+  }>;
+  readonly dbus: Readonly<{
+    accesses: DecimalCounterSeriesSummary;
+    flashMisses: DecimalCounterSeriesSummary;
+    psramMisses: DecimalCounterSeriesSummary;
+  }>;
+}
+
 export interface CalibrationReportV1 {
   readonly reportVersion: 1;
   readonly status: "candidate";
@@ -68,6 +95,7 @@ export interface CalibrationReportV1 {
       cycles: DecimalIntegerSummary;
       bytesPerSample: string;
       cyclesPerByte: DecimalRationalSummary | null;
+      cacheCounters?: DecimalCacheCounterSummary;
     }>;
   }>[];
 }
@@ -220,6 +248,36 @@ function decimalRationalSummary(summary: ExactRationalSummary): DecimalRationalS
   });
 }
 
+function decimalCounterSeriesSummary(summary: ExactCounterSeriesSummary): DecimalCounterSeriesSummary {
+  return Object.freeze({
+    total: summary.total.toString(),
+    squaredTotal: summary.squaredTotal.toString(),
+    cycleProductTotal: summary.cycleProductTotal.toString(),
+    values: decimalIntegerSummary(summary.values),
+  });
+}
+
+function decimalCacheCounterSummary(summary: ExactCacheCounterSummary): DecimalCacheCounterSummary {
+  return Object.freeze({
+    count: summary.count,
+    cyclesTotal: summary.cyclesTotal.toString(),
+    cyclesSquaredTotal: summary.cyclesSquaredTotal.toString(),
+    predictorOrder: summary.predictorOrder,
+    gramMatrix: Object.freeze(
+      summary.gramMatrix.map((row) => Object.freeze(row.map((value) => value.toString()))),
+    ),
+    ibus: Object.freeze({
+      accesses: decimalCounterSeriesSummary(summary.ibus.accesses),
+      misses: decimalCounterSeriesSummary(summary.ibus.misses),
+    }),
+    dbus: Object.freeze({
+      accesses: decimalCounterSeriesSummary(summary.dbus.accesses),
+      flashMisses: decimalCounterSeriesSummary(summary.dbus.flashMisses),
+      psramMisses: decimalCounterSeriesSummary(summary.dbus.psramMisses),
+    }),
+  });
+}
+
 function serializeCandidate(candidate: CalibrationCandidate): CalibrationReportV1["candidates"][number] {
   return Object.freeze({
     candidateVersion: 1,
@@ -236,6 +294,9 @@ function serializeCandidate(candidate: CalibrationCandidate): CalibrationReportV
         candidate.samples.cyclesPerByte === null
           ? null
           : decimalRationalSummary(candidate.samples.cyclesPerByte),
+      ...(candidate.samples.cacheCounters === undefined
+        ? {}
+        : { cacheCounters: decimalCacheCounterSummary(candidate.samples.cacheCounters) }),
     }),
   });
 }

@@ -21,7 +21,11 @@ async function temporaryDirectory(): Promise<string> {
   return path;
 }
 
-function receiptJson(bootId: string, kernel: string, options: { dirty?: boolean; commit?: string } = {}): string {
+function receiptJson(
+  bootId: string,
+  kernel: string,
+  options: { dirty?: boolean; commit?: string; cacheCounters?: boolean } = {},
+): string {
   const core = 0;
   return `${JSON.stringify({
     schemaVersion: 1,
@@ -76,6 +80,14 @@ function receiptJson(bootId: string, kernel: string, options: { dirty?: boolean;
           startCcount,
           endCcount: startCcount + cycles,
           cycles,
+          ...(options.cacheCounters
+            ? {
+                cacheCounters: {
+                  ibus: { accesses: ordinal + 1, misses: ordinal % 2 },
+                  dbus: { accesses: 2 * (ordinal + 1), flashMisses: 1, psramMisses: 0 },
+                },
+              }
+            : {}),
         };
       }),
     },
@@ -156,6 +168,70 @@ describe("stable calibration report", () => {
     expect(exitCode).toBe(0);
     expect(stdout).toEqual([written.json]);
     expect(stderr).toEqual([]);
+  });
+
+  test("serializes exact cache-counter multivariate moments as decimal strings", async () => {
+    const directory = await temporaryDirectory();
+    const first = join(directory, "boot-a.json");
+    const second = join(directory, "boot-b.json");
+    await writeFile(first, receiptJson("boot-a", "flash-kernel", { cacheCounters: true }));
+    await writeFile(second, receiptJson("boot-b", "flash-kernel", { cacheCounters: true }));
+
+    const candidate = (await buildCalibrationReport({ inputs: [second, first] })).report.candidates[0]!;
+    expect(candidate.review.cacheClaim).toBe("not-claimed");
+    expect(candidate.samples.cacheCounters).toEqual({
+      count: 200,
+      cyclesTotal: "10100",
+      cyclesSquaredTotal: "676700",
+      predictorOrder: [
+        "ibus.accesses",
+        "ibus.misses",
+        "dbus.accesses",
+        "dbus.flashMisses",
+        "dbus.psramMisses",
+      ],
+      gramMatrix: [
+        ["676700", "5100", "1353400", "10100", "0"],
+        ["5100", "100", "10200", "100", "0"],
+        ["1353400", "10200", "2706800", "20200", "0"],
+        ["10100", "100", "20200", "200", "0"],
+        ["0", "0", "0", "0", "0"],
+      ],
+      ibus: {
+        accesses: {
+          total: "10100",
+          squaredTotal: "676700",
+          cycleProductTotal: "676700",
+          values: { min: "1", p50: "50", p90: "90", p99: "99", max: "100" },
+        },
+        misses: {
+          total: "100",
+          squaredTotal: "100",
+          cycleProductTotal: "5100",
+          values: { min: "0", p50: "0", p90: "1", p99: "1", max: "1" },
+        },
+      },
+      dbus: {
+        accesses: {
+          total: "20200",
+          squaredTotal: "2706800",
+          cycleProductTotal: "1353400",
+          values: { min: "2", p50: "100", p90: "180", p99: "198", max: "200" },
+        },
+        flashMisses: {
+          total: "200",
+          squaredTotal: "200",
+          cycleProductTotal: "10100",
+          values: { min: "1", p50: "1", p90: "1", p99: "1", max: "1" },
+        },
+        psramMisses: {
+          total: "0",
+          squaredTotal: "0",
+          cycleProductTotal: "0",
+          values: { min: "0", p50: "0", p90: "0", p99: "0", max: "0" },
+        },
+      },
+    });
   });
 });
 

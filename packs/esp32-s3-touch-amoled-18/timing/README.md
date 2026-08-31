@@ -50,6 +50,19 @@ sdkconfig metadata, duplicate boots or measurements, and unequal per-boot
 sample counts. Candidate quantiles and cycles-per-byte ratios do not mutate
 `timing.json`.
 
+Samples may also carry strict ESP32-S3 cache-counter deltas as
+`cacheCounters: { ibus: { accesses, misses }, dbus: { accesses, flashMisses,
+psramMisses } }`. All five values are uint32, and every sample in a measurement
+must either include the block or omit it. Bounded probes reject instruction
+misses above instruction accesses and combined data misses above data accesses;
+the receipts do not encode hardware-counter overflow. Counter-enabled candidate
+reports add exact value quantiles, an ordered five-counter predictor vector, the
+full symmetric predictor Gram matrix, and exact totals of counters, squared
+counters, cycles, squared cycles, and counter-times-cycles. Together with the
+sample count, these are the sufficient statistics for multivariate linear-model
+coefficients and residual sums of squares. They do not make a cache calibration
+claim. Reports from older receipts remain byte-identical.
+
 The first hardware candidate is checked in as
 [`evidence/esp32s3-rev02-tinydraw-d81e2ea-candidate.json`](evidence/esp32s3-rev02-tinydraw-d81e2ea-candidate.json).
 It contains 56 receipts from two independent clean boots, 28 measurement
