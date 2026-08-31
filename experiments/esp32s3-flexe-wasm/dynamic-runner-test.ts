@@ -360,7 +360,7 @@ const scalar = extractElfFunction(
   DEFAULT_TINYDRAW_ESP32S3_ELF,
   "tlsf_alloc_overhead"
 );
-assert(scalar.elfSha256 === "a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644", "scalar ELF changed");
+assert(scalar.elfSha256 === "e9681a8015728b95a9e948a56a0cbe4245b1abff812fa0b70b93c4ca1a29f044", "scalar ELF changed");
 assert(scalar.objdumpSha256 === "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466", "objdump changed");
 assert(scalar.pc === 0x403808f4, "scalar function PC changed");
 assert(scalar.codeSha256 === "cebc5d75741ee728f371bf15e6f834d1cacd50ce35b264385313c30b542ee7b7", "scalar code changed");
@@ -688,12 +688,12 @@ assert(
 assert(float128Run.record.registers[10] === INITIAL_SOURCE + 35, "float-quad loads applied the wrong postincrements");
 assert(float128Run.record.registers[11] === INITIAL_DESTINATION + 35, "float-quad stores applied the wrong postincrements");
 
-const unsupportedQaccXpFixture = conformanceFixture("esp32s3_unsupported_vmulas_s16_qacc_ld_xp_qup", [
-  0xbe, 0xf8, 0xa1, 0xb4
+const unsupportedQaccXpFixture = conformanceFixture("esp32s3_unsupported_vmulas_u16_qacc_ld_xp", [
+  0xae, 0x0c, 0x95, 0xf1
 ]);
 const unsupportedQaccXpRun = await runFresh(moduleBytes, unsupportedQaccXpFixture, {
   maxSteps: 1,
-  unsupported: { offset: 0, encoding: 0xf8be }
+  unsupported: { offset: 0, encoding: 0x0cae }
 });
 assert(unsupportedQaccXpRun.record.reason === STOP_REASONS.unsupported, "adjacent QACC XP MAC form did not fail closed");
 assert(unsupportedQaccXpRun.record.steps === 0, "adjacent QACC XP MAC form was counted as executed");
@@ -877,23 +877,214 @@ for (const vmulasCase of accxLoadCases) {
   accxLoadRuns.push({ vmulasCase, fixture, run });
 }
 
-const unsupportedVmulasQupFixture = conformanceFixture("esp32s3_unsupported_vmulas_s16_qacc_ld_ip_qup", [
-  0xae, 0x5f, 0x34, 0x1c
+function expectedQaccProductOutput(input: Uint8Array, elementBits: 8 | 16, signed: boolean): Uint8Array {
+  const output = new Uint8Array(input.length);
+  const packed = new Uint8Array(40);
+  const view = new DataView(input.buffer, input.byteOffset, input.byteLength);
+  const lanes = 128 / elementBits;
+  const lanesPerBank = lanes / 2;
+  const laneBits = elementBits === 16 ? 40 : 20;
+  const elementBytes = elementBits / 8;
+  for (let lane = 0; lane < lanes; lane++) {
+    const offset = lane * elementBytes;
+    const x = elementBits === 16
+      ? (signed ? view.getInt16(offset, true) : view.getUint16(offset, true))
+      : (signed ? view.getInt8(offset) : view.getUint8(offset));
+    const yOffset = 16 + offset;
+    const y = elementBits === 16
+      ? (signed ? view.getInt16(yOffset, true) : view.getUint16(yOffset, true))
+      : (signed ? view.getInt8(yOffset) : view.getUint8(yOffset));
+    const value = BigInt.asUintN(laneBits, BigInt(x) * BigInt(y));
+    const bankOffset = lane < lanesPerBank ? 0 : 20;
+    const bankLane = lane % lanesPerBank;
+    const bitOffset = bankLane * laneBits;
+    for (let bit = 0; bit < laneBits; bit++) {
+      if ((value & (1n << BigInt(bit))) !== 0n) {
+        const outputBit = bitOffset + bit;
+        packed[bankOffset + Math.floor(outputBit / 8)]! |= 1 << (outputBit % 8);
+      }
+    }
+  }
+  output.set(packed.subarray(0, 20), 0);
+  output.set(packed.subarray(20), 32);
+  return output;
+}
+
+const qaccVmulasInput = Uint8Array.from({ length: 64 }, (_, index) => (index * 37 + 129) & 0xff);
+const qaccVmulasCases = [
+  { name: "s16", instructionPrefix: 0x11, elementBits: 16 as const, signed: true },
+  { name: "s8", instructionPrefix: 0x31, elementBits: 8 as const, signed: true },
+  { name: "u16", instructionPrefix: 0x51, elementBits: 16 as const, signed: false },
+  { name: "u8", instructionPrefix: 0x71, elementBits: 8 as const, signed: false }
+] as const;
+const qaccVmulasRuns = [];
+for (const qaccCase of qaccVmulasCases) {
+  const fixture = conformanceFixture(`esp32s3_vmulas_${qaccCase.name}_qacc_ld_ip_qup`, [
+    0xa4, 0x01, 0x83,
+    0xa4, 0x81, 0x83,
+    0xae, 0x01, 0xb4, qaccCase.instructionPrefix,
+    0xb4, 0x01, 0x0c,
+    0xb4, 0x04, 0x1d,
+    0xb4, 0x01, 0x0d,
+    0xb4, 0x01, 0x12
+  ]);
+  const run = await runFresh(moduleBytes, fixture, { data: qaccVmulasInput, maxSteps: 7 });
+  const expected = expectedQaccProductOutput(qaccVmulasInput, qaccCase.elementBits, qaccCase.signed);
+  assert(run.record.reason === STOP_REASONS.maxSteps, `${qaccCase.name} QACC QUP stopped with ${run.record.reasonName}`);
+  assert(run.record.steps === 7, `${qaccCase.name} QACC QUP executed ${run.record.steps} instructions`);
+  assert(run.record.registers[10] === INITIAL_SOURCE + 48, `${qaccCase.name} QACC QUP applied the wrong immediate: 0x${run.record.registers[10].toString(16)}`);
+  assert(
+    run.dataOutput.every((byte, index) => byte === expected[index]),
+    `${qaccCase.name} QACC QUP output changed: actual=${JSON.stringify([...run.dataOutput])} expected=${JSON.stringify([...expected])}`
+  );
+  qaccVmulasRuns.push({ qaccCase, fixture, run });
+}
+
+const qaccVmulasXpCases = [
+  { name: "s16", instructionPrefix: 0xb5, elementBits: 16 as const, signed: true },
+  { name: "s8", instructionPrefix: 0xbd, elementBits: 8 as const, signed: true },
+  { name: "u16", instructionPrefix: 0xc5, elementBits: 16 as const, signed: false },
+  { name: "u8", instructionPrefix: 0xcd, elementBits: 8 as const, signed: false }
+] as const;
+const qaccVmulasXpRuns = [];
+for (const qaccCase of qaccVmulasXpCases) {
+  const fixture = conformanceFixture(`esp32s3_vmulas_${qaccCase.name}_qacc_ld_xp_qup`, [
+    0xa4, 0x01, 0x83,
+    0xa4, 0x81, 0x83,
+    0xae, 0x0c, 0xb4, qaccCase.instructionPrefix,
+    0xb4, 0x01, 0x0c,
+    0xb4, 0x04, 0x1d,
+    0xb4, 0x01, 0x0d,
+    0xb4, 0x01, 0x12
+  ]);
+  const run = await runFresh(moduleBytes, fixture, { data: qaccVmulasInput, maxSteps: 7 });
+  const expected = expectedQaccProductOutput(qaccVmulasInput, qaccCase.elementBits, qaccCase.signed);
+  assert(run.record.reason === STOP_REASONS.maxSteps, `${qaccCase.name} QACC XP QUP stopped with ${run.record.reasonName}`);
+  assert(run.record.steps === 7, `${qaccCase.name} QACC XP QUP executed ${run.record.steps} instructions`);
+  assert(run.record.registers[10] === INITIAL_SOURCE + 64, `${qaccCase.name} QACC XP QUP applied the wrong register increment: 0x${run.record.registers[10].toString(16)}`);
+  assert(
+    run.dataOutput.every((byte, index) => byte === expected[index]),
+    `${qaccCase.name} QACC XP QUP output changed: ${Buffer.from(run.dataOutput).toString("hex")}`
+  );
+  qaccVmulasXpRuns.push({ qaccCase, fixture, run });
+}
+
+function packQacc40(values: readonly bigint[]): Uint8Array {
+  let packed = 0n;
+  values.forEach((value, lane) => {
+    packed |= BigInt.asUintN(40, value) << BigInt(lane * 40);
+  });
+  return Uint8Array.from({ length: 20 }, (_, index) => Number((packed >> BigInt(index * 8)) & 0xffn));
+}
+
+const qaccSaturationCode = [
+  0xa4, 0x01, 0x00,
+  0xa4, 0x04, 0x16,
+  0xa4, 0x01, 0x06,
+  0xa4, 0x04, 0x1e,
+  0xa4, 0x01, 0x83,
+  0xa4, 0x81, 0x83,
+  0xae, 0x01, 0xb4, 0x11,
+  0xb4, 0x01, 0x0c,
+  0xb4, 0x04, 0x1d,
+  0xb4, 0x01, 0x0d,
+  0xb4, 0x04, 0x12
+] as const;
+const qaccSaturationCases = [
+  {
+    name: "signed",
+    instructionPrefix: 0x11,
+    initial: [(1n << 39n) - 2n, -(1n << 39n) + 1n, 0n, 0n],
+    x: [2, 2],
+    y: [2, -2],
+    expected: [(1n << 39n) - 1n, -(1n << 39n), 0n, 0n]
+  },
+  {
+    name: "unsigned",
+    instructionPrefix: 0x51,
+    initial: [(1n << 40n) - 2n, 0n, 0n, 0n],
+    x: [2],
+    y: [2],
+    expected: [(1n << 40n) - 1n, 0n, 0n, 0n]
+  }
+] as const;
+const qaccSaturationRuns = [];
+for (const saturationCase of qaccSaturationCases) {
+  const code: number[] = [...qaccSaturationCode];
+  code[21] = saturationCase.instructionPrefix;
+  const fixture = conformanceFixture(`esp32s3_vmulas_qacc_${saturationCase.name}_saturation`, code);
+  const input = new Uint8Array(112);
+  input.set(packQacc40(saturationCase.initial), 0);
+  const view = new DataView(input.buffer);
+  saturationCase.x.forEach((value, lane) => view.setInt16(64 + lane * 2, value, true));
+  saturationCase.y.forEach((value, lane) => view.setInt16(80 + lane * 2, value, true));
+  const expected = new Uint8Array(input.length);
+  expected.set(packQacc40(saturationCase.expected), 0);
+  const run = await runFresh(moduleBytes, fixture, { data: input, maxSteps: 11 });
+  assert(run.record.reason === STOP_REASONS.maxSteps, `${saturationCase.name} QACC saturation stopped with ${run.record.reasonName}`);
+  assert(run.record.steps === 11, `${saturationCase.name} QACC saturation executed ${run.record.steps} instructions`);
+  assert(run.dataOutput.every((byte, index) => byte === expected[index]), `${saturationCase.name} QACC saturation output changed: ${Buffer.from(run.dataOutput).toString("hex")}`);
+  assert(run.record.registers[10] === INITIAL_SOURCE + 112, `${saturationCase.name} QACC saturation used the wrong source increments`);
+  assert(run.record.registers[11] === INITIAL_DESTINATION + 64, `${saturationCase.name} QACC saturation used the wrong destination increments`);
+  qaccSaturationRuns.push({ saturationCase, fixture, run });
+}
+
+const qaccQupShiftFixture = conformanceFixture("esp32s3_vmulas_qacc_observable_qup", [
+  0xa4, 0x01, 0x83,
+  0xa4, 0x81, 0x83,
+  0xa4, 0x81, 0x93,
+  0xa4, 0x01, 0xa3,
+  0x0c, 0x39,
+  0x90, 0x0d, 0xf3,
+  0xae, 0x01, 0xb4, 0x11,
+  0xb4, 0x81, 0x9a,
+  0xb4, 0x01, 0x9a
 ]);
-const unsupportedVmulasQupRun = await runFresh(moduleBytes, unsupportedVmulasQupFixture, {
+const qaccQupShiftInput = Uint8Array.from([
+  ...Array.from({ length: 16 }, (_, index) => 0x01 + index),
+  ...Array.from({ length: 16 }, (_, index) => 0x21 + index),
+  ...Array.from({ length: 16 }, (_, index) => 0x40 + index),
+  ...Array.from({ length: 16 }, (_, index) => 0x80 + index),
+  ...Array.from({ length: 16 }, (_, index) => 0xc0 + index)
+]);
+const qaccQupShiftExpected = Uint8Array.from([
+  ...Array.from({ length: 13 }, (_, index) => 0x43 + index),
+  0x80, 0x81, 0x82,
+  ...Array.from({ length: 16 }, (_, index) => 0xc0 + index)
+]);
+const qaccQupShiftRun = await runFresh(moduleBytes, qaccQupShiftFixture, { data: qaccQupShiftInput, maxSteps: 9 });
+assert(qaccQupShiftRun.record.reason === STOP_REASONS.maxSteps, `observable QACC QUP stopped with ${qaccQupShiftRun.record.reasonName}`);
+assert(qaccQupShiftRun.record.steps === 9, `observable QACC QUP executed ${qaccQupShiftRun.record.steps} instructions`);
+assert(qaccQupShiftRun.dataOutput.slice(0, 32).every((byte, index) => byte === qaccQupShiftExpected[index]), `observable QACC QUP output changed: ${Buffer.from(qaccQupShiftRun.dataOutput.slice(0, 32)).toString("hex")}`);
+assert(qaccQupShiftRun.record.registers[9] === 3, "observable QACC QUP did not preserve SAR_BYTE source");
+assert(qaccQupShiftRun.record.registers[10] === INITIAL_SOURCE + 80, "observable QACC QUP used the wrong source increment");
+assert(qaccQupShiftRun.record.registers[11] === INITIAL_DESTINATION + 32, "observable QACC QUP used the wrong destination increment");
+
+const qaccNegativeUnalignedFixture = conformanceFixture("esp32s3_vmulas_qacc_negative_ip_unaligned", [
+  0x3b, 0xaa,
+  0xa4, 0x01, 0x83,
+  0xa4, 0x81, 0x83,
+  0xae, 0x0e, 0xb4, 0x1d,
+  0xb4, 0x01, 0x9a
+]);
+const qaccNegativeUnalignedInput = Uint8Array.from({ length: 64 }, (_, index) => 0xa0 + index);
+const qaccNegativeUnalignedRun = await runFresh(moduleBytes, qaccNegativeUnalignedFixture, { data: qaccNegativeUnalignedInput, maxSteps: 5 });
+assert(qaccNegativeUnalignedRun.record.reason === STOP_REASONS.maxSteps, `unaligned QACC negative IP stopped with ${qaccNegativeUnalignedRun.record.reasonName}`);
+assert(qaccNegativeUnalignedRun.record.steps === 5, `unaligned QACC negative IP executed ${qaccNegativeUnalignedRun.record.steps} instructions`);
+assert(qaccNegativeUnalignedRun.dataOutput.slice(0, 16).every((byte, index) => byte === 0xc0 + index), `unaligned QACC negative IP load changed: ${Buffer.from(qaccNegativeUnalignedRun.dataOutput.slice(0, 16)).toString("hex")}`);
+assert(qaccNegativeUnalignedRun.record.registers[10] === INITIAL_SOURCE + 3, "unaligned QACC negative IP used the wrong aligned address or increment");
+assert(qaccNegativeUnalignedRun.record.registers[11] === INITIAL_DESTINATION + 16, "unaligned QACC negative IP store used the wrong increment");
+
+const unsupportedQaccHammingOneFixture = conformanceFixture("esp32s3_unsupported_qacc_hamming_one_stf", [0xae, 0x01, 0xb4, 0x91]);
+const unsupportedQaccHammingOneRun = await runFresh(moduleBytes, unsupportedQaccHammingOneFixture, {
   maxSteps: 1,
-  unsupported: { offset: 0, encoding: 0x5fae }
+  unsupported: { offset: 0, encoding: 0x91b4_01ae }
 });
-assert(unsupportedVmulasQupRun.record.reason === STOP_REASONS.unsupported, "adjacent VMULAS QACC QUP form did not fail closed");
-assert(unsupportedVmulasQupRun.record.steps === 0, "adjacent VMULAS QACC QUP form was counted as executed");
-assert(unsupportedVmulasQupRun.trace.count === 0, "adjacent VMULAS QACC QUP refusal leaked a trace record");
-assert(unsupportedVmulasQupRun.dataOutput.length === 0, "adjacent VMULAS QACC QUP refusal exposed data output");
-assert(
-  unsupportedVmulasQupRun.record.registers.every(
-    (value, index) => value === initialRegisters(unsupportedVmulasQupRun.record.returnPc)[index]
-  ),
-  "adjacent VMULAS QACC QUP refusal changed registers"
-);
+assert(unsupportedQaccHammingOneRun.record.reason === STOP_REASONS.unsupported, "Hamming-1 QACC neighbor did not fail closed");
+assert(unsupportedQaccHammingOneRun.record.steps === 0, "Hamming-1 QACC neighbor was counted as executed");
+assert(unsupportedQaccHammingOneRun.trace.count === 0, "Hamming-1 QACC neighbor leaked a trace record");
+assert(unsupportedQaccHammingOneRun.dataOutput.length === 0, "Hamming-1 QACC neighbor exposed data output");
+assert(unsupportedQaccHammingOneRun.record.registers.every((value, index) => value === initialRegisters(unsupportedQaccHammingOneRun.record.returnPc)[index]), "Hamming-1 QACC neighbor changed registers");
 
 const accxMemoryFixture = conformanceFixture("esp32s3_accx_memory_roundtrip", [
   0x3b, 0xaa,
@@ -1256,7 +1447,7 @@ const pie = extractElfFunction(
   DEFAULT_TINYDRAW_ESP32S3_FIXTURE_ELF,
   DEFAULT_TINYDRAW_ESP32S3_FIXTURE_SYMBOL
 );
-assert(pie.elfSha256 === "591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742", "PIE fixture ELF changed");
+assert(pie.elfSha256 === "3cb3f1d4751a14132e5a4e6e1d936cbd81cf8b04a9a9ac3d9470a104c93c6a1b", "PIE fixture ELF changed");
 assert(pie.pc === 0x40377698, "PIE fixture PC changed");
 assert(pie.codeSha256 === "f0503e09af131793fa0dfdf9077a9d433225c08962672d7f492f1496b15d1c75", "PIE fixture code changed");
 const pieGap = pie.instructions.find((row) => row.addressValue === 0x403776a0);
@@ -1297,9 +1488,9 @@ const staging = extractElfFunction(
   DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF,
   DEFAULT_TINYDRAW_ESP32S3_STAGING_SYMBOL
 );
-assert(staging.elfSha256 === "f7cbf92e5584e69d13766d8679267f30f8880af4e933f37b88df977d620c1563", "staging ELF changed");
+assert(staging.elfSha256 === "55164f2c9c6ab825dba9c2d8bd05319e381e6e2ce0cb6d4272fdb2e3a7cd415f", "staging ELF changed");
 assert(staging.objdumpSha256 === "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466", "objdump changed");
-assert(staging.pc === 0x42058230, "staging function PC changed");
+assert(staging.pc === 0x4205824c, "staging function PC changed");
 assert(staging.codeSha256 === "a545acd197c5b75f0351256aa6a9c8a7028cb42f91e617c28317fa560d873877", "staging code changed");
 const stagingMnemonics = staging.instructions.map((row) => row.rawMnemonic);
 assert(
@@ -1662,9 +1853,62 @@ const actualBaseline = {
       accxLow: `0x${run.record.registers[13].toString(16)}`,
       accxHigh: `0x${run.record.registers[14].toString(16)}`
     })),
-    unsupportedCodeSha256: unsupportedVmulasQupFixture.codeSha256,
-    unsupportedReason: unsupportedVmulasQupRun.record.reasonName,
-    unsupportedEncoding: `0x${unsupportedVmulasQupRun.record.unsupportedEncoding.toString(16)}`
+    unsupportedCodeSha256: unsupportedQaccXpFixture.codeSha256,
+    unsupportedReason: unsupportedQaccXpRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedQaccXpRun.record.unsupportedEncoding.toString(16)}`
+  },
+  qaccVmulasQupIsa: {
+    immediateVariants: qaccVmulasRuns.map(({ qaccCase, fixture, run }) => ({
+      name: qaccCase.name,
+      codeSha256: fixture.codeSha256,
+      outputHex: Buffer.from(run.dataOutput).toString("hex"),
+      reason: run.record.reasonName,
+      steps: run.record.steps,
+      sourceAfter: `0x${run.record.registers[10].toString(16)}`
+    })),
+    registerVariants: qaccVmulasXpRuns.map(({ qaccCase, fixture, run }) => ({
+      name: qaccCase.name,
+      codeSha256: fixture.codeSha256,
+      outputHex: Buffer.from(run.dataOutput).toString("hex"),
+      reason: run.record.reasonName,
+      steps: run.record.steps,
+      sourceAfter: `0x${run.record.registers[10].toString(16)}`
+    })),
+    edgeCases: {
+      saturation: qaccSaturationRuns.map(({ saturationCase, fixture, run }) => ({
+        name: saturationCase.name,
+        codeSha256: fixture.codeSha256,
+        lowBankHex: Buffer.from(run.dataOutput.slice(0, 20)).toString("hex"),
+        highBankHex: Buffer.from(run.dataOutput.slice(32, 52)).toString("hex"),
+        reason: run.record.reasonName,
+        steps: run.record.steps,
+        sourceAfter: `0x${run.record.registers[10].toString(16)}`,
+        destinationAfter: `0x${run.record.registers[11].toString(16)}`
+      })),
+      qupShift: {
+        codeSha256: qaccQupShiftFixture.codeSha256,
+        outputHex: Buffer.from(qaccQupShiftRun.dataOutput.slice(0, 32)).toString("hex"),
+        reason: qaccQupShiftRun.record.reasonName,
+        steps: qaccQupShiftRun.record.steps,
+        sourceAfter: `0x${qaccQupShiftRun.record.registers[10].toString(16)}`,
+        destinationAfter: `0x${qaccQupShiftRun.record.registers[11].toString(16)}`
+      },
+      negativeIpUnaligned: {
+        codeSha256: qaccNegativeUnalignedFixture.codeSha256,
+        outputHex: Buffer.from(qaccNegativeUnalignedRun.dataOutput.slice(0, 16)).toString("hex"),
+        reason: qaccNegativeUnalignedRun.record.reasonName,
+        steps: qaccNegativeUnalignedRun.record.steps,
+        sourceAfter: `0x${qaccNegativeUnalignedRun.record.registers[10].toString(16)}`,
+        destinationAfter: `0x${qaccNegativeUnalignedRun.record.registers[11].toString(16)}`
+      },
+      hammingOneUnsupported: {
+        codeSha256: unsupportedQaccHammingOneFixture.codeSha256,
+        reason: unsupportedQaccHammingOneRun.record.reasonName,
+        steps: unsupportedQaccHammingOneRun.record.steps,
+        encoding: `0x${unsupportedQaccHammingOneRun.record.unsupportedEncoding.toString(16)}`,
+        traceRecords: unsupportedQaccHammingOneRun.trace.count
+      }
+    }
   },
   accxMemoryIsa: {
     codeSha256: accxMemoryFixture.codeSha256,
@@ -1874,6 +2118,7 @@ assert(
     float64IpIsa: baseline.float64IpIsa,
     float128Isa: baseline.float128Isa,
     vmulasQupIsa: baseline.vmulasQupIsa,
+    qaccVmulasQupIsa: baseline.qaccVmulasQupIsa,
     accxMemoryIsa: baseline.accxMemoryIsa,
     qaccMemoryIsa: baseline.qaccMemoryIsa,
     uaMemoryIsa: baseline.uaMemoryIsa,

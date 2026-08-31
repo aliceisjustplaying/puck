@@ -4,13 +4,13 @@
     "flexeCommit": "34ea9eb6eef921b59a55e6a435c7fc55c5727835",
     "runnerPatchSha256": "fda09c2d4b8c4b71126d48dac7b6dd33ecf109030bd8b3d6f979c74e22fb9e1d",
     "freestandingPatchSha256": "dbd2c623bfc9f9f33c4e4a98adcf06dec1d9034c659ad3c7afe94d373c48636d",
-    "esp32s3PatchSha256": "5794aa3da06f807f8e843f1608e9d78b3fd73e0412028967d4657c60d14168a8",
-    "moduleBytes": 91395,
-    "moduleSha256": "3d12ac5987a7d5ac2dd7801dc475f842101587dda831425b5fdff530ea582d17",
+    "esp32s3PatchSha256": "d843d494c37903a4e54fc03eb8fffc9337ff0f20d054bb9df5f92dd6de0ece0c",
+    "moduleBytes": 92802,
+    "moduleSha256": "cf24d125e02486a0eb8334d942c6a86a032ba47c41198c4bacd63c9a9f1608c9",
     "objdumpSha256": "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466",
-    "scalarElfSha256": "a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644",
-    "pieElfSha256": "591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742",
-    "stagingElfSha256": "f7cbf92e5584e69d13766d8679267f30f8880af4e933f37b88df977d620c1563"
+    "scalarElfSha256": "e9681a8015728b95a9e948a56a0cbe4245b1abff812fa0b70b93c4ca1a29f044",
+    "pieElfSha256": "3cb3f1d4751a14132e5a4e6e1d936cbd81cf8b04a9a9ac3d9470a104c93c6a1b",
+    "stagingElfSha256": "55164f2c9c6ab825dba9c2d8bd05319e381e6e2ce0cb6d4272fdb2e3a7cd415f"
   },
   "scalar": {
     "symbol": "tlsf_alloc_overhead",
@@ -124,9 +124,9 @@
     "steps": 6,
     "sourceAfter": "0x3fca1023",
     "destinationAfter": "0x3fca2023",
-    "unsupportedCodeSha256": "03367a9a4fe098b9367e11699446def2f377abd443611a348f4506535cbb14cc",
+    "unsupportedCodeSha256": "d1b7ee2d8a9f85a50627d23357db5c750a0801a44228ad3a62863cb1a4a6bc6f",
     "unsupportedReason": "unsupported",
-    "unsupportedEncoding": "0xf8be"
+    "unsupportedEncoding": "0xcae"
   },
   "vmulasQupIsa": {
     "signedCodeSha256": "05aa9eb84a8aa7de8123252beaf4c33f6bf6eabaa10b6471c28898881538b99e",
@@ -217,9 +217,126 @@
       { "name": "u16-xp", "codeSha256": "d9936b4ef850362a2cd8e955c7186b0c35b4e214738a00f8622d305565baa860", "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", "reason": "maxSteps", "steps": 6, "sourceAfter": "0x3fca1048", "destinationAfter": "0x3fca2010", "accxLow": "0xffaf05d5", "accxHigh": "0x0" },
       { "name": "u8-xp", "codeSha256": "79727a2cd50634f4a5fc3781059e29ca36d84b3b2f7cf9fcd1fb2992ef02a0f2", "outputHex": "2122232425262728292a2b2c2d2e2f3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", "reason": "maxSteps", "steps": 6, "sourceAfter": "0x3fca1048", "destinationAfter": "0x3fca2010", "accxLow": "0x1b1d6", "accxHigh": "0x0" }
     ],
-    "unsupportedCodeSha256": "35381891509900330b278ed3797f43acfaf64ff079bcb7c9a9ffa1055a862b4c",
+    "unsupportedCodeSha256": "d1b7ee2d8a9f85a50627d23357db5c750a0801a44228ad3a62863cb1a4a6bc6f",
     "unsupportedReason": "unsupported",
-    "unsupportedEncoding": "0x5fae"
+    "unsupportedEncoding": "0xcae"
+  },
+  "qaccVmulasQupIsa": {
+    "immediateVariants": [
+      {
+        "name": "s16",
+        "codeSha256": "7e3e8661f6b0a81afa7406f8c12d12577302e52ab6031cc4a014ca3558c99a43",
+        "outputHex": "51e5350300692531fcff493c51e5fff128eb140000000000000000000000000061d007faff993f290a00998547e2ff61c9070100000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 7,
+        "sourceAfter": "0x3fca1030"
+      },
+      {
+        "name": "s8",
+        "codeSha256": "ff1c57a460325beec5ba67c05815c70cde6bd0ba0ea1281806d6963e878533d3",
+        "outputHex": "511740380069fa0fc0ff49084054fef1e10f5501000000000000000000000000610240a2ff99fc0f9c0099e44f22fe6113001500000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 7,
+        "sourceAfter": "0x3fca1030"
+      },
+      {
+        "name": "u16",
+        "codeSha256": "485136f5c7216cb5fbbfa364e380ec9591d2f3394cbc3bf70d5940f3642cae46",
+        "outputHex": "51e587a00069254c3c00493c661f00f128f96d0000000000000000000000000061d0001900993f290a00998584440061c965aa00000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 7,
+        "sourceAfter": "0x3fca1030"
+      },
+      {
+        "name": "u8",
+        "codeSha256": "4f7e8038f75e363194220f33c319ed30481d20ae76263046ac4fd2b172a42149",
+        "outputHex": "516940f809691500c003490840f401f14000d50600000000000000000000000061a4408201993f009c009921404204617100950a000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 7,
+        "sourceAfter": "0x3fca1030"
+      }
+    ],
+    "registerVariants": [
+      {
+        "name": "s16",
+        "codeSha256": "eb5caba4931d6e0b8b03ecbb92776b323dccc631ce9ef7866bc5c6914d3e822b",
+        "outputHex": "51e5350300692531fcff493c51e5fff128eb140000000000000000000000000061d007faff993f290a00998547e2ff61c9070100000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 7,
+        "sourceAfter": "0x3fca1040"
+      },
+      {
+        "name": "s8",
+        "codeSha256": "a952d309b46ef53d8a82cd8437b36006855371e2c2af5bccb10a8cf30924c95b",
+        "outputHex": "511740380069fa0fc0ff49084054fef1e10f5501000000000000000000000000610240a2ff99fc0f9c0099e44f22fe6113001500000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 7,
+        "sourceAfter": "0x3fca1040"
+      },
+      {
+        "name": "u16",
+        "codeSha256": "15dbac2102db818ee32afd74c4871bfd31318dd039cbdd1b3fe0e30148a529b6",
+        "outputHex": "51e587a00069254c3c00493c661f00f128f96d0000000000000000000000000061d0001900993f290a00998584440061c965aa00000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 7,
+        "sourceAfter": "0x3fca1040"
+      },
+      {
+        "name": "u8",
+        "codeSha256": "8eaeff94b327c6272620f767610c782796ae750d5715f5ba3dd0c661a46938f2",
+        "outputHex": "516940f809691500c003490840f401f14000d50600000000000000000000000061a4408201993f009c009921404204617100950a000000000000000000000000",
+        "reason": "maxSteps",
+        "steps": 7,
+        "sourceAfter": "0x3fca1040"
+      }
+    ],
+    "edgeCases": {
+      "saturation": [
+        {
+          "name": "signed",
+          "codeSha256": "a38a45f348a9caf518fe3c5e6fb55702fb211ae15806919184eb62dbae7fdd60",
+          "lowBankHex": "ffffffff7f000000008000000000000000000000",
+          "highBankHex": "0000000000000000000000000000000000000000",
+          "reason": "maxSteps",
+          "steps": 11,
+          "sourceAfter": "0x3fca1070",
+          "destinationAfter": "0x3fca2040"
+        },
+        {
+          "name": "unsigned",
+          "codeSha256": "939cb3b51ecdafae8b075c49a1976bd64668ce2bb92cf749106e98e1a285fefd",
+          "lowBankHex": "ffffffffff000000000000000000000000000000",
+          "highBankHex": "0000000000000000000000000000000000000000",
+          "reason": "maxSteps",
+          "steps": 11,
+          "sourceAfter": "0x3fca1070",
+          "destinationAfter": "0x3fca2040"
+        }
+      ],
+      "qupShift": {
+        "codeSha256": "3c333c34a431bfc738ec919579f817175b54edb8e18c929561b06fac8c6b9694",
+        "outputHex": "434445464748494a4b4c4d4e4f808182c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        "reason": "maxSteps",
+        "steps": 9,
+        "sourceAfter": "0x3fca1050",
+        "destinationAfter": "0x3fca2020"
+      },
+      "negativeIpUnaligned": {
+        "codeSha256": "51871a4444d20c05463cc04f086880565dbf2b66dbd3c5f3e3558147577e5ac9",
+        "outputHex": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        "reason": "maxSteps",
+        "steps": 5,
+        "sourceAfter": "0x3fca1003",
+        "destinationAfter": "0x3fca2010"
+      },
+      "hammingOneUnsupported": {
+        "codeSha256": "90d17444fda615c1857e9faae68cea0853ca6e6efbdc563d2a5b953598338a7a",
+        "reason": "unsupported",
+        "steps": 0,
+        "encoding": "0x91b401ae",
+        "traceRecords": 0
+      }
+    }
   },
   "accxMemoryIsa": {
     "codeSha256": "f8183d94336bec4b81ce26c4b43931553575542b903ad0eaaf4947ffd0d405ef",
@@ -351,7 +468,7 @@
   },
   "staging": {
     "symbol": "_ZN8tinydraw5esp3212gate_harness12_GLOBAL__N_1L34stage_pixels_swapped_scalar_oracleEPKtPti",
-    "pc": "0x42058230",
+    "pc": "0x4205824c",
     "codeSha256": "a545acd197c5b75f0351256aa6a9c8a7028cb42f91e617c28317fa560d873877",
     "outputSha256": "6d007b52dcec2b7b879b7a749e164e7991fd49e44d05edd26b2a3675805b7581",
     "mnemonics": [
@@ -384,7 +501,7 @@
       "readRecords": 5,
       "writeRecords": 5,
       "overflow": false,
-      "sha256": "5de26fe4432e5af5c95d99d32ee0d3d68260e712bb5dd20c60eb1315f295c4eb"
+      "sha256": "3a977c98d067f0fc9bb84b0f9d4f163ac34f29451d9c7c9af727bcc6bef8fecc"
     },
     "overflowTest": {
       "prefixInstructions": 3,
@@ -392,7 +509,7 @@
       "overflowKind": "read",
       "reason": "traceOverflow",
       "steps": 101,
-      "pc": "0x42058244",
+      "pc": "0x42058260",
       "records": 127,
       "instructionRecords": 101,
       "readRecords": 13,
@@ -401,7 +518,7 @@
       "overflow": true,
       "registerA9": "0x191819",
       "outputSha256": "74f5db5540004599deb178b532d9960f1125145cd15f0f7844a1ecffdb1feac7",
-      "traceSha256": "31440583dbb3cf3b6cc131784da06bc4f89ef57838caf1ea4ba85b4167ce3f05"
+      "traceSha256": "68806f543fe8b0c0bb08338ff64ec77efbde4e413920456afb11435ff85bec74"
     }
   },
   "boundaries": {

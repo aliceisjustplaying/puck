@@ -97,6 +97,10 @@ for (const mnemonic of [
   "ee.vmulas.s16.accx.ld.xp", "ee.vmulas.s8.accx.ld.xp",
   "ee.vmulas.u16.accx.ld.xp", "ee.vmulas.u8.accx.ld.xp"
 ]) assert(surface.normalizedMnemonics.includes(mnemonic), `ESP32-S3 PIE patch surface lost ${mnemonic}`);
+for (const lane of ["s16", "s8", "u16", "u8"]) {
+  assert(surface.normalizedMnemonics.includes(`ee.vmulas.${lane}.qacc.ld.ip.qup`), `ESP32-S3 PIE patch surface lost ${lane} QACC immediate VMULAS QUP`);
+  assert(surface.normalizedMnemonics.includes(`ee.vmulas.${lane}.qacc.ld.xp.qup`), `ESP32-S3 PIE patch surface lost ${lane} QACC register VMULAS QUP`);
+}
 assert(surface.normalizedMnemonics.includes("ee.zero.q"), "ESP32-S3 PIE patch surface lost QR zero");
 assert(!surface.normalizedMnemonics.includes("??gap"), "unknown decoder diagnostics are not instructions");
 
@@ -110,11 +114,11 @@ const report = buildInventoryReport({
 });
 const baseline = JSON.parse(readFileSync(join(import.meta.dir, "esp32s3-isa-baseline.json"), "utf8"));
 assert(
-  report.inputs.elf.sha256 === "a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644",
+  report.inputs.elf.sha256 === "e9681a8015728b95a9e948a56a0cbe4245b1abff812fa0b70b93c4ca1a29f044",
   "current panel-probe ELF changed, regenerate and review the inventory"
 );
 assert(
-  report.inputs.fixtureElf.sha256 === "591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742",
+  report.inputs.fixtureElf.sha256 === "3cb3f1d4751a14132e5a4e6e1d936cbd81cf8b04a9a9ac3d9470a104c93c6a1b",
   "SIMD fixture ELF changed, regenerate and review the first gap"
 );
 assert(

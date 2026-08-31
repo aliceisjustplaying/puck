@@ -360,20 +360,20 @@ assert.deepEqual(
   }],
 );
 
-const collidingEeInventoryPc = 0x4037_5399;
+const collidingEeInventoryPc = 0x4037_5549;
 assert.deepEqual(
   ESP32S3_FULL_ELF_UNSUPPORTED_INVENTORY.markers.find(([pc]) => pc === collidingEeInventoryPc),
-  [collidingEeInventoryPc, 0x003f],
-  "ee.vmulas.u16.qacc.ld.ip.qup collision left the tracked gap inventory",
+  [collidingEeInventoryPc, 0xffde],
+  "ee.fft.cmul.s16.ld.xp collision left the tracked gap inventory",
 );
 const collidingEeEntry = 0x4037_3000;
 const collidingEeImage: Elf32XtensaImage = Object.freeze({
   schemaVersion: 1,
   entryPoint: collidingEeEntry,
   elfBytes: 4,
-  elfSha256: "synthetic-colliding-ee-vmulas",
+  elfSha256: "synthetic-colliding-ee-fft",
   loadSegments: Object.freeze([
-    syntheticSegment(0, collidingEeEntry, [0x3f, 0x00, 0x00, 0x5f], 4, {
+    syntheticSegment(0, collidingEeEntry, [0xde, 0xff, 0xff, 0xdc], 4, {
       read: true,
       write: false,
       execute: true,
@@ -386,12 +386,12 @@ const collidingEeImage: Elf32XtensaImage = Object.freeze({
 const collidingEeRun = await runSparseXtensaElf(moduleBytes, collidingEeImage, {
   initialStack: 0x3fce_a000,
   maxSteps: 1,
-  unsupported: [{ pc: collidingEeEntry, encoding: 0x003f }],
+  unsupported: [{ pc: collidingEeEntry, encoding: 0xffde }],
 });
 assert.equal(collidingEeRun.record.reason, FULL_ELF_STOP_REASONS.unsupported);
 assert.equal(collidingEeRun.record.steps, 0);
 assert.equal(collidingEeRun.record.unsupportedPc, collidingEeEntry);
-assert.equal(collidingEeRun.record.unsupportedEncoding, 0x003f);
+assert.equal(collidingEeRun.record.unsupportedEncoding, 0xffde);
 assert.equal(collidingEeRun.record.unsupportedLength, 2);
 assert.deepEqual(collidingEeRun.trace, []);
 
@@ -454,41 +454,6 @@ assert.deepEqual(
   unsupportedFloat64IpRun.record.registers,
   [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   "adjacent float-pair IP refusal changed full-ELF registers",
-);
-
-const unsupportedVmulasQupEntry = 0x4037_21c0;
-const unsupportedVmulasQupImage: Elf32XtensaImage = Object.freeze({
-  schemaVersion: 1,
-  entryPoint: unsupportedVmulasQupEntry,
-  elfBytes: 4,
-  elfSha256: "synthetic-unsupported-ee-vmulas-s16-qacc-ld-ip-qup",
-  loadSegments: Object.freeze([
-    syntheticSegment(0, unsupportedVmulasQupEntry, [0xae, 0x5f, 0x34, 0x1c], 4, {
-      read: true,
-      write: false,
-      execute: true,
-    }),
-    syntheticSegment(1, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
-  ]),
-  totalFileBytes: 4,
-  totalMemoryBytes: 0x1004,
-});
-const unsupportedVmulasQupRun = await runSparseXtensaElf(moduleBytes, unsupportedVmulasQupImage, {
-  initialStack: 0x3fce_a000,
-  maxSteps: 1,
-  unsupported: [{ pc: unsupportedVmulasQupEntry, encoding: 0x5fae }],
-});
-assert.equal(unsupportedVmulasQupRun.record.reason, FULL_ELF_STOP_REASONS.unsupported);
-assert.equal(unsupportedVmulasQupRun.record.steps, 0);
-assert.equal(unsupportedVmulasQupRun.record.unsupportedPc, unsupportedVmulasQupEntry);
-assert.equal(unsupportedVmulasQupRun.record.unsupportedEncoding, 0x5fae);
-assert.equal(unsupportedVmulasQupRun.record.unsupportedLength, 2);
-assert.deepEqual(unsupportedVmulasQupRun.trace, []);
-assert.deepEqual(unsupportedVmulasQupRun.memoryTrace.records, []);
-assert.deepEqual(
-  unsupportedVmulasQupRun.record.registers,
-  [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  "adjacent VMULAS QACC QUP refusal changed full-ELF registers",
 );
 
 const unsupportedQaccLaneEntry = 0x4037_2200;

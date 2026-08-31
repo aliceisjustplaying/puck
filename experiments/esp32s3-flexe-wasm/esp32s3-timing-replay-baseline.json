@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "inputs": {
-    "traceSha256": "5de26fe4432e5af5c95d99d32ee0d3d68260e712bb5dd20c60eb1315f295c4eb",
-    "stagingElfSha256": "f7cbf92e5584e69d13766d8679267f30f8880af4e933f37b88df977d620c1563",
+    "traceSha256": "3a977c98d067f0fc9bb84b0f9d4f163ac34f29451d9c7c9af727bcc6bef8fecc",
+    "stagingElfSha256": "55164f2c9c6ab825dba9c2d8bd05319e381e6e2ce0cb6d4272fdb2e3a7cd415f",
     "sdkconfigSha256": "ac1749b0f5b9c54e3e8e5ffc045b37a434d6b289420a8f9cf0f37fe8a3173d9b",
     "timingProfileSha256": "31a83ab4fe2253ef7ff5a0bcc944aa5c9ca38f90eef485f48f8f725fd790402a",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
@@ -56,15 +56,15 @@
     "stores": 5,
     "cpuExecutions": 43,
     "dependentSramLoadUseHazards": 0,
-    "issuedEvents": 99,
+    "issuedEvents": 98,
     "emissions": {
-      "hit": 44,
+      "hit": 43,
       "line-fill": 2,
       "sram-bypass": 10
     },
     "mspiEvents": 2,
     "totalCycles": "451",
     "totalCyclesReason": "complete for caller-reported events; the observed one-cycle dependent load-use hazard is not represented by this trace",
-    "perRecordSha256": "24e2a568f35270b5835ac2d08f6af00315df0c9606465217ecceeb127812921d"
+    "perRecordSha256": "4e2419416000a775aa913e8a28ee46e9c41137bc5b19431e0c95254a303f8c67"
   }
 }

@@ -62,9 +62,10 @@ objdump encoding and mnemonic pair, counts it, and compares its normalized
 mnemonic to the exact pinned flexe decoder source. Special-register forms such
 as `rsr.ccount` normalize to flexe's generic `rsr` decoder entry.
 
-The current input is
-`out/build/esp32-panel-probe/tinydraw_esp32.elf`, 5,571,516 bytes, SHA-256
-`a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644`.
+The current input is the clean TinyDraw `4b5385a` fixture at
+`out/fixtures/esp32s3-timing/out/build/esp32-panel-probe/tinydraw_esp32.elf`,
+5,571,900 bytes, SHA-256
+`e9681a8015728b95a9e948a56a0cbe4245b1abff812fa0b70b93c4ca1a29f044`.
 The tool is GNU objdump 2.45 from Espressif crosstool-NG
 `esp-15.2.0_20251204`, SHA-256
 `90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466`.
@@ -72,13 +73,14 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
-decoder plus this experiment's explicit ESP32-S3 patch surface has 389
+decoder plus this experiment's explicit ESP32-S3 patch surface has 397
 normalized mnemonics. With user-register operands distinguished, it covers
-63,532 rows and 329 raw mnemonics; 744 rows and 12 raw mnemonics remain gaps.
-Those gaps are 11 unimplemented `ee.*` PIE forms covering 45 rows and 699
-undecodable `.byte` rows. No
-known scalar, QR load/store, THREADPTR, ACCX, QACC, SAR_BYTE, or FFT_BIT_WIDTH
-mnemonic remains in the gap list, and every named user-register form is covered.
+63,567 rows and 335 raw mnemonics; 709 rows and 6 raw mnemonics remain gaps.
+Those gaps are five unimplemented `ee.*` PIE forms covering 10 rows and 699
+undecodable `.byte` rows. Every QACC QUP form is covered; one non-QUP QACC XP
+form remains. No known scalar, QR load/store, THREADPTR, ACCX, SAR_BYTE, or
+FFT_BIT_WIDTH mnemonic remains in the gap list, and every named user-register
+form is covered.
 
 `0003-add-esp32s3-lx7-subset.patch` implements `s32nb`, `lsip`, `ssip`,
 `ld.qr`, `st.qr`, `ee.vld.128.ip`, `ee.vld.128.xp`, `ee.vst.128.ip`,
@@ -92,7 +94,8 @@ transfers, `ee.[ld/st].ua_state.ip`, `ee.ld.128.usar.ip`, `ee.vldbc.32.ip`,
 half-QR transfers, `ee.ldqa.u16.128.ip`, `ee.ldqa.u8.128.ip`,
 `ee.andq`, `ee.orq`, `ee.xorq`, `ee.notq`, `ee.vcmp.eq.s16`,
 `ee.vprelu.s16`, `ee.vprelu.s8`, all signed/unsigned 8/16-bit
-`ee.vmulas.*.accx.ld.ip`, `.ld.xp`, `.ld.ip.qup`, and `.ld.xp.qup` forms, and the four
+`ee.vmulas.*.accx.ld.ip`, `.ld.xp`, `.ld.ip.qup`, and `.ld.xp.qup` forms, all
+eight `ee.vmulas.*.qacc.ld.[ip/xp].qup` forms, and the four
 `ee.[ldf/stf].128.[ip/xp]`
 forms. It selects
 those semantics only for the ESP32-S3 experiment
@@ -113,9 +116,10 @@ gap, or first-fixture-instruction change.
 Only factual disassembly rows and hashes are retained. No GNU or Espressif
 source or binary is copied into the experiment.
 
-The executable fixture is
-`out/build/esp32-vector-v2-demo/tinydraw_esp32.elf`, SHA-256
-`591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742`.
+The executable fixture is the clean TinyDraw `7d37d76` build at
+`out/fixtures/main-flash/out/build/esp32-vector-v2-demo/tinydraw_esp32.elf`,
+SHA-256
+`3cb3f1d4751a14132e5a4e6e1d936cbd81cf8b04a9a9ac3d9470a104c93c6a1b`.
 With `a4` nonzero, `tinydraw_stage_pixels_swapped_pie` executes `entry`,
 `nop.n`, `loopnez`, two vector loads, unzip, zip, two vector stores, and
 `retw.n`. It returns after ten instructions and transforms RGB565 bytes `3412`
@@ -173,8 +177,7 @@ low/high register order, bit preservation, and exact signed postincrements.
 An adjacent immediate encoding with different fixed opcode bits remains
 fail-closed in dynamic and sparse execution. A four-register fixture round-trips
 32 deterministic bytes through the immediate and register-postincrement
-`ee.ldf.128` and `ee.stf.128` forms, including forced 16-byte alignment. The
-adjacent `ee.vmulas.s16.qacc.ld.xp.qup` form remains fail-closed.
+`ee.ldf.128` and `ee.stf.128` forms, including forced 16-byte alignment.
 The ACCX immediate QUP fixtures cover signed byte and halfword products,
 unsigned byte and halfword products, 40-bit saturation, aligned loads, signed
 postincrements, and SAR_BYTE shifting while preserving aliased inputs.
@@ -216,8 +219,13 @@ before execution with unchanged register, trace, and memory state.
 ACCX QUP fixtures cover signed 16-bit immediate-postincrement and unsigned
 8-bit register-postincrement dot products. They pin 40-bit signed and unsigned
 saturation, aligned 128-bit loads, pointer updates, and SAR_BYTE-driven
-concatenate-and-shift output. The adjacent signed QACC opcode remains
-fail-closed in dynamic and sparse execution.
+concatenate-and-shift output.
+
+QACC QUP fixtures cover every signed/unsigned byte and halfword immediate- and
+register-postincrement form. They pin 20- and 40-bit lane packing, aligned
+loads, exact pointer updates, source snapshot ordering, and SAR_BYTE-driven
+concatenate-and-shift output. An adjacent non-QUP encoding remains fail-closed
+in dynamic and sparse execution.
 
 The additional aligned-transfer fixture covers register-postincrement USAR
 loads, unsigned halfword broadcast loads, and low-half QR stores. It pins
@@ -242,11 +250,12 @@ Its first former gap is objdump encoding `830124`, `ee.vld.128.ip q0, a2,
 16`. The S3 profile handles the exact vector encodings before the colliding
 LX6 MAC16 decoder and completes the ten-instruction function.
 
-The RGB565 fixture is the local
+The RGB565 fixture is the clean TinyDraw `a91d1d7` build of the local
 `stage_pixels_swapped_scalar_oracle` function from
-`out/build/esp32-vector-v2-gate-harness/tinydraw_esp32.elf`, SHA-256
-`f7cbf92e5584e69d13766d8679267f30f8880af4e933f37b88df977d620c1563`.
-Its 41 code bytes start at `0x42058230` and have SHA-256
+`out/fixtures/puck-staging/out/build/esp32-vector-v2-gate-harness/tinydraw_esp32.elf`,
+SHA-256
+`55164f2c9c6ab825dba9c2d8bd05319e381e6e2ce0cb6d4272fdb2e3a7cd415f`.
+Its 41 code bytes start at `0x4205824c` and have SHA-256
 `a545acd197c5b75f0351256aa6a9c8a7028cb42f91e617c28317fa560d873877`.
 The fixture executes loads, stores, shifts, byte combination, pointer updates,
 and a zero-overhead loop over five pixels. Input bytes
@@ -271,7 +280,7 @@ instructions, five 16-bit reads from `0x3fca1000` through `0x3fca1008`, and
 five 16-bit writes to `0x3fca2000` through `0x3fca2008`. The test asserts the
 complete interleaved PC, instruction, address, width, and value sequence. The
 1,296-byte trace has SHA-256
-`5de26fe4432e5af5c95d99d32ee0d3d68260e712bb5dd20c60eb1315f295c4eb`
+`3a977c98d067f0fc9bb84b0f9d4f163ac34f29451d9c7c9af727bcc6bef8fecc`
 and is written to ignored `dist/rgb565-execution-trace.bin`.
 
 Capacity is fixed at 128 records. A separate 14-pixel run with three prefixed
@@ -333,18 +342,17 @@ data pages are covered by one explicit internal-SRAM experiment region.
 The replay resolves all 43 instruction fetches, five loads, and five stores.
 It also emits 43 per-core CPU execution events with the calibrated one-cycle
 steady-state issue cost. The memory path emits
-44 instruction-cache hits, two line fills on MSPI, and ten SRAM bypass events.
-There are 44 hit emissions because the three-byte instruction at
-`0x4205823e` crosses the 32-byte cache-line boundary and touches both lines.
+43 instruction-cache hits, two line fills on MSPI, and ten SRAM bypass events.
+Each instruction resolves through exactly one 32-byte instruction-cache line.
 The path-independent per-record evidence SHA-256, including each instruction's
 CPU event, is
-`b6f14edb9237cf68deceb8ef92e56e247830671a310cb55306024994393f60c4`.
+`4e2419416000a775aa913e8a28ee46e9c41137bc5b19431e0c95254a303f8c67`.
 
 The timing profile supplies calibrated instruction-cache flash line fills,
 one-cycle steady-state instruction issue, zero additive independent SRAM
 instruction fetch, load, and store costs, and zero additive hot zero-miss
 instruction-cache and data-load hit costs. The exact classifier finds no
-dependent pair among this trace's five SRAM loads. All 99 issued costs are
+dependent pair among this trace's five SRAM loads. All 98 issued costs are
 known, so the bounded caller-reported trace completes at 451 cycles. The trace
 still lacks whole-program and peripheral coverage, so the replay remains
 explicitly non-cycle-accurate.
@@ -467,7 +475,7 @@ first undeclared 32-bit MMIO read at
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 1,024 executed instructions. The pinned TinyDraw ELF
-automatically installs the tracked 396-instruction ESP32-S3 ISA gap set before
+automatically installs the tracked 145-instruction ESP32-S3 ISA gap set before
 execution. Each marker must match the decoder-width bytes in loaded executable
 memory during setup; stale, mismatched, unloaded, and non-executable markers are
 refused. Once bound, reaching a marked PC stops before LX6 decoding, including
