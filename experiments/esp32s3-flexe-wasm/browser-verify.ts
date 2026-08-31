@@ -2,7 +2,6 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import puppeteer from "puppeteer-core";
-import { closeBrowser } from "../../scripts/browserClose";
 
 const root = join(import.meta.dir, "../..");
 const modulePath = join(import.meta.dir, "dist", "flexe-probe-freestanding.wasm");
@@ -90,6 +89,11 @@ function spawnServer(port: number) {
   };
 }
 
+function closeLaunchedBrowser(browser: Awaited<ReturnType<typeof puppeteer.launch>>): void {
+  browser.disconnect();
+  browser.process()?.kill();
+}
+
 if (!existsSync(modulePath)) throw new Error("freestanding module is not built; run build.ts first");
 const temporary = mkdtempSync(join(tmpdir(), "puck-s3-browser-"));
 const elfPath = join(temporary, "bounded.elf");
@@ -124,7 +128,9 @@ try {
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 900 });
   const pageErrors: string[] = [];
+  const consoleMessages: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error instanceof Error ? error.message : String(error)));
+  page.on("console", (message) => consoleMessages.push(`${message.type()}: ${message.text()}`));
   await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "domcontentloaded" });
   const fileInput = await page.$("input#elfFile");
   if (!fileInput) throw new Error("ELF file input is missing");
@@ -139,9 +145,25 @@ try {
     input.value = "0x3fcea000";
   });
   await page.click("#run");
-  await page.waitForFunction(() => !document.querySelector<HTMLElement>("#result")?.hidden);
+  try {
+    await page.waitForFunction(() => !document.querySelector<HTMLButtonElement>("#run")?.disabled, {
+      timeout: 5_000,
+    });
+  } catch (error) {
+    const snapshot = await page.evaluate(() => ({
+      status: document.querySelector("#status")?.textContent,
+      statusFailed: document.querySelector("#status")?.classList.contains("error"),
+      resultHidden: document.querySelector<HTMLElement>("#result")?.hidden,
+      runDisabled: document.querySelector<HTMLButtonElement>("#run")?.disabled,
+    }));
+    const logs = consoleMessages.length > 0 ? `\n${consoleMessages.join("\n")}` : "";
+    throw new Error(`${String(error)}\n${JSON.stringify(snapshot)}${logs}`);
+  }
 
   const result = await page.evaluate(() => ({
+    status: document.querySelector("#status")?.textContent,
+    statusFailed: document.querySelector("#status")?.classList.contains("error"),
+    resultHidden: document.querySelector<HTMLElement>("#result")?.hidden,
     stopReason: document.querySelector("#stopReason")?.textContent,
     pc: document.querySelector("#pc")?.textContent,
     steps: document.querySelector("#steps")?.textContent,
@@ -149,6 +171,9 @@ try {
     trace: document.querySelector("#trace")?.textContent,
   }));
   if (pageErrors.length > 0) throw new Error(`page errors: ${pageErrors.join("; ")}`);
+  if (result.statusFailed || result.resultHidden) {
+    throw new Error(`browser runner did not produce a result: ${result.status}`);
+  }
   if (result.stopReason !== "maxSteps") throw new Error(`unexpected stop reason ${result.stopReason}`);
   if (result.pc !== "0x40371003") throw new Error(`unexpected PC ${result.pc}`);
   if (result.steps !== "1") throw new Error(`unexpected step count ${result.steps}`);
@@ -156,7 +181,7 @@ try {
   if (!result.trace?.includes("1 instructions")) throw new Error(`unexpected trace summary ${result.trace}`);
   console.log(JSON.stringify(result, null, 2));
 } finally {
-  if (browser) await closeBrowser(browser);
+  if (browser) closeLaunchedBrowser(browser);
   server?.process.kill();
   rmSync(temporary, { recursive: true, force: true });
 }
