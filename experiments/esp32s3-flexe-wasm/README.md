@@ -221,6 +221,15 @@ three-byte Flexe trace word `0x0020c0` becomes a fence. The default replay does
 not enable this mode, so its event accounting and unknown-cost boundary remain
 unchanged.
 
+Dependent internal-SRAM load-use replay is separately opt-in. The caller must
+provide the exact SRAM range, the one-cycle measured hazard cost, and a known
+instruction issue cost. `flexe-load-use.ts` then requires a complete trace,
+matches every data record to its instruction by the ABI issuer PC, decodes a
+bounded set of scalar load destinations and immediate consumer source
+registers, and adds one cycle only on an exact register dependency. Unsupported
+register forms, nonsequential successors, multi-access load instructions, and
+range-crossing accesses are refused. The default bridge remains unchanged.
+
 The replay uses the gate-harness sdkconfig at SHA-256
 `ac1749b0f5b9c54e3e8e5ffc045b37a434d6b289420a8f9cf0f37fe8a3173d9b`:
 16 KiB, 8-way, 32-byte-line instruction cache and 32 KiB, 8-way,
@@ -240,11 +249,12 @@ CPU event, is
 `e5052d3394365f869432c8b953f87dc87edf0c4254f7ac82a96ab700c237086e`.
 
 The timing profile supplies calibrated instruction-cache flash line fills,
-one-cycle steady-state instruction issue, and zero additive independent SRAM
-load and store costs. Fifty-five of the 99 issued costs are known. The 44 cache
-hits remain explicitly unknown, and the measured one-cycle dependent load-use
-hazard is not represented by this trace. The machine result is `blocked` and
-total cycles are `null`.
+one-cycle steady-state instruction issue, zero additive independent SRAM load
+and store costs, and the measured one-cycle dependent load-use cost. The exact
+classifier finds no dependent pair among this trace's five SRAM loads, so all
+43 CPU events remain one cycle. Fifty-five of the 99 issued costs are known.
+The 44 cache hits remain explicitly unknown. The machine result is `blocked`
+and total cycles are `null`.
 
 `esp32s3-dynamic-baseline.json` pins all three ELF hashes, extracted-code and
 staging-output and trace hashes, patch hashes, objdump hash, module hash, stop
