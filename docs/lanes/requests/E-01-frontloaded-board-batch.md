@@ -29,11 +29,14 @@ that all metadata says ESP-IDF 6.1, confirm chip revision 2 and 16 MB flash,
 and verify that the raw reset-state file covers the register ranges required
 by A-01. A capacity mismatch or mixed toolchain stops the batch.
 
-The current lane 0 captures already report three complete 210-measurement,
-100-sample boots at ESP-IDF 6.1. They contain complete
-`psram_cold_sequential` and `psram_cold_random` cells in both `single_core`
-and `core1_contended` modes. Treat those cells as reusable input. Repeat them
-only if strict receipt assembly leaves fewer than two eligible boots.
+The first three lane 0 raw runs reached all 210 measurement-group starts at
+ESP-IDF 6.1, but they are not complete strict cohorts. After recovery through
+boot 3, 204 of 210 groups have two receipts, three contended RTC or reset
+groups have none, and three groups have one. Boot 4 is still in progress. The
+raw logs appear to contain complete `psram_cold_sequential` and
+`psram_cold_random` cells in both `single_core` and `core1_contended` modes,
+but strict receipt assembly must confirm that coverage. Reuse confirmed cells
+and repeat them only if assembly leaves fewer than two eligible boots.
 
 ## Readiness by work item
 
@@ -42,7 +45,7 @@ only if strict receipt assembly leaves fewer than two eligible boots.
 | Identity adoption | A-01's existing esptool, espefuse, and OpenOCD commands | Ready through lane 0. No probe change. Preserve raw output, not only interpreted fields. |
 | Upstream JTAG lock-step | esp32sim `hw/difftest.sh`, `hw/steptrace.py`, and `hw/compare.py`; release build verified locally | Ready after identity validation and board handoff. Use the exact A-01 flash, efuse, strap, and reset-state inputs. |
 | Arbitration discrimination | The existing strict timing probe compares `single_core` with one `core1_contended` mode whose aggressor performs PSRAM reads | Blocked on reviewed probe code. The existing pair does not distinguish core scheduling, shared D-cache effects, or MSPI service, and has no aggressor progress count. Current tier is `unexplained`, not adoptable. |
-| PSRAM long-window distributions | Lane 0's v6.1 strict `psram_cold_sequential` and `psram_cold_random` receipts, 100 samples per cell | Reuse and disposition as `distribution` candidates after strict cohort validation. No board repeat is currently planned. |
+| PSRAM long-window distributions | Lane 0's v6.1 raw `psram_cold_sequential` and `psram_cold_random` cells, 100 samples per cell | Confirm them through strict assembly, then reuse and disposition them as `distribution` candidates. No board repeat is planned unless fewer than two eligible boots survive. |
 | Cache store hit | The old memory harness has a PSRAM sequential-write aggregate; the strict timing probe has only an internal-SRAM store-completion kernel | Blocked on reviewed probe code. Neither isolates a hot external-cache store hit. Candidate tier is `exact`. |
 | Dirty writeback | Existing code can call `esp_cache_msync`, but no measured matched clean-versus-dirty line ladder exists | Blocked on reviewed probe code. Add 1, 2, 4, 8, and 16 dirty-line cells with a matched clean baseline and post-write verification. Candidate tier is `affine`; retain `unexplained` if residuals or cross-boot variance are not diagnosed. |
 | A-01 panel and touch | Existing v6.1 gate harness plus external logic analyzer and physical touch landmarks | Firmware is ready. Capture is blocked until a ten-signal analyzer setup can resolve the approximately 40 MHz QSPI bus and the operator can record landmark notes or photos. A missing DMA descriptor hook is reported unavailable and requires a separately reviewed probe. |

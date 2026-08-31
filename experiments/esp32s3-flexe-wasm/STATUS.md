@@ -74,6 +74,25 @@ lane 0 device window. A logic-analyzer capture that resolves the approximately
 touch controller modeling begins. The synchronous GP-SPI board-response hook
 is an unmerged, upstream-shaped esp32sim candidate at commit `246c699`.
 
+## Lane E handoff
+
+The frontloaded silicon-oracle batch is specified in
+[`E-01`](../../docs/lanes/requests/E-01-frontloaded-board-batch.md). The
+esp32sim release build and the retained upstream 3,000-step comparison are
+ready offline. Lane E has not accessed the board and may begin identity-bundle
+validation or JTAG only after the coordinator explicitly transfers ownership
+from lane 0.
+
+Lane 0's first three ESP-IDF 6.1 raw runs reached all 210 measurement-group
+starts, but strict recovery currently gives two receipts for 204 groups, none
+for three contended RTC or reset groups, and one for three groups. Boot 4 is in
+progress. The long-window PSRAM cells appear complete in the raw logs; lane E
+will reuse them only after strict assembly confirms at least two eligible
+boots. Arbitration discrimination and cache store or writeback captures remain
+blocked on reviewed probe code. CCOUNT comparison remains blocked on lane B's
+measured mode. A-01 panel and touch capture still requires the external logic
+analyzer and physical landmark evidence. No lane C request is currently filed.
+
 ## Integrated checkpoint
 
 - Baseline commit: `c1b91b23` (QACC, ROM/REGI2C, and browser runner integrated).
