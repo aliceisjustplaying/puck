@@ -15,6 +15,7 @@ export const ESP32S3_ROM_CACHE_MODE_CALLBACKS = Object.freeze({
   suspendData: 0x4000_18b4,
   configureData: 0x4000_1a28,
   resumeData: 0x4000_18c0,
+  configureMmuSizes: 0x4000_1914,
 });
 
 export const ESP32S3_CACHE_REGISTER_ADDRESSES = Object.freeze({
@@ -45,6 +46,11 @@ export const ESP32S3_DIRECT_APP_DATA_CACHE_MODE = Object.freeze({
   lineBytes: 64,
 });
 
+export const ESP32S3_DIRECT_APP_CACHE_MMU_SIZES = Object.freeze({
+  instructionBytes: 0x3c,
+  dataBytes: 0x3c4,
+});
+
 const CACHE_IDLE_STATE = 0x0010_01;
 const AUTOLOAD_ENABLE = 1 << 2;
 const CORE0_INSTRUCTION_SHUT = 1 << 0;
@@ -60,7 +66,8 @@ export type Esp32S3RomCacheOperation =
   | "configure-instruction"
   | "suspend-data"
   | "configure-data"
-  | "resume-data";
+  | "resume-data"
+  | "configure-mmu-sizes";
 
 export interface Esp32S3RomCacheCall {
   readonly pc: number;
@@ -118,12 +125,18 @@ export interface Esp32S3DirectAppCacheBootstrapState {
   readonly dataSuspended: boolean;
   readonly dataMode: Esp32S3InstructionCacheMode | null;
   readonly dataSuspendReturn: number | null;
+  readonly mmuSizes: Esp32S3CacheMmuSizes | null;
 }
 
 export interface Esp32S3InstructionCacheMode {
   readonly sizeBytes: number;
   readonly ways: number;
   readonly lineBytes: number;
+}
+
+export interface Esp32S3CacheMmuSizes {
+  readonly instructionBytes: number;
+  readonly dataBytes: number;
 }
 
 export interface Esp32S3RomCacheInvocation {
@@ -155,6 +168,7 @@ function freezeState(
   dataSuspended = false,
   dataMode: Esp32S3InstructionCacheMode | null = null,
   dataSuspendReturn: number | null = null,
+  mmuSizes: Esp32S3CacheMmuSizes | null = null,
 ): Esp32S3DirectAppCacheBootstrapState {
   return Object.freeze({
     sequenceIndex,
@@ -164,6 +178,7 @@ function freezeState(
     dataSuspended,
     dataMode: dataMode ? Object.freeze({ ...dataMode }) : null,
     dataSuspendReturn,
+    mmuSizes: mmuSizes ? Object.freeze({ ...mmuSizes }) : null,
   });
 }
 
@@ -252,6 +267,7 @@ export function advanceEsp32S3DirectAppCacheBootstrap(
       state.dataSuspended,
       state.dataMode,
       state.dataSuspendReturn,
+      state.mmuSizes,
     ),
   });
 }
@@ -293,6 +309,7 @@ export function configureEsp32S3DirectAppInstructionCache(
       state.dataSuspended,
       state.dataMode,
       state.dataSuspendReturn,
+      state.mmuSizes,
     ),
   });
 }
@@ -330,6 +347,7 @@ export function suspendEsp32S3DirectAppDataCache(
       true,
       state.dataMode,
       returnValue,
+      state.mmuSizes,
     ),
   });
 }
@@ -372,6 +390,7 @@ export function configureEsp32S3DirectAppDataCache(
       state.dataSuspended,
       ESP32S3_DIRECT_APP_DATA_CACHE_MODE,
       state.dataSuspendReturn,
+      state.mmuSizes,
     ),
   });
 }
@@ -422,6 +441,50 @@ export function resumeEsp32S3DirectAppDataCache(
       false,
       state.dataMode,
       state.dataSuspendReturn,
+      state.mmuSizes,
+    ),
+  });
+}
+
+export function configureEsp32S3DirectAppCacheMmuSizes(
+  state: Esp32S3DirectAppCacheBootstrapState,
+  invocation: Esp32S3RomCacheInvocation,
+): Esp32S3RomCacheDispatch {
+  if (invocation.pc !== ESP32S3_ROM_CACHE_MODE_CALLBACKS.configureMmuSizes) {
+    return Object.freeze({ handled: false });
+  }
+  if (invocation.callinc !== ESP32S3_ROM_CACHE_CALLINC) {
+    return refuse(state, `cache callback CALLINC must be ${ESP32S3_ROM_CACHE_CALLINC}`);
+  }
+  if (!state.instructionMode || !state.dataMode || state.dataSuspended || state.dataSuspendReturn !== 0) {
+    return refuse(state, "cache MMU sizes require the observed resumed data cache state");
+  }
+  if (state.mmuSizes) return refuse(state, "cache MMU sizes are already configured");
+  const registers = state.registers;
+  if (registers.dataControl1 !== 3 ||
+      registers.dataAutoloadControl !== ESP32S3_DIRECT_APP_CACHE_REGISTERS.dataAutoloadControl ||
+      registers.instructionControl1 !== ESP32S3_DIRECT_APP_CACHE_REGISTERS.instructionControl1 ||
+      registers.instructionAutoloadControl !== ESP32S3_DIRECT_APP_CACHE_REGISTERS.instructionAutoloadControl ||
+      registers.cacheState !== ESP32S3_DIRECT_APP_CACHE_REGISTERS.cacheState) {
+    return refuse(state, "cache MMU sizes require observed resumed register state");
+  }
+  const expected = Object.values(ESP32S3_DIRECT_APP_CACHE_MMU_SIZES);
+  if (!sameArguments(invocation.arguments, expected)) {
+    return refuse(state, `unexpected cache MMU size arguments: expected ${expected.join(",")}`);
+  }
+  return Object.freeze({
+    handled: true,
+    status: "accepted",
+    operation: "configure-mmu-sizes",
+    returnValue: null,
+    state: freezeState(
+      state.sequenceIndex,
+      state.registers,
+      state.instructionMode,
+      state.dataSuspended,
+      state.dataMode,
+      state.dataSuspendReturn,
+      ESP32S3_DIRECT_APP_CACHE_MMU_SIZES,
     ),
   });
 }

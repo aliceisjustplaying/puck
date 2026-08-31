@@ -168,7 +168,7 @@ new file mode 100644
 index 0000000..232766d
 --- /dev/null
 +++ b/src/wasm_probe.c
-@@ -0,0 +1,1219 @@
+@@ -0,0 +1,1260 @@
 +/*
 + * Throwaway probe entry point for Puck's flexe WebAssembly experiment.
 + * This file is applied to a temporary copy of the pinned upstream sources.
@@ -203,6 +203,7 @@ index 0000000..232766d
 +#define ESP32S3_ROM_CACHE_ENABLE_D 0x40001890u
 +#define ESP32S3_ROM_SUSPEND_DCACHE 0x400018b4u
 +#define ESP32S3_ROM_RESUME_DCACHE 0x400018c0u
++#define ESP32S3_ROM_SET_IDROM_MMU_SIZE 0x40001914u
 +#define ESP32S3_ROM_CONFIG_ICACHE_MODE 0x40001a1cu
 +#define ESP32S3_ROM_CONFIG_DCACHE_MODE 0x40001a28u
 +#define ESP32S3_CACHE_MMIO_PAGE 0x600c4000u
@@ -221,6 +222,7 @@ index 0000000..232766d
 +#define ELF_ROM_EVENT_CACHE_MODE 4u
 +#define ELF_ROM_EVENT_CACHE_SUSPEND 5u
 +#define ELF_ROM_EVENT_CACHE_RESUME 6u
++#define ELF_ROM_EVENT_CACHE_MMU_SIZES 7u
 +#define NO_UNSUPPORTED_OFFSET UINT32_MAX
 +#define INITIAL_STACK 0x3fcaffc0u
 +#define INITIAL_SOURCE 0x3fca1000u
@@ -363,8 +365,9 @@ index 0000000..232766d
 +static uint32_t elf_rom_data_cache_mode[4];
 +static int elf_rom_data_cache_suspended;
 +static uint32_t elf_rom_data_cache_suspend_return;
++static uint32_t elf_rom_cache_mmu_sizes[3];
 +static uint8_t elf_rom_cache_mmio[PAGE_BYTES];
-+static uint32_t elf_rom_cache_state[16];
++static uint32_t elf_rom_cache_state[19];
 +static int elf_rom_refused;
 +static struct elf_memory_fault_record elf_memory_fault;
 +static struct probe_stop_record result;
@@ -632,6 +635,7 @@ index 0000000..232766d
 +    memset(elf_rom_data_cache_mode, 0, sizeof(elf_rom_data_cache_mode));
 +    elf_rom_data_cache_suspended = 0;
 +    elf_rom_data_cache_suspend_return = ESP32S3_CACHE_EVENT_VOID;
++    memset(elf_rom_cache_mmu_sizes, 0, sizeof(elf_rom_cache_mmu_sizes));
 +    mem->page_table[ESP32S3_CACHE_MMIO_PAGE >> 12] = elf_rom_cache_mmio;
 +}
 +
@@ -639,6 +643,7 @@ index 0000000..232766d
 +    return pc == ESP32S3_ROM_CACHE_DISABLE_I || pc == ESP32S3_ROM_CACHE_ENABLE_I ||
 +           pc == ESP32S3_ROM_CACHE_DISABLE_D || pc == ESP32S3_ROM_CACHE_ENABLE_D ||
 +           pc == ESP32S3_ROM_SUSPEND_DCACHE || pc == ESP32S3_ROM_RESUME_DCACHE ||
++           pc == ESP32S3_ROM_SET_IDROM_MMU_SIZE ||
 +           pc == ESP32S3_ROM_CONFIG_ICACHE_MODE ||
 +           pc == ESP32S3_ROM_CONFIG_DCACHE_MODE;
 +}
@@ -764,6 +769,35 @@ index 0000000..232766d
 +    return 1;
 +}
 +
++static int elf_rom_cache_mmu_sizes_dispatch(xtensa_cpu_t *target_cpu, uint32_t pc) {
++    if (pc != ESP32S3_ROM_SET_IDROM_MMU_SIZE ||
++        elf_rom_event_count >= ELF_ROM_EVENT_CAPACITY ||
++        XT_PS_CALLINC(target_cpu->ps) != WINDOW_CALLINC ||
++        elf_rom_cache_sequence != 6u || elf_rom_instruction_cache_mode[0] != 1u ||
++        elf_rom_data_cache_mode[0] != 1u || elf_rom_data_cache_suspended ||
++        elf_rom_data_cache_suspend_return != 0u || elf_rom_cache_mmu_sizes[0] != 0u ||
++        elf_cache_read(ESP32S3_DCACHE_CONFIG) != 17u ||
++        elf_cache_read(ESP32S3_DCACHE_CTRL1) != 3u ||
++        elf_cache_read(ESP32S3_DCACHE_AUTOLOAD) != ESP32S3_CACHE_AUTOLOAD_BASE ||
++        elf_cache_read(ESP32S3_ICACHE_CTRL1) != 0u ||
++        elf_cache_read(ESP32S3_ICACHE_AUTOLOAD) != ESP32S3_CACHE_AUTOLOAD_BASE ||
++        elf_cache_read(ESP32S3_CACHE_STATE) != ESP32S3_CACHE_IDLE) {
++        return 0;
++    }
++    uint32_t instruction_bytes = elf_rom_arg(target_cpu, 0);
++    uint32_t data_bytes = elf_rom_arg(target_cpu, 1);
++    if (instruction_bytes != 0x3cu || data_bytes != 0x3c4u ||
++        !elf_rom_record(ELF_ROM_EVENT_CACHE_MMU_SIZES, pc, instruction_bytes,
++                        data_bytes, ESP32S3_CACHE_EVENT_VOID)) {
++        return 0;
++    }
++    elf_rom_cache_mmu_sizes[0] = 1u;
++    elf_rom_cache_mmu_sizes[1] = instruction_bytes;
++    elf_rom_cache_mmu_sizes[2] = data_bytes;
++    elf_rom_return(target_cpu, 0);
++    return 1;
++}
++
 +static int elf_rom_cache_dispatch(xtensa_cpu_t *target_cpu, uint32_t pc) {
 +    if (pc == ESP32S3_ROM_CONFIG_ICACHE_MODE) {
 +        return elf_rom_instruction_cache_mode_dispatch(target_cpu, pc);
@@ -776,6 +810,9 @@ index 0000000..232766d
 +    }
 +    if (pc == ESP32S3_ROM_RESUME_DCACHE) {
 +        return elf_rom_data_cache_resume_dispatch(target_cpu, pc);
++    }
++    if (pc == ESP32S3_ROM_SET_IDROM_MMU_SIZE) {
++        return elf_rom_cache_mmu_sizes_dispatch(target_cpu, pc);
 +    }
 +    static const uint32_t expected_pc[6] = {
 +        ESP32S3_ROM_CACHE_DISABLE_I, ESP32S3_ROM_CACHE_DISABLE_D,
@@ -1007,6 +1044,9 @@ index 0000000..232766d
 +    elf_rom_cache_state[13] = elf_rom_data_cache_mode[2];
 +    elf_rom_cache_state[14] = elf_rom_data_cache_mode[3];
 +    elf_rom_cache_state[15] = elf_rom_data_cache_suspend_return;
++    elf_rom_cache_state[16] = elf_rom_cache_mmu_sizes[0];
++    elf_rom_cache_state[17] = elf_rom_cache_mmu_sizes[1];
++    elf_rom_cache_state[18] = elf_rom_cache_mmu_sizes[2];
 +    return (uint32_t)(uintptr_t)elf_rom_cache_state;
 +}
 +
@@ -1042,6 +1082,7 @@ index 0000000..232766d
 +    memset(elf_rom_data_cache_mode, 0, sizeof(elf_rom_data_cache_mode));
 +    elf_rom_data_cache_suspended = 0;
 +    elf_rom_data_cache_suspend_return = ESP32S3_CACHE_EVENT_VOID;
++    memset(elf_rom_cache_mmu_sizes, 0, sizeof(elf_rom_cache_mmu_sizes));
 +    elf_rom_refused = 0;
 +    memset(&elf_memory_fault, 0, sizeof(elf_memory_fault));
 +    mem->permission_hook = NULL;

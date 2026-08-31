@@ -9,10 +9,10 @@
     "inheritedPages": 3,
     "initialStack": "0x3fce9700",
     "initialStackProvenance": "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
-    "runnerPatchSha256": "04acf61148c535e874257d08120189c816e94bb3a78096701ab3eea2baa53701",
+    "runnerPatchSha256": "51e6c03128c0d3f9b2b3605685429f12a3173c94727fecda6afeea2da4fe2b27",
     "esp32s3PatchSha256": "815f8ac67279aaa55775e470b66c7954c895d41d5388fa8de9c6b035e91fea0c",
-    "moduleBytes": 55514,
-    "moduleSha256": "7302edfb286bd2b940c527e12eca84e1bfbccb21fd2bd378a115e7ff540d8c53"
+    "moduleBytes": 56148,
+    "moduleSha256": "c537ec8493e2d7b2ce08ddd6114e90990b440442be033e3ec15576ae34d69cd1"
   },
   "bounded": {
     "reason": "maxSteps",
@@ -84,16 +84,16 @@
     }
   },
   "cacheProgress": {
-    "reason": "unloadedPage",
-    "steps": 225,
-    "pc": "0x40001914",
-    "traceSha256": "048d606f6252f4e6753ca1cc2a9c5f1f9777bb479dead071667e828eaf4de6d7",
-    "stackPointer": "0x3fce96c0",
+    "reason": "readPermission",
+    "steps": 238,
+    "pc": "0x403771a5",
+    "traceSha256": "66e5d121efdd6e11cba15e22cefbf684254c887737a9bf55553eae70edc4236c",
+    "stackPointer": "0x3fce9620",
     "registers": [
-      "0x00000000", "0x3fce96c0", "0x00000000", "0x00000000",
-      "0x00000000", "0x00000000", "0x00000002", "0x00000000",
-      "0x80375d4c", "0x3fce96a0", "0x0000003c", "0x000003c4",
-      "0x00000040", "0x600c4064", "0x600c4004", "0x00000000"
+      "0x80375e1d", "0x3fce9620", "0x3fce9650", "0x00000000",
+      "0x00000000", "0x00000000", "0x00000000", "0x00000000",
+      "0x00000000", "0x600c0060", "0x00000000", "0x00000000",
+      "0x00000000", "0x00000000", "0x00000000", "0x00000000"
     ],
     "cacheBootstrap": {
       "sequenceIndex": 6,
@@ -116,7 +116,11 @@
         "ways": 8,
         "lineBytes": 64
       },
-      "dataSuspendReturn": 0
+      "dataSuspendReturn": 0,
+      "mmuSizes": {
+        "instructionBytes": 60,
+        "dataBytes": 964
+      }
     },
     "events": [
       { "kind": "resetReason", "pc": "0x4000057c", "core": 0, "result": 1 },
@@ -132,7 +136,8 @@
       { "kind": "cacheMode", "pc": "0x40001a1c", "cache": "instruction", "sizeBytes": 16384, "ways": 8, "lineBytes": 32 },
       { "kind": "cacheSuspend", "pc": "0x400018b4", "cache": "data", "returnValue": 0 },
       { "kind": "cacheMode", "pc": "0x40001a28", "cache": "data", "sizeBytes": 32768, "ways": 8, "lineBytes": 64 },
-      { "kind": "cacheResume", "pc": "0x400018c0", "cache": "data", "argument": 0 }
+      { "kind": "cacheResume", "pc": "0x400018c0", "cache": "data", "argument": 0 },
+      { "kind": "cacheMmuSizes", "pc": "0x40001914", "instructionBytes": 60, "dataBytes": 964 }
     ]
   },
   "unsupportedRefusal": {
