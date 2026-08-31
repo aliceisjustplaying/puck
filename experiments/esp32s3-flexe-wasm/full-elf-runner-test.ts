@@ -421,6 +421,41 @@ assert.equal(supportedFloat128Run.record.steps, 1);
 assert.equal(supportedFloat128Run.record.pc, supportedFloat128Entry + 4);
 assert.deepEqual(supportedFloat128Run.trace, [supportedFloat128Entry]);
 
+const unsupportedFloat64IpEntry = 0x4037_2180;
+const unsupportedFloat64IpImage: Elf32XtensaImage = Object.freeze({
+  schemaVersion: 1,
+  entryPoint: unsupportedFloat64IpEntry,
+  elfBytes: 4,
+  elfSha256: "synthetic-unsupported-ee-float64-ip-neighbor",
+  loadSegments: Object.freeze([
+    syntheticSegment(0, unsupportedFloat64IpEntry, [0x2e, 0x00, 0x10, 0xe0], 4, {
+      read: true,
+      write: false,
+      execute: true,
+    }),
+    syntheticSegment(1, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
+  ]),
+  totalFileBytes: 4,
+  totalMemoryBytes: 0x1004,
+});
+const unsupportedFloat64IpRun = await runSparseXtensaElf(moduleBytes, unsupportedFloat64IpImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 1,
+  unsupported: [{ pc: unsupportedFloat64IpEntry, encoding: 0x002e }],
+});
+assert.equal(unsupportedFloat64IpRun.record.reason, FULL_ELF_STOP_REASONS.unsupported);
+assert.equal(unsupportedFloat64IpRun.record.steps, 0);
+assert.equal(unsupportedFloat64IpRun.record.unsupportedPc, unsupportedFloat64IpEntry);
+assert.equal(unsupportedFloat64IpRun.record.unsupportedEncoding, 0x002e);
+assert.equal(unsupportedFloat64IpRun.record.unsupportedLength, 2);
+assert.deepEqual(unsupportedFloat64IpRun.trace, []);
+assert.deepEqual(unsupportedFloat64IpRun.memoryTrace.records, []);
+assert.deepEqual(
+  unsupportedFloat64IpRun.record.registers,
+  [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "adjacent float-pair IP refusal changed full-ELF registers",
+);
+
 const unsupportedQaccLaneEntry = 0x4037_2200;
 const unsupportedQaccLaneImage: Elf32XtensaImage = Object.freeze({
   schemaVersion: 1,

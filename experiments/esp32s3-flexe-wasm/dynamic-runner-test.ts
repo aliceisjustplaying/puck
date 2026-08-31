@@ -636,6 +636,39 @@ assert(
 assert(float64XpRun.record.registers[10] === INITIAL_SOURCE + 7, "float-pair load did not add its register postincrement");
 assert(float64XpRun.record.registers[11] === INITIAL_DESTINATION + 7, "float-pair store did not add its register postincrement");
 
+const float64IpFixture = conformanceFixture("esp32s3_float_pair_immediate_postincrement", [
+  0xae, 0x05, 0x10, 0xe0,
+  0xbf, 0x07, 0x1f, 0xe3
+]);
+const float64IpInput = Uint8Array.from([0x01, 0x00, 0xc0, 0x7f, 0xef, 0xbe, 0xad, 0xde]);
+const float64IpRun = await runFresh(moduleBytes, float64IpFixture, { data: float64IpInput, maxSteps: 2 });
+assert(float64IpRun.record.reason === STOP_REASONS.maxSteps, `float-pair IP fixture stopped with ${float64IpRun.record.reasonName}`);
+assert(float64IpRun.record.steps === 2, `float-pair IP fixture executed ${float64IpRun.record.steps} instructions`);
+assert(
+  float64IpRun.dataOutput.every((byte, index) => byte === float64IpInput[index]),
+  `float-pair IP fixture changed payload bits: ${Buffer.from(float64IpRun.dataOutput).toString("hex")}`
+);
+assert(float64IpRun.record.registers[10] === INITIAL_SOURCE + 8, "float-pair load did not apply its immediate postincrement");
+assert(float64IpRun.record.registers[11] === INITIAL_DESTINATION - 8, "float-pair store did not sign-extend its immediate postincrement");
+
+const unsupportedFloat64IpFixture = conformanceFixture("esp32s3_unsupported_float_pair_ip_neighbor", [
+  0x2e, 0x00, 0x10, 0xe0
+]);
+const unsupportedFloat64IpRun = await runFresh(moduleBytes, unsupportedFloat64IpFixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0x002e }
+});
+assert(unsupportedFloat64IpRun.record.reason === STOP_REASONS.unsupported, "adjacent float-pair IP form did not fail closed");
+assert(unsupportedFloat64IpRun.record.steps === 0, "adjacent float-pair IP form was counted as executed");
+assert(unsupportedFloat64IpRun.trace.count === 0, "adjacent float-pair IP refusal leaked a trace record");
+assert(unsupportedFloat64IpRun.dataOutput.length === 0, "adjacent float-pair IP refusal exposed data output");
+assert(
+  unsupportedFloat64IpRun.record.registers.every(
+    (value, index) => value === initialRegisters(unsupportedFloat64IpRun.record.returnPc)[index]
+  ),
+  "adjacent float-pair IP refusal changed registers"
+);
+
 const float128Fixture = conformanceFixture("esp32s3_float_quad_immediate_and_register_postincrement", [
   0x3b, 0xaa,
   0x3b, 0xbb,
@@ -1372,6 +1405,17 @@ const actualBaseline = {
     sourceAfter: `0x${float64XpRun.record.registers[10].toString(16)}`,
     destinationAfter: `0x${float64XpRun.record.registers[11].toString(16)}`
   },
+  float64IpIsa: {
+    codeSha256: float64IpFixture.codeSha256,
+    outputHex: Buffer.from(float64IpRun.dataOutput).toString("hex"),
+    reason: float64IpRun.record.reasonName,
+    steps: float64IpRun.record.steps,
+    sourceAfter: `0x${float64IpRun.record.registers[10].toString(16)}`,
+    destinationAfter: `0x${float64IpRun.record.registers[11].toString(16)}`,
+    unsupportedCodeSha256: unsupportedFloat64IpFixture.codeSha256,
+    unsupportedReason: unsupportedFloat64IpRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedFloat64IpRun.record.unsupportedEncoding.toString(16)}`
+  },
   float128Isa: {
     codeSha256: float128Fixture.codeSha256,
     outputHex: Buffer.from(float128Run.dataOutput).toString("hex"),
@@ -1588,6 +1632,7 @@ assert(
     halfQrIsa: baseline.halfQrIsa,
     halfQrXpIsa: baseline.halfQrXpIsa,
     float64XpIsa: baseline.float64XpIsa,
+    float64IpIsa: baseline.float64IpIsa,
     float128Isa: baseline.float128Isa,
     accxMemoryIsa: baseline.accxMemoryIsa,
     qaccMemoryIsa: baseline.qaccMemoryIsa,

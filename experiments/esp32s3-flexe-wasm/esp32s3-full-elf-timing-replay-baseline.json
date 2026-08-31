@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "inputs": {
     "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
-    "moduleSha256": "000a31afc08252f541c4954362e02d291c14223ce203a6bbaa0a6d1f22fc76c4",
+    "moduleSha256": "c393c2752b424326aee45cf29d31dd341fbb8e84af951705341e1dce585127b1",
     "traceRecordSha256": "061485f25a0cc90a1c741415700dcc69ed4da8244f3f74168702c7ff72d8b635",
     "timingProfileSha256": "fb6306f9fb984ba1d10fb63a784073273654fedc0502b2b7deee52695d411e1c",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
