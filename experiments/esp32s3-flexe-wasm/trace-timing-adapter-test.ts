@@ -308,15 +308,15 @@ function adaptBeqz(decodedTrace: DecodedTrace) {
     beqzCpuCost: {
       taken: {
         status: "known",
-        cycles: 2n,
+        cycles: 3n,
         calibration: "calibrated",
-        source: "measured repeated beqz taken path",
+        source: "synthetic calibrated beqz taken path",
       },
       notTaken: {
         status: "known",
         cycles: 1n,
         calibration: "calibrated",
-        source: "measured repeated beqz not-taken path",
+        source: "synthetic calibrated beqz not-taken path",
       },
     },
   });
@@ -325,7 +325,7 @@ const takenBeqz = adaptBeqz(beqzTrace(0x42002008));
 const notTakenBeqz = adaptBeqz(beqzTrace(0x42002003));
 assert(
   takenBeqz.input.cpu[0]?.latency.status === "known" &&
-    takenBeqz.input.cpu[0].latency.cycles === 2n &&
+    takenBeqz.input.cpu[0].latency.cycles === 3n &&
     takenBeqz.input.cpu[0].latency.source.includes("exact beqz taken 0x42002000 -> 0x42002008"),
   "exact taken beqz lost its calibrated path cost",
 );
