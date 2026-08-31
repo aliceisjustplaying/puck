@@ -7,7 +7,7 @@ the integration branch is `codex/esp32s3-timing-model`, and the GitHub remote is
 
 ## Integrated checkpoint
 
-- Baseline commit: `8b141357` (QACC plus the next ROM/REGI2C slice integrated).
+- Baseline commit: `c1b91b23` (QACC, ROM/REGI2C, and browser runner integrated).
 - Real ESP-IDF boot: 943 instructions and 1,233 trace records, stopping at the
   eleventh `_xtos_set_intlevel` boundary.
 - Timing replay: 2,296 events, 2,263 classified, 33 unknown, and 12 exact ROM
@@ -16,12 +16,15 @@ the integration branch is `codex/esp32s3-timing-model`, and the GitHub remote is
   unsupported rows in the full corpus.
 - WebAssembly module: 93,998 bytes, SHA-256
   `54c601ab9fa2a57f82c62e65f0d5810889055a09ffc209010f87ac00839dc3aa`.
-- Gates: aggregate experiment suite, 290 Bun tests, root typecheck, and
+- Browser smoke: a real browser loads the freestanding module and a bounded
+  Xtensa ELF, executes one instruction, and returns `a3 = 40` at `0x40371003`.
+- Gates: aggregate experiment suite, 293 Bun tests, headless Chrome verifier,
+  root typecheck, and
   experiment typecheck pass.
 
 The integrated boot now accepts the first `esp_rom_regi2c_write_mask` DR1
 callback. Active parallel lanes cover remaining ISA families, later ROM/cache
-boot callbacks, browser execution, cache and
+boot callbacks, resumable cycle feedback, flash-image boot mapping, cache and
 MSPI timing, FFT workload execution, hardware calibration corpus generation,
 and physical ESP32-S3 measurements.
 
