@@ -13,17 +13,17 @@ export const DEFAULT_ESP32S3_OBJDUMP = join(
   ".espressif/tools/xtensa-esp-elf/esp-15.2.0_20251204/xtensa-esp-elf/bin/xtensa-esp32s3-elf-objdump"
 );
 export const DEFAULT_TINYDRAW_ESP32S3_ELF = join(
-  TINYDRAW_ROOT,
-  "out/build/esp32-panel-probe/tinydraw_esp32.elf"
+  process.env.TINYDRAW_ESP32S3_ELF ?? TINYDRAW_ROOT,
+  process.env.TINYDRAW_ESP32S3_ELF ? "" : "out/build/esp32-panel-probe/tinydraw_esp32.elf"
 );
 export const DEFAULT_TINYDRAW_ESP32S3_FIXTURE_ELF = join(
-  TINYDRAW_ROOT,
-  "out/build/esp32-vector-v2-simd-probe/tinydraw_esp32.elf"
+  process.env.TINYDRAW_ESP32S3_FIXTURE_ELF ?? TINYDRAW_ROOT,
+  process.env.TINYDRAW_ESP32S3_FIXTURE_ELF ? "" : "out/build/esp32-vector-v2-simd-probe/tinydraw_esp32.elf"
 );
 export const DEFAULT_TINYDRAW_ESP32S3_FIXTURE_SYMBOL = "tinydraw_stage_pixels_swapped_pie";
 export const DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF = join(
-  TINYDRAW_ROOT,
-  "out/build/esp32-vector-v2-gate-harness/tinydraw_esp32.elf"
+  process.env.TINYDRAW_ESP32S3_STAGING_ELF ?? TINYDRAW_ROOT,
+  process.env.TINYDRAW_ESP32S3_STAGING_ELF ? "" : "out/build/esp32-vector-v2-gate-harness/tinydraw_esp32.elf"
 );
 export const DEFAULT_TINYDRAW_ESP32S3_STAGING_SYMBOL =
   "_ZN8tinydraw5esp3212gate_harness12_GLOBAL__N_1L34stage_pixels_swapped_scalar_oracleEPKtPti";
@@ -60,6 +60,7 @@ export const EXPECTED_FREESTANDING_EXPORTS = [
   "flexe_wasm_input_capacity",
   "flexe_wasm_probe",
   "flexe_wasm_run",
+  "flexe_wasm_run_auxiliary",
   "flexe_wasm_run_data",
   "flexe_wasm_trace",
   "flexe_wasm_trace_bytes",

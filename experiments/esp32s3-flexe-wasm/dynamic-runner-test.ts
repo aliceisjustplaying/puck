@@ -16,7 +16,12 @@ import {
   FLEXE_DISASSEMBLER_SHA256,
   SOURCE_HASHES
 } from "./constants";
-import { extractElfFunction, type ExtractedElfFunction } from "./elf-fixture";
+import {
+  extractElfFunction,
+  extractElfRange,
+  type ExtractedElfFunction,
+  type ExtractedElfRange
+} from "./elf-fixture";
 import { parseFlexeDecoderSurface } from "./isa-inventory";
 import { commandVersion, requireSuccess, run, sha256 } from "./lib";
 
@@ -77,9 +82,17 @@ interface DynamicExports {
   flexe_wasm_trace(): number;
   flexe_wasm_trace_bytes(): number;
   flexe_wasm_trace_capacity(): number;
+  flexe_wasm_run_auxiliary(
+    pc: number,
+    codeLength: number,
+    maxSteps: number,
+    auxiliaryAddress: number,
+    auxiliaryLength: number
+  ): number;
 }
 
 interface RunOptions {
+  auxiliary?: ExtractedElfRange;
   data?: Uint8Array;
   maxSteps?: number;
   unsupported?: { offset: number; encoding: number };
@@ -127,6 +140,20 @@ interface ExecutionTrace {
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
+}
+
+function conformanceFixture(symbol: string, bytes: number[]): ExtractedElfFunction {
+  const code = Uint8Array.from(bytes);
+  return {
+    symbol,
+    pc: 0x4037f000,
+    endPc: 0x4037f000 + code.length,
+    bytes: code,
+    codeSha256: createHash("sha256").update(code).digest("hex"),
+    elfSha256: "instruction-conformance-fixture",
+    objdumpSha256: "instruction-conformance-fixture",
+    instructions: []
+  };
 }
 
 function reasonName(value: number): keyof typeof STOP_REASONS {
@@ -238,6 +265,7 @@ async function runFresh(
   assert(typeof exports.flexe_wasm_trace === "function", "trace buffer export is missing");
   assert(typeof exports.flexe_wasm_trace_bytes === "function", "trace byte length export is missing");
   assert(typeof exports.flexe_wasm_trace_capacity === "function", "trace capacity export is missing");
+  assert(typeof exports.flexe_wasm_run_auxiliary === "function", "auxiliary runner export is missing");
 
   const inputPointer = exports.flexe_wasm_input() >>> 0;
   const inputCapacity = exports.flexe_wasm_input_capacity() >>> 0;
@@ -248,25 +276,39 @@ async function runFresh(
   );
   new Uint8Array(exports.memory.buffer, inputPointer, fixture.bytes.length).set(fixture.bytes);
   const data = options.data;
+  const auxiliary = options.auxiliary;
+  assert(!(data && auxiliary), "data and auxiliary mappings are mutually exclusive");
   let dataOutput = new Uint8Array();
   let recordPointer: number;
-  if (data) {
+  if (data || auxiliary) {
+    const mappedInput = data ?? auxiliary!.bytes;
     const dataCapacity = exports.flexe_wasm_data_capacity() >>> 0;
     const dataInputPointer = exports.flexe_wasm_data_input() >>> 0;
-    assert(data.length <= dataCapacity, `${fixture.symbol} data exceeds the dynamic data buffer`);
-    assert(dataInputPointer + data.length <= exports.memory.buffer.byteLength, "data input is outside wasm memory");
-    new Uint8Array(exports.memory.buffer, dataInputPointer, data.length).set(data);
-    recordPointer = exports.flexe_wasm_run_data(
-      fixture.pc,
-      fixture.bytes.length,
-      options.maxSteps ?? 64,
-      options.unsupported?.offset ?? NO_UNSUPPORTED_OFFSET,
-      options.unsupported?.encoding ?? 0,
-      data.length
-    );
-    const dataOutputPointer = exports.flexe_wasm_data_output() >>> 0;
-    assert(dataOutputPointer + data.length <= exports.memory.buffer.byteLength, "data output is outside wasm memory");
-    dataOutput = Uint8Array.from(new Uint8Array(exports.memory.buffer, dataOutputPointer, data.length));
+    assert(mappedInput.length <= dataCapacity, `${fixture.symbol} mapped input exceeds the dynamic data buffer`);
+    assert(dataInputPointer + mappedInput.length <= exports.memory.buffer.byteLength, "data input is outside wasm memory");
+    new Uint8Array(exports.memory.buffer, dataInputPointer, mappedInput.length).set(mappedInput);
+    if (data) {
+      recordPointer = exports.flexe_wasm_run_data(
+        fixture.pc,
+        fixture.bytes.length,
+        options.maxSteps ?? 64,
+        options.unsupported?.offset ?? NO_UNSUPPORTED_OFFSET,
+        options.unsupported?.encoding ?? 0,
+        data.length
+      );
+      const dataOutputPointer = exports.flexe_wasm_data_output() >>> 0;
+      assert(dataOutputPointer + data.length <= exports.memory.buffer.byteLength, "data output is outside wasm memory");
+      dataOutput = Uint8Array.from(new Uint8Array(exports.memory.buffer, dataOutputPointer, data.length));
+    } else {
+      assert(!options.unsupported, "auxiliary runs do not accept an unsupported marker");
+      recordPointer = exports.flexe_wasm_run_auxiliary(
+        fixture.pc,
+        fixture.bytes.length,
+        options.maxSteps ?? 64,
+        auxiliary!.address,
+        auxiliary!.bytes.length
+      );
+    }
   } else {
     recordPointer = exports.flexe_wasm_run(
       fixture.pc,
@@ -307,7 +349,7 @@ const scalar = extractElfFunction(
   DEFAULT_TINYDRAW_ESP32S3_ELF,
   "tlsf_alloc_overhead"
 );
-assert(scalar.elfSha256 === "87d6a00ffdf18c9bcb7dd3742658b5a1786212f939f5cbafe1b82562a350f70f", "scalar ELF changed");
+assert(scalar.elfSha256 === "a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644", "scalar ELF changed");
 assert(scalar.objdumpSha256 === "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466", "objdump changed");
 assert(scalar.pc === 0x403808f4, "scalar function PC changed");
 assert(scalar.codeSha256 === "cebc5d75741ee728f371bf15e6f834d1cacd50ce35b264385313c30b542ee7b7", "scalar code changed");
@@ -324,38 +366,80 @@ assert(boundedRun.record.reason === STOP_REASONS.maxSteps, "scalar ignored the i
 assert(boundedRun.record.steps === 2, `bounded scalar executed ${boundedRun.record.steps} instructions`);
 assert(boundedRun.record.pc === 0x403808f9, "bounded scalar did not stop before retw.n");
 
+const scalarIsaFixture = conformanceFixture("esp32s3_scalar_load_store", [
+  0x36, 0x21, 0x00,
+  0x48, 0x02,
+  0x40, 0x03, 0x59,
+  0x03, 0x82, 0x01,
+  0x03, 0xc3, 0x01,
+  0x1d, 0xf0
+]);
+const scalarIsaInput = Uint8Array.from([0x78, 0x56, 0x34, 0x12]);
+const scalarIsaRun = await runFresh(moduleBytes, scalarIsaFixture, { data: scalarIsaInput });
+assert(scalarIsaRun.record.reason === STOP_REASONS.returned, `scalar ISA fixture stopped with ${scalarIsaRun.record.reasonName}`);
+assert(scalarIsaRun.record.steps === 6, `scalar ISA fixture executed ${scalarIsaRun.record.steps} instructions`);
+assert(
+  scalarIsaRun.dataOutput.every((byte, index) => byte === scalarIsaInput[index]),
+  `scalar ISA fixture output changed: ${Buffer.from(scalarIsaRun.dataOutput).toString("hex")}`
+);
+assert(scalarIsaRun.record.registers[10] === 0x3fca1004, "lsip did not post-increment its base");
+assert(scalarIsaRun.record.registers[11] === 0x3fca2004, "ssip did not post-increment its base");
+
+const entry = extractElfFunction(DEFAULT_ESP32S3_OBJDUMP, DEFAULT_TINYDRAW_ESP32S3_ELF, "call_start_cpu0");
+const entryAuxiliary = extractElfRange(DEFAULT_ESP32S3_OBJDUMP, DEFAULT_TINYDRAW_ESP32S3_ELF, 0x40374000, 4096);
+assert(entry.pc === 0x40375a54, "reset entry PC changed");
+assert(entry.codeSha256 === "a29017f57f57d4a02c87b4e63e0ade179c21e3382b264bf5cd4217defc984aaf", "reset entry code changed");
+assert(entryAuxiliary.sha256 === "f2f990dd3f25c373615b4d0d9bb58e372d32a19db242ebf7c9c2e999c61e3b2e", "reset literal page changed");
+assert(
+  entry.instructions.slice(0, 6).map((row) => row.rawMnemonic).join(",") ===
+    "entry,l32r,wsr.vecbase,movi.n,l32r,callx8",
+  "reset entry prefix changed"
+);
+const entryRun = await runFresh(moduleBytes, entry, { auxiliary: entryAuxiliary, maxSteps: 5 });
+assert(entryRun.record.reason === STOP_REASONS.maxSteps, `reset entry stopped with ${entryRun.record.reasonName}`);
+assert(entryRun.record.steps === 5, `reset entry executed ${entryRun.record.steps} instructions`);
+assert(entryRun.record.pc === 0x40375a62, `reset entry stopped at 0x${entryRun.record.pc.toString(16)}`);
+assert(entryRun.record.registers[8] === 0x4000057c, "second reset literal load did not resolve the ROM target");
+
 const pie = extractElfFunction(
   DEFAULT_ESP32S3_OBJDUMP,
   DEFAULT_TINYDRAW_ESP32S3_FIXTURE_ELF,
   DEFAULT_TINYDRAW_ESP32S3_FIXTURE_SYMBOL
 );
-assert(pie.elfSha256 === "2293fb3d35ba2f785e4dce5dfb35d2f33e452150167dc8d24f0e091cfa3e6d53", "PIE fixture ELF changed");
-assert(pie.pc === 0x40377a4c, "PIE fixture PC changed");
+assert(pie.elfSha256 === "591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742", "PIE fixture ELF changed");
+assert(pie.pc === 0x40377698, "PIE fixture PC changed");
 assert(pie.codeSha256 === "f0503e09af131793fa0dfdf9077a9d433225c08962672d7f492f1496b15d1c75", "PIE fixture code changed");
-const pieGap = pie.instructions.find((row) => row.addressValue === 0x40377a54);
+const pieGap = pie.instructions.find((row) => row.addressValue === 0x403776a0);
 assert(pieGap?.objdumpEncoding === "830124", "PIE gap encoding changed");
 assert(pieGap.rawMnemonic === "ee.vld.128.ip", "PIE gap mnemonic changed");
-const pieRun = await runFresh(moduleBytes, pie, {
+const pieRefusalRun = await runFresh(moduleBytes, pie, {
   unsupported: {
     offset: pieGap.addressValue - pie.pc,
     encoding: Number.parseInt(pieGap.objdumpEncoding, 16)
   }
 });
 const pieBoundaryRun = await runFresh(moduleBytes, pie, { maxSteps: 3 });
-assert(pieRun.record.reason === STOP_REASONS.unsupported, `PIE fixture stopped with ${pieRun.record.reasonName}`);
-assert(pieRun.record.steps === 3, `PIE fixture executed ${pieRun.record.steps} supported instructions`);
-assert(pieRun.record.pc === 0x40377a54, `PIE fixture stopped at 0x${pieRun.record.pc.toString(16)}`);
-assert(pieRun.record.unsupportedPc === 0x40377a54, "unsupported hook reported the wrong PC");
-assert(pieRun.record.unsupportedEncoding === 0x830124, "unsupported hook reported the wrong encoding");
-assert(pieRun.record.unsupportedLength === 3, "unsupported hook reported the wrong instruction length");
-assert(pieRun.record.registers[4] === 1, "deterministic loop count did not enter the PIE body");
+assert(pieRefusalRun.record.reason === STOP_REASONS.unsupported, `PIE refusal stopped with ${pieRefusalRun.record.reasonName}`);
+assert(pieRefusalRun.record.steps === 3, `PIE refusal executed ${pieRefusalRun.record.steps} supported instructions`);
+assert(pieRefusalRun.record.pc === pieGap.addressValue, `PIE refusal stopped at 0x${pieRefusalRun.record.pc.toString(16)}`);
+assert(pieRefusalRun.record.unsupportedPc === pieGap.addressValue, "unsupported hook reported the wrong PC");
+assert(pieRefusalRun.record.unsupportedEncoding === 0x830124, "unsupported hook reported the wrong encoding");
+assert(pieRefusalRun.record.unsupportedLength === 3, "unsupported hook reported the wrong instruction length");
+assert(pieRefusalRun.record.registers[4] === 1, "deterministic loop count did not enter the PIE body");
 assert(pieBoundaryRun.record.reason === STOP_REASONS.maxSteps, "PIE boundary control did not reach its step bound");
 assert(
-  pieRun.record.pc === pieBoundaryRun.record.pc &&
-    pieRun.record.stackPointer === pieBoundaryRun.record.stackPointer &&
-    JSON.stringify(pieRun.record.registers) === JSON.stringify(pieBoundaryRun.record.registers),
+  pieRefusalRun.record.pc === pieBoundaryRun.record.pc &&
+    pieRefusalRun.record.stackPointer === pieBoundaryRun.record.stackPointer &&
+    JSON.stringify(pieRefusalRun.record.registers) === JSON.stringify(pieBoundaryRun.record.registers),
   "unsupported hook changed architectural state at its instruction boundary"
 );
+const pieInput = Uint8Array.from([0x34, 0x12]);
+const pieRun = await runFresh(moduleBytes, pie, { data: pieInput });
+assert(pieRun.record.reason === STOP_REASONS.returned, `PIE fixture stopped with ${pieRun.record.reasonName}`);
+assert(pieRun.record.steps === 10, `PIE fixture executed ${pieRun.record.steps} instructions`);
+assert(pieRun.record.pc === pieRun.record.returnPc, "PIE fixture did not reach the synthetic caller");
+assert(pieRun.record.unsupportedPc === 0, "PIE fixture reported an unsupported instruction");
+assert(Buffer.from(pieRun.dataOutput).toString("hex") === "1234", "PIE byte-swap output changed");
 assert(pieRun.logs.length === 0, `PIE fixture emitted logs: ${JSON.stringify(pieRun.logs)}`);
 
 const staging = extractElfFunction(
@@ -363,9 +447,9 @@ const staging = extractElfFunction(
   DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF,
   DEFAULT_TINYDRAW_ESP32S3_STAGING_SYMBOL
 );
-assert(staging.elfSha256 === "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5", "staging ELF changed");
+assert(staging.elfSha256 === "522b33cb491bbc9c8a61a364b3c986c7f1d013bcdf228f79791981f7fcad1491", "staging ELF changed");
 assert(staging.objdumpSha256 === "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466", "objdump changed");
-assert(staging.pc === 0x420d4e10, "staging function PC changed");
+assert(staging.pc === 0x42058230, "staging function PC changed");
 assert(staging.codeSha256 === "a545acd197c5b75f0351256aa6a9c8a7028cb42f91e617c28317fa560d873877", "staging code changed");
 const stagingMnemonics = staging.instructions.map((row) => row.rawMnemonic);
 assert(
@@ -546,7 +630,8 @@ const objdumpVersion = run([DEFAULT_ESP32S3_OBJDUMP, "--version"]);
 requireSuccess(objdumpVersion);
 const patchPaths = {
   runner: join(import.meta.dir, "patches/0001-add-wasi-probe.patch"),
-  freestanding: join(import.meta.dir, "patches/0002-add-freestanding-shim.patch")
+  freestanding: join(import.meta.dir, "patches/0002-add-freestanding-shim.patch"),
+  esp32s3: join(import.meta.dir, "patches/0003-add-esp32s3-lx7-subset.patch")
 };
 const baseline = JSON.parse(readFileSync(join(import.meta.dir, "esp32s3-dynamic-baseline.json"), "utf8"));
 const actualBaseline = {
@@ -554,6 +639,7 @@ const actualBaseline = {
     flexeCommit: FLEXE_COMMIT,
     runnerPatchSha256: sha256(patchPaths.runner),
     freestandingPatchSha256: sha256(patchPaths.freestanding),
+    esp32s3PatchSha256: sha256(patchPaths.esp32s3),
     moduleBytes: statSync(modulePath).size,
     moduleSha256,
     objdumpSha256: sha256(DEFAULT_ESP32S3_OBJDUMP),
@@ -574,15 +660,32 @@ const actualBaseline = {
     boundedSteps: boundedRun.record.steps,
     boundedPc: `0x${boundedRun.record.pc.toString(16)}`
   },
+  scalarIsa: {
+    codeSha256: scalarIsaFixture.codeSha256,
+    outputHex: Buffer.from(scalarIsaRun.dataOutput).toString("hex"),
+    reason: scalarIsaRun.record.reasonName,
+    steps: scalarIsaRun.record.steps,
+    sourceAfter: `0x${scalarIsaRun.record.registers[10].toString(16)}`,
+    destinationAfter: `0x${scalarIsaRun.record.registers[11].toString(16)}`
+  },
+  entry: {
+    symbol: entry.symbol,
+    pc: `0x${entry.pc.toString(16)}`,
+    codeSha256: entry.codeSha256,
+    literalPageSha256: entryAuxiliary.sha256,
+    reason: entryRun.record.reasonName,
+    steps: entryRun.record.steps,
+    stopPc: `0x${entryRun.record.pc.toString(16)}`,
+    nextRomTarget: `0x${entryRun.record.registers[8].toString(16)}`
+  },
   pie: {
     symbol: pie.symbol,
     pc: `0x${pie.pc.toString(16)}`,
     codeSha256: pie.codeSha256,
     reason: pieRun.record.reasonName,
     supportedSteps: pieRun.record.steps,
-    unsupportedPc: `0x${pieRun.record.unsupportedPc.toString(16)}`,
-    unsupportedObjdumpEncoding: pieGap.objdumpEncoding,
-    unsupportedLength: pieRun.record.unsupportedLength
+    outputHex: Buffer.from(pieRun.dataOutput).toString("hex"),
+    firstUnsupported: null
   },
   staging: {
     symbol: staging.symbol,
@@ -625,9 +728,9 @@ const actualBaseline = {
   },
   boundaries: {
     unsupported: {
-      reason: pieRun.record.reasonName,
-      steps: pieRun.record.steps,
-      pc: `0x${pieRun.record.pc.toString(16)}`,
+      reason: pieRefusalRun.record.reasonName,
+      steps: pieRefusalRun.record.steps,
+      pc: `0x${pieRefusalRun.record.pc.toString(16)}`,
       matchesStepBoundState: true
     },
     instructionOverflow: {
@@ -651,6 +754,8 @@ assert(
   JSON.stringify(actualBaseline) === JSON.stringify({
     inputs: baseline.inputs,
     scalar: baseline.scalar,
+    scalarIsa: baseline.scalarIsa,
+    entry: baseline.entry,
     pie: baseline.pie,
     staging: baseline.staging,
     boundaries: baseline.boundaries
@@ -668,6 +773,10 @@ const report = {
       freestanding: {
         path: patchPaths.freestanding,
         sha256: actualBaseline.inputs.freestandingPatchSha256
+      },
+      esp32s3: {
+        path: patchPaths.esp32s3,
+        sha256: actualBaseline.inputs.esp32s3PatchSha256
       }
     },
     zig: { executable: process.env.ZIG_EXE ?? "zig", version: commandVersion(process.env.ZIG_EXE ?? "zig") },
