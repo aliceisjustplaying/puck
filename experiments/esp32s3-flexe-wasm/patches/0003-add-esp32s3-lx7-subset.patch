@@ -97,7 +97,7 @@ diff --git a/src/xtensa.c b/src/xtensa.c
 index 67dca18..e72666d 100644
 --- a/src/xtensa.c
 +++ b/src/xtensa.c
-@@ -138,23 +138,48 @@ static inline __attribute__((always_inline))
+@@ -138,23 +138,50 @@ static inline __attribute__((always_inline))
  int xtensa_fetch_inline(const xtensa_cpu_t *cpu, uint32_t addr, uint32_t *insn_out) {
      uint8_t *page = cpu->mem->page_table[addr >> 12];
      if (__builtin_expect(!page, 0)) return 0;
@@ -122,6 +122,8 @@ index 67dca18..e72666d 100644
 +            uint32_t float64_ip_sign = (candidate >> 24) & 3u;
 +            if (opcode == 0x8000000eu || opcode == 0x8800000eu ||
 +                opcode == 0x9000000eu || opcode == 0x9800000eu ||
++                (candidate & 0xf000000eu) == 0x0000000eu ||
++                (candidate & 0xfc00000eu) == 0xc800000eu ||
 +                ((float64_ip_opcode == 0xe000040eu || float64_ip_opcode == 0xe000060eu) &&
 +                 (float64_ip_sign == 0u || float64_ip_sign == 3u))) length = 4u;
 +        }
@@ -280,7 +282,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2190,477 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2192,550 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -308,6 +310,31 @@ index 67dca18..e72666d 100644
 +    uint64_t shifted = (uint64_t)value >> shift;
 +    if (value < 0) shifted |= UINT64_MAX << (64 - shift);
 +    return (int64_t)shifted;
++}
++
++static inline uint64_t esp32s3_accx_u40(const xtensa_cpu_t *cpu) {
++    return ((uint64_t)(cpu->accx[1] & 0xffu) << 32) | cpu->accx[0];
++}
++
++static inline int64_t esp32s3_accx_s40(const xtensa_cpu_t *cpu) {
++    uint64_t value = esp32s3_accx_u40(cpu);
++    if (value & (UINT64_C(1) << 39)) value |= UINT64_MAX << 40;
++    return (int64_t)value;
++}
++
++static inline void esp32s3_set_accx(xtensa_cpu_t *cpu, uint64_t value) {
++    cpu->accx[0] = (uint32_t)value;
++    cpu->accx[1] = (uint32_t)(value >> 32) & 0xffu;
++}
++
++static inline void esp32s3_qr_shift_pair(uint8_t output[16],
++                                         const uint8_t low[16],
++                                         const uint8_t high[16],
++                                         unsigned shift_bytes) {
++    for (unsigned i = 0; i < 16; i++) {
++        unsigned source = i + shift_bytes;
++        output[i] = source < 16 ? low[source] : high[source - 16];
++    }
 +}
 +
 +static inline void esp32s3_copy_from_memory(xtensa_cpu_t *cpu, uint8_t *output,
@@ -445,6 +472,54 @@ index 67dca18..e72666d 100644
 +    }
 +
 +    uint32_t float64_opcode = insn & 0x0f000fu;
++    uint32_t vmulas_opcode = insn & 0xfc00000eu;
++    bool vmulas_s16_ip_qup = (insn & 0xf000000eu) == 0x0000000eu;
++    bool vmulas_u8_xp_qup = vmulas_opcode == 0xc800000eu;
++    if (vmulas_s16_ip_qup || vmulas_u8_xp_qup) {
++        unsigned load_q = (((insn >> 24) & 3u) << 1) | ((insn >> 19) & 1u);
++        unsigned source_x = ((insn >> 14) & 3u) | ((insn & 1u) << 2);
++        unsigned source_y = (((insn >> 12) & 3u) << 1) | ((insn >> 23) & 1u);
++        unsigned shift_low_q = (insn >> 20) & 7u;
++        unsigned shift_high_q = (insn >> 16) & 7u;
++        unsigned base_register = (insn >> 4) & 15u;
++        uint8_t source_x_value[16], source_y_value[16];
++        uint8_t shift_low_value[16], shift_high_value[16];
++        memcpy(source_x_value, cpu->qr[source_x], 16);
++        memcpy(source_y_value, cpu->qr[source_y], 16);
++        memcpy(shift_low_value, cpu->qr[shift_low_q], 16);
++        memcpy(shift_high_value, cpu->qr[shift_high_q], 16);
++        if (vmulas_s16_ip_qup) {
++            int64_t sum = esp32s3_accx_s40(cpu);
++            for (unsigned lane = 0; lane < 8; lane++) {
++                int16_t x, y;
++                memcpy(&x, source_x_value + lane * 2, 2);
++                memcpy(&y, source_y_value + lane * 2, 2);
++                sum += (int32_t)x * (int32_t)y;
++            }
++            const int64_t minimum = -(INT64_C(1) << 39);
++            const int64_t maximum = (INT64_C(1) << 39) - 1;
++            if (sum < minimum) sum = minimum;
++            if (sum > maximum) sum = maximum;
++            esp32s3_set_accx(cpu, (uint64_t)sum);
++        } else {
++            uint64_t sum = esp32s3_accx_u40(cpu);
++            for (unsigned lane = 0; lane < 16; lane++)
++                sum += (uint32_t)source_x_value[lane] * source_y_value[lane];
++            const uint64_t maximum = (UINT64_C(1) << 40) - 1;
++            if (sum > maximum) sum = maximum;
++            esp32s3_set_accx(cpu, sum);
++        }
++        uint32_t base = ar_read(cpu, base_register);
++        esp32s3_copy_from_memory(cpu, cpu->qr[load_q], base & ~15u, 16);
++        int32_t increment = vmulas_s16_ip_qup
++            ? sign_extend(((insn >> 8) & 15u) | (((insn >> 26) & 3u) << 4), 6) * 16
++            : (int32_t)ar_read(cpu, (insn >> 8) & 15u);
++        ar_write(cpu, base_register, base + (uint32_t)increment);
++        esp32s3_qr_shift_pair(cpu->qr[shift_low_q], shift_low_value,
++                             shift_high_value, cpu->sar_byte & 15u);
++        return 1;
++    }
++
 +    uint32_t float64_ip_opcode = insn & 0xfc000e0eu;
 +    uint32_t float64_ip_sign = (insn >> 24) & 3u;
 +    if ((float64_ip_opcode == 0xe000040eu || float64_ip_opcode == 0xe000060eu) &&
@@ -758,7 +833,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2900,8 @@ have_insn:
+@@ -2319,6 +2975,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -767,7 +842,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +2928,16 @@ have_insn:
+@@ -2345,14 +3003,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -788,7 +863,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +2951,8 @@ have_insn:
+@@ -2366,6 +3026,8 @@ have_insn:
          }
      }
 

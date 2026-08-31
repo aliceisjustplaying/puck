@@ -68,10 +68,10 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
-decoder plus this experiment's explicit ESP32-S3 patch surface has 371
+decoder plus this experiment's explicit ESP32-S3 patch surface has 375
 normalized mnemonics. With user-register operands distinguished, it covers
-63,427 rows and 320 raw mnemonics; 849 rows and 21 raw mnemonics remain gaps.
-Those gaps are 20 unimplemented `ee.*` PIE forms covering 150 rows and 699
+63,502 rows and 322 raw mnemonics; 774 rows and 19 raw mnemonics remain gaps.
+Those gaps are 18 unimplemented `ee.*` PIE forms covering 75 rows and 699
 undecodable `.byte` rows. No
 known scalar, QR load/store, THREADPTR, ACCX, QACC, SAR_BYTE, or FFT_BIT_WIDTH
 mnemonic remains in the gap list, and every named user-register form is covered.
@@ -87,7 +87,8 @@ transfers, `ee.[ld/st].ua_state.ip`, `ee.ld.128.usar.ip`, `ee.vldbc.32.ip`,
 `ee.vldbc.16.ip`, `ee.vst.l.64.ip`, all four `ee.[vld/vst].[l/h].64.xp`
 half-QR transfers, `ee.ldqa.u16.128.ip`, `ee.ldqa.u8.128.ip`,
 `ee.andq`, `ee.orq`, `ee.xorq`, `ee.notq`, `ee.vcmp.eq.s16`,
-`ee.vprelu.s16`, `ee.vprelu.s8`, and the four `ee.[ldf/stf].128.[ip/xp]`
+`ee.vprelu.s16`, `ee.vprelu.s8`, `ee.vmulas.s16.accx.ld.ip.qup`,
+`ee.vmulas.u8.accx.ld.xp.qup`, and the four `ee.[ldf/stf].128.[ip/xp]`
 forms. It selects
 those semantics only for the ESP32-S3 experiment
 profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
@@ -200,6 +201,12 @@ halfword compare fixture writes all-ones or zero per signed 16-bit lane, and
 parametric-ReLU fixtures cover signed 16-bit and signed 8-bit lanes with exact
 arithmetic-shift and width behavior. Adjacent compare and ReLU encodings stop
 before execution with unchanged register, trace, and memory state.
+
+ACCX QUP fixtures cover signed 16-bit immediate-postincrement and unsigned
+8-bit register-postincrement dot products. They pin 40-bit signed and unsigned
+saturation, aligned 128-bit loads, pointer updates, and SAR_BYTE-driven
+concatenate-and-shift output. The adjacent signed QACC opcode remains
+fail-closed in dynamic and sparse execution.
 
 The additional aligned-transfer fixture covers register-postincrement USAR
 loads, unsigned halfword broadcast loads, and low-half QR stores. It pins

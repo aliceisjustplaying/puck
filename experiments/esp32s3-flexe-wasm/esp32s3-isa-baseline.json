@@ -7,13 +7,13 @@
     "flexeDecoderSha256": "68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0"
   },
   "coverage": {
-    "decoderNormalizedMnemonics": 373,
+    "decoderNormalizedMnemonics": 375,
     "instructionRows": 64276,
-    "supportedInstructionRows": 63427,
-    "unsupportedInstructionRows": 849,
+    "supportedInstructionRows": 63502,
+    "unsupportedInstructionRows": 774,
     "rawMnemonics": 341,
-    "supportedRawMnemonics": 320,
-    "unsupportedRawMnemonics": 21
+    "supportedRawMnemonics": 322,
+    "unsupportedRawMnemonics": 19
   },
   "unsupportedMnemonicRows": {
     ".byte": 699,
@@ -22,7 +22,6 @@
     "ee.fft.cmul.s16.st.xp": 3,
     "ee.vadds.s8.st.incp": 1,
     "ee.vmulas.s16.accx.ld.ip": 2,
-    "ee.vmulas.s16.accx.ld.ip.qup": 40,
     "ee.vmulas.s16.accx.ld.xp.qup": 1,
     "ee.vmulas.s16.qacc.ld.ip.qup": 6,
     "ee.vmulas.s16.qacc.ld.xp.qup": 1,
@@ -34,7 +33,6 @@
     "ee.vmulas.u16.qacc.ld.ip.qup": 7,
     "ee.vmulas.u16.qacc.ld.xp": 1,
     "ee.vmulas.u8.accx.ld.ip.qup": 2,
-    "ee.vmulas.u8.accx.ld.xp.qup": 35,
     "ee.vmulas.u8.qacc.ld.ip.qup": 6,
     "ee.vmulas.u8.qacc.ld.xp.qup": 4
   },
