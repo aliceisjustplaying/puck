@@ -68,7 +68,7 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
-decoder plus this experiment's explicit ESP32-S3 patch surface has 347
+decoder plus this experiment's explicit ESP32-S3 patch surface has 349
 normalized mnemonics. With user-register operands distinguished, it covers
 63,415 rows and 316 raw mnemonics; 861 rows and 25 raw mnemonics remain gaps.
 Those gaps are 24 unimplemented `ee.*` PIE forms covering 162 rows and 699
@@ -81,7 +81,8 @@ mnemonic remains in the gap list, and every named user-register form is covered.
 `ee.vld.l.64.ip`, `ee.vld.h.64.ip`, `ee.vst.h.64.ip`, `ee.vunzip.8`, and
 `ee.vzip.8`, `ee.ldf.64.xp`, `ee.stf.64.xp`, `ee.ld.accx.ip`, and
 `ee.st.accx.ip`, all eight `ee.[ld/st].qacc_[h/l].[h.32/l.128].ip`
-transfers, `ee.ld.128.usar.ip`, `ee.vldbc.32.ip`, and `ee.ldqa.s16.128.ip`. It selects
+transfers, `ee.[ld/st].ua_state.ip`, `ee.ld.128.usar.ip`, `ee.vldbc.32.ip`, and
+`ee.ldqa.s16.128.ip`. It selects
 those semantics only for the ESP32-S3 experiment
 profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
 represented by flexe's core. The profile also implements per-core UR0/UR1
@@ -139,7 +140,7 @@ synthetic caller, restores its stack, and exposes the return value 4 in caller
 register `a10`. A separate fresh run capped at two instructions stops at
 `0x403808f9` before `retw.n`, proving the bound is active.
 
-Nine raw conformance fixtures cover the remaining implemented data operations.
+Ten raw conformance fixtures cover the remaining implemented data operations.
 The scalar fixture copies `0x12345678` with `l32i.n` and `s32nb`, then executes
 `lsip` and `ssip`; both base registers advance by four and the run returns
 after six instructions. The QR fixture copies 16 deterministic bytes with
@@ -166,6 +167,10 @@ It proves the upper word is masked to eight bits and negative immediates update
 the original unaligned bases. The QACC memory fixture round-trips both banks'
 low 128 bits and upper 32-bit words, proving forced 16-byte/four-byte alignment
 plus signed scaled postincrements for every load and store form.
+
+The UA_STATE memory fixture round-trips all four per-core 32-bit words, proving
+forced 16-byte alignment and signed scaled postincrements for both transfer
+directions.
 
 The aligned-load fixture proves `ee.ld.128.usar.ip` loads from a forced
 16-byte boundary, saves the original low address nibble in SAR_BYTE, and applies
@@ -370,7 +375,7 @@ first undeclared 32-bit MMIO read at
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 512 executed instructions. The pinned TinyDraw ELF
-automatically installs the tracked 1,069-instruction ESP32-S3 ISA gap set before
+automatically installs the tracked 1,050-instruction ESP32-S3 ISA gap set before
 execution. Each marker must match the decoder-width bytes in loaded executable
 memory during setup; stale, mismatched, unloaded, and non-executable markers are
 refused. Once bound, reaching a marked PC stops before LX6 decoding, including

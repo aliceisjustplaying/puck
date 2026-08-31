@@ -199,7 +199,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2165,238 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2165,251 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -361,6 +361,19 @@ index 67dca18..e72666d 100644
 +        return 1;
 +    }
 +
++    uint32_t ua_memory_opcode = insn & 0xbf800fu;
++    if (ua_memory_opcode == 0x100004u || ua_memory_opcode == 0x1c0004u) {
++        unsigned base_register = XT_T(insn);
++        uint32_t base = ar_read(cpu, base_register);
++        uint32_t address = base & ~15u;
++        if (ua_memory_opcode == 0x100004u)
++            for (unsigned i = 0; i < 4; i++) cpu->ua_state[i] = mem_read32(cpu->mem, address + i * 4);
++        else
++            for (unsigned i = 0; i < 4; i++) mem_write32(cpu->mem, address + i * 4, cpu->ua_state[i]);
++        ar_write(cpu, base_register, base + (uint32_t)esp32s3_imm8x16(insn));
++        return 1;
++    }
++
 +    uint32_t qacc_memory_opcode = insn & 0xbf800fu;
 +    if (qacc_memory_opcode == 0x000004u || qacc_memory_opcode == 0x060004u ||
 +        qacc_memory_opcode == 0x0c0004u || qacc_memory_opcode == 0x0d0004u) {
@@ -438,7 +451,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2636,8 @@ have_insn:
+@@ -2319,6 +2649,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -447,7 +460,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +2664,16 @@ have_insn:
+@@ -2345,14 +2677,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -468,7 +481,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +2687,8 @@ have_insn:
+@@ -2366,6 +2700,8 @@ have_insn:
          }
      }
 
