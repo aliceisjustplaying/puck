@@ -14,19 +14,22 @@ export const DEFAULT_ESP32S3_OBJDUMP = process.env.ESP32S3_OBJDUMP ?? join(
 );
 export const DEFAULT_TINYDRAW_ESP32S3_ELF = process.env.TINYDRAW_ESP32S3_ELF ?? join(
   TINYDRAW_ROOT,
-  "out/build/esp32-panel-probe/tinydraw_esp32.elf"
+  "out/fixtures/esp32s3-timing/out/build/esp32-panel-probe/tinydraw_esp32.elf"
 );
 export const DEFAULT_TINYDRAW_ESP32S3_FIXTURE_ELF = process.env.TINYDRAW_ESP32S3_FIXTURE_ELF ?? join(
   TINYDRAW_ROOT,
-  "out/build/esp32-vector-v2-simd-probe/tinydraw_esp32.elf"
+  "out/fixtures/main-flash/out/build/esp32-vector-v2-demo/tinydraw_esp32.elf"
 );
 export const DEFAULT_TINYDRAW_ESP32S3_FIXTURE_SYMBOL = "tinydraw_stage_pixels_swapped_pie";
 export const DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF = process.env.TINYDRAW_ESP32S3_STAGING_ELF ?? join(
   TINYDRAW_ROOT,
-  "out/build/esp32-vector-v2-gate-harness/tinydraw_esp32.elf"
+  "out/fixtures/puck-staging/out/build/esp32-vector-v2-gate-harness/tinydraw_esp32.elf"
 );
 export const DEFAULT_TINYDRAW_ESP32S3_FULL_ELF =
-  process.env.TINYDRAW_ESP32S3_FULL_ELF ?? DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF;
+  process.env.TINYDRAW_ESP32S3_FULL_ELF ?? join(
+    TINYDRAW_ROOT,
+    "out/build/esp32-vector-v2-gate-harness/tinydraw_esp32.elf"
+  );
 export const DEFAULT_TINYDRAW_ESP32S3_STAGING_SYMBOL =
   "_ZN8tinydraw5esp3212gate_harness12_GLOBAL__N_1L34stage_pixels_swapped_scalar_oracleEPKtPti";
 
