@@ -39,6 +39,46 @@ Use esp32sim's JTAG adoption flow and preserve:
 Do not reduce the bundle to interpreted fields. Lane A needs the raw
 words as input to `--efuse-regs`, `--strap`, and `--regs-init`.
 
+Run the identity commands with the board idle and retain complete stdout
+and stderr from each command:
+
+```sh
+python -m esptool --port PORT chip_id
+python -m esptool --port PORT flash_id
+python -m espefuse --port PORT summary
+python -m esptool --port PORT --baud 921600 read_flash 0 0x1000000 flash-16M.bin
+```
+
+In one OpenOCD connection, issue `init`, `reset halt`, wait for the halt,
+then issue these reads in order before `shutdown`:
+
+```text
+mdw 0x60007000 128
+mdw 0x60004038 1
+mdw 0x60008000 768
+mdw 0x60009000 64
+mdw 0x600c0000 64
+mdw 0x60026000 64
+mdw 0x600c4000 96
+mdw 0x60002000 64
+mdw 0x60003000 64
+mdw 0x6001f000 64
+mdw 0x60020000 64
+mdw 0x60023000 64
+mdw 0x60004000 112
+mdw 0x600c1000 64
+mdw 0x60038008 6
+mdw 0x600c2000 128
+mdw 0x6000e000 32
+```
+
+The register ranges match upstream esp32sim's
+`hw/atech/reset-regs.txt`. Replace `PORT` with the enumerated serial
+port and record it in the provenance envelope. The 16 MB flash length
+comes from the target firmware's `CONFIG_ESPTOOLPY_FLASHSIZE_16MB`; if
+`flash_id` contradicts that capacity, stop before `read_flash` and report
+the detected capacity.
+
 ## Panel and bus capture
 
 Capture these signals simultaneously from a cold reset through the first
