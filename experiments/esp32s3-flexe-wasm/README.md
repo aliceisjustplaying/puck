@@ -238,7 +238,7 @@ LX6 MAC16 decoder and completes the ten-instruction function.
 The RGB565 fixture is the local
 `stage_pixels_swapped_scalar_oracle` function from
 `out/build/esp32-vector-v2-gate-harness/tinydraw_esp32.elf`, SHA-256
-`522b33cb491bbc9c8a61a364b3c986c7f1d013bcdf228f79791981f7fcad1491`.
+`f7cbf92e5584e69d13766d8679267f30f8880af4e933f37b88df977d620c1563`.
 Its 41 code bytes start at `0x42058230` and have SHA-256
 `a545acd197c5b75f0351256aa6a9c8a7028cb42f91e617c28317fa560d873877`.
 The fixture executes loads, stores, shifts, byte combination, pointer updates,
@@ -436,7 +436,8 @@ instructions before the second `rom_i2c_writeReg` call writes the source-backed
 40 MHz reference-divider value `0x50` to register 2 for block `0x66`, host 1.
 The runner accepts that exact ordered call with CALLINC 2 and interrupt level 3,
 then accepts the fifth `_xtos_set_intlevel` restore with saved PS `0x00040c03`.
-It executes 704 instructions before refusing the sixth interrupt-level boundary.
+The sixth restore accepts saved PS `0x00040c00`; execution reaches 724
+instructions before refusing the seventh interrupt-level boundary.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
@@ -463,8 +464,8 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 704-step
-sixth-interrupt-level boundary produces 938 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 724-step
+seventh-interrupt-level boundary produces 961 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
@@ -474,12 +475,12 @@ MMIO pages observed in the trace, with their ELF or inherited permissions.
 Those twelve exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 938 records issue 1,729 timing events: 887 memory-system
-events, 54 MMIO accesses, 704 calibrated CPU issue events, and 61 calibrated
-dependent load-use events, plus 23 configured ROM callback boundaries. The
+literal loads. The 961 records issue 1,775 timing events: 910 memory-system
+events, 54 MMIO accesses, 724 calibrated CPU issue events, and 63 calibrated
+dependent load-use events, plus 24 configured ROM callback boundaries. The
 replay adopts seven exact not-taken `beqz` paths, 40 exact MMIO accesses, and
-four exact ROM callback classes. Exactly 1,696 events have adopted costs; 14
-controller MMIO costs and 19 ROM callback durations remain unknown, so no total
+four exact ROM callback classes. Exactly 1,741 events have adopted costs; 14
+controller MMIO costs and 20 ROM callback durations remain unknown, so no total
 cycle claim is made. The baseline pins exact branch, MMIO, load-use, and
 callback evidence projections.
 An executable-permission miss and an unloaded page have distinct recoverable

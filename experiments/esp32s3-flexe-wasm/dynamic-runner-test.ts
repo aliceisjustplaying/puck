@@ -1261,7 +1261,7 @@ const staging = extractElfFunction(
   DEFAULT_TINYDRAW_ESP32S3_STAGING_ELF,
   DEFAULT_TINYDRAW_ESP32S3_STAGING_SYMBOL
 );
-assert(staging.elfSha256 === "522b33cb491bbc9c8a61a364b3c986c7f1d013bcdf228f79791981f7fcad1491", "staging ELF changed");
+assert(staging.elfSha256 === "f7cbf92e5584e69d13766d8679267f30f8880af4e933f37b88df977d620c1563", "staging ELF changed");
 assert(staging.objdumpSha256 === "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466", "objdump changed");
 assert(staging.pc === 0x42058230, "staging function PC changed");
 assert(staging.codeSha256 === "a545acd197c5b75f0351256aa6a9c8a7028cb42f91e617c28317fa560d873877", "staging code changed");

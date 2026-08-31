@@ -2,15 +2,15 @@
   "schemaVersion": 1,
   "inputs": {
     "flexeCommit": "34ea9eb6eef921b59a55e6a435c7fc55c5727835",
-    "runnerPatchSha256": "9b842bb0a1391d5be816da0eedd19cac4b1123a1ee42c4b35600356c6ab2c3a0",
+    "runnerPatchSha256": "e777498c2e46d37569a79e12a362c2f8fb31d6319194bd29c1087d798a86b877",
     "freestandingPatchSha256": "dbd2c623bfc9f9f33c4e4a98adcf06dec1d9034c659ad3c7afe94d373c48636d",
     "esp32s3PatchSha256": "09ed1e84f1bf9a216c4b31054b285ffb1361920156f98dc5ec274878d3bfdb88",
     "moduleBytes": 91354,
-    "moduleSha256": "f3191c0d08ed40f8597857c0960af9d23acdd28a9ee61d8c399b2a75c89a4a5a",
+    "moduleSha256": "c61524e66cfc39f1671217056f46af69d62119c8e27771b1c1705a6f7ec9714c",
     "objdumpSha256": "90a91caa519b895bd457f4eb7c5fd6b14a9c64c0c7d946e78e7f332ea57d7466",
     "scalarElfSha256": "a46349d9bc5eb3e58fad64f95e433c0b505ea3fa9737664d2d0f4945534b9644",
     "pieElfSha256": "591c4d9b5ade8f978f2a910e48e2bf9af345c781bdbed1ac6f1ffa2383c7a742",
-    "stagingElfSha256": "522b33cb491bbc9c8a61a364b3c986c7f1d013bcdf228f79791981f7fcad1491"
+    "stagingElfSha256": "f7cbf92e5584e69d13766d8679267f30f8880af4e933f37b88df977d620c1563"
   },
   "scalar": {
     "symbol": "tlsf_alloc_overhead",

@@ -51,8 +51,10 @@ export function restoreEsp32S3DirectBootIntlevel(
         ? state.intlevel === 3 && access.bbpllModeWritten && !access.bbpllReferenceDividerWritten
         : state.restoreCount === 3
           ? state.intlevel === 0 && access.bbpllModeWritten && !access.bbpllReferenceDividerWritten
-          : state.restoreCount === 4 && state.intlevel === 0 && access.bbpllModeWritten &&
-            access.bbpllReferenceDividerWritten;
+          : state.restoreCount === 4
+            ? state.intlevel === 0 && access.bbpllModeWritten && access.bbpllReferenceDividerWritten
+            : state.restoreCount === 5 && state.intlevel === 3 && access.bbpllModeWritten &&
+              access.bbpllReferenceDividerWritten;
   if (access.pc !== ESP32S3_ROM_SET_INTLEVEL || access.callinc !== 2 ||
       access.restorePs !== expectedRestorePs || !access.regi2cCalibrationStarted || !validOrder) {
     return Object.freeze({

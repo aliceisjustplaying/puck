@@ -89,5 +89,15 @@ describe("ESP32-S3 direct-boot interrupt-level restore", () => {
     });
     if (fifth.status !== "accepted") throw new Error("fifth intlevel restore refused");
     expect(restoreEsp32S3DirectBootIntlevel(fifth.state, fifthAccess).status).toBe("refused");
+    const sixthAccess = { ...fifthAccess, restorePs: ESP32S3_DIRECT_BOOT_INTLEVEL_RESTORE_PS };
+    const sixth = restoreEsp32S3DirectBootIntlevel(fifth.state, sixthAccess);
+    expect(sixth).toEqual({
+      handled: true,
+      status: "accepted",
+      returnValue: ESP32S3_DIRECT_BOOT_INTLEVEL_PREVIOUS_PS,
+      state: { intlevel: 0, restoreCount: 6, lastPc: ESP32S3_ROM_SET_INTLEVEL },
+    });
+    if (sixth.status !== "accepted") throw new Error("sixth intlevel restore refused");
+    expect(restoreEsp32S3DirectBootIntlevel(sixth.state, sixthAccess).status).toBe("refused");
   });
 });
