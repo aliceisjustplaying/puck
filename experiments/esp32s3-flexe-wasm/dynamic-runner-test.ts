@@ -430,7 +430,25 @@ assert(accxRun.record.steps === 5, `ACCX fixture executed ${accxRun.record.steps
 assert(accxRun.record.registers[12] === INITIAL_SOURCE, "ACCX_0 round trip changed its value");
 assert(accxRun.record.registers[13] === 0xab, "ACCX_1 did not preserve exactly its low 8 bits");
 
-const unknownUserRegisterFixture = conformanceFixture("esp32s3_unknown_user_register", [0x80, 0x02, 0xf3]);
+const qaccFixture = conformanceFixture("esp32s3_qacc_roundtrip", [
+  0xa0, 0x02, 0xf3, 0xa0, 0x03, 0xf3, 0xa0, 0x04, 0xf3, 0xa0, 0x05, 0xf3, 0xa0, 0x06, 0xf3,
+  0xb0, 0x07, 0xf3, 0xb0, 0x08, 0xf3, 0xb0, 0x09, 0xf3, 0xb0, 0x0a, 0xf3, 0xb0, 0x0b, 0xf3,
+  0x20, 0x20, 0xe3, 0x30, 0x30, 0xe3, 0x40, 0x40, 0xe3, 0x50, 0x50, 0xe3, 0x60, 0x60, 0xe3,
+  0x70, 0x70, 0xe3, 0x80, 0x90, 0xe3, 0x90, 0xd0, 0xe3, 0xa0, 0xe0, 0xe3, 0xb0, 0xf0, 0xe3
+]);
+const qaccRun = await runFresh(moduleBytes, qaccFixture, { maxSteps: 20 });
+assert(qaccRun.record.reason === STOP_REASONS.maxSteps, `QACC fixture stopped with ${qaccRun.record.reasonName}`);
+assert(qaccRun.record.steps === 20, `QACC fixture executed ${qaccRun.record.steps} instructions`);
+assert(
+  [2, 3, 4, 5, 6].every((register) => qaccRun.record.registers[register] === INITIAL_SOURCE),
+  "QACC high bank round trip changed a value"
+);
+assert(
+  [7, 9, 13, 14, 15].every((register) => qaccRun.record.registers[register] === INITIAL_DESTINATION),
+  "QACC low bank round trip changed a value"
+);
+
+const unknownUserRegisterFixture = conformanceFixture("esp32s3_unknown_user_register", [0x80, 0x0d, 0xf3]);
 const unknownUserRegisterRun = await runFresh(moduleBytes, unknownUserRegisterFixture, { maxSteps: 1 });
 assert(
   unknownUserRegisterRun.record.reason === STOP_REASONS.stepError,
@@ -761,6 +779,13 @@ const actualBaseline = {
     lowValue: `0x${accxRun.record.registers[12].toString(16)}`,
     highValue: `0x${accxRun.record.registers[13].toString(16)}`
   },
+  qaccIsa: {
+    codeSha256: qaccFixture.codeSha256,
+    reason: qaccRun.record.reasonName,
+    steps: qaccRun.record.steps,
+    highValue: `0x${qaccRun.record.registers[2].toString(16)}`,
+    lowValue: `0x${qaccRun.record.registers[7].toString(16)}`
+  },
   entry: {
     symbol: entry.symbol,
     pc: `0x${entry.pc.toString(16)}`,
@@ -851,6 +876,7 @@ assert(
     qrIsa: baseline.qrIsa,
     threadptrIsa: baseline.threadptrIsa,
     accxIsa: baseline.accxIsa,
+    qaccIsa: baseline.qaccIsa,
     entry: baseline.entry,
     pie: baseline.pie,
     staging: baseline.staging,

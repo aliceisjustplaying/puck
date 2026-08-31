@@ -81,7 +81,7 @@ diff --git a/src/xtensa.c b/src/xtensa.c
 index 67dca18..e72666d 100644
 --- a/src/xtensa.c
 +++ b/src/xtensa.c
-@@ -1552,19 +1552,43 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -1552,19 +1552,75 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
                  ar_write(cpu, r, ar_read(cpu, s));
              break;
          case 14: /* RUR */
@@ -96,6 +96,22 @@ index 67dca18..e72666d 100644
 +              case 1:
 +                  if (cpu->esp32s3_profile) ar_write(cpu, destination, cpu->accx[ur]);
 +                  else ar_write(cpu, destination, 0);
++                  break;
++              case 2:
++              case 3:
++              case 4:
++              case 5:
++              case 6:
++              case 7:
++              case 8:
++              case 9:
++              case 10:
++              case 11:
++                  if (cpu->esp32s3_profile) {
++                      uint32_t *bank = ur < 7 ? cpu->qacc_h : cpu->qacc_l;
++                      unsigned index = ur < 7 ? (unsigned)(ur - 2) : (unsigned)(ur - 7);
++                      ar_write(cpu, destination, bank[index]);
++                  } else ar_write(cpu, destination, 0);
 +                  break;
 +              case 231:
 +                  if (cpu->esp32s3_profile) ar_write(cpu, destination, cpu->threadptr);
@@ -119,6 +135,22 @@ index 67dca18..e72666d 100644
 +              case 1:
 +                  if (cpu->esp32s3_profile) cpu->accx[1] = ar_read(cpu, t) & 0xffu;
 +                  break;
++              case 2:
++              case 3:
++              case 4:
++              case 5:
++              case 6:
++              case 7:
++              case 8:
++              case 9:
++              case 10:
++              case 11:
++                  if (cpu->esp32s3_profile) {
++                      uint32_t *bank = ur < 7 ? cpu->qacc_h : cpu->qacc_l;
++                      unsigned index = ur < 7 ? (unsigned)(ur - 2) : (unsigned)(ur - 7);
++                      bank[index] = ar_read(cpu, t);
++                  }
++                  break;
 +              case 231:
 +                  if (cpu->esp32s3_profile) cpu->threadptr = ar_read(cpu, t);
 +                  break;
@@ -131,7 +163,7 @@ index 67dca18..e72666d 100644
                }
              } break;
          default: break;
-@@ -1615,6 +1639,10 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -1615,6 +1671,10 @@ void exec_qrst(xtensa_cpu_t *cpu, uint32_t insn) {
              uint32_t addr = ar_read(cpu, s) + (uint32_t)((int32_t)(r << 2) - 64);
              mem_write32(cpu->mem, addr, ar_read(cpu, t));
          } break;
@@ -142,7 +174,7 @@ index 67dca18..e72666d 100644
          default: break;
          }
          break;
-@@ -2080,6 +2108,92 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2140,92 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -235,7 +267,7 @@ index 67dca18..e72666d 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +2433,8 @@ have_insn:
+@@ -2319,6 +2465,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -244,7 +276,7 @@ index 67dca18..e72666d 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +2461,16 @@ have_insn:
+@@ -2345,14 +2493,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -265,7 +297,7 @@ index 67dca18..e72666d 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +2484,8 @@ have_insn:
+@@ -2366,6 +2516,8 @@ have_insn:
          }
      }
 
@@ -278,7 +310,7 @@ diff --git a/src/xtensa.h b/src/xtensa.h
 index 09e3182..60325a6 100644
 --- a/src/xtensa.h
 +++ b/src/xtensa.h
-@@ -256,6 +256,11 @@ struct xtensa_cpu {
+@@ -256,6 +256,13 @@ struct xtensa_cpu {
      void                       *instruction_hook_ctx;
      uint32_t                    external_exec_begin;
      uint32_t                    external_exec_end;
@@ -286,6 +318,8 @@ index 09e3182..60325a6 100644
 +    bool                        unsupported_user_register;
 +    uint32_t                    threadptr;
 +    uint32_t                    accx[2];
++    uint32_t                    qacc_h[5];
++    uint32_t                    qacc_l[5];
 +    uint8_t                     qr[8][16];
      uint32_t         *predecode;        /* Pre-decoded instruction table (heap, 20MB) */
      /* AOT static-recompiled function table.
