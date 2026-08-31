@@ -226,8 +226,9 @@ entry-point permission. `full-elf-runner.ts` expands those segments into
 sorted 4 KiB pages, zero-fills `p_memsz - p_filesz`, merges overlapping load
 segments, and preserves the union of their ELF permissions. The module clears
 flexe's default page table before loading the image, so memory that the ELF did
-not declare is absent. It does not supply ROM, MMIO, flash-controller, or
-peripheral behavior.
+not declare is absent unless the host supplies a page-aligned zero range with
+provenance. It does not supply ROM, MMIO, flash-controller, or peripheral
+behavior.
 
 The gate-harness image is 21,598,616 bytes with SHA-256
 `51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5`.
@@ -237,6 +238,11 @@ entry `0x40375c9c`, `call_start_cpu0`. flexe executes `entry`, `l32r`,
 undeclared ESP32-S3 ROM target `0x4000057c`. The result is `unloadedPage`, six
 executed instructions, and a six-PC trace. This is the first honest boundary,
 not a boot claim.
+
+The initial stack is a required runner input. The gate-harness baseline uses
+`0x3fce9700` from `bootloader_usable_dram_end` in its bootloader map and adds
+three explicit zeroed writable pages at `0x3fce7000..0x3fcea000`. These are
+bootloader-inherited state, not app ELF pages.
 
 The host may explicitly configure two narrow ROM ABI callbacks. Reset reason
 at `0x4000057c` returns one caller-supplied value per core. `memset` at
@@ -248,10 +254,11 @@ results or the full `memset` destination, byte value, and length. It assigns no
 timing to the bulk operation.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
-the real entry executes 57 bounded steps. It performs two reset-reason calls,
+the real entry executes 31 bounded steps. It performs two reset-reason calls,
 clears 21,216 bytes at `0x3fcabe60`, records the real zero-length clear at
-`0x50000000`, and next stops at undeclared ROM `0x4000186c`,
-`Cache_Disable_ICache`. No other ROM behavior is implied.
+`0x50000000`, and stops before `wur.threadptr` at `0x40375ce7`. The host marks
+encoding `f3e780` unsupported because flexe does not persist user register 231.
+No cache or MMIO behavior is reached or implied.
 
 Full-image runs accept at most 768 pages, 2,048 caller-identified unsupported
 instruction markers, 64 ROM events, and 256 executed instructions. The trace
@@ -288,8 +295,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 43,901 bytes with Zig 0.16.0, SHA-256
-`46f7e2e0a927b4f78732be4ea6aded00d324c9986a375af08f5b930e6cefac66`.
+The stripped freestanding module is 45,847 bytes with Zig 0.16.0, SHA-256
+`a5878cc8b166ae808169722878b382e2c47804b6f91c508b2e35e6fdc0640add`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and

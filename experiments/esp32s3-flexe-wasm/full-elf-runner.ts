@@ -30,6 +30,13 @@ export interface UnsupportedInstruction {
   readonly encoding: number;
 }
 
+export interface InheritedZeroRange {
+  readonly address: number;
+  readonly bytes: number;
+  readonly flags: number;
+  readonly provenance: string;
+}
+
 export interface FullElfStopRecord {
   readonly abiVersion: number;
   readonly structBytes: number;
@@ -75,7 +82,7 @@ interface FullElfExports {
   flexe_wasm_elf_trace_count(): number;
   flexe_wasm_elf_unsupported_capacity(): number;
   flexe_wasm_elf_unsupported_input(): number;
-  flexe_wasm_run_elf(entry: number, maxSteps: number): number;
+  flexe_wasm_run_elf(entry: number, maxSteps: number, initialStack: number): number;
 }
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -165,10 +172,12 @@ export async function runSparseXtensaElf(
   moduleBytes: ArrayBuffer,
   image: Elf32XtensaImage,
   options: Readonly<{
+    initialStack: number;
+    inheritedZeroRanges?: readonly InheritedZeroRange[];
     maxSteps?: number;
     unsupported?: readonly UnsupportedInstruction[];
     rom?: Readonly<{ resetReasons: readonly [number, number]; memset?: boolean }>;
-  }> = {},
+  }>,
 ): Promise<FullElfRunResult> {
   const logs: string[] = [];
   const instance = await instantiate(moduleBytes, (text) => logs.push(text));
@@ -199,7 +208,27 @@ export async function runSparseXtensaElf(
   assert(Number.isSafeInteger(maxSteps) && maxSteps > 0, "full ELF maxSteps must be a positive integer");
   assert(maxSteps <= traceCapacity, `full ELF maxSteps ${maxSteps} exceeds trace capacity ${traceCapacity}`);
   const pageCapacity = exports.flexe_wasm_elf_page_capacity() >>> 0;
-  const pages = buildSparseElfPages(image, pageCapacity);
+  const elfPages = buildSparseElfPages(image, pageCapacity);
+  const pages = [...elfPages];
+  for (const range of options.inheritedZeroRanges ?? []) {
+    assert(Number.isSafeInteger(range.address) && range.address >= 0 && range.address <= 0xffff_ffff, "inherited range address is invalid");
+    assert(range.address % PAGE_BYTES === 0, "inherited range address must be page-aligned");
+    assert(Number.isSafeInteger(range.bytes) && range.bytes > 0 && range.bytes % PAGE_BYTES === 0, "inherited range size must be positive whole pages");
+    assert(range.address + range.bytes <= 0x1_0000_0000, "inherited range exceeds the 32-bit address space");
+    assert(Number.isSafeInteger(range.flags) && range.flags >= 0 && range.flags <= 7, "inherited range flags are invalid");
+    assert(range.provenance.trim().length > 0, "inherited range provenance is required");
+    for (let address = range.address; address < range.address + range.bytes; address += PAGE_BYTES) {
+      assert(!pages.some((page) => page.address === address), `inherited page 0x${address.toString(16)} overlaps PT_LOAD memory`);
+      pages.push(Object.freeze({ address, flags: range.flags, bytes: new Uint8Array(PAGE_BYTES) }));
+    }
+  }
+  pages.sort((left, right) => left.address - right.address);
+  assert(pages.length <= pageCapacity, `image needs more than ${pageCapacity} total pages`);
+  assert(Number.isSafeInteger(options.initialStack) && options.initialStack > 0 && options.initialStack <= 0xffff_ffff, "initial stack is invalid");
+  assert(options.initialStack % 16 === 0, "initial stack must be 16-byte aligned");
+  const stackPageAddress = Math.floor((options.initialStack - 64) / PAGE_BYTES) * PAGE_BYTES;
+  const stackPage = pages.find((page) => page.address === stackPageAddress);
+  assert(stackPage && (stackPage.flags & 2) !== 0, "initial stack entry frame is not in writable loaded memory");
   assert(exports.flexe_wasm_elf_begin() === 1, "full ELF module could not initialize sparse memory");
 
   const pageInput = checkPointer(exports.memory, exports.flexe_wasm_elf_page_input(), PAGE_BYTES, "ELF page input");
@@ -247,7 +276,10 @@ export async function runSparseXtensaElf(
   const unsupportedStatus = exports.flexe_wasm_elf_set_unsupported(unsupported.length) >>> 0;
   assert(unsupportedStatus === 1, `full ELF module refused unsupported markers with status ${unsupportedStatus}`);
 
-  const record = decodeStopRecord(exports.memory, exports.flexe_wasm_run_elf(image.entryPoint, maxSteps));
+  const record = decodeStopRecord(
+    exports.memory,
+    exports.flexe_wasm_run_elf(image.entryPoint, maxSteps, options.initialStack),
+  );
   const traceCount = exports.flexe_wasm_elf_trace_count() >>> 0;
   assert(traceCount <= traceCapacity, "full ELF module returned an oversized trace");
   const tracePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_trace(), traceCount * 4, "ELF trace");
