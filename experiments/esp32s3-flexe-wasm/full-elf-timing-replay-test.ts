@@ -20,7 +20,7 @@ import { sha256 } from "./lib";
 import { TRACE_KINDS, type DecodedTrace } from "./trace-abi";
 import { adaptFlexeTraceToRuntimeTiming } from "./trace-timing-adapter";
 
-const FULL_TRACE_RECORD_SHA256 = "db65e4ea299b629ba7b98299187beff096c10d790e7401ec4b536eec8fdf069d";
+const FULL_TRACE_RECORD_SHA256 = "94d9037a379dcf5914e292c42cc9d13c56cdfb156141acad735b30b01f2e622d";
 const RTC_MMIO_PAGE = 0x6000_8000;
 const SYSTEM_MMIO_PAGE = 0x600c_0000;
 const CACHE_MMIO_PAGE = 0x600c_4000;
@@ -128,12 +128,12 @@ const run = await runSparseXtensaElf(moduleBytes, image, {
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true },
 });
 
-assert.equal(run.record.steps, 295);
-assert.equal(run.record.pc, 0x4037_71d6);
-assert.equal(run.memoryTrace.count, 412);
+assert.equal(run.record.steps, 301);
+assert.equal(run.record.pc, 0x4037_71ff);
+assert.equal(run.memoryTrace.count, 419);
 assert.equal(traceRecordSha256(run.memoryTrace), FULL_TRACE_RECORD_SHA256);
-assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.instruction).length, 295);
-assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.read).length, 73);
+assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.instruction).length, 301);
+assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.read).length, 74);
 assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.write).length, 44);
 
 const sparsePages = buildSparseElfPages(image);
@@ -341,12 +341,12 @@ const machine = runRuntimeTimingTrace({
 
 assert.equal(machine.status, "blocked");
 assert.equal(machine.cores[0].status, "complete");
-assert.equal(machine.cores[0].accesses.length, 412);
+assert.equal(machine.cores[0].accesses.length, 419);
 assert(machine.cores[0].accesses.every((access) => access.status === "resolved"));
 assert.equal(machine.cores[1].accesses.length, 0);
-assert.equal(runtimeTrace.input.cpu?.length, 320);
-assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "cache").length, 383);
-assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "mmio").length, 32);
+assert.equal(runtimeTrace.input.cpu?.length, 326);
+assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "cache").length, 389);
+assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "mmio").length, 33);
 const cpuEvents = machine.issuedEvents.filter((event) => event.origin.kind === "cpu");
 const loadUseHazards = cpuEvents.filter((event) => event.event.id.endsWith(":pre-data-cpu"));
 const instructionCpuEvents = cpuEvents.filter((event) => event.event.id.endsWith(":cpu"));
@@ -356,14 +356,14 @@ const exactBeqzNotTaken = instructionCpuEvents.filter((event) =>
 const exactBeqzTaken = instructionCpuEvents.filter((event) =>
   event.cost.status === "known" && event.cost.source.includes("exact beqz taken")
 );
-assert.equal(cpuEvents.length, 320);
+assert.equal(cpuEvents.length, 326);
 assert.equal(loadUseHazards.length, 25);
-assert.equal(instructionCpuEvents.length, 295);
+assert.equal(instructionCpuEvents.length, 301);
 assert.equal(exactBeqzNotTaken.length, 3);
 assert.equal(exactBeqzTaken.length, 0);
-assert.equal(machine.issuedEvents.length, 735);
-assert.equal(machine.claim.unknownCostEventIds.length, 32);
-assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 703);
+assert.equal(machine.issuedEvents.length, 748);
+assert.equal(machine.claim.unknownCostEventIds.length, 33);
+assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 715);
 assert(cpuEvents.every((event) =>
   event.cost.status === "known" && event.cost.cycles === 1n && event.cost.calibration === "calibrated"
 ));
@@ -378,7 +378,7 @@ assert.equal(machine.issuedEvents.filter((event) =>
 ).length, 0);
 assert.equal(machine.issuedEvents.filter((event) =>
   event.origin.kind === "mmio" && event.cost.status === "unknown"
-).length, 32);
+).length, 33);
 const cacheEvents = machine.issuedEvents.filter((event) => event.origin.kind === "cache");
 assert(cacheEvents.every((event) => event.cost.status === "known"));
 const flashLineFills = machine.issuedEvents.filter((event) =>
@@ -393,7 +393,7 @@ assert.equal(flashLineFills.length, 3);
 assert(flashLineFills.every((event) => event.cost.status === "known" && event.cost.cycles === 204n));
 assert.equal(flashHits.length, 6);
 assert(flashHits.every((event) => event.cost.status === "known" && event.cost.cycles === 0n));
-assert.equal(cacheEvents.filter((event) => event.cost.status === "known" && event.cost.cycles === 0n).length, 380);
+assert.equal(cacheEvents.filter((event) => event.cost.status === "known" && event.cost.cycles === 0n).length, 386);
 
 const issuedProjection = machine.issuedEvents.map((issued) => ({
   issueIndex: issued.issueIndex,
@@ -427,8 +427,8 @@ const actualBaseline = {
   },
   trace: {
     records: run.memoryTrace.count,
-    instructions: 295,
-    reads: 73,
+    instructions: 301,
+    reads: 74,
     writes: 44,
     observedSramPages: EXPECTED_SRAM_PAGES.map((address) => `0x${address.toString(16)}`),
     observedFlashPages: EXPECTED_FLASH_PAGES.map((address) => `0x${address.toString(16)}`),

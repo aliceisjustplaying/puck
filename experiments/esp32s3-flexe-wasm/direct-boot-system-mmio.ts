@@ -86,18 +86,18 @@ export function readEsp32S3DirectBootSystemMmio(
     if (access.width !== 4 || access.isWrite) {
       return refuse(state, "SYSTEM_CPU_PER_CONF permits only the observed aligned 32-bit read");
     }
-    if (state.readCount !== 1) {
-      return refuse(state, "SYSTEM_CPU_PER_CONF read preceded SYSTEM_SYSCLK_CONF");
-    }
-    if (access.rtcMmioComplete) {
-      return refuse(state, "SYSTEM_CPU_PER_CONF read followed RTC_XTAL_FREQ");
-    }
-    if (state.cpuPerReadCount >= 2) {
+    if (state.cpuPerReadCount >= 3) {
       return refuse(state, "SYSTEM_CPU_PER_CONF direct-boot reads already occurred");
     }
-    const expectedPc = state.cpuPerReadCount === 0
-      ? ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC
-      : ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC;
+    const repeatedSequence = state.cpuPerReadCount === 2;
+    if (repeatedSequence
+      ? state.readCount !== 2 || !access.rtcMmioComplete
+      : state.readCount !== 1 || access.rtcMmioComplete) {
+      return refuse(state, "SYSTEM_CPU_PER_CONF read occurred outside its observed clock sequence");
+    }
+    const expectedPc = state.cpuPerReadCount === 1
+      ? ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC
+      : ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC;
     if (access.pc !== expectedPc) {
       return refuse(state, `unexpected SYSTEM_CPU_PER_CONF reader 0x${access.pc.toString(16)}`);
     }
