@@ -85,23 +85,23 @@
   },
   "cacheProgress": {
     "reason": "unloadedPage",
-    "steps": 199,
-    "pc": "0x400018b4",
-    "traceSha256": "61c23ff4ff7f9a0b48012b53d6975bf8df8bcc0538b9957af417075c57983a17",
-    "memoryTraceRecords": 274,
-    "memoryTraceSha256": "3727f2e81aa033362f9992813e1557d2ed32a320451bf76c8d3d3ba60fae3740",
-    "stackPointer": "0x3fce96a0",
+    "steps": 213,
+    "pc": "0x40001a28",
+    "traceSha256": "d4a6ab338a01c9db320cbaecf2033d55938b092949ddd4669683d24548b7258e",
+    "memoryTraceRecords": 0,
+    "memoryTraceSha256": "",
+    "stackPointer": "0x3fce96c0",
     "registers": [
-      "0x80375d1b", "0x3fce96a0", "0x00000000", "0x00000008",
-      "0x00000020", "0x600c4064", "0x600c4004", "0x00000000",
-      "0x80380fb5", "0x00000002", "0x00000002", "0x00000000",
-      "0x00000000", "0x00000002", "0xfffffffd", "0xfffffffe"
+      "0x00000000", "0x3fce96c0", "0x00000000", "0x00000000",
+      "0x00000000", "0x00000000", "0x00000002", "0x00000000",
+      "0x80375d29", "0x3fce96a0", "0x00008000", "0x00000008",
+      "0x00000040", "0x600c4064", "0x600c4004", "0x00000000"
     ],
     "cacheBootstrap": {
       "sequenceIndex": 6,
       "complete": true,
       "registers": {
-        "dataControl1": 0,
+        "dataControl1": 3,
         "dataAutoloadControl": 8,
         "instructionControl1": 0,
         "instructionAutoloadControl": 8,
@@ -111,7 +111,8 @@
         "sizeBytes": 16384,
         "ways": 8,
         "lineBytes": 32
-      }
+      },
+      "dataSuspended": true
     },
     "events": [
       { "kind": "resetReason", "pc": "0x4000057c", "core": 0, "result": 1 },
@@ -124,7 +125,8 @@
       { "kind": "cache", "pc": "0x40001890", "sequenceIndex": 3, "argument": 0, "returnValue": null },
       { "kind": "cache", "pc": "0x40001878", "sequenceIndex": 4, "argument": 0, "returnValue": null },
       { "kind": "cache", "pc": "0x40001890", "sequenceIndex": 5, "argument": 0, "returnValue": null },
-      { "kind": "cacheMode", "pc": "0x40001a1c", "sizeBytes": 16384, "ways": 8, "lineBytes": 32 }
+      { "kind": "cacheMode", "pc": "0x40001a1c", "sizeBytes": 16384, "ways": 8, "lineBytes": 32 },
+      { "kind": "cacheSuspend", "pc": "0x400018b4", "cache": "data", "returnValue": 0 }
     ]
   },
   "unsupportedRefusal": {
