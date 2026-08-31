@@ -379,15 +379,19 @@ The subsequent BBPLL-disable RMW reads `RTC_CNTL_OPTIONS0_REG` at
 `0x1c00a000`, and the bootloader's default RTC initialization clears
 `XTL_FORCE_PU`, yielding the inherited `0x1c008000`; the write at
 `0x4037f7e8` ORs the documented force-PD mask `0x540` to produce
-`0x1c008540`.
+`0x1c008540`. The restore path then reads the zeroed
+`SYSTEM_SYSCLK_CONF_REG` at `0x4037f5df`, clears that same force-PD mask with
+the OPTIONS0 RMW at `0x4037f640`/`0x4037f649`, repeats the 40 MHz
+`RTC_XTAL_FREQ_REG` read, and preserves the 480 MHz PLL selection in
+`SYSTEM_CPU_PER_CONF_REG` with the RMW at `0x4037f6a8`/`0x4037f6b3`.
 Other RTCCNTL addresses, access shapes, readers, orderings, and repeats
 are refused. The next
 exact ROM callback, `esp_rom_set_cpu_ticks_per_us` at `0x40001a4c`,
 accepts argument 40 with CALLINC 2 only after both clock-query cycles. The real
-image now executes 376 instructions and stops on the following
-`SYSTEM_SYSCLK_CONF_REG` read at `0x600c0060` from PC `0x4037f5df`; the typed event log
-contains the CPU-ticks callback, nine SYSTEM reads, three SYSTEM writes, three
-RTCCNTL reads, and the source-backed DATE and OPTIONS0 writes.
+image now executes 419 instructions and stops on the first distinct analog-I2C
+controller read at `0x6000e040` from PC `0x4037f6b8`; the typed event log
+contains the CPU-ticks callback, eleven SYSTEM reads, four SYSTEM writes, five
+RTCCNTL reads, and three source-backed RTCCNTL writes.
 
 With host-supplied power-on reset value 1 for both cores and `memset` enabled,
 the real entry performs two reset-reason calls, clears 21,216 bytes at
@@ -414,8 +418,8 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 376-step
-cache-bootstrap boundary produces 524 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 419-step
+PLL-restore boundary produces 578 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
@@ -425,16 +429,16 @@ MMIO pages observed in the trace, with their ELF or inherited permissions.
 Those nine exact 4 KiB SRAM ranges opt into the
 measured one-cycle dependent load-use hazard without classifying their gaps.
 Exact three-byte `L32R` encodings classify their owned reads as instruction-side
-literal loads. The 524 records issue 948 timing events: 483 memory-system
-events, 44 MMIO accesses, 376 calibrated CPU issue events, and 29 calibrated
+literal loads. The 578 records issue 1,045 timing events: 531 memory-system
+events, 50 MMIO accesses, 419 calibrated CPU issue events, and 29 calibrated
 dependent load-use events, plus 16 configured ROM callback boundaries with
-explicitly unknown CPU durations. Exactly 914 events have adopted costs, including
-26 exact MMIO reads, three exact not-taken `beqz` paths, three flash line
-fills, and every zero-miss cache hit. The baseline pins the branch classifier,
-hazard count, and a projection hash of their schedule, consumer IDs, registers,
-and producer/consumer PCs, plus the ROM callback boundary provenance. The 18
-controller MMIO costs and 16 ROM callback durations keep the replay blocked
-with no total cycle claim. The baseline also pins the exact
+explicitly unknown CPU durations. Exactly 1,007 events have adopted costs,
+including 28 exact MMIO reads, three exact not-taken `beqz` paths, three flash
+line fills, and every zero-miss cache hit. The baseline pins the branch
+classifier, hazard count, and a projection hash of their schedule, consumer
+IDs, registers, and producer/consumer PCs, plus the ROM callback boundary
+provenance. The 22 controller MMIO costs and 16 ROM callback durations keep the
+replay blocked with no total cycle claim. The baseline also pins the exact
 address, direction, width, peripheral, and count of all observed MMIO access
 classes so hardware-adopted costs cannot silently broaden their scope.
 An executable-permission miss and an unloaded page have distinct recoverable

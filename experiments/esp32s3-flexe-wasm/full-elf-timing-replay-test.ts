@@ -20,7 +20,7 @@ import { sha256 } from "./lib";
 import { TRACE_KINDS, type DecodedTrace } from "./trace-abi";
 import { adaptFlexeTraceToRuntimeTiming } from "./trace-timing-adapter";
 
-const FULL_TRACE_RECORD_SHA256 = "85d030295aff0b7988124a2a7eb7675711a6c1504382fa6ec7fbf85acdf924c0";
+const FULL_TRACE_RECORD_SHA256 = "01a383af6e147c8392e86d4d2e09129edff8b0d435c3aae7e6dbd781a7cd4cce";
 const RTC_MMIO_PAGE = 0x6000_8000;
 const SYSTEM_MMIO_PAGE = 0x600c_0000;
 const CACHE_MMIO_PAGE = 0x600c_4000;
@@ -129,13 +129,13 @@ const run = await runSparseXtensaElf(moduleBytes, image, {
   rom: { resetReasons: [1, 1], memset: true, cacheBootstrap: true, cpuTicksPerUs: 40 },
 });
 
-assert.equal(run.record.steps, 376);
-assert.equal(run.record.pc, 0x4037_f5df);
-assert.equal(run.memoryTrace.count, 524);
+assert.equal(run.record.steps, 419);
+assert.equal(run.record.pc, 0x4037_f6b8);
+assert.equal(run.memoryTrace.count, 578);
 assert.equal(traceRecordSha256(run.memoryTrace), FULL_TRACE_RECORD_SHA256);
-assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.instruction).length, 376);
-assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.read).length, 93);
-assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.write).length, 55);
+assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.instruction).length, 419);
+assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.read).length, 102);
+assert.equal(run.memoryTrace.records.filter((record) => record.kind === TRACE_KINDS.write).length, 57);
 
 const sparsePages = buildSparseElfPages(image);
 const sparsePageByAddress = new Map(sparsePages.map((page) => [page.address, page]));
@@ -363,12 +363,12 @@ const machine = runRuntimeTimingTrace({
 }, runtimeTrace);
 assert.equal(machine.status, "blocked");
 assert.equal(machine.cores[0].status, "complete");
-assert.equal(machine.cores[0].accesses.length, 524);
+assert.equal(machine.cores[0].accesses.length, 578);
 assert(machine.cores[0].accesses.every((access) => access.status === "resolved"));
 assert.equal(machine.cores[1].accesses.length, 0);
-assert.equal(runtimeTrace.input.cpu?.length, 421);
-assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "cache").length, 483);
-assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "mmio").length, 44);
+assert.equal(runtimeTrace.input.cpu?.length, 464);
+assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "cache").length, 531);
+assert.equal(machine.issuedEvents.filter((event) => event.origin.kind === "mmio").length, 50);
 const cpuEvents = machine.issuedEvents.filter((event) => event.origin.kind === "cpu");
 const loadUseHazards = cpuEvents.filter((event) => event.event.id.endsWith(":pre-data-cpu"));
 const instructionCpuEvents = cpuEvents.filter((event) => event.event.id.endsWith(":cpu"));
@@ -383,16 +383,16 @@ const exactMmioEvents = machine.issuedEvents.filter((event) =>
   event.cost.source.includes("exact matched ESP32-S3 MMIO access")
 );
 const romCallbackCpuEvents = cpuEvents.filter((event) => event.event.id.includes(":rom-callback:"));
-assert.equal(cpuEvents.length, 421);
+assert.equal(cpuEvents.length, 464);
 assert.equal(loadUseHazards.length, 29);
-assert.equal(instructionCpuEvents.length, 376);
+assert.equal(instructionCpuEvents.length, 419);
 assert.equal(exactBeqzNotTaken.length, 3);
 assert.equal(exactBeqzTaken.length, 0);
 assert.equal(romCallbackCpuEvents.length, 16);
-assert.equal(machine.issuedEvents.length, 948);
-assert.equal(exactMmioEvents.length, 26);
-assert.equal(machine.claim.unknownCostEventIds.length, 34);
-assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 914);
+assert.equal(machine.issuedEvents.length, 1045);
+assert.equal(exactMmioEvents.length, 28);
+assert.equal(machine.claim.unknownCostEventIds.length, 38);
+assert.equal(machine.issuedEvents.filter((event) => event.cost.status === "known").length, 1007);
 assert([...instructionCpuEvents, ...loadUseHazards].every((event) =>
   event.cost.status === "known" && event.cost.cycles === 1n && event.cost.calibration === "calibrated"
 ));
@@ -412,7 +412,7 @@ assert.equal(machine.issuedEvents.filter((event) =>
 ).length, 0);
 assert.equal(machine.issuedEvents.filter((event) =>
   event.origin.kind === "mmio" && event.cost.status === "unknown"
-).length, 18);
+).length, 22);
 const cacheEvents = machine.issuedEvents.filter((event) => event.origin.kind === "cache");
 assert(cacheEvents.every((event) => event.cost.status === "known"));
 const mmioBreakdownByKey = new Map<string, {
@@ -443,7 +443,7 @@ const mmioAccessBreakdown = [...mmioBreakdownByKey.values()].sort((left, right) 
   left.operation.localeCompare(right.operation) ||
   left.peripheral.localeCompare(right.peripheral)
 );
-assert.equal(mmioAccessBreakdown.reduce((sum, entry) => sum + entry.count, 0), 44);
+assert.equal(mmioAccessBreakdown.reduce((sum, entry) => sum + entry.count, 0), 50);
 const flashLineFills = machine.issuedEvents.filter((event) =>
   event.origin.kind === "cache" && event.origin.regionId.startsWith("full-elf:flash-page:") &&
   event.event.id.endsWith(":line-fill")
@@ -456,7 +456,7 @@ assert.equal(flashLineFills.length, 3);
 assert(flashLineFills.every((event) => event.cost.status === "known" && event.cost.cycles === 204n));
 assert.equal(flashHits.length, 6);
 assert(flashHits.every((event) => event.cost.status === "known" && event.cost.cycles === 0n));
-assert.equal(cacheEvents.filter((event) => event.cost.status === "known" && event.cost.cycles === 0n).length, 480);
+assert.equal(cacheEvents.filter((event) => event.cost.status === "known" && event.cost.cycles === 0n).length, 528);
 
 const issuedProjection = machine.issuedEvents.map((issued) => ({
   issueIndex: issued.issueIndex,
@@ -497,9 +497,9 @@ const actualBaseline = {
   },
   trace: {
     records: run.memoryTrace.count,
-    instructions: 376,
-    reads: 93,
-    writes: 55,
+    instructions: 419,
+    reads: 102,
+    writes: 57,
     observedSramPages: EXPECTED_SRAM_PAGES.map((address) => `0x${address.toString(16)}`),
     observedFlashPages: EXPECTED_FLASH_PAGES.map((address) => `0x${address.toString(16)}`),
     observedMmioPages: [RTC_MMIO_PAGE, SYSTEM_MMIO_PAGE, CACHE_MMIO_PAGE]

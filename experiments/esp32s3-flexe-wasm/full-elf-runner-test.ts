@@ -779,45 +779,53 @@ assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) =>
   { kind: "systemMmioRead", pc: 0x4037_7275, address: 0x600c_0060, width: 4, value: 0x400 },
   { kind: "systemMmioRead", pc: 0x4037_7294, address: 0x600c_0060, width: 4, value: 0x400 },
   { kind: "systemMmioRead", pc: 0x4037_72aa, address: 0x600c_0060, width: 4, value: 0x400 },
+  { kind: "systemMmioRead", pc: 0x4037_f5df, address: 0x600c_0060, width: 4, value: 0 },
+  { kind: "systemMmioRead", pc: 0x4037_f6a8, address: 0x600c_0010, width: 4, value: 0x4 },
 ]);
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "systemMmioWrite")), [
   { kind: "systemMmioWrite", pc: 0x4037_727d, address: 0x600c_0060, width: 4, value: 0x400 },
   { kind: "systemMmioWrite", pc: 0x4037_72a5, address: 0x600c_0060, width: 4, value: 0x400 },
   { kind: "systemMmioWrite", pc: 0x4037_72b8, address: 0x600c_0060, width: 4, value: 0 },
+  { kind: "systemMmioWrite", pc: 0x4037_f6b3, address: 0x600c_0010, width: 4, value: 0x4 },
 ]);
 assert.deepEqual(cacheProgress.systemMmio, {
   sysclkConf: 0,
-  readCount: 5,
-  lastReadPc: 0x4037_72aa,
+  readCount: 6,
+  lastReadPc: 0x4037_f5df,
   cpuPerConf: 0x4,
-  cpuPerReadCount: 4,
-  cpuPerLastReadPc: 0x4037_71ff,
+  cpuPerReadCount: 5,
+  cpuPerLastReadPc: 0x4037_f6a8,
   writeCount: 3,
   lastWritePc: 0x4037_72b8,
+  cpuPerWriteCount: 1,
+  cpuPerLastWritePc: 0x4037_f6b3,
 });
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "rtcMmioRead")), [
   { kind: "rtcMmioRead", pc: 0x4037_7159, address: 0x6000_80c0, width: 4, value: 0x0028_0028 },
   { kind: "rtcMmioRead", pc: 0x4037_7301, address: 0x6000_81fc, width: 4, value: 0x0210_1271 },
   { kind: "rtcMmioRead", pc: 0x4037_f7df, address: 0x6000_8000, width: 4, value: 0x1c00_8000 },
+  { kind: "rtcMmioRead", pc: 0x4037_f640, address: 0x6000_8000, width: 4, value: 0x1c00_8540 },
+  { kind: "rtcMmioRead", pc: 0x4037_7159, address: 0x6000_80c0, width: 4, value: 0x0028_0028 },
 ]);
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "rtcMmioWrite")), [
   { kind: "rtcMmioWrite", pc: 0x4037_730f, address: 0x6000_81fc, width: 4, value: 0x0210_f271 },
   { kind: "rtcMmioWrite", pc: 0x4037_f7e8, address: 0x6000_8000, width: 4, value: 0x1c00_8540 },
+  { kind: "rtcMmioWrite", pc: 0x4037_f649, address: 0x6000_8000, width: 4, value: 0x1c00_8000 },
 ]);
 assert.deepEqual(cacheProgress.rtcMmio, {
   xtalFreqReg: 0x0028_0028,
-  readCount: 1,
+  readCount: 2,
   lastReadPc: 0x4037_7159,
   dateReg: 0x0210_f271,
   dateReadCount: 1,
   dateLastReadPc: 0x4037_7301,
   dateWriteCount: 1,
   dateLastWritePc: 0x4037_730f,
-  optionsReg: 0x1c00_8540,
-  optionsReadCount: 1,
-  optionsLastReadPc: 0x4037_f7df,
-  optionsWriteCount: 1,
-  optionsLastWritePc: 0x4037_f7e8,
+  optionsReg: 0x1c00_8000,
+  optionsReadCount: 2,
+  optionsLastReadPc: 0x4037_f640,
+  optionsWriteCount: 2,
+  optionsLastWritePc: 0x4037_f649,
 });
 assert.deepEqual(withoutTimingBoundary(cacheProgress.romEvents.filter((event) => event.kind === "cpuTicksPerUs")), [
   { kind: "cpuTicksPerUs", pc: 0x4000_1a4c, ticksPerUs: 40, callinc: 2 },
@@ -836,12 +844,12 @@ assert.deepEqual(cacheProgress.cpuTicks, {
 assert.deepEqual(cacheProgress.memoryFault, {
   abiVersion: 1,
   structBytes: 40,
-  pc: 0x4037_f5df,
-  address: 0x600c_0060,
+  pc: 0x4037_f6b8,
+  address: 0x6000_e040,
   width: 4,
   isWrite: false,
-  deniedAddress: 0x600c_0060,
-  deniedPage: 0x600c_0000,
+  deniedAddress: 0x6000_e040,
+  deniedPage: 0x6000_e000,
   deniedFlags: 0,
 });
 await assert.rejects(

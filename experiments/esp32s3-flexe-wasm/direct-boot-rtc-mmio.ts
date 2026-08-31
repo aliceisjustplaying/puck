@@ -12,6 +12,8 @@ export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0 = 0x1c00_8000;
 export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_PD = 0x1c00_8540;
 export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_READ_PC = 0x4037_f7df;
 export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_WRITE_PC = 0x4037_f7e8;
+export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_READ_PC = 0x4037_f640;
+export const ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_WRITE_PC = 0x4037_f649;
 
 export const ESP32S3_DIRECT_BOOT_RTC_XTAL_PROVENANCE = Object.freeze({
   bootloaderConfig: "bootloader/config/sdkconfig.h: CONFIG_XTAL_FREQ=40 and CONFIG_BOOT_ROM_LOG_ALWAYS_ON=1",
@@ -52,6 +54,7 @@ export interface Esp32S3DirectBootRtcMmioAccess {
   readonly width: number;
   readonly isWrite: boolean;
   readonly systemMmioComplete: boolean;
+  readonly systemClockRestoreStarted?: boolean;
 }
 
 export type Esp32S3DirectBootRtcMmioDispatch =
@@ -103,10 +106,15 @@ export function writeEsp32S3DirectBootRtcMmio(
     if (access.width !== 4 || !access.isWrite) {
       return refuse(state, "RTC_CNTL_OPTIONS0 permits only the observed aligned 32-bit write");
     }
+    const initialDisable = state.optionsReadCount === 1 && state.optionsWriteCount === 0 &&
+      access.pc === ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_WRITE_PC &&
+      access.value === ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_PD;
+    const pllRestore = state.optionsReadCount === 2 && state.optionsWriteCount === 1 &&
+      access.systemClockRestoreStarted === true &&
+      access.pc === ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_WRITE_PC &&
+      access.value === ESP32S3_DIRECT_BOOT_RTC_OPTIONS0;
     if (!access.systemMmioComplete || state.dateReadCount !== 1 || state.dateWriteCount !== 1 ||
-        state.optionsReadCount !== 1 || state.optionsWriteCount !== 0 ||
-        access.pc !== ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_WRITE_PC ||
-        access.value !== ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_PD) {
+        (!initialDisable && !pllRestore)) {
       return refuse(state, "RTC_CNTL_OPTIONS0 write violated the observed BBPLL-disable contract");
     }
     return Object.freeze({
@@ -116,7 +124,7 @@ export function writeEsp32S3DirectBootRtcMmio(
       state: Object.freeze({
         ...state,
         optionsReg: access.value,
-        optionsWriteCount: 1,
+        optionsWriteCount: state.optionsWriteCount + 1,
         optionsLastWritePc: access.pc,
       }),
     });
@@ -178,11 +186,13 @@ export function readEsp32S3DirectBootRtcMmio(
     if (!access.systemMmioComplete || state.dateReadCount !== 1 || state.dateWriteCount !== 1) {
       return refuse(state, "RTC_CNTL_OPTIONS0 read preceded the completed XTAL transition");
     }
-    if (access.pc !== ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_READ_PC) {
+    const initialDisable = state.optionsReadCount === 0 && state.optionsWriteCount === 0 &&
+      access.pc === ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_READ_PC;
+    const pllRestore = state.optionsReadCount === 1 && state.optionsWriteCount === 1 &&
+      access.systemClockRestoreStarted === true &&
+      access.pc === ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_READ_PC;
+    if (!initialDisable && !pllRestore) {
       return refuse(state, `unexpected RTC_CNTL_OPTIONS0 reader 0x${access.pc.toString(16)}`);
-    }
-    if (state.optionsReadCount !== 0 || state.optionsWriteCount !== 0) {
-      return refuse(state, "RTC_CNTL_OPTIONS0 direct-boot read already occurred");
     }
     return Object.freeze({
       handled: true,
@@ -190,7 +200,7 @@ export function readEsp32S3DirectBootRtcMmio(
       value: state.optionsReg,
       state: Object.freeze({
         ...state,
-        optionsReadCount: 1,
+        optionsReadCount: state.optionsReadCount + 1,
         optionsLastReadPc: access.pc,
       }),
     });
@@ -207,14 +217,19 @@ export function readEsp32S3DirectBootRtcMmio(
   if (access.pc !== ESP32S3_DIRECT_BOOT_RTC_XTAL_READ_PC) {
     return refuse(state, `unexpected RTC_XTAL_FREQ_REG reader 0x${access.pc.toString(16)}`);
   }
-  if (state.readCount !== 0) return refuse(state, "RTC_XTAL_FREQ_REG direct-boot read already occurred");
+  const initialRead = state.readCount === 0 && !access.systemClockRestoreStarted;
+  const pllRestoreRead = state.readCount === 1 && state.optionsWriteCount === 2 &&
+    access.systemClockRestoreStarted === true;
+  if (!initialRead && !pllRestoreRead) {
+    return refuse(state, "RTC_XTAL_FREQ_REG read occurred outside its observed clock sequence");
+  }
   return Object.freeze({
     handled: true,
     status: "accepted",
     value: state.xtalFreqReg,
     state: Object.freeze({
       ...state,
-      readCount: 1,
+      readCount: state.readCount + 1,
       lastReadPc: access.pc,
     }),
   });

@@ -7,6 +7,7 @@ import {
   type Esp32S3DirectBootCpuTicksState,
 } from "./direct-boot-cpu-ticks";
 import {
+  ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_READ_PC,
   createEsp32S3DirectBootRtcMmio,
   readEsp32S3DirectBootRtcMmio,
   writeEsp32S3DirectBootRtcMmio,
@@ -666,7 +667,9 @@ export async function runSparseXtensaElf(
         address: event.address,
         width: event.width,
         isWrite: false,
-        rtcMmioComplete: rtcMmio?.readCount === 1,
+        rtcMmioComplete: (rtcMmio?.readCount ?? 0) >= 1,
+        rtcClockTransitionComplete: (rtcMmio?.optionsWriteCount ?? 0) >= 1,
+        rtcClockRestoreXtalReadComplete: (rtcMmio?.readCount ?? 0) >= 2,
         cpuTicksConfigured: cpuTicks?.configured === true,
       });
       assert(read.handled && read.status === "accepted", "full ELF module violated system MMIO contract");
@@ -675,10 +678,12 @@ export async function runSparseXtensaElf(
       continue;
     }
     if (event.kind === "rtcMmioRead") {
-      const initialClockRead = event.address === 0x6000_80c0;
+      const initialClockRead = event.address === 0x6000_80c0 && rtcMmio?.readCount === 0;
+      const pllRestoreRead = event.pc === ESP32S3_DIRECT_BOOT_RTC_OPTIONS0_PLL_RESTORE_READ_PC ||
+        (event.address === 0x6000_80c0 && rtcMmio?.readCount === 1);
       assert(systemMmio !== null && (initialClockRead
         ? systemMmio.readCount === 1 && systemMmio.cpuPerReadCount === 2 && systemMmio.writeCount === 0
-        : systemMmio.readCount === 5 && systemMmio.cpuPerReadCount === 4 &&
+        : systemMmio.readCount === (pllRestoreRead ? 6 : 5) && systemMmio.cpuPerReadCount === 4 &&
           systemMmio.writeCount === 3 && systemMmio.sysclkConf === 0 && cpuTicks?.configured === true),
       "RTC MMIO read preceded its exact SYSTEM clock state");
       assert(rtcMmio !== null, "full ELF module returned unconfigured RTC MMIO");
@@ -688,6 +693,7 @@ export async function runSparseXtensaElf(
         width: event.width,
         isWrite: false,
         systemMmioComplete: true,
+        systemClockRestoreStarted: systemMmio.readCount === 6,
       });
       assert(read.handled && read.status === "accepted", "full ELF module violated RTC MMIO contract");
       assert(read.value === event.value, "RTC MMIO read value differs");
@@ -718,7 +724,9 @@ export async function runSparseXtensaElf(
         width: event.width,
         isWrite: true,
         value: event.value,
-        rtcMmioComplete: rtcMmio.readCount === 1,
+        rtcMmioComplete: rtcMmio.readCount >= 1,
+        rtcClockTransitionComplete: rtcMmio.optionsWriteCount >= 1,
+        rtcClockRestoreXtalReadComplete: rtcMmio.readCount >= 2,
         cpuTicksConfigured: cpuTicks.configured,
       });
       assert(write.handled && write.status === "accepted", "full ELF module violated system MMIO write contract");
@@ -726,7 +734,8 @@ export async function runSparseXtensaElf(
       continue;
     }
     if (event.kind === "rtcMmioWrite") {
-      assert(rtcMmio !== null && systemMmio?.readCount === 5 && systemMmio.writeCount === 3 &&
+      assert(rtcMmio !== null && (systemMmio?.readCount === 5 || systemMmio?.readCount === 6) &&
+        systemMmio.writeCount === 3 &&
         cpuTicks?.configured === true, "full ELF module returned an unconfigured RTC MMIO write");
       const write = writeEsp32S3DirectBootRtcMmio(rtcMmio, {
         pc: event.pc,
@@ -735,6 +744,7 @@ export async function runSparseXtensaElf(
         isWrite: true,
         value: event.value,
         systemMmioComplete: true,
+        systemClockRestoreStarted: systemMmio.readCount === 6,
       });
       assert(write.handled && write.status === "accepted", "full ELF module violated RTC MMIO write contract");
       rtcMmio = write.state;
@@ -779,8 +789,8 @@ export async function runSparseXtensaElf(
     assert(stateWords[18] === (cacheBootstrap.mmuSizes?.dataBytes ?? 0), "data MMU size differs");
   }
   if (systemMmio) {
-    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_system_mmio_state(), 32, "ELF system MMIO state");
-    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 8);
+    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_system_mmio_state(), 40, "ELF system MMIO state");
+    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 10);
     assert(stateWords[0] === systemMmio.sysclkConf, "SYSTEM_SYSCLK_CONF state differs");
     assert(stateWords[1] === systemMmio.readCount, "SYSTEM_SYSCLK_CONF read count differs");
     assert(stateWords[2] === (systemMmio.lastReadPc ?? 0), "SYSTEM_SYSCLK_CONF reader differs");
@@ -789,6 +799,8 @@ export async function runSparseXtensaElf(
     assert(stateWords[5] === (systemMmio.cpuPerLastReadPc ?? 0), "SYSTEM_CPU_PER_CONF reader differs");
     assert(stateWords[6] === systemMmio.writeCount, "SYSTEM_SYSCLK_CONF write count differs");
     assert(stateWords[7] === (systemMmio.lastWritePc ?? 0), "SYSTEM_SYSCLK_CONF writer differs");
+    assert(stateWords[8] === systemMmio.cpuPerWriteCount, "SYSTEM_CPU_PER_CONF write count differs");
+    assert(stateWords[9] === (systemMmio.cpuPerLastWritePc ?? 0), "SYSTEM_CPU_PER_CONF writer differs");
   }
   if (rtcMmio) {
     const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_rtc_mmio_state(), 52, "ELF RTC MMIO state");

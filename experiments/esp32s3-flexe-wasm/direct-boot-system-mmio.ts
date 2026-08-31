@@ -8,8 +8,11 @@ export const ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_READ_PC = 0x4037_7294;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_WRITE_PC = 0x4037_72a5;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_POST_ADJUST_READ_PC = 0x4037_72aa;
 export const ESP32S3_DIRECT_BOOT_SYSCLK_XTAL_WRITE_PC = 0x4037_72b8;
+export const ESP32S3_DIRECT_BOOT_SYSCLK_PLL_RESTORE_READ_PC = 0x4037_f5df;
 export const ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC = 0x4037_71d6;
 export const ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC = 0x4037_71ff;
+export const ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_READ_PC = 0x4037_f6a8;
+export const ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_WRITE_PC = 0x4037_f6b3;
 
 /*
  * TinyDraw's ESP-IDF v6.0.2 bootloader config selects 80 MHz. The S3
@@ -40,6 +43,8 @@ export interface Esp32S3DirectBootSystemMmioState {
   readonly cpuPerLastReadPc: number | null;
   readonly writeCount: number;
   readonly lastWritePc: number | null;
+  readonly cpuPerWriteCount: number;
+  readonly cpuPerLastWritePc: number | null;
 }
 
 export interface Esp32S3DirectBootSystemMmioAccess {
@@ -48,6 +53,8 @@ export interface Esp32S3DirectBootSystemMmioAccess {
   readonly width: number;
   readonly isWrite: boolean;
   readonly rtcMmioComplete: boolean;
+  readonly rtcClockTransitionComplete?: boolean;
+  readonly rtcClockRestoreXtalReadComplete?: boolean;
   readonly cpuTicksConfigured?: boolean;
 }
 
@@ -76,6 +83,8 @@ export function createEsp32S3DirectBootSystemMmio(): Esp32S3DirectBootSystemMmio
     cpuPerLastReadPc: null,
     writeCount: 0,
     lastWritePc: null,
+    cpuPerWriteCount: 0,
+    cpuPerLastWritePc: null,
   });
 }
 
@@ -84,6 +93,27 @@ export function writeEsp32S3DirectBootSystemMmio(
   access: Esp32S3DirectBootSystemMmioAccess & Readonly<{ value: number }>,
 ): Esp32S3DirectBootSystemMmioDispatch {
   if ((access.address & ~0xfff) !== ESP32S3_SYSTEM_MMIO_PAGE) return Object.freeze({ handled: false });
+  if (access.address === ESP32S3_SYSTEM_CPU_PER_CONF_REG) {
+    if (access.width !== 4 || !access.isWrite ||
+        access.pc !== ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_WRITE_PC ||
+        access.value !== ESP32S3_DIRECT_BOOT_CPU_PER_CONF ||
+        !access.rtcClockTransitionComplete || !access.rtcClockRestoreXtalReadComplete ||
+        !access.cpuTicksConfigured || state.readCount !== 6 || state.cpuPerReadCount !== 5 ||
+        state.cpuPerWriteCount !== 0) {
+      return refuse(state, "SYSTEM_CPU_PER_CONF write violated the observed PLL-restore contract");
+    }
+    return Object.freeze({
+      handled: true,
+      status: "accepted",
+      value: access.value,
+      state: Object.freeze({
+        ...state,
+        cpuPerConf: access.value,
+        cpuPerWriteCount: 1,
+        cpuPerLastWritePc: access.pc,
+      }),
+    });
+  }
   if (access.address !== ESP32S3_SYSTEM_SYSCLK_CONF_REG || access.width !== 4 || !access.isWrite) {
     return refuse(state, "only the observed aligned SYSTEM_SYSCLK_CONF write is declared");
   }
@@ -131,11 +161,29 @@ export function readEsp32S3DirectBootSystemMmio(
     if (access.width !== 4 || access.isWrite) {
       return refuse(state, "SYSTEM_CPU_PER_CONF permits only the observed aligned 32-bit read");
     }
-    if (state.cpuPerReadCount >= 4) {
+    if (state.cpuPerReadCount >= 5) {
       return refuse(state, "SYSTEM_CPU_PER_CONF direct-boot reads already occurred");
     }
-    if (access.cpuTicksConfigured) {
+    if (access.cpuTicksConfigured && state.cpuPerReadCount < 4) {
       return refuse(state, "SYSTEM_CPU_PER_CONF read followed CPU ticks configuration");
+    }
+    if (state.cpuPerReadCount === 4) {
+      if (access.pc !== ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_READ_PC ||
+          state.readCount !== 6 || !access.rtcClockTransitionComplete ||
+          !access.rtcClockRestoreXtalReadComplete || !access.cpuTicksConfigured ||
+          state.cpuPerWriteCount !== 0) {
+        return refuse(state, "SYSTEM_CPU_PER_CONF read violated the observed PLL-restore contract");
+      }
+      return Object.freeze({
+        handled: true,
+        status: "accepted",
+        value: state.cpuPerConf,
+        state: Object.freeze({
+          ...state,
+          cpuPerReadCount: 5,
+          cpuPerLastReadPc: access.pc,
+        }),
+      });
     }
     const repeatedSequence = state.cpuPerReadCount >= 2;
     if (repeatedSequence
@@ -166,9 +214,11 @@ export function readEsp32S3DirectBootSystemMmio(
   if (access.width !== 4 || access.isWrite) {
     return refuse(state, "SYSTEM_SYSCLK_CONF permits only the observed aligned 32-bit read");
   }
-  if (state.readCount >= 5) return refuse(state, "SYSTEM_SYSCLK_CONF direct-boot reads already occurred");
-  const expectedPc = state.readCount === 4
-    ? ESP32S3_DIRECT_BOOT_SYSCLK_POST_ADJUST_READ_PC
+  if (state.readCount >= 6) return refuse(state, "SYSTEM_SYSCLK_CONF direct-boot reads already occurred");
+  const expectedPc = state.readCount === 5
+    ? ESP32S3_DIRECT_BOOT_SYSCLK_PLL_RESTORE_READ_PC
+    : state.readCount === 4
+      ? ESP32S3_DIRECT_BOOT_SYSCLK_POST_ADJUST_READ_PC
     : state.readCount === 3
       ? ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_READ_PC
       : state.readCount === 2
@@ -197,6 +247,12 @@ export function readEsp32S3DirectBootSystemMmio(
       (!access.rtcMmioComplete || !access.cpuTicksConfigured || state.cpuPerReadCount !== 4 ||
        state.writeCount !== 2)) {
     return refuse(state, "post-adjust SYSTEM_SYSCLK_CONF read preceded the second clock write");
+  }
+  if (state.readCount === 5 &&
+      (!access.rtcMmioComplete || !access.rtcClockTransitionComplete ||
+       !access.cpuTicksConfigured || state.cpuPerReadCount !== 4 ||
+       state.writeCount !== 3 || state.sysclkConf !== 0)) {
+    return refuse(state, "PLL-restore SYSTEM_SYSCLK_CONF read preceded the XTAL transition");
   }
   return Object.freeze({
     handled: true,

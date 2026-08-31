@@ -3,6 +3,8 @@ import {
   ESP32S3_DIRECT_BOOT_CPU_PER_CONF,
   ESP32S3_DIRECT_BOOT_CPU_PER_READ_PC,
   ESP32S3_DIRECT_BOOT_CPU_PER_SECOND_READ_PC,
+  ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_READ_PC,
+  ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_WRITE_PC,
   ESP32S3_DIRECT_BOOT_CPU_PER_PROVENANCE,
   ESP32S3_DIRECT_BOOT_SYSCLK_CONF,
   ESP32S3_DIRECT_BOOT_SYSCLK_ADJUST_READ_PC,
@@ -11,6 +13,7 @@ import {
   ESP32S3_DIRECT_BOOT_SYSCLK_XTAL_WRITE_PC,
   ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_READ_PC,
   ESP32S3_DIRECT_BOOT_SYSCLK_POST_TICKS_WRITE_PC,
+  ESP32S3_DIRECT_BOOT_SYSCLK_PLL_RESTORE_READ_PC,
   ESP32S3_DIRECT_BOOT_SYSCLK_READ_PC,
   ESP32S3_DIRECT_BOOT_SYSCLK_PROVENANCE,
   ESP32S3_SYSTEM_MMIO_PAGE,
@@ -52,6 +55,8 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
         cpuPerLastReadPc: null,
         writeCount: 0,
         lastWritePc: null,
+        cpuPerWriteCount: 0,
+        cpuPerLastWritePc: null,
       },
     });
   });
@@ -96,6 +101,8 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
         cpuPerLastReadPc: 0x4037_71d6,
         writeCount: 0,
         lastWritePc: null,
+        cpuPerWriteCount: 0,
+        cpuPerLastWritePc: null,
       },
     });
   });
@@ -398,6 +405,76 @@ describe("ESP32-S3 direct-boot system MMIO", () => {
       },
     });
     if (!xtalWrite.handled || xtalWrite.status !== "accepted") throw new Error("XTAL source write refused");
+    expect(ESP32S3_DIRECT_BOOT_SYSCLK_PLL_RESTORE_READ_PC).toBe(0x4037_f5df);
+    const pllRestoreReadAccess = {
+      pc: ESP32S3_DIRECT_BOOT_SYSCLK_PLL_RESTORE_READ_PC,
+      address: ESP32S3_SYSTEM_SYSCLK_CONF_REG,
+      width: 4,
+      isWrite: false,
+      rtcMmioComplete: true,
+      rtcClockTransitionComplete: true,
+      cpuTicksConfigured: true,
+    } as const;
+    expect(readEsp32S3DirectBootSystemMmio(xtalWrite.state, {
+      ...pllRestoreReadAccess,
+      rtcClockTransitionComplete: false,
+    }).status).toBe("refused");
+    expect(readEsp32S3DirectBootSystemMmio(xtalWrite.state, {
+      ...pllRestoreReadAccess,
+      pc: 0x4037_f5dc,
+    }).status).toBe("refused");
+    const pllRestoreRead = readEsp32S3DirectBootSystemMmio(xtalWrite.state, pllRestoreReadAccess);
+    expect(pllRestoreRead).toEqual({
+      handled: true,
+      status: "accepted",
+      value: 0,
+      state: {
+        ...xtalWrite.state,
+        readCount: 6,
+        lastReadPc: 0x4037_f5df,
+      },
+    });
+    if (!pllRestoreRead.handled || pllRestoreRead.status !== "accepted") {
+      throw new Error("PLL-restore source read refused");
+    }
+    expect(readEsp32S3DirectBootSystemMmio(pllRestoreRead.state, pllRestoreReadAccess).status).toBe("refused");
+    expect(ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_READ_PC).toBe(0x4037_f6a8);
+    expect(ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_WRITE_PC).toBe(0x4037_f6b3);
+    const pllCpuReadAccess = {
+      pc: ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_READ_PC,
+      address: ESP32S3_SYSTEM_CPU_PER_CONF_REG,
+      width: 4,
+      isWrite: false,
+      rtcMmioComplete: true,
+      rtcClockTransitionComplete: true,
+      rtcClockRestoreXtalReadComplete: true,
+      cpuTicksConfigured: true,
+    } as const;
+    expect(readEsp32S3DirectBootSystemMmio(pllRestoreRead.state, {
+      ...pllCpuReadAccess,
+      rtcClockRestoreXtalReadComplete: false,
+    }).status).toBe("refused");
+    const pllCpuRead = readEsp32S3DirectBootSystemMmio(pllRestoreRead.state, pllCpuReadAccess);
+    expect(pllCpuRead.status).toBe("accepted");
+    if (!pllCpuRead.handled || pllCpuRead.status !== "accepted") throw new Error("PLL CPU period read refused");
+    expect(pllCpuRead.value).toBe(ESP32S3_DIRECT_BOOT_CPU_PER_CONF);
+    const pllCpuWriteAccess = {
+      ...pllCpuReadAccess,
+      pc: ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_WRITE_PC,
+      isWrite: true,
+      value: ESP32S3_DIRECT_BOOT_CPU_PER_CONF,
+    } as const;
+    expect(writeEsp32S3DirectBootSystemMmio(pllRestoreRead.state, pllCpuWriteAccess).status).toBe("refused");
+    expect(writeEsp32S3DirectBootSystemMmio(pllCpuRead.state, {
+      ...pllCpuWriteAccess,
+      value: 0,
+    }).status).toBe("refused");
+    const pllCpuWrite = writeEsp32S3DirectBootSystemMmio(pllCpuRead.state, pllCpuWriteAccess);
+    expect(pllCpuWrite.status).toBe("accepted");
+    if (!pllCpuWrite.handled || pllCpuWrite.status !== "accepted") throw new Error("PLL CPU period write refused");
+    expect(pllCpuWrite.state.cpuPerWriteCount).toBe(1);
+    expect(pllCpuWrite.state.cpuPerLastWritePc).toBe(ESP32S3_DIRECT_BOOT_CPU_PER_PLL_RESTORE_WRITE_PC);
+    expect(writeEsp32S3DirectBootSystemMmio(pllCpuWrite.state, pllCpuWriteAccess).status).toBe("refused");
     const repeatedXtalWrite = writeEsp32S3DirectBootSystemMmio(xtalWrite.state, xtalWriteAccess);
     expect(repeatedXtalWrite.status).toBe("refused");
     if (repeatedXtalWrite.handled) expect(repeatedXtalWrite.state).toBe(xtalWrite.state);
