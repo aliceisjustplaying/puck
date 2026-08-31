@@ -8,6 +8,7 @@ import {
   configureEsp32S3DirectAppDataCache,
   configureEsp32S3DirectAppInstructionCache,
   createEsp32S3DirectAppCacheBootstrap,
+  resumeEsp32S3DirectAppDataCache,
   suspendEsp32S3DirectAppDataCache,
   type Esp32S3DirectAppCacheBootstrapState,
 } from "./rom-cache-bootstrap";
@@ -121,6 +122,12 @@ export type FullElfRomEvent = Readonly<
       pc: number;
       cache: "data";
       returnValue: number;
+    }
+  | {
+      kind: "cacheResume";
+      pc: number;
+      cache: "data";
+      argument: number;
     }
 >;
 
@@ -465,6 +472,14 @@ export async function runSparseXtensaElf(
         cache: "data",
         returnValue: words[3],
       }));
+    } else if (words[0] === 6) {
+      assert(words[2] === 2, `unknown resumed cache ${words[2]}`);
+      romEvents.push(Object.freeze({
+        kind: "cacheResume",
+        pc: words[1],
+        cache: "data",
+        argument: words[3],
+      }));
     } else throw new Error(`unknown full ELF ROM event ${words[0]}`);
   }
   let cacheBootstrap = options.rom?.cacheBootstrap
@@ -496,6 +511,18 @@ export async function runSparseXtensaElf(
       cacheBootstrap = suspended.state;
       continue;
     }
+    if (event.kind === "cacheResume") {
+      assert(cacheBootstrap !== null, "full ELF module returned an unconfigured cache resume event");
+      const resumed = resumeEsp32S3DirectAppDataCache(cacheBootstrap, {
+        pc: event.pc,
+        callinc: ESP32S3_ROM_CACHE_CALLINC,
+        arguments: [event.argument],
+      });
+      assert(resumed.handled && resumed.status === "accepted", "full ELF module violated data cache resume contract");
+      assert(resumed.returnValue === null, "data cache resume unexpectedly returned a value");
+      cacheBootstrap = resumed.state;
+      continue;
+    }
     if (event.kind !== "cache") continue;
     assert(cacheBootstrap !== null, "full ELF module returned an unconfigured cache event");
     assert(event.sequenceIndex === cacheBootstrap.sequenceIndex, "cache event sequence index differs");
@@ -509,8 +536,8 @@ export async function runSparseXtensaElf(
     cacheBootstrap = advanced.state;
   }
   if (cacheBootstrap) {
-    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_cache_state(), 60, "ELF cache state");
-    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 15);
+    const statePointer = checkPointer(exports.memory, exports.flexe_wasm_elf_cache_state(), 64, "ELF cache state");
+    const stateWords = new Uint32Array(exports.memory.buffer, statePointer, 16);
     assert(stateWords[0] === cacheBootstrap.sequenceIndex, "cache callback sequence state differs");
     assert(stateWords[1] === cacheBootstrap.registers.dataControl1, "DCache CTRL1 state differs");
     assert(stateWords[2] === cacheBootstrap.registers.dataAutoloadControl, "DCache autoload state differs");
@@ -526,6 +553,10 @@ export async function runSparseXtensaElf(
     assert(stateWords[12] === (cacheBootstrap.dataMode?.sizeBytes ?? 0), "data cache size differs");
     assert(stateWords[13] === (cacheBootstrap.dataMode?.ways ?? 0), "data cache ways differ");
     assert(stateWords[14] === (cacheBootstrap.dataMode?.lineBytes ?? 0), "data cache line size differs");
+    assert(
+      stateWords[15] === (cacheBootstrap.dataSuspendReturn ?? 0xffff_ffff),
+      "data cache suspension return token differs",
+    );
   }
   const captureAddresses = [...(options.capturePages ?? [])];
   assert(new Set(captureAddresses).size === captureAddresses.length, "captured ELF pages must be unique");
