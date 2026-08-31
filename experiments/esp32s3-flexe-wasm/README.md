@@ -68,7 +68,7 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
-decoder plus this experiment's explicit ESP32-S3 patch surface has 389
+decoder plus this experiment's explicit ESP32-S3 patch surface has 393
 normalized mnemonics. With user-register operands distinguished, it covers
 63,532 rows and 329 raw mnemonics; 744 rows and 12 raw mnemonics remain gaps.
 Those gaps are 11 unimplemented `ee.*` PIE forms covering 45 rows and 699
@@ -90,7 +90,8 @@ half-QR transfers, `ee.ldqa.u16.128.ip`, `ee.ldqa.u8.128.ip`,
 `ee.vprelu.s16`, `ee.vprelu.s8`, all signed/unsigned 8/16-bit
 `ee.vmulas.*.accx.ld.ip`, `.ld.xp`, `.ld.ip.qup`, and `.ld.xp.qup` forms, and the four
 `ee.[ldf/stf].128.[ip/xp]`
-forms. It selects
+forms, plus `ee.src.q`, `ee.src.q.qup`, `ee.src.q.ld.ip`, and
+`ee.src.q.ld.xp`. It selects
 those semantics only for the ESP32-S3 experiment
 profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
 represented by flexe's core. The profile also implements per-core UR0/UR1
@@ -208,6 +209,12 @@ halfword compare fixture writes all-ones or zero per signed 16-bit lane, and
 parametric-ReLU fixtures cover signed 16-bit and signed 8-bit lanes with exact
 arithmetic-shift and width behavior. Adjacent compare and ReLU encodings stop
 before execution with unchanged register, trace, and memory state.
+
+QR concatenate-shift fixtures cover SAR_BYTE values 5, 9, and 15, source and
+destination aliases, queue-update ordering, aligned 128-bit loads, signed
+immediate postincrements, and register postincrements from the original
+unaligned base. An adjacent fixed-bit encoding remains a two-byte fail-closed
+instruction in both dynamic and sparse execution.
 
 ACCX QUP fixtures cover signed 16-bit immediate-postincrement and unsigned
 8-bit register-postincrement dot products. They pin 40-bit signed and unsigned
@@ -461,7 +468,7 @@ first undeclared 32-bit MMIO read at
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 1,024 executed instructions. The pinned TinyDraw ELF
-automatically installs the tracked 396-instruction ESP32-S3 ISA gap set before
+automatically installs the tracked 377-instruction ESP32-S3 ISA gap set before
 execution. Each marker must match the decoder-width bytes in loaded executable
 memory during setup; stale, mismatched, unloaded, and non-executable markers are
 refused. Once bound, reaching a marked PC stops before LX6 decoding, including
@@ -531,8 +538,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 71,007 bytes with Zig 0.16.0, SHA-256
-`f240e4d63a5c2fca3285eda66d864212b88cb00762ed3725a33c1747cde007d5`.
+The stripped freestanding module is 91,987 bytes with Zig 0.16.0, SHA-256
+`aab3d8bd00874ba7847c6a7e985568d90c4ded5682d10802add16d8a5d765379`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and

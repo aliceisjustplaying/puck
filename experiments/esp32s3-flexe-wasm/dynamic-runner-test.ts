@@ -576,6 +576,111 @@ assert(
 assert(qrXpRun.record.registers[10] === INITIAL_SOURCE + 11, "QR XP load did not add its register postincrement");
 assert(qrXpRun.record.registers[12] === 8, "QR XP load changed its increment register");
 
+const srcInput = Uint8Array.from({ length: 64 }, (_, index) => (index * 11 + 3) & 0xff);
+const srcShifted = Uint8Array.from([...srcInput.slice(5, 16), ...srcInput.slice(16, 21)]);
+const srcQueueShifted = Uint8Array.from([...srcInput.slice(5, 16), ...srcShifted.slice(0, 5)]);
+const srcExpected = new Uint8Array(64);
+srcExpected.set(srcShifted, 0);
+srcExpected.set(srcShifted, 16);
+srcExpected.set(srcQueueShifted, 32);
+srcExpected.set(srcShifted, 48);
+const srcFixture = conformanceFixture("esp32s3_qr_concatenate_shift", [
+  0xa4, 0x81, 0x83,
+  0xa4, 0x01, 0x93,
+  0x0c, 0x59,
+  0x90, 0x0d, 0xf3,
+  0x04, 0x13, 0xdc,
+  0xb4, 0x01, 0x8a,
+  0x24, 0x13, 0xdc,
+  0xb4, 0x01, 0x9a,
+  0x04, 0x17, 0xdc,
+  0xb4, 0x01, 0x8a,
+  0xb4, 0x81, 0x8a
+]);
+const srcRun = await runFresh(moduleBytes, srcFixture, { data: srcInput, maxSteps: 11 });
+assert(srcRun.record.reason === STOP_REASONS.maxSteps, `QR SRC fixture stopped with ${srcRun.record.reasonName}`);
+assert(srcRun.record.steps === 11, `QR SRC fixture executed ${srcRun.record.steps} instructions`);
+assert(
+  srcRun.dataOutput.every((byte, index) => byte === srcExpected[index]),
+  `QR SRC fixture output changed: ${Buffer.from(srcRun.dataOutput).toString("hex")}`
+);
+assert(srcRun.record.registers[10] === INITIAL_SOURCE + 32, "QR SRC fixture changed its load pointer");
+assert(srcRun.record.registers[11] === INITIAL_DESTINATION + 64, "QR SRC fixture changed its store pointer");
+
+const srcAliasFixture = conformanceFixture("esp32s3_qr_concatenate_shift_aliased_update", [
+  0xa4, 0x81, 0x83,
+  0xa4, 0x01, 0x93,
+  0x14, 0x17, 0xdc,
+  0xb4, 0x81, 0x8a
+]);
+const srcAliasExpected = new Uint8Array(srcInput.length);
+srcAliasExpected.set(srcInput.slice(16, 32));
+const srcAliasRun = await runFresh(moduleBytes, srcAliasFixture, { data: srcInput, maxSteps: 4 });
+assert(srcAliasRun.record.reason === STOP_REASONS.maxSteps, "aliased QR SRC QUP fixture did not finish");
+assert(srcAliasRun.record.steps === 4, "aliased QR SRC QUP fixture executed the wrong instruction count");
+assert(
+  srcAliasRun.dataOutput.every((byte, index) => byte === srcAliasExpected[index]),
+  `aliased QR SRC QUP output changed: ${Buffer.from(srcAliasRun.dataOutput).toString("hex")}`
+);
+
+const srcIpFixture = conformanceFixture("esp32s3_qr_concatenate_shift_immediate_load", [
+  0xa4, 0x81, 0x83,
+  0xa4, 0x7f, 0xd3,
+  0x0c, 0x99,
+  0x90, 0x0d, 0xf3,
+  0x3b, 0xaa,
+  0xae, 0x72, 0xab, 0xe3,
+  0xb4, 0x81, 0x8a,
+  0xb4, 0x81, 0x9a
+]);
+const srcIpInput = srcInput.slice(0, 32);
+const srcIpExpected = Uint8Array.from([...srcIpInput.slice(9, 25), ...srcIpInput.slice(0, 16)]);
+const srcIpRun = await runFresh(moduleBytes, srcIpFixture, { data: srcIpInput, maxSteps: 8 });
+assert(srcIpRun.record.reason === STOP_REASONS.maxSteps, `QR SRC IP fixture stopped with ${srcIpRun.record.reasonName}`);
+assert(srcIpRun.record.steps === 8, `QR SRC IP fixture executed ${srcIpRun.record.steps} instructions`);
+assert(
+  srcIpRun.dataOutput.every((byte, index) => byte === srcIpExpected[index]),
+  `QR SRC IP output changed: ${Buffer.from(srcIpRun.dataOutput).toString("hex")}`
+);
+assert(srcIpRun.record.registers[10] === INITIAL_SOURCE - 29, "QR SRC IP did not sign-extend the unaligned base postincrement");
+assert(srcIpRun.record.registers[11] === INITIAL_DESTINATION + 32, "QR SRC IP changed its store pointer");
+
+const srcXpFixture = conformanceFixture("esp32s3_qr_concatenate_shift_register_load", [
+  0xa4, 0x81, 0x83,
+  0xa4, 0x7f, 0xd3,
+  0x0c, 0xf9,
+  0x90, 0x0d, 0xf3,
+  0x0c, 0x7c,
+  0x3b, 0xaa,
+  0xae, 0x4c, 0x23, 0xe8,
+  0xb4, 0x81, 0x8a,
+  0xb4, 0x81, 0x9a
+]);
+const srcXpExpected = Uint8Array.from([...srcIpInput.slice(15, 31), ...srcIpInput.slice(0, 16)]);
+const srcXpRun = await runFresh(moduleBytes, srcXpFixture, { data: srcIpInput, maxSteps: 9 });
+assert(srcXpRun.record.reason === STOP_REASONS.maxSteps, `QR SRC XP fixture stopped with ${srcXpRun.record.reasonName}`);
+assert(srcXpRun.record.steps === 9, `QR SRC XP fixture executed ${srcXpRun.record.steps} instructions`);
+assert(
+  srcXpRun.dataOutput.every((byte, index) => byte === srcXpExpected[index]),
+  `QR SRC XP output changed: ${Buffer.from(srcXpRun.dataOutput).toString("hex")}`
+);
+assert(srcXpRun.record.registers[10] === INITIAL_SOURCE + 10, "QR SRC XP did not increment the original unaligned base");
+assert(srcXpRun.record.registers[11] === INITIAL_DESTINATION + 32, "QR SRC XP changed its store pointer");
+assert(srcXpRun.record.registers[12] === 7, "QR SRC XP changed its increment register");
+
+const unsupportedSrcIpNeighborFixture = conformanceFixture("esp32s3_unsupported_src_q_ld_ip_neighbor", [
+  0x2e, 0x49, 0x20, 0xe0
+]);
+const unsupportedSrcIpNeighborRun = await runFresh(moduleBytes, unsupportedSrcIpNeighborFixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0x492e }
+});
+assert(unsupportedSrcIpNeighborRun.record.reason === STOP_REASONS.unsupported, `adjacent QR SRC IP form stopped with ${unsupportedSrcIpNeighborRun.record.reasonName}`);
+assert(unsupportedSrcIpNeighborRun.record.steps === 0, "adjacent QR SRC IP form was counted as executed");
+assert(unsupportedSrcIpNeighborRun.record.unsupportedLength === 2, "adjacent QR SRC IP form changed decoder width");
+assert(unsupportedSrcIpNeighborRun.trace.count === 0, "adjacent QR SRC IP form leaked a trace record");
+assert(unsupportedSrcIpNeighborRun.dataOutput.length === 0, "adjacent QR SRC IP form exposed data output");
+
 const halfQrFixture = conformanceFixture("esp32s3_qr_half_load_store", [
   0xa4, 0xa0, 0xfd,
   0xa2, 0xca, 0x13,
@@ -652,7 +757,7 @@ assert(float64IpRun.record.registers[10] === INITIAL_SOURCE + 8, "float-pair loa
 assert(float64IpRun.record.registers[11] === INITIAL_DESTINATION - 8, "float-pair store did not sign-extend its immediate postincrement");
 
 const unsupportedFloat64IpFixture = conformanceFixture("esp32s3_unsupported_float_pair_ip_neighbor", [
-  0x2e, 0x00, 0x10, 0xe0
+  0x2e, 0x00, 0x10, 0xe4
 ]);
 const unsupportedFloat64IpRun = await runFresh(moduleBytes, unsupportedFloat64IpFixture, {
   maxSteps: 1,
@@ -1570,6 +1675,25 @@ const actualBaseline = {
     sourceAfter: `0x${qrXpRun.record.registers[10].toString(16)}`,
     incrementValue: qrXpRun.record.registers[12]
   },
+  srcIsa: {
+    codeSha256: srcFixture.codeSha256,
+    outputHex: Buffer.from(srcRun.dataOutput).toString("hex"),
+    reason: srcRun.record.reasonName,
+    steps: srcRun.record.steps,
+    sourceAfter: `0x${srcRun.record.registers[10].toString(16)}`,
+    destinationAfter: `0x${srcRun.record.registers[11].toString(16)}`,
+    aliasCodeSha256: srcAliasFixture.codeSha256,
+    aliasOutputHex: Buffer.from(srcAliasRun.dataOutput).toString("hex"),
+    immediateCodeSha256: srcIpFixture.codeSha256,
+    immediateOutputHex: Buffer.from(srcIpRun.dataOutput).toString("hex"),
+    immediateSourceAfter: `0x${srcIpRun.record.registers[10].toString(16)}`,
+    registerCodeSha256: srcXpFixture.codeSha256,
+    registerOutputHex: Buffer.from(srcXpRun.dataOutput).toString("hex"),
+    registerSourceAfter: `0x${srcXpRun.record.registers[10].toString(16)}`,
+    neighborCodeSha256: unsupportedSrcIpNeighborFixture.codeSha256,
+    neighborReason: unsupportedSrcIpNeighborRun.record.reasonName,
+    neighborLength: unsupportedSrcIpNeighborRun.record.unsupportedLength
+  },
   halfQrIsa: {
     codeSha256: halfQrFixture.codeSha256,
     outputHex: Buffer.from(halfQrRun.dataOutput).toString("hex"),
@@ -1868,6 +1992,7 @@ assert(
     qrCompareIsa: baseline.qrCompareIsa,
     qrPreluIsa: baseline.qrPreluIsa,
     qrXpIsa: baseline.qrXpIsa,
+    srcIsa: baseline.srcIsa,
     halfQrIsa: baseline.halfQrIsa,
     halfQrXpIsa: baseline.halfQrXpIsa,
     float64XpIsa: baseline.float64XpIsa,
