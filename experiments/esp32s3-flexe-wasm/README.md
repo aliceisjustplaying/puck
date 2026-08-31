@@ -68,10 +68,10 @@ The flexe decoder is `src/xtensa_disasm.c` at the pinned commit, SHA-256
 `68f98a684b964dd36d778f755441242496f624f0ffbc68c789c7c25e2862f3d0`.
 
 That ELF yields 64,276 objdump rows and 341 raw mnemonics. The pinned flexe
-decoder plus this experiment's explicit ESP32-S3 patch surface has 339
+decoder plus this experiment's explicit ESP32-S3 patch surface has 341
 normalized mnemonics. With user-register operands distinguished, it covers
-63,408 rows and 313 raw mnemonics; 868 rows and 28 raw mnemonics remain gaps.
-Those gaps are 27 unimplemented `ee.*` PIE forms covering 169 rows and 699
+63,414 rows and 315 raw mnemonics; 862 rows and 26 raw mnemonics remain gaps.
+Those gaps are 25 unimplemented `ee.*` PIE forms covering 163 rows and 699
 undecodable `.byte` rows. No
 known scalar, QR load/store, THREADPTR, ACCX, QACC, SAR_BYTE, or FFT_BIT_WIDTH
 mnemonic remains in the gap list, and every named user-register form is covered.
@@ -80,8 +80,8 @@ mnemonic remains in the gap list, and every named user-register form is covered.
 `ld.qr`, `st.qr`, `ee.vld.128.ip`, `ee.vld.128.xp`, `ee.vst.128.ip`,
 `ee.vld.l.64.ip`, `ee.vld.h.64.ip`, `ee.vst.h.64.ip`, `ee.vunzip.8`, and
 `ee.vzip.8`, `ee.ldf.64.xp`, `ee.stf.64.xp`, `ee.ld.accx.ip`, and
-`ee.st.accx.ip`, `ee.ld.qacc_h.h.32.ip`, `ee.ld.qacc_l.l.128.ip`, and
-`ee.st.qacc_l.l.128.ip`. It selects
+`ee.st.accx.ip`, `ee.ld.qacc_h.h.32.ip`, `ee.ld.qacc_l.l.128.ip`,
+`ee.st.qacc_l.l.128.ip`, `ee.ld.128.usar.ip`, and `ee.vldbc.32.ip`. It selects
 those semantics only for the ESP32-S3 experiment
 profile. `s32nb` preserves the data-store effect; non-buffered ordering is not
 represented by flexe's core. The profile also implements per-core UR0/UR1
@@ -139,7 +139,7 @@ synthetic caller, restores its stack, and exposes the return value 4 in caller
 register `a10`. A separate fresh run capped at two instructions stops at
 `0x403808f9` before `retw.n`, proving the bound is active.
 
-Seven raw conformance fixtures cover the remaining implemented data operations.
+Eight raw conformance fixtures cover the remaining implemented data operations.
 The scalar fixture copies `0x12345678` with `l32i.n` and `s32nb`, then executes
 `lsip` and `ssip`; both base registers advance by four and the run returns
 after six instructions. The QR fixture copies 16 deterministic bytes with
@@ -165,8 +165,13 @@ state, reads both user-register halves back, and stores the zero-extended value.
 It proves the upper word is masked to eight bits and negative immediates update
 the original unaligned bases. The QACC memory fixture round-trips the low 128
 bits, loads the high bank's upper 32 bits, and proves forced 16-byte/four-byte
-alignment plus signed scaled postincrements. The adjacent USAR transfer remains
-fail-closed with unchanged registers, trace, and output.
+alignment plus signed scaled postincrements.
+
+The aligned-load fixture proves `ee.ld.128.usar.ip` loads from a forced
+16-byte boundary, saves the original low address nibble in SAR_BYTE, and applies
+its signed scaled immediate to the unaligned base. It also proves
+`ee.vldbc.32.ip` broadcasts one aligned word to all four QR lanes. The adjacent
+register-postincrement USAR form remains fail-closed.
 
 The THREADPTR fixture executes the real reset-path `l32r` and
 `wur.threadptr a8` encoding at `0x40375ce4`, reads UR231 back with
@@ -376,7 +381,7 @@ first undeclared 32-bit MMIO read at
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 512 executed instructions. The pinned TinyDraw ELF
-automatically installs the tracked 1,154-instruction ESP32-S3 ISA gap set before
+automatically installs the tracked 1,096-instruction ESP32-S3 ISA gap set before
 execution. Each marker must match the decoder-width bytes in loaded executable
 memory during setup; stale, mismatched, unloaded, and non-executable markers are
 refused. Once bound, reaching a marked PC stops before LX6 decoding, including
@@ -450,8 +455,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 70,658 bytes with Zig 0.16.0, SHA-256
-`acfbc3b95126c6d183a740c6a4c85648bc2bc5f5d6576412d1fb734f10303a35`.
+The stripped freestanding module is 71,007 bytes with Zig 0.16.0, SHA-256
+`f240e4d63a5c2fca3285eda66d864212b88cb00762ed3725a33c1747cde007d5`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and

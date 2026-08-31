@@ -470,9 +470,9 @@ const unsupportedUsarMemoryImage: Elf32XtensaImage = Object.freeze({
   schemaVersion: 1,
   entryPoint: unsupportedUsarMemoryEntry,
   elfBytes: 3,
-  elfSha256: "synthetic-unsupported-ee-ld-128-usar-ip",
+  elfSha256: "synthetic-unsupported-ee-ld-128-usar-xp",
   loadSegments: Object.freeze([
-    syntheticSegment(0, unsupportedUsarMemoryEntry, [0xa4, 0x01, 0x81], 3, {
+    syntheticSegment(0, unsupportedUsarMemoryEntry, [0xa4, 0x0c, 0x8d], 3, {
       read: true,
       write: false,
       execute: true,
@@ -485,12 +485,12 @@ const unsupportedUsarMemoryImage: Elf32XtensaImage = Object.freeze({
 const unsupportedUsarMemoryRun = await runSparseXtensaElf(moduleBytes, unsupportedUsarMemoryImage, {
   initialStack: 0x3fce_a000,
   maxSteps: 1,
-  unsupported: [{ pc: unsupportedUsarMemoryEntry, encoding: 0x8101a4 }],
+  unsupported: [{ pc: unsupportedUsarMemoryEntry, encoding: 0x8d0ca4 }],
 });
 assert.equal(unsupportedUsarMemoryRun.record.reason, FULL_ELF_STOP_REASONS.unsupported);
 assert.equal(unsupportedUsarMemoryRun.record.steps, 0);
 assert.equal(unsupportedUsarMemoryRun.record.unsupportedPc, unsupportedUsarMemoryEntry);
-assert.equal(unsupportedUsarMemoryRun.record.unsupportedEncoding, 0x8101a4);
+assert.equal(unsupportedUsarMemoryRun.record.unsupportedEncoding, 0x8d0ca4);
 assert.equal(unsupportedUsarMemoryRun.record.unsupportedLength, 3);
 assert.deepEqual(unsupportedUsarMemoryRun.trace, []);
 assert.deepEqual(unsupportedUsarMemoryRun.memoryTrace.records, []);
