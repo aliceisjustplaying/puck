@@ -517,26 +517,35 @@ assert(accxMemoryRun.record.registers[11] === (INITIAL_DESTINATION - 5) >>> 0, "
 const qaccMemoryFixture = conformanceFixture("esp32s3_qacc_memory_roundtrip", [
   0x3b, 0xaa,
   0xa4, 0x7f, 0x40,
-  0x3b, 0xbb,
-  0xb4, 0x7f, 0x4c,
+  0xa2, 0xca, 0x13,
+  0xa4, 0x7f, 0x56,
+  0xa2, 0xca, 0x11,
+  0xa4, 0x7f, 0x46,
   0xa2, 0xca, 0x12,
   0xa4, 0x7f, 0x5e,
-  0x60, 0x20, 0xe3
+  0x3b, 0xbb,
+  0xb4, 0x7f, 0x4c,
+  0xb2, 0xcb, 0x13,
+  0xb4, 0x7f, 0x5d,
+  0xb2, 0xcb, 0x11,
+  0xb4, 0x7f, 0x4d,
+  0xb2, 0xcb, 0x12,
+  0xb4, 0x7f, 0x52,
+  0xb0, 0x20, 0xe3,
+  0x60, 0x30, 0xe3
 ]);
-const qaccMemoryInput = Uint8Array.from({ length: 16 }, (_, index) => (index * 9 + 7) & 0xff);
-const qaccMemoryRun = await runFresh(moduleBytes, qaccMemoryFixture, { data: qaccMemoryInput, maxSteps: 7 });
+const qaccMemoryInput = Uint8Array.from({ length: 32 }, (_, index) => (index * 9 + 7) & 0xff);
+const qaccMemoryRun = await runFresh(moduleBytes, qaccMemoryFixture, { data: qaccMemoryInput, maxSteps: 18 });
 assert(qaccMemoryRun.record.reason === STOP_REASONS.maxSteps, `QACC memory fixture stopped with ${qaccMemoryRun.record.reasonName}`);
-assert(qaccMemoryRun.record.steps === 7, `QACC memory fixture executed ${qaccMemoryRun.record.steps} instructions`);
+assert(qaccMemoryRun.record.steps === 18, `QACC memory fixture executed ${qaccMemoryRun.record.steps} instructions`);
 assert(
   qaccMemoryRun.dataOutput.every((byte, index) => byte === qaccMemoryInput[index]),
   `QACC memory fixture changed payload bits: ${Buffer.from(qaccMemoryRun.dataOutput).toString("hex")}`
 );
-assert(qaccMemoryRun.record.registers[10] === INITIAL_SOURCE + 1, "QACC memory loads applied the wrong signed immediates");
-assert(qaccMemoryRun.record.registers[11] === (INITIAL_DESTINATION - 13) >>> 0, "QACC memory store applied the wrong signed immediate");
-assert(
-  qaccMemoryRun.record.registers[2] === 0x463d342b,
-  "QACC high-word load used the wrong aligned source address"
-);
+assert(qaccMemoryRun.record.registers[10] === INITIAL_SOURCE + 17, "QACC memory loads applied the wrong signed immediates");
+assert(qaccMemoryRun.record.registers[11] === INITIAL_DESTINATION + 17, "QACC memory stores applied the wrong signed immediates");
+assert(qaccMemoryRun.record.registers[2] === 0x463d342b, "QACC_L high-word load used the wrong aligned source address");
+assert(qaccMemoryRun.record.registers[3] === 0xd6cdc4bb, "QACC_H high-word load used the wrong aligned source address");
 
 const alignedLoadFixture = conformanceFixture("esp32s3_usar_and_broadcast_loads", [
   0x3b, 0xaa,
@@ -1048,7 +1057,8 @@ const actualBaseline = {
     steps: qaccMemoryRun.record.steps,
     sourceAfter: `0x${qaccMemoryRun.record.registers[10].toString(16)}`,
     destinationAfter: `0x${qaccMemoryRun.record.registers[11].toString(16)}`,
-    highValue: `0x${qaccMemoryRun.record.registers[2].toString(16)}`
+    lowHighValue: `0x${qaccMemoryRun.record.registers[2].toString(16)}`,
+    highHighValue: `0x${qaccMemoryRun.record.registers[3].toString(16)}`
   },
   alignedLoadIsa: {
     codeSha256: alignedLoadFixture.codeSha256,
