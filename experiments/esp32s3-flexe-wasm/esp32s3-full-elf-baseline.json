@@ -9,10 +9,10 @@
     "inheritedPages": 3,
     "initialStack": "0x3fce9700",
     "initialStackProvenance": "gate-harness bootloader.map lines 4588-4592: bootloader_usable_dram_end",
-    "runnerPatchSha256": "810c425414160586f6143425f06b990193e09a619d255da5772e846d7eeb1668",
+    "runnerPatchSha256": "e1d64c0610a79c278e319912cab5db788ea555c4d88802d17ae95b0c7e430a97",
     "esp32s3PatchSha256": "815f8ac67279aaa55775e470b66c7954c895d41d5388fa8de9c6b035e91fea0c",
-    "moduleBytes": 54151,
-    "moduleSha256": "7719a965069916108cfc092bfe896c314f617dfe994ef43a597795c27cab3a7c"
+    "moduleBytes": 55497,
+    "moduleSha256": "355af8bc3967d6ad5a687aaf313546687c933d14eb65894be4f9c3ccd31b4b31"
   },
   "bounded": {
     "reason": "maxSteps",
@@ -88,8 +88,8 @@
     "steps": 216,
     "pc": "0x400018c0",
     "traceSha256": "d87d2060d7eec3522a3c50ce5423bd786372118c53cf9c081709f802f849efa1",
-    "memoryTraceRecords": 0,
-    "memoryTraceSha256": "",
+    "memoryTraceRecords": 297,
+    "memoryTraceSha256": "7c762ad8b09dbaa762d0a4274d256525353810d3b057f190cb5ce53fecb1a320",
     "stackPointer": "0x3fce96c0",
     "registers": [
       "0x00000000", "0x3fce96c0", "0x00000000", "0x00000000",

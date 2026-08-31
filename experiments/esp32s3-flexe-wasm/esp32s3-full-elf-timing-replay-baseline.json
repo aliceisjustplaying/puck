@@ -2,16 +2,16 @@
   "schemaVersion": 1,
   "inputs": {
     "elfSha256": "51cc322381bce60347ca322506c411af17f6b73ef366f3e440d6fdf5c1d5a8e5",
-    "moduleSha256": "7719a965069916108cfc092bfe896c314f617dfe994ef43a597795c27cab3a7c",
-    "traceRecordSha256": "3727f2e81aa033362f9992813e1557d2ed32a320451bf76c8d3d3ba60fae3740",
+    "moduleSha256": "355af8bc3967d6ad5a687aaf313546687c933d14eb65894be4f9c3ccd31b4b31",
+    "traceRecordSha256": "7c762ad8b09dbaa762d0a4274d256525353810d3b057f190cb5ce53fecb1a320",
     "timingProfileSha256": "865ff83c74c126428cfa0b9c6d732db3f0859953489736e4c9a0a483741f30e8",
     "timingMachineSha256": "c35fbbfcd9a01649f0ada4bef3bbb46dda999bb169f61bd9ef1f532c2eadd7de",
     "adapterSha256": "ba5aeb0305b8fc358bdc89935dcbee8ace09dede969089e3173b82d2e82d895b"
   },
   "trace": {
-    "records": 274,
-    "instructions": 199,
-    "reads": 51,
+    "records": 297,
+    "instructions": 216,
+    "reads": 57,
     "writes": 24,
     "observedSramPages": [
       "0x3fcab000",
@@ -26,12 +26,12 @@
   "replay": {
     "status": "blocked",
     "totalCycles": null,
-    "issuedEvents": 473,
-    "sramEvents": 248,
-    "mmioEvents": 26,
-    "cpuEvents": 199,
-    "knownCostEvents": 248,
-    "unknownCostEvents": 225,
-    "issuedProjectionSha256": "579df197110724b0612f10f9af06000c20c731d6fdc8d391121b5582aaac18cf"
+    "issuedEvents": 513,
+    "sramEvents": 270,
+    "mmioEvents": 27,
+    "cpuEvents": 216,
+    "knownCostEvents": 270,
+    "unknownCostEvents": 243,
+    "issuedProjectionSha256": "b28336e6347ec9c7f44e5c2d9b880e67ce583f2bc21d2224bf122aa119d3ffd9"
   }
 }

@@ -299,11 +299,13 @@ first undeclared 32-bit MMIO read at
 `0x600c4064` with flags zero. No cache or MMIO behavior is implied.
 
 An explicit cache-bootstrap run maps only the required cache-controller MMIO
-page and enables seven exact ROM callbacks. The callbacks validate their
+page and accepts nine exact cache ROM invocations across seven callback
+addresses. The callbacks validate their
 argument shapes and cache state transitions, retain typed ROM events outside
 the instruction trace, and configure the observed 16 KiB, 8-way, 32-byte-line
-instruction-cache mode. The real entry advances through 199 decoded
-instructions and stops at `rom_Cache_Suspend_DCache` at `0x400018b4`.
+instruction-cache mode, suspends the data cache, and configures its observed
+32 KiB, 8-way, 64-byte-line mode. The real entry advances through 216 decoded
+instructions and stops at `rom_Cache_Resume_DCache` at `0x400018c0`.
 
 Full-image runs accept at most 768 pages, 2,048 unsupported instruction
 markers, 64 ROM events, and 256 executed instructions. The pinned TinyDraw ELF
@@ -321,17 +323,17 @@ trace using the dynamic runner's existing binary ABI. It records each committed
 instruction plus mapped 8-, 16-, and 32-bit reads and writes with issuing PC,
 address, value, and width. ROM callbacks do not enter this trace. A fault,
 unsupported instruction, decoder failure, or overflow restores the CPU and
-trace checkpoint together, so no partial instruction survives. The 199-step
-cache-bootstrap boundary produces 274 records with a pinned SHA-256, and a
+trace checkpoint together, so no partial instruction survives. The 216-step
+cache-bootstrap boundary produces 297 records with a pinned SHA-256, and a
 cross-page SRAM regression checks the exact 32-bit value and address.
 
 `full-elf-timing-replay-test.ts` feeds that committed boot trace through the
 same neutral adapter and `TimingMachine` used by the RGB565 replay. Its address
 map contains only the six SRAM pages observed in the trace, with their ELF or
 inherited permissions, plus the explicitly modeled cache-controller MMIO page.
-The 274 records issue 473 timing events: 248 SRAM operations, 26 MMIO accesses,
-and 199 calibrated CPU issue events. Exactly 248 events have adopted costs.
-The 199 internal-IRAM fetch costs and 26 cache-controller MMIO costs remain
+The 297 records issue 513 timing events: 270 SRAM operations, 27 MMIO accesses,
+and 216 calibrated CPU issue events. Exactly 270 events have adopted costs.
+The 216 internal-IRAM fetch costs and 27 cache-controller MMIO costs remain
 unknown, so the replay is blocked and reports no total cycle claim.
 An executable-permission miss and an unloaded page have distinct recoverable
 stop reasons. `esp32s3-full-elf-baseline.json` pins the image, module, patch,
@@ -370,8 +372,8 @@ probe.
 
 ## Loader result and remaining blockers
 
-The stripped freestanding module is 54,151 bytes with Zig 0.16.0, SHA-256
-`7719a965069916108cfc092bfe896c314f617dfe994ef43a597795c27cab3a7c`.
+The stripped freestanding module is 55,497 bytes with Zig 0.16.0, SHA-256
+`355af8bc3967d6ad5a687aaf313546687c933d14eb65894be4f9c3ccd31b4b31`.
 It imports only `env.js_log` and exports `memory`, `flexe_wasm_probe`,
 the code input and capacity functions, `flexe_wasm_run`, the data input, output,
 and capacity functions, `flexe_wasm_run_data`, the memory trace surface, and
