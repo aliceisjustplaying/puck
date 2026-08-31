@@ -187,8 +187,8 @@ cache activity; the distinct 835-cycle warmed repeat is retained but not general
 ## What remains before a cycle-accurate claim
 
 - A complete ESP32-S3 LX7 execution core is missing. The pinned flexe core has a
-  bounded S3 patch and leaves 849 unsupported panel-inventory rows plus 4,628
-  full-image rows represented by 916 fail-closed markers. Static inventory is
+  bounded S3 patch and leaves 774 unsupported panel-inventory rows plus 4,302
+  full-image rows represented by 590 fail-closed markers. Static inventory is
   not whole-program execution coverage.
 - The flexe runner loads bounded real-ELF `PT_LOAD` pages and reaches 659 real
   instructions. Its current timing replay emits 1,614 events and adopts exact

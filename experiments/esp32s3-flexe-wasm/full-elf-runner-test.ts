@@ -456,6 +456,41 @@ assert.deepEqual(
   "adjacent float-pair IP refusal changed full-ELF registers",
 );
 
+const unsupportedVmulasQupEntry = 0x4037_21c0;
+const unsupportedVmulasQupImage: Elf32XtensaImage = Object.freeze({
+  schemaVersion: 1,
+  entryPoint: unsupportedVmulasQupEntry,
+  elfBytes: 4,
+  elfSha256: "synthetic-unsupported-ee-vmulas-s16-qacc-ld-ip-qup",
+  loadSegments: Object.freeze([
+    syntheticSegment(0, unsupportedVmulasQupEntry, [0xae, 0x5f, 0x34, 0x1c], 4, {
+      read: true,
+      write: false,
+      execute: true,
+    }),
+    syntheticSegment(1, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
+  ]),
+  totalFileBytes: 4,
+  totalMemoryBytes: 0x1004,
+});
+const unsupportedVmulasQupRun = await runSparseXtensaElf(moduleBytes, unsupportedVmulasQupImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 1,
+  unsupported: [{ pc: unsupportedVmulasQupEntry, encoding: 0x5fae }],
+});
+assert.equal(unsupportedVmulasQupRun.record.reason, FULL_ELF_STOP_REASONS.unsupported);
+assert.equal(unsupportedVmulasQupRun.record.steps, 0);
+assert.equal(unsupportedVmulasQupRun.record.unsupportedPc, unsupportedVmulasQupEntry);
+assert.equal(unsupportedVmulasQupRun.record.unsupportedEncoding, 0x5fae);
+assert.equal(unsupportedVmulasQupRun.record.unsupportedLength, 2);
+assert.deepEqual(unsupportedVmulasQupRun.trace, []);
+assert.deepEqual(unsupportedVmulasQupRun.memoryTrace.records, []);
+assert.deepEqual(
+  unsupportedVmulasQupRun.record.registers,
+  [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "adjacent VMULAS QACC QUP refusal changed full-ELF registers",
+);
+
 const unsupportedQaccLaneEntry = 0x4037_2200;
 const unsupportedQaccLaneImage: Elf32XtensaImage = Object.freeze({
   schemaVersion: 1,

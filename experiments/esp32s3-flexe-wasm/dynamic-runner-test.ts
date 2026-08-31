@@ -706,6 +706,92 @@ assert(
   "adjacent float MAC refusal changed registers"
 );
 
+const signedVmulasQupFixture = conformanceFixture("esp32s3_vmulas_s16_accx_ld_ip_qup", [
+  0xa4, 0x81, 0x83,
+  0xa4, 0x01, 0x93,
+  0xa4, 0x81, 0x93,
+  0xa4, 0x01, 0xa3,
+  0x0c, 0x19,
+  0x90, 0x0d, 0xf3,
+  0xae, 0x5f, 0x34, 0x0c,
+  0x00, 0xc0, 0xe3,
+  0x10, 0xd0, 0xe3,
+  0xb4, 0x81, 0x9a
+]);
+const signedVmulasInput = new Uint8Array(80);
+const signedVmulasView = new DataView(signedVmulasInput.buffer);
+const signedVmulasX = [1, -2, 300, -400, 5, 6, -7, 8];
+const signedVmulasY = [9, 10, -11, -12, 13, -14, 15, 16];
+signedVmulasX.forEach((value, lane) => signedVmulasView.setInt16(lane * 2, value, true));
+signedVmulasY.forEach((value, lane) => signedVmulasView.setInt16(16 + lane * 2, value, true));
+for (let index = 32; index < signedVmulasInput.length; index++) signedVmulasInput[index] = index + 1;
+const signedVmulasExpected = new Uint8Array(80);
+signedVmulasExpected.set(signedVmulasInput.slice(33, 49));
+const signedVmulasRun = await runFresh(moduleBytes, signedVmulasQupFixture, {
+  data: signedVmulasInput,
+  maxSteps: 10
+});
+assert(signedVmulasRun.record.reason === STOP_REASONS.maxSteps, `signed VMULAS QUP fixture stopped with ${signedVmulasRun.record.reasonName} after ${signedVmulasRun.record.steps} at 0x${signedVmulasRun.record.pc.toString(16)}`);
+assert(signedVmulasRun.record.steps === 10, `signed VMULAS QUP fixture executed ${signedVmulasRun.record.steps} instructions`);
+assert(
+  signedVmulasRun.dataOutput.every((byte, index) => byte === signedVmulasExpected[index]),
+  `signed VMULAS QUP output changed: ${Buffer.from(signedVmulasRun.dataOutput).toString("hex")}`
+);
+assert(signedVmulasRun.record.registers[10] === INITIAL_SOURCE + 48, "signed VMULAS QUP applied the wrong immediate");
+assert(signedVmulasRun.record.registers[11] === INITIAL_DESTINATION + 16, "signed VMULAS QUP store applied the wrong immediate");
+assert(signedVmulasRun.record.registers[12] === 1493, "signed VMULAS QUP produced the wrong ACCX low word");
+assert(signedVmulasRun.record.registers[13] === 0, "signed VMULAS QUP produced the wrong ACCX high byte");
+
+const unsignedVmulasQupFixture = conformanceFixture("esp32s3_vmulas_u8_accx_ld_xp_qup", [
+  0xa4, 0x81, 0x83,
+  0xa4, 0x01, 0x93,
+  0xa4, 0x81, 0x93,
+  0xa4, 0x01, 0xa3,
+  0x7c, 0xf9,
+  0x90, 0x00, 0xf3,
+  0x90, 0x01, 0xf3,
+  0x0c, 0x19,
+  0x90, 0x0d, 0xf3,
+  0xae, 0x5c, 0x34, 0xc8,
+  0x00, 0xc0, 0xe3,
+  0x10, 0xd0, 0xe3,
+  0xb4, 0x81, 0x9a
+]);
+const unsignedVmulasInput = Uint8Array.from({ length: 80 }, (_, index) => index + 1);
+const unsignedVmulasExpected = new Uint8Array(80);
+unsignedVmulasExpected.set(unsignedVmulasInput.slice(33, 49));
+const unsignedVmulasRun = await runFresh(moduleBytes, unsignedVmulasQupFixture, {
+  data: unsignedVmulasInput,
+  maxSteps: 13
+});
+assert(unsignedVmulasRun.record.reason === STOP_REASONS.maxSteps, `unsigned VMULAS QUP fixture stopped with ${unsignedVmulasRun.record.reasonName}`);
+assert(unsignedVmulasRun.record.steps === 13, `unsigned VMULAS QUP fixture executed ${unsignedVmulasRun.record.steps} instructions`);
+assert(
+  unsignedVmulasRun.dataOutput.every((byte, index) => byte === unsignedVmulasExpected[index]),
+  `unsigned VMULAS QUP output changed: ${Buffer.from(unsignedVmulasRun.dataOutput).toString("hex")}`
+);
+assert(unsignedVmulasRun.record.registers[10] === INITIAL_SOURCE + 104, "unsigned VMULAS QUP applied the wrong register increment");
+assert(unsignedVmulasRun.record.registers[12] === 0xffff_ffff, "unsigned VMULAS QUP did not saturate ACCX low");
+assert(unsignedVmulasRun.record.registers[13] === 0xff, "unsigned VMULAS QUP did not saturate ACCX high");
+
+const unsupportedVmulasQupFixture = conformanceFixture("esp32s3_unsupported_vmulas_s16_qacc_ld_ip_qup", [
+  0xae, 0x5f, 0x34, 0x1c
+]);
+const unsupportedVmulasQupRun = await runFresh(moduleBytes, unsupportedVmulasQupFixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0x5fae }
+});
+assert(unsupportedVmulasQupRun.record.reason === STOP_REASONS.unsupported, "adjacent VMULAS QACC QUP form did not fail closed");
+assert(unsupportedVmulasQupRun.record.steps === 0, "adjacent VMULAS QACC QUP form was counted as executed");
+assert(unsupportedVmulasQupRun.trace.count === 0, "adjacent VMULAS QACC QUP refusal leaked a trace record");
+assert(unsupportedVmulasQupRun.dataOutput.length === 0, "adjacent VMULAS QACC QUP refusal exposed data output");
+assert(
+  unsupportedVmulasQupRun.record.registers.every(
+    (value, index) => value === initialRegisters(unsupportedVmulasQupRun.record.returnPc)[index]
+  ),
+  "adjacent VMULAS QACC QUP refusal changed registers"
+);
+
 const accxMemoryFixture = conformanceFixture("esp32s3_accx_memory_roundtrip", [
   0x3b, 0xaa,
   0xa4, 0x7f, 0x4e,
@@ -1427,6 +1513,25 @@ const actualBaseline = {
     unsupportedReason: unsupportedFloatMacRun.record.reasonName,
     unsupportedEncoding: `0x${unsupportedFloatMacRun.record.unsupportedEncoding.toString(16)}`
   },
+  vmulasQupIsa: {
+    signedCodeSha256: signedVmulasQupFixture.codeSha256,
+    signedOutputHex: Buffer.from(signedVmulasRun.dataOutput).toString("hex"),
+    signedReason: signedVmulasRun.record.reasonName,
+    signedSteps: signedVmulasRun.record.steps,
+    signedSourceAfter: `0x${signedVmulasRun.record.registers[10].toString(16)}`,
+    signedAccxLow: `0x${signedVmulasRun.record.registers[12].toString(16)}`,
+    signedAccxHigh: `0x${signedVmulasRun.record.registers[13].toString(16)}`,
+    unsignedCodeSha256: unsignedVmulasQupFixture.codeSha256,
+    unsignedOutputHex: Buffer.from(unsignedVmulasRun.dataOutput).toString("hex"),
+    unsignedReason: unsignedVmulasRun.record.reasonName,
+    unsignedSteps: unsignedVmulasRun.record.steps,
+    unsignedSourceAfter: `0x${unsignedVmulasRun.record.registers[10].toString(16)}`,
+    unsignedAccxLow: `0x${unsignedVmulasRun.record.registers[12].toString(16)}`,
+    unsignedAccxHigh: `0x${unsignedVmulasRun.record.registers[13].toString(16)}`,
+    unsupportedCodeSha256: unsupportedVmulasQupFixture.codeSha256,
+    unsupportedReason: unsupportedVmulasQupRun.record.reasonName,
+    unsupportedEncoding: `0x${unsupportedVmulasQupRun.record.unsupportedEncoding.toString(16)}`
+  },
   accxMemoryIsa: {
     codeSha256: accxMemoryFixture.codeSha256,
     outputHex: Buffer.from(accxMemoryRun.dataOutput).toString("hex"),
@@ -1634,6 +1739,7 @@ assert(
     float64XpIsa: baseline.float64XpIsa,
     float64IpIsa: baseline.float64IpIsa,
     float128Isa: baseline.float128Isa,
+    vmulasQupIsa: baseline.vmulasQupIsa,
     accxMemoryIsa: baseline.accxMemoryIsa,
     qaccMemoryIsa: baseline.qaccMemoryIsa,
     uaMemoryIsa: baseline.uaMemoryIsa,
