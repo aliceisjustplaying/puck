@@ -182,6 +182,14 @@ export type RomCallbackProfileCost =
       cycles: number;
     }>
   | Readonly<{
+      kind: "intlevelRestore";
+      pc: string;
+      restorePs: string;
+      previousPs: string;
+      callinc: number;
+      cycles: number;
+    }>
+  | Readonly<{
       kind: "bbpllRomWrite";
       pc: string;
       block: number;
@@ -795,6 +803,27 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
         cycles: positiveSafeInteger(object.cycles, `${path}.cycles`),
       });
     }
+    if (object.kind === "intlevelRestore") {
+      exactKeys(object, ["kind", "pc", "restorePs", "previousPs", "callinc", "cycles"], path);
+      const pc = stringAt(object.pc, `${path}.pc`);
+      const restorePs = stringAt(object.restorePs, `${path}.restorePs`);
+      const previousPs = stringAt(object.previousPs, `${path}.previousPs`);
+      if (!/^0x[0-9a-f]{8}$/.test(pc)) throw new Error(`${path}.pc must be one canonical lowercase 32-bit hex address`);
+      if (!/^0x[0-9a-f]{8}$/.test(restorePs)) {
+        throw new Error(`${path}.restorePs must be one canonical lowercase 32-bit hex value`);
+      }
+      if (!/^0x[0-9a-f]{8}$/.test(previousPs)) {
+        throw new Error(`${path}.previousPs must be one canonical lowercase 32-bit hex value`);
+      }
+      return Object.freeze({
+        kind: "intlevelRestore",
+        pc,
+        restorePs,
+        previousPs,
+        callinc: uint32At(object.callinc, `${path}.callinc`),
+        cycles: positiveSafeInteger(object.cycles, `${path}.cycles`),
+      });
+    }
     if (object.kind === "bbpllRomWrite") {
       exactKeys(object, [
         "kind",
@@ -828,7 +857,7 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
         cycles: positiveSafeInteger(object.cycles, `${path}.cycles`),
       });
     }
-    throw new Error(`${path}.kind must be memset, cpuTicksPerUs, or bbpllRomWrite`);
+    throw new Error(`${path}.kind must be memset, cpuTicksPerUs, intlevelRestore, or bbpllRomWrite`);
   });
   const romCallbackKeys = romCallbackEntries.map((entry) => {
     if (entry.kind === "memset") {
@@ -836,6 +865,9 @@ export function parseTimingProfile(value: unknown): TimingProfileV1 {
     }
     if (entry.kind === "cpuTicksPerUs") {
       return `${entry.pc}:${entry.kind}:${entry.ticksPerUs}:${entry.callinc}`;
+    }
+    if (entry.kind === "intlevelRestore") {
+      return `${entry.pc}:${entry.kind}:${entry.restorePs}:${entry.previousPs}:${entry.callinc}`;
     }
     return `${entry.pc}:${entry.kind}:${entry.block}:${entry.hostId}:${entry.register}:${entry.data}:` +
       `${entry.callinc}:${entry.currentIntlevel}:${entry.priorIntlevelRestoreCount}:${entry.priorWriteCount}`;

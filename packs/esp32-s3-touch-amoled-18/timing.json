@@ -158,7 +158,7 @@
   },
   "romCallbackCycles": {
     "status": "partially-calibrated",
-    "evidence": "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-0a41b6f-bbpll-rom-callback-adoption.json",
+    "evidence": "packs/esp32-s3-touch-amoled-18/timing/evidence/esp32s3-rev02-tinydraw-d42615b-xtos-intlevel-adoption.json",
     "entries": [
       {
         "kind": "memset",
@@ -182,6 +182,14 @@
         "ticksPerUs": 40,
         "callinc": 2,
         "cycles": 9
+      },
+      {
+        "kind": "intlevelRestore",
+        "pc": "0x40001c38",
+        "restorePs": "0x00040c00",
+        "previousPs": "0x00040c03",
+        "callinc": 2,
+        "cycles": 15
       },
       {
         "kind": "bbpllRomWrite",
