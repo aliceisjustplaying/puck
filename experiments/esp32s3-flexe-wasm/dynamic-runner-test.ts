@@ -668,6 +668,106 @@ assert(srcXpRun.record.registers[10] === INITIAL_SOURCE + 10, "QR SRC XP did not
 assert(srcXpRun.record.registers[11] === INITIAL_DESTINATION + 32, "QR SRC XP changed its store pointer");
 assert(srcXpRun.record.registers[12] === 7, "QR SRC XP changed its increment register");
 
+const shift2qInput = Uint8Array.from({ length: 32 }, (_, index) => (index * 17 + 5) & 0xff);
+const shift2qImmediateLeftFixture = conformanceFixture("esp32s3_qr_pair_immediate_left_shift", [
+  0xa4, 0x01, 0x83,
+  0xa4, 0x81, 0x83,
+  0x04, 0x86, 0xcc,
+  0xb4, 0x01, 0x8a,
+  0xb4, 0x81, 0x8a
+]);
+const shift2qImmediateLeftExpected = new Uint8Array(32);
+shift2qImmediateLeftExpected.set(shift2qInput.slice(0, 31), 1);
+const shift2qImmediateLeftRun = await runFresh(moduleBytes, shift2qImmediateLeftFixture, {
+  data: shift2qInput,
+  maxSteps: 5
+});
+assert(shift2qImmediateLeftRun.record.reason === STOP_REASONS.maxSteps, "immediate left two-QR shift did not finish");
+assert(shift2qImmediateLeftRun.record.steps === 5, "immediate left two-QR shift executed the wrong instruction count");
+assert(
+  shift2qImmediateLeftRun.dataOutput.every((byte, index) => byte === shift2qImmediateLeftExpected[index]),
+  `immediate left two-QR shift output changed: ${Buffer.from(shift2qImmediateLeftRun.dataOutput).toString("hex")}`
+);
+
+const shift2qImmediateRightFixture = conformanceFixture("esp32s3_qr_pair_immediate_right_shift", [
+  0xa4, 0x01, 0x83,
+  0xa4, 0x81, 0x83,
+  0xf4, 0x8a, 0xcc,
+  0xb4, 0x01, 0x8a,
+  0xb4, 0x81, 0x8a
+]);
+const shift2qImmediateRightExpected = new Uint8Array(32);
+shift2qImmediateRightExpected.set(shift2qInput.slice(16, 32));
+const shift2qImmediateRightRun = await runFresh(moduleBytes, shift2qImmediateRightFixture, {
+  data: shift2qInput,
+  maxSteps: 5
+});
+assert(shift2qImmediateRightRun.record.reason === STOP_REASONS.maxSteps, "immediate right two-QR shift did not finish");
+assert(shift2qImmediateRightRun.record.steps === 5, "immediate right two-QR shift executed the wrong instruction count");
+assert(
+  shift2qImmediateRightRun.dataOutput.every((byte, index) => byte === shift2qImmediateRightExpected[index]),
+  `immediate right two-QR shift output changed: ${Buffer.from(shift2qImmediateRightRun.dataOutput).toString("hex")}`
+);
+
+const shift2qRegisterLeftFixture = conformanceFixture("esp32s3_qr_pair_register_left_shift", [
+  0xa4, 0x01, 0x93,
+  0xa4, 0x81, 0x93,
+  0x0c, 0x4d,
+  0x0c, 0x3e,
+  0xd4, 0xae, 0x96,
+  0xb4, 0x01, 0x9a,
+  0xb4, 0x81, 0x9a
+]);
+const shift2qRegisterLeftExpected = new Uint8Array(32);
+shift2qRegisterLeftExpected.set(shift2qInput.slice(0, 27), 5);
+const shift2qRegisterLeftRun = await runFresh(moduleBytes, shift2qRegisterLeftFixture, {
+  data: shift2qInput,
+  maxSteps: 7
+});
+assert(shift2qRegisterLeftRun.record.reason === STOP_REASONS.maxSteps, "register left two-QR shift did not finish");
+assert(shift2qRegisterLeftRun.record.steps === 7, "register left two-QR shift executed the wrong instruction count");
+assert(
+  shift2qRegisterLeftRun.dataOutput.every((byte, index) => byte === shift2qRegisterLeftExpected[index]),
+  `register left two-QR shift output changed: ${Buffer.from(shift2qRegisterLeftRun.dataOutput).toString("hex")}`
+);
+assert(shift2qRegisterLeftRun.record.registers[13] === 7, "SLCXXP.2Q did not update its source register");
+
+const shift2qRegisterRightFixture = conformanceFixture("esp32s3_qr_pair_register_right_shift", [
+  0xa4, 0x01, 0xa3,
+  0xa4, 0x81, 0xa3,
+  0x0c, 0xf9,
+  0x7c, 0xe7,
+  0x94, 0xc7, 0xe6,
+  0xb4, 0x01, 0xaa,
+  0xb4, 0x81, 0xaa
+]);
+const shift2qRegisterRightExpected = new Uint8Array(32);
+shift2qRegisterRightExpected.set(shift2qInput.slice(16, 32));
+const shift2qRegisterRightRun = await runFresh(moduleBytes, shift2qRegisterRightFixture, {
+  data: shift2qInput,
+  maxSteps: 7
+});
+assert(shift2qRegisterRightRun.record.reason === STOP_REASONS.maxSteps, "register right two-QR shift did not finish");
+assert(shift2qRegisterRightRun.record.steps === 7, "register right two-QR shift executed the wrong instruction count");
+assert(
+  shift2qRegisterRightRun.dataOutput.every((byte, index) => byte === shift2qRegisterRightExpected[index]),
+  `register right two-QR shift output changed: ${Buffer.from(shift2qRegisterRightRun.dataOutput).toString("hex")}`
+);
+assert(shift2qRegisterRightRun.record.registers[9] === 13, "SRCXXP.2Q did not update its source register");
+
+const unsupportedShift2qNeighborFixture = conformanceFixture("esp32s3_unsupported_qr_pair_shift_neighbor", [
+  0x04, 0x8e, 0xcc
+]);
+const unsupportedShift2qNeighborRun = await runFresh(moduleBytes, unsupportedShift2qNeighborFixture, {
+  maxSteps: 1,
+  unsupported: { offset: 0, encoding: 0xcc8e04 }
+});
+assert(unsupportedShift2qNeighborRun.record.reason === STOP_REASONS.unsupported, "adjacent two-QR shift did not fail closed");
+assert(unsupportedShift2qNeighborRun.record.steps === 0, "adjacent two-QR shift was counted as executed");
+assert(unsupportedShift2qNeighborRun.record.unsupportedLength === 3, "adjacent two-QR shift changed decoder width");
+assert(unsupportedShift2qNeighborRun.trace.count === 0, "adjacent two-QR shift leaked a trace record");
+assert(unsupportedShift2qNeighborRun.dataOutput.length === 0, "adjacent two-QR shift exposed data output");
+
 const unsupportedSrcIpNeighborFixture = conformanceFixture("esp32s3_unsupported_src_q_ld_ip_neighbor", [
   0x2e, 0x49, 0x20, 0xe0
 ]);
@@ -1455,7 +1555,7 @@ assert(threadptrRun.record.reason === STOP_REASONS.returned, `THREADPTR fixture 
 assert(threadptrRun.record.steps === 5, `THREADPTR fixture executed ${threadptrRun.record.steps} instructions`);
 assert(
   threadptrRun.record.registers[10] === 0x3fcabf20,
-  `THREADPTR round trip returned 0x${threadptrRun.record.registers[10].toString(16)}`
+  `THREADPTR round trip returned 0x${threadptrRun.record.registers[10].toString(16)} from a8=0x${threadptrRun.record.registers[8].toString(16)}`
 );
 
 const accxFixture = conformanceFixture("esp32s3_accx_roundtrip", [
@@ -1885,6 +1985,25 @@ const actualBaseline = {
     neighborReason: unsupportedSrcIpNeighborRun.record.reasonName,
     neighborLength: unsupportedSrcIpNeighborRun.record.unsupportedLength
   },
+  shift2qIsa: {
+    immediateLeftCodeSha256: shift2qImmediateLeftFixture.codeSha256,
+    immediateLeftOutputHex: Buffer.from(shift2qImmediateLeftRun.dataOutput).toString("hex"),
+    immediateLeftReason: shift2qImmediateLeftRun.record.reasonName,
+    immediateRightCodeSha256: shift2qImmediateRightFixture.codeSha256,
+    immediateRightOutputHex: Buffer.from(shift2qImmediateRightRun.dataOutput).toString("hex"),
+    immediateRightReason: shift2qImmediateRightRun.record.reasonName,
+    registerLeftCodeSha256: shift2qRegisterLeftFixture.codeSha256,
+    registerLeftOutputHex: Buffer.from(shift2qRegisterLeftRun.dataOutput).toString("hex"),
+    registerLeftReason: shift2qRegisterLeftRun.record.reasonName,
+    registerRightCodeSha256: shift2qRegisterRightFixture.codeSha256,
+    registerRightOutputHex: Buffer.from(shift2qRegisterRightRun.dataOutput).toString("hex"),
+    registerRightReason: shift2qRegisterRightRun.record.reasonName,
+    leftSourceAfter: shift2qRegisterLeftRun.record.registers[13],
+    rightSourceAfter: shift2qRegisterRightRun.record.registers[9],
+    neighborCodeSha256: unsupportedShift2qNeighborFixture.codeSha256,
+    neighborReason: unsupportedShift2qNeighborRun.record.reasonName,
+    neighborLength: unsupportedShift2qNeighborRun.record.unsupportedLength
+  },
   halfQrIsa: {
     codeSha256: halfQrFixture.codeSha256,
     outputHex: Buffer.from(halfQrRun.dataOutput).toString("hex"),
@@ -2237,6 +2356,7 @@ assert(
     qrPreluIsa: baseline.qrPreluIsa,
     qrXpIsa: baseline.qrXpIsa,
     srcIsa: baseline.srcIsa,
+    shift2qIsa: baseline.shift2qIsa,
     halfQrIsa: baseline.halfQrIsa,
     halfQrXpIsa: baseline.halfQrXpIsa,
     float64XpIsa: baseline.float64XpIsa,

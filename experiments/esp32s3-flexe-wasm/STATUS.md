@@ -12,10 +12,10 @@ the integration branch is `codex/esp32s3-timing-model`, and the GitHub remote is
   eleventh `_xtos_set_intlevel` boundary.
 - Timing replay: 2,296 events, 2,263 classified, 33 unknown, and 12 exact ROM
   callbacks.
-- ISA coverage: 63,567 supported rows and 709 gaps in the panel corpus; 3,857
+- ISA coverage: 63,567 supported rows and 709 gaps in the panel corpus; 3,831
   unsupported rows in the full corpus.
-- WebAssembly module: 93,998 bytes, SHA-256
-  `54c601ab9fa2a57f82c62e65f0d5810889055a09ffc209010f87ac00839dc3aa`.
+- WebAssembly module: 95,254 bytes, SHA-256
+  `c0e2284de56cda840e23febef227f0fe5b8630da697052c6f507460a83947be2`.
 - Browser smoke: a real browser loads the freestanding module and a bounded
   Xtensa ELF, executes one instruction, and returns `a3 = 40` at `0x40371003`.
 - Gates: aggregate experiment suite, 293 Bun tests, headless Chrome verifier,

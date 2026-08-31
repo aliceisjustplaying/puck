@@ -94,7 +94,7 @@ index 2bf72be..2fdc935 100644
                  reason = PROBE_STOP_UNLOADED_PAGE;
                  break;
 diff --git a/src/xtensa.c b/src/xtensa.c
-index 67dca18..cffb9dc 100644
+index 67dca18..c18d523 100644
 --- a/src/xtensa.c
 +++ b/src/xtensa.c
 @@ -141,19 +141,59 @@ int xtensa_fetch_inline(const xtensa_cpu_t *cpu, uint32_t addr, uint32_t *insn_o
@@ -292,7 +292,7 @@ index 67dca18..cffb9dc 100644
          default: break;
          }
          break;
-@@ -2080,6 +2205,745 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
+@@ -2080,6 +2205,801 @@ void exec_mac16(xtensa_cpu_t *cpu, uint32_t insn) {
      }
  }
 
@@ -422,6 +422,24 @@ index 67dca18..cffb9dc 100644
 +        unsigned source = i + shift_bytes;
 +        output[i] = source < 16 ? low[source] : high[source - 16];
 +    }
++}
++
++static inline void esp32s3_qr_shift_2q(uint8_t output_low[16],
++                                       uint8_t output_high[16],
++                                       const uint8_t input_low[16],
++                                       const uint8_t input_high[16],
++                                       unsigned shift_bytes,
++                                       bool left_shift) {
++    uint8_t input[32], output[32];
++    memcpy(input, input_low, 16);
++    memcpy(input + 16, input_high, 16);
++    for (unsigned i = 0; i < 32; i++) {
++        int source = left_shift ? (int)i - (int)shift_bytes
++                                : (int)i + (int)shift_bytes;
++        output[i] = source >= 0 && source < 32 ? input[source] : 0;
++    }
++    memcpy(output_low, output, 16);
++    memcpy(output_high, output + 16, 16);
 +}
 +
 +static inline void esp32s3_copy_from_memory(xtensa_cpu_t *cpu, uint8_t *output,
@@ -675,6 +693,44 @@ index 67dca18..cffb9dc 100644
 +        if (vmulas_qup)
 +            esp32s3_qr_shift_pair(cpu->qr[shift_low_q], shift_low_value,
 +                                 shift_high_value, cpu->sar_byte & 15u);
++        return 1;
++    }
++
++    uint32_t shift_2q_immediate = insn & 0xcf0f0fu;
++    uint32_t shift_2q_register = insn & 0xcf000fu;
++    bool shift_2q_immediate_match = shift_2q_immediate == 0xcc0604u ||
++                                    shift_2q_immediate == 0xcc0a04u;
++    bool shift_2q_register_match = shift_2q_register == 0x860004u ||
++                                   shift_2q_register == 0xc60004u;
++    if (shift_2q_immediate_match || shift_2q_register_match) {
++        unsigned low_q = (insn >> 12) & 7u;
++        unsigned high_q = ((insn >> 15) & 1u) | ((insn >> 19) & 6u);
++        uint8_t low_value[16], high_value[16], shifted_low[16], shifted_high[16];
++        memcpy(low_value, cpu->qr[low_q], 16);
++        memcpy(high_value, cpu->qr[high_q], 16);
++        unsigned shift_bytes;
++        uint32_t source_register_value = 0;
++        uint32_t increment_register_value = 0;
++        if (shift_2q_immediate_match) {
++            shift_bytes = ((insn >> 4) & 15u) + 1u;
++        } else {
++            unsigned source_register = (insn >> 4) & 15u;
++            unsigned increment_register = (insn >> 8) & 15u;
++            source_register_value = ar_read(cpu, source_register);
++            increment_register_value = ar_read(cpu, increment_register);
++            shift_bytes = (source_register_value & 15u) + 1u;
++        }
++        bool left_shift = shift_2q_immediate == 0xcc0604u ||
++                          shift_2q_register == 0x860004u;
++        esp32s3_qr_shift_2q(shifted_low, shifted_high, low_value, high_value,
++                            shift_bytes, left_shift);
++        memcpy(cpu->qr[low_q], shifted_low, 16);
++        memcpy(cpu->qr[high_q], shifted_high, 16);
++        if (shift_2q_register_match) {
++            unsigned source_register = (insn >> 4) & 15u;
++            ar_write(cpu, source_register,
++                     source_register_value + increment_register_value);
++        }
 +        return 1;
 +    }
 +
@@ -1038,7 +1094,7 @@ index 67dca18..cffb9dc 100644
 
 
  /* ===== Main step function (always-inlined into xtensa_run hot loop) ===== */
-@@ -2319,6 +3183,8 @@ have_insn:
+@@ -2319,6 +3239,8 @@ have_insn:
 
      if (ilen == 2) {
          exec_narrow(cpu, insn);
@@ -1047,7 +1103,7 @@ index 67dca18..cffb9dc 100644
      } else {
          switch (XT_OP0(insn)) {
          case 0: exec_qrst(cpu, insn); break;
-@@ -2345,14 +3211,16 @@ have_insn:
+@@ -2345,14 +3267,16 @@ have_insn:
                    { uint32_t tmp; memcpy(&tmp, &cpu->fr[lt], 4);
                      mem_write32(cpu->mem, base + offset, tmp);
                    } break;
@@ -1068,7 +1124,7 @@ index 67dca18..cffb9dc 100644
                      ar_write(cpu, ls, base + offset);
                    } break;
                default: break;
-@@ -2366,6 +3234,8 @@ have_insn:
+@@ -2366,6 +3290,8 @@ have_insn:
          }
      }
 

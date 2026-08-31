@@ -428,7 +428,7 @@ const unsupportedFloat64IpImage: Elf32XtensaImage = Object.freeze({
   elfBytes: 4,
   elfSha256: "synthetic-unsupported-ee-float64-ip-neighbor",
   loadSegments: Object.freeze([
-    syntheticSegment(0, unsupportedFloat64IpEntry, [0x2e, 0x00, 0x10, 0xe0], 4, {
+    syntheticSegment(0, unsupportedFloat64IpEntry, [0x2e, 0x00, 0x10, 0xe4], 4, {
       read: true,
       write: false,
       execute: true,
@@ -489,6 +489,41 @@ assert.deepEqual(
   unsupportedSrcIpRun.record.registers,
   [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   "adjacent QR SRC IP refusal changed full-ELF registers",
+);
+
+const unsupportedShift2qEntry = 0x4037_21b0;
+const unsupportedShift2qImage: Elf32XtensaImage = Object.freeze({
+  schemaVersion: 1,
+  entryPoint: unsupportedShift2qEntry,
+  elfBytes: 3,
+  elfSha256: "synthetic-unsupported-ee-qr-pair-shift-neighbor",
+  loadSegments: Object.freeze([
+    syntheticSegment(0, unsupportedShift2qEntry, [0x04, 0x8e, 0xcc], 3, {
+      read: true,
+      write: false,
+      execute: true,
+    }),
+    syntheticSegment(1, 0x3fce_9000, [], 0x1000, { read: true, write: true, execute: false }),
+  ]),
+  totalFileBytes: 3,
+  totalMemoryBytes: 0x1003,
+});
+const unsupportedShift2qRun = await runSparseXtensaElf(moduleBytes, unsupportedShift2qImage, {
+  initialStack: 0x3fce_a000,
+  maxSteps: 1,
+  unsupported: [{ pc: unsupportedShift2qEntry, encoding: 0xcc8e04 }],
+});
+assert.equal(unsupportedShift2qRun.record.reason, FULL_ELF_STOP_REASONS.unsupported);
+assert.equal(unsupportedShift2qRun.record.steps, 0);
+assert.equal(unsupportedShift2qRun.record.unsupportedPc, unsupportedShift2qEntry);
+assert.equal(unsupportedShift2qRun.record.unsupportedEncoding, 0xcc8e04);
+assert.equal(unsupportedShift2qRun.record.unsupportedLength, 3);
+assert.deepEqual(unsupportedShift2qRun.trace, []);
+assert.deepEqual(unsupportedShift2qRun.memoryTrace.records, []);
+assert.deepEqual(
+  unsupportedShift2qRun.record.registers,
+  [0, 0x3fce_a000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  "adjacent two-QR shift refusal changed full-ELF registers",
 );
 
 const unsupportedQaccLaneEntry = 0x4037_2200;
